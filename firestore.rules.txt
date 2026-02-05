@@ -1,3 +1,4 @@
+
 rules_version = '2';
 
 service cloud.firestore {
@@ -8,130 +9,153 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    function getRole() {
-      // Safely access the role property, default to a non-privileged role if it doesn't exist.
-      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
-    }
-    
-    function isAdmin() {
-      return isSignedIn() && getRole() in ['admin', 'gerencia', 'superadmin'];
+    function getUserRole(uid) {
+      return get(/databases/$(database)/documents/users/$(uid)).data.role;
     }
 
-    // --- Public Read Collections ---
+    function isOwner(uid) {
+      return request.auth.uid == uid;
+    }
     
-    // This rule fixes the runtime error on the login page by allowing public reads.
+    function isSuperadmin() {
+      return isSignedIn() && getUserRole(request.auth.uid) == 'superadmin';
+    }
+
+    function isGerencia() {
+      return isSignedIn() && getUserRole(request.auth.uid) in ['gerencia', 'superadmin'];
+    }
+
+    function isAdmin() {
+      return isSignedIn() && getUserRole(request.auth.uid) in ['admin', 'gerencia', 'superadmin'];
+    }
+
+    function isVentas() {
+      return isSignedIn() && getUserRole(request.auth.uid) == 'ventas';
+    }
+
+    function isDeposito() {
+      return isSignedIn() && getUserRole(request.auth.uid) == 'deposito';
+    }
+
+    function isCliente() {
+      return isSignedIn() && getUserRole(request.auth.uid) == 'cliente';
+    }
+    
+    // --- Global Read-Only Collections ---
     match /companyProfile/{docId} {
-      allow read: if true;
+      allow read: if true; // Publicly readable for login page branding
       allow write: if isAdmin();
     }
     
-    // --- Authenticated User Collections ---
-
-    // Any authenticated user can see products, but only warehouse/admin can modify them.
+    // --- Core Business Collections ---
+    
     match /products/{productId} {
       allow read: if isSignedIn();
-      allow write: if isSignedIn() && getRole() in ['deposito', 'admin', 'gerencia', 'superadmin'];
+      allow create, update: if isDeposito() || isAdmin();
+      allow delete: if isAdmin();
     }
     
-    // Any authenticated user can see offers and carriers.
     match /offers/{offerId} {
       allow read: if isSignedIn();
       allow write: if isAdmin();
     }
+    
     match /carriers/{carrierId} {
       allow read: if isSignedIn();
-      allow write: if isSignedIn() && getRole() in ['deposito', 'admin', 'gerencia', 'superadmin'];
+      allow write: if isDeposito() || isAdmin();
     }
 
     // --- User & Customer Data ---
     
-    // Users can read/update their own profile. Admins can manage all users.
     match /users/{userId} {
-      allow read, update: if isSignedIn() && (request.auth.uid == userId || isAdmin());
-      allow create, delete: if isAdmin(); // Only admins can create/delete users from the UI.
+      // Admins can manage any user. Users can read their own profile.
+      allow read: if isOwner(userId) || isAdmin();
+      allow create: if isAdmin(); // Only admins can create users.
+      allow delete: if isAdmin();
       
-      // Direct messages can be created by any authenticated user, but only read/managed by the recipient.
-      match /directMessages/{messageId} {
-        allow create: if isSignedIn();
-        allow read, update, delete: if request.auth.uid == userId;
-      }
-
-      // Sent messages and notifications are private to the user.
-      match /sentMessages/{messageId} {
-        allow read, write: if request.auth.uid == userId;
-      }
-      match /notifications/{notificationId} {
-        allow read, update: if request.auth.uid == userId;
-      }
+      // Users can update their own non-critical info. Admins can update anything.
+      // CRITICAL: The 'role' field is NOT in this list, preventing self-escalation.
+      allow update: if (isOwner(userId) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'avatarUrl', 'phone', 'address', 'identityCard', 'socialMedia', 'pushSubscriptions'])) || isAdmin();
     }
     
-    // Customer profiles can be managed by sales/admins, and read by the client themselves.
     match /customers/{customerId} {
-      allow write: if isSignedIn() && getRole() in ['ventas', 'admin', 'gerencia', 'superadmin'];
-      allow read: if isSignedIn() && (
-                    request.auth.uid == customerId || 
-                    isAdmin() || 
-                    (getRole() == 'ventas' && resource.data.assignedSalespersonId == request.auth.uid)
-                  );
+      // An admin or the assigned salesperson can manage the customer.
+      // A customer cannot create their own profile; it is created when their user is created.
+      allow create: if isAdmin();
+      allow update: if isAdmin() || (isVentas() && resource.data.assignedSalespersonId == request.auth.uid);
+      // The customer themselves, their salesperson, or an admin can read the profile.
+      allow read: if isOwner(customerId) || isAdmin() || (isVentas() && resource.data.assignedSalespersonId == request.auth.uid);
+      allow delete: if isAdmin();
     }
     
     // --- Transactional Data (Quotes, Orders) ---
 
-    // A quote can be created by a salesperson or client. It can be read by either party, or an admin.
     match /quotes/{quoteId} {
-      allow read: if isSignedIn() && (resource.data.customerId == request.auth.uid || resource.data.salespersonId == request.auth.uid || isAdmin());
-      allow write: if isSignedIn() && (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'cliente' ? request.resource.data.customerId == request.auth.uid : (request.resource.data.salespersonId == request.auth.uid || isAdmin()));
+      // Read access for involved parties or admins.
+      allow read: if isOwner(resource.data.customerId) || isOwner(resource.data.salespersonId) || isAdmin();
+      // Only the salesperson or admins can create/update quotes. A customer cannot create their own quote directly.
+      allow create, update: if isOwner(resource.data.salespersonId) || isAdmin();
+      allow delete: if isAdmin();
 
-      // Inherit parent rules for subcollection items
-      match /quoteItems/{itemId=**} {
-        allow read, write: if isSignedIn() && (
-                            get(/databases/$(database)/documents/quotes/$(quoteId)).data.customerId == request.auth.uid ||
-                            get(/databases/$(database)/documents/quotes/$(quoteId)).data.salespersonId == request.auth.uid ||
-                            isAdmin()
-                          );
+      match /quoteItems/{itemId} {
+        // Inherit parent permissions for items.
+        allow read, write: if get(/databases/$(database)/documents/quotes/$(quoteId)).data.salespersonId == request.auth.uid || isAdmin();
       }
     }
     
-    // Orders can be read by multiple roles, but write access is more restricted.
     match /orders/{orderId} {
-      allow read: if isSignedIn() && (
-                    resource.data.customerId == request.auth.uid || 
-                    resource.data.salespersonId == request.auth.uid || 
-                    isAdmin() || 
-                    getRole() == 'deposito'
-                  );
-      allow create: if isSignedIn() && (
-                      request.resource.data.customerId == request.auth.uid || 
-                      request.resource.data.salespersonId == request.auth.uid || 
-                      isAdmin()
-                    );
-      allow update: if isAdmin() || (getRole() == 'deposito') || (isSignedIn() && resource.data.customerId == request.auth.uid); // Admins, warehouse, and the customer (for payments) can update.
+      // Warehouse, involved parties, or admins can read.
+      allow read: if isOwner(resource.data.customerId) || isOwner(resource.data.salespersonId) || isDeposito() || isAdmin();
+      // Client or salesperson can create an order.
+      allow create: if isOwner(request.resource.data.customerId) || isOwner(request.resource.data.salespersonId);
+      // Only warehouse or admins can update order status.
+      allow update: if isDeposito() || isAdmin();
+      allow delete: if isAdmin();
 
-      // Inherit parent rules for subcollection items
-      match /{subcollection=**} {
-         allow read, write: if isSignedIn() && (
-                            get(/databases/$(database)/documents/orders/$(orderId)).data.customerId == request.auth.uid ||
-                            get(/databases/$(database)/documents/orders/$(orderId)).data.salespersonId == request.auth.uid ||
-                            isAdmin() ||
-                            getRole() == 'deposito'
-                          );
+      match /orderItems/{itemId} {
+        // Read is same as parent. Write is only for creation (by salesperson/admin).
+        allow read: if get(/databases/$(database)/documents/orders/$(orderId)).data.customerId == request.auth.uid || get(/databases/$(database)/documents/orders/$(orderId)).data.salespersonId == request.auth.uid || isDeposito() || isAdmin();
+        allow write: if get(/databases/$(database)/documents/orders/$(orderId)).data.salespersonId == request.auth.uid || isAdmin();
+      }
+      
+      match /payments/{paymentId} {
+        // Read is for involved parties or admins.
+        allow read: if isOwner(get(/databases/$(database)/documents/orders/$(orderId)).data.customerId) || isAdmin() || isOwner(get(/databases/$(database)/documents/orders/$(orderId)).salespersonId);
+        // The customer or their salesperson can report a payment.
+        allow create: if isOwner(get(/databases/$(database)/documents/orders/$(orderId)).data.customerId) || isOwner(get(/databases/$(database)/documents/orders/$(orderId)).salespersonId);
+        // Only admins can verify/update the payment record.
+        allow update, delete: if isAdmin();
       }
     }
     
-    // Commissions are sensitive. Read-only for involved parties, write only for admins.
+    // --- Sensitive Financial/Support Data ---
+    
     match /commissions/{commissionId} {
-      allow read: if isSignedIn() && (
-                    resource.data.salespersonId == request.auth.uid ||
-                    (resource.data.salesManagerId != null && resource.data.salesManagerId == request.auth.uid) ||
-                    isAdmin()
-                  );
-      allow write: if isAdmin();
+      // Only the salesperson who earned it, their manager, or an admin can view a commission.
+      allow read: if isOwner(resource.data.salespersonId) || (resource.data.salesManagerId != null && isOwner(resource.data.salesManagerId)) || isAdmin();
+      // Commissions should ideally be created by a backend function, but for UI let's restrict to superadmins.
+      allow write: if isSuperadmin(); // Only superadmins can manually create/edit commissions
     }
     
-    // Support tickets are write-only for users, and read/write for admins.
     match /supportTickets/{ticketId} {
+        // Any signed-in user can create a support ticket.
         allow create: if isSignedIn();
-        allow read, update: if isAdmin();
+        // Only admins can view and manage support tickets.
+        allow read, update, delete: if isAdmin();
+    }
+    
+    // --- User-specific subcollections for messaging ---
+    
+    match /users/{userId}/directMessages/{messageId} {
+      // You can only write into someone else's inbox.
+      allow create: if isSignedIn(); 
+      // You can only read, update (e.g., mark as read), or delete from your own inbox.
+      allow read, update, delete: if isOwner(userId);
+    }
+    
+    match /users/{userId}/sentMessages/{messageId} {
+       // You can only manage your own sent items.
+      allow read, write: if isOwner(userId);
     }
   }
 }
