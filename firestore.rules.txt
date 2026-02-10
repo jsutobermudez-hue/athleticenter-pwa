@@ -1,4 +1,3 @@
-
 rules_version = '2';
 
 service cloud.firestore {
@@ -80,12 +79,9 @@ service cloud.firestore {
     
     match /customers/{customerId} {
       // An admin or the assigned salesperson can manage the customer.
-      // A customer cannot create their own profile; it is created when their user is created.
-      allow create: if isAdmin();
-      allow update: if isAdmin() || (isVentas() && resource.data.assignedSalespersonId == request.auth.uid);
+      allow write: if isAdmin() || (isVentas() && resource.data.assignedSalespersonId == request.auth.uid);
       // The customer themselves, their salesperson, or an admin can read the profile.
       allow read: if isOwner(customerId) || isAdmin() || (isVentas() && resource.data.assignedSalespersonId == request.auth.uid);
-      allow delete: if isAdmin();
     }
     
     // --- Transactional Data (Quotes, Orders) ---
@@ -120,9 +116,9 @@ service cloud.firestore {
       
       match /payments/{paymentId} {
         // Read is for involved parties or admins.
-        allow read: if isOwner(get(/databases/$(database)/documents/orders/$(orderId)).data.customerId) || isAdmin() || isOwner(get(/databases/$(database)/documents/orders/$(orderId)).salespersonId);
+        allow read: if isOwner(get(/databases/$(database)/documents/orders/$(orderId)).data.customerId) || isAdmin() || isOwner(get(/databases/$(database)/documents/orders/$(orderId)).data.salespersonId);
         // The customer or their salesperson can report a payment.
-        allow create: if isOwner(get(/databases/$(database)/documents/orders/$(orderId)).data.customerId) || isOwner(get(/databases/$(database)/documents/orders/$(orderId)).salespersonId);
+        allow create: if isOwner(get(/databases/$(database)/documents/orders/$(orderId)).data.customerId) || isOwner(get(/databases/$(database)/documents/orders/$(orderId)).data.salespersonId);
         // Only admins can verify/update the payment record.
         allow update, delete: if isAdmin();
       }
@@ -153,7 +149,7 @@ service cloud.firestore {
       allow read, update, delete: if isOwner(userId);
     }
     
-    match /users/{userId}/sentMessages/{messageId} {
+    match /users/{userId}/sentMessages/{sentMessageId} {
        // You can only manage your own sent items.
       allow read, write: if isOwner(userId);
     }
