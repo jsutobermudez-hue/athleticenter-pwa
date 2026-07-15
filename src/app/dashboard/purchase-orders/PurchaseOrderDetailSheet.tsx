@@ -1,0 +1,371 @@
+'use client';
+
+import React, { useState } from 'react';
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+  SheetFooter,
+} from '@/components/ui/sheet';
+import { Button } from '@/components/ui/button';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Separator } from '@/components/ui/separator';
+import { Badge } from '@/components/ui/badge';
+import {
+  useCollection,
+  useFirestore,
+  useMemoFirebase,
+  useUser,
+  useDoc,
+} from '@/firebase';
+import { collection, query, limit, doc, runTransaction, serverTimestamp, updateDoc, getDoc } from 'firebase/firestore';
+import type { PurchaseOrder, Product, PurchaseOrderItem, StockHistory, FinancialSettings } from '@/lib/definitions';
+import {
+  Loader2,
+  Package,
+  Plus,
+  Trash2,
+  CheckCircle2,
+  Boxes,
+  ShieldCheck,
+  PlusCircle,
+  AlertTriangle,
+  DollarSign,
+  TrendingUp,
+  ArrowUpRight
+} from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { useToast } from '@/hooks/use-toast';
+import { cn } from '@/lib/utils';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { createAppNotifications } from '@/lib/notifications';
+import { logActivity } from '@/lib/audit';
+
+interface PurchaseOrderDetailSheetProps {
+  order: PurchaseOrder | null;
+  isOpen: boolean;
+  onOpenChange: (open: boolean) => void;
+}
+
+export function PurchaseOrderDetailSheet({ order, isOpen, onOpenChange }: PurchaseOrderDetailSheetProps) {
+  const firestore = useFirestore();
+  const { profile: currentUser } = useUser();
+  const { toast } = useToast();
+  const [isActionPending, setIsActionPending] = useState(false);
+  const [selectedProductId, setSelectedProductId] = useState('');
+  const [quantity, setQuantity] = useState(1);
+  const [unitCost, setUnitCost] = useState(0);
+
+  const productsQuery = useMemoFirebase(() => (firestore ? query(collection(firestore, 'products'), limit(200)) : null), [firestore]);
+  const { data: allProducts } = useCollection<Product>(productsQuery);
+
+  const settingsRef = useMemoFirebase(() => firestore ? doc(firestore, 'system', 'financials') : null, [firestore]);
+  const { data: globalSettings } = useDoc<FinancialSettings>(settingsRef);
+
+  const handleAddItem = async () => {
+    if (!order || !selectedProductId || !firestore || !currentUser) return;
+    const product = allProducts?.find(p => p.id === selectedProductId);
+    if (!product) return;
+
+    setIsActionPending(true);
+    try {
+        const orderRef = doc(firestore, 'purchaseOrders', order.id!);
+        const newItem: PurchaseOrderItem = {
+            productId: selectedProductId,
+            sku: product.sku,
+            name: product.name,
+            quantity,
+            unitCost
+        };
+
+        const updatedItems = [...(order.items || []), newItem];
+        const newTotalCost = updatedItems.reduce((sum, i) => sum + (i.quantity * i.unitCost), 0);
+
+        await updateDoc(orderRef, {
+            items: updatedItems,
+            totalCost: newTotalCost,
+            updatedAt: serverTimestamp(),
+            updatedBy: currentUser.id
+        } as any);
+
+        toast({ title: "Artículo Añadido", description: `${product.name} agregado al manifiesto.` });
+        setSelectedProductId('');
+        setQuantity(1);
+        setUnitCost(0);
+    } catch (e: any) {
+        toast({ variant: 'destructive', title: "Error", description: e.message });
+    } finally {
+        setIsActionPending(false);
+    }
+  };
+
+  const handleRemoveItem = async (index: number) => {
+    if (!order || !firestore || !currentUser) return;
+    setIsActionPending(true);
+    try {
+        const orderRef = doc(firestore, 'purchaseOrders', order.id!);
+        const updatedItems = [...order.items];
+        updatedItems.splice(index, 1);
+        const newTotalCost = updatedItems.reduce((sum, i) => sum + (i.quantity * i.unitCost), 0);
+
+        await updateDoc(orderRef, {
+            items: updatedItems,
+            totalCost: newTotalCost,
+            updatedAt: serverTimestamp()
+        } as any);
+    } catch (e) {} finally { setIsActionPending(false); }
+  };
+
+  /**
+   * MOTOR WAC (v10.1) - FASE 5
+   * Certifica la recepción y recalcula el Costo Promedio Ponderado.
+   * Corregido: Protocolo de lectura atómica "reads before writes".
+   */
+  const handleReceiveOrder = async () => {
+    if (!order || !firestore || !currentUser || !globalSettings) return;
+    if (order.items.length === 0) {
+        toast({ variant: 'destructive', title: "Manifiesto vacío" });
+        return;
+    }
+
+    setIsActionPending(true);
+    const criticalErosions: string[] = [];
+
+    try {
+        await runTransaction(firestore, async (transaction) => {
+            const poRef = doc(firestore, 'purchaseOrders', order.id!);
+            
+            // --- 1. LECTURAS PREVIAS (READS FIRST) ---
+            const uniqueProductIds = Array.from(new Set(order.items.map(i => i.productId)));
+            const productRefs = uniqueProductIds.map(id => doc(firestore, 'products', id));
+            
+            const [poSnap, ...productSnaps] = await Promise.all([
+                transaction.get(poRef),
+                ...productRefs.map(ref => transaction.get(ref))
+            ]);
+
+            const productDataMap = new Map<string, Product>();
+            productSnaps.forEach(snap => {
+                if (snap.exists()) productDataMap.set(snap.id, snap.data() as Product);
+            });
+
+            // --- 2. ESCRITURAS (WRITES) ---
+            for (const item of order.items) {
+                const productData = productDataMap.get(item.productId);
+                
+                if (productData) {
+                    const oldStock = productData.stock || 0;
+                    const oldCost = productData.cost || 0;
+                    const newQty = item.quantity;
+                    const newCost = item.unitCost;
+
+                    const totalStock = oldStock + newQty;
+                    const weightedCost = oldStock > 0 
+                        ? ((oldStock * oldCost) + (newQty * newCost)) / totalStock
+                        : newCost;
+
+                    const pvpCash = productData.priceCashUSD || (productData.price * (1 - (globalSettings.defaultBcvDiscount / 100)));
+                    const netProfit = pvpCash - (pvpCash * 0.25) - weightedCost; 
+                    const margin = (netProfit / pvpCash) * 100;
+
+                    if (margin < 15) {
+                        criticalErosions.push(`${productData.name} (${margin.toFixed(1)}%)`);
+                    }
+
+                    transaction.update(doc(firestore, 'products', item.productId), {
+                        stock: totalStock,
+                        stockLevel: totalStock,
+                        cost: weightedCost,
+                        lastPurchaseRate: newCost,
+                        lastPurchaseDate: serverTimestamp(),
+                        updatedAt: serverTimestamp()
+                    });
+
+                    const logRef = doc(collection(firestore, `products/${item.productId}/stockHistory`));
+                    transaction.set(logRef, {
+                        productId: item.productId,
+                        userId: currentUser.id,
+                        userName: currentUser.name,
+                        previousStock: oldStock,
+                        newStock: totalStock,
+                        change: newQty,
+                        reason: `WAC: Importación #${order.id?.substring(0, 6)}`,
+                        createdAt: serverTimestamp()
+                    });
+                }
+            }
+
+            transaction.update(poRef, {
+                status: 'Recibido',
+                receptionDate: serverTimestamp(),
+                updatedAt: serverTimestamp()
+            });
+        });
+
+        if (criticalErosions.length > 0) {
+            await createAppNotifications(firestore, {
+                category: 'Inventario',
+                title: '🚨 Alerta de Erosión de Margen',
+                message: `La recepción #${order.id?.substring(0,6)} redujo márgenes críticos en: ${criticalErosions.join(', ')}.`,
+                link: `/dashboard/intelligence`,
+                initiatorId: 'system_wac_agent',
+                roles: ['admin', 'gerencia']
+            });
+        }
+
+        toast({ title: "¡Inventario Sincerado!", description: "Costo promedio y stock actualizados." });
+        onOpenChange(false);
+    } catch (e: any) {
+        toast({ variant: 'destructive', title: "Fallo en Recepción", description: e.message });
+    } finally {
+        setIsActionPending(false);
+    }
+  };
+
+  if (!order) return null;
+
+  return (
+    <Sheet open={isOpen} onOpenChange={onOpenChange}>
+      <SheetContent className="w-full sm:max-w-2xl lg:max-w-3xl p-0 flex flex-col h-screen border-none rounded-l-[2.5rem] shadow-2xl">
+        <SheetHeader className="p-8 pb-4 bg-slate-900 text-white shrink-0">
+          <div className="flex justify-between items-start">
+            <div className="space-y-1 text-left">
+                <SheetTitle className="text-2xl font-black uppercase tracking-tighter text-white">Certificar Recepción</SheetTitle>
+                <SheetDescription className="font-bold text-[10px] uppercase tracking-[0.2em] text-primary">{order.supplierName}</SheetDescription>
+            </div>
+            <Badge className="bg-primary text-white font-black uppercase text-[9px] px-3 h-6 border-none shadow-lg">{order.status}</Badge>
+          </div>
+        </SheetHeader>
+
+        <ScrollArea className="flex-1">
+            <div className="p-8 space-y-8">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100 space-y-1">
+                        <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">ORIGEN</p>
+                        <p className="text-11px font-black uppercase truncate text-slate-700">{order.originCity}, {order.originCountry}</p>
+                    </div>
+                    <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100 space-y-1 text-center">
+                        <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">TRANSPORTE</p>
+                        <p className="text-11px font-black uppercase text-slate-700">{order.transportMode === 'Marítimo' ? '🚢 MARÍTIMO' : '✈️ AÉREO'}</p>
+                    </div>
+                    <div className="p-4 rounded-2xl bg-blue-50 border border-blue-100 space-y-1 text-right">
+                        <p className="text-[8px] font-black text-blue-400 uppercase tracking-widest">INVERSIÓN LOTE</p>
+                        <p className="text-lg font-black text-blue-700 tracking-tighter">${order.totalCost.toLocaleString()}</p>
+                    </div>
+                </div>
+
+                {order.status === 'Pendiente' && (
+                    <div className="p-6 rounded-[2rem] bg-slate-50 border-2 border-dashed border-slate-200 space-y-6">
+                        <div className="flex items-center gap-2 text-primary">
+                            <PlusCircle className="h-4 w-4" />
+                            <h3 className="text-[10px] font-black uppercase tracking-[0.3em]">Configurar Manifiesto de Carga</h3>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
+                            <div className="md:col-span-6 space-y-1.5">
+                                <Label className="text-[9px] font-black uppercase px-1">Equipo a Importar</Label>
+                                <Select onValueChange={setSelectedProductId} value={selectedProductId}>
+                                    <SelectTrigger className="h-11 rounded-xl bg-white border-none shadow-sm font-bold uppercase text-[10px]">
+                                        <SelectValue placeholder="ELEGIR PRODUCTO..." />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {allProducts?.map(p => <SelectItem key={p.id} value={p.id!} className="font-bold text-[10px] uppercase">{p.name}</SelectItem>)}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                            <div className="md:col-span-2 space-y-1.5">
+                                <Label className="text-[9px] font-black uppercase px-1">Cant.</Label>
+                                <Input type="number" min="1" value={quantity} onChange={(e) => setQuantity(Number(e.target.value))} className="h-11 text-center font-black rounded-xl border-none shadow-sm" />
+                            </div>
+                            <div className="md:col-span-3 space-y-1.5">
+                                <Label className="text-[9px] font-black uppercase px-1">Costo Landed (USD)</Label>
+                                <Input type="number" step="0.01" value={unitCost} onChange={(e) => setUnitCost(Number(e.target.value))} className="h-11 font-black rounded-xl border-none shadow-sm" />
+                            </div>
+                            <div className="md:col-span-1">
+                                <Button onClick={handleAddItem} disabled={isActionPending || !selectedProductId} className="h-11 w-full rounded-xl bg-primary shadow-lg">
+                                    <CheckCircle2 className="h-5 w-5" />
+                                </Button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                <div className="space-y-4">
+                    <h3 className="text-[10px] font-black uppercase tracking-[0.4em] text-slate-400 flex items-center gap-2 px-1"><Boxes className="h-4 w-4" /> ARTÍCULOS EN MANIFIESTO</h3>
+                    <div className="rounded-[2rem] border border-slate-100 overflow-hidden shadow-sm">
+                        <div className="divide-y divide-slate-50 bg-white">
+                            {order.items.length > 0 ? order.items.map((item, idx) => (
+                                <div key={idx} className="p-5 flex items-center justify-between group hover:bg-slate-50 transition-colors">
+                                    <div className="flex-1 min-w-0 mr-4">
+                                        <p className="text-sm font-black uppercase truncate text-slate-900 leading-tight">{item.name}</p>
+                                        <div className="flex items-center gap-2 mt-1">
+                                            <span className="text-[9px] font-mono font-bold text-slate-400 uppercase">SKU: {item.sku}</span>
+                                            <span className="h-1 w-1 rounded-full bg-slate-200" />
+                                            <span className="text-[9px] font-black text-primary uppercase">{item.quantity} UNIDADES</span>
+                                        </div>
+                                    </div>
+                                    <div className="text-right flex items-center gap-4">
+                                        <div className="space-y-0.5">
+                                            <p className="text-[8px] font-black text-slate-400 uppercase">Costo Landed</p>
+                                            <p className="font-black text-lg text-slate-900 tracking-tighter">${item.unitCost.toFixed(2)}</p>
+                                        </div>
+                                        {order.status === 'Pendiente' && (
+                                            <Button variant="ghost" size="icon" onClick={() => handleRemoveItem(idx)} className="h-10 w-10 rounded-xl text-rose-500 opacity-0 group-hover:opacity-100">
+                                                <Trash2 className="h-4 w-4" />
+                                            </Button>
+                                        )}
+                                    </div>
+                                </div>
+                            )) : (
+                                <div className="p-16 text-center flex flex-col items-center gap-3 opacity-20">
+                                    <Package className="h-12 w-12" />
+                                    <p className="text-[10px] font-black uppercase tracking-[0.3em]">Manifiesto de carga vacío</p>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+
+                {order.status !== 'Recibido' && (
+                    <div className="p-6 rounded-[2.5rem] bg-emerald-50 border-2 border-emerald-100 flex items-start gap-5 shadow-inner">
+                        <div className="p-3 rounded-2xl bg-white shadow-md text-emerald-600">
+                            <TrendingUp className="h-6 w-6" />
+                        </div>
+                        <div className="space-y-1.5">
+                            <p className="text-sm font-black uppercase text-emerald-900">Protocolo de Sinceración WAC</p>
+                            <p className="text-[10px] font-medium text-emerald-700 leading-relaxed uppercase">
+                                Al certificar, el sistema diluirá los costos de este lote con las existencias actuales. 
+                                <span className="text-emerald-900 font-bold block mt-1">ESTA ACCIÓN ACTUALIZARÁ EL VALOR DE TUS ACTIVOS EN TIEMPO REAL.</span>
+                            </p>
+                        </div>
+                    </div>
+                )}
+            </div>
+        </ScrollArea>
+
+        <SheetFooter className="p-8 border-t bg-slate-50 shrink-0">
+            <div className="w-full flex flex-col gap-4">
+                {['En Tránsito', 'Aduana', 'Pendiente'].includes(order.status) ? (
+                    <Button 
+                        onClick={handleReceiveOrder} 
+                        disabled={isActionPending || order.items.length === 0} 
+                        className="w-full h-14 bg-emerald-600 hover:bg-emerald-700 text-white font-black uppercase text-sm tracking-[0.2em] shadow-2xl rounded-2xl transition-all active:scale-95"
+                    >
+                        {isActionPending ? <Loader2 className="animate-spin h-5 w-5 mr-3" /> : <ShieldCheck className="mr-3 h-5 w-5" />} 
+                        CERTIFICAR RECEPCIÓN FISCAL
+                    </Button>
+                ) : null}
+            </div>
+        </SheetFooter>
+      </SheetContent>
+    </Sheet>
+  );
+}

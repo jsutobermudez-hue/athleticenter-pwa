@@ -1,0 +1,64 @@
+import { addDays, differenceInDays } from 'date-fns';
+import { Timestamp } from 'firebase/firestore';
+import type { Order, Invoice } from './definitions';
+
+/**
+ * UTILIDAD UNIVERSAL DE FACTURACIÓN v183.0.0
+ * Centraliza el cálculo de vencimientos, descuentos y saldos para UI y Agentes IA.
+ */
+export function getInvoiceFromOrder(order: Order): Invoice | null {
+    const creditStartDate = (order.receptionDate as Timestamp)?.toDate();
+
+    if (!['Entregado', 'En Verificación', 'Pagado'].includes(order.status)) {
+        return null;
+    }
+    
+    if (!creditStartDate) {
+        return null;
+    }
+    
+    const dueDate = addDays(creditStartDate, 30);
+    const today = new Date();
+    const remainingDays = differenceInDays(dueDate, today);
+    const amountPaid = order.amountPaid || 0;
+    const remainingBalance = Math.max(0, order.totalAmount - amountPaid);
+
+    let status: Invoice['status'] = 'Por Vencer';
+    let statusText = `Vence en ${remainingDays} días`;
+    let discount = 10;
+    
+    if (order.status === 'Pagado' || remainingBalance <= 0.05) {
+        status = 'Pagado';
+        statusText = 'Totalmente Pagado';
+        discount = 0;
+    } else if (order.status === 'En Verificación') {
+        status = 'En Verificación';
+        statusText = 'Abono en Verificación';
+        discount = 0;
+    } else if (remainingDays <= 0) {
+        status = 'Vencido';
+        statusText = `Vencido hace ${Math.abs(remainingDays)} días`;
+        discount = 0;
+    } else if (remainingDays <= 7) {
+        discount = 0;
+    } else if (remainingDays <= 15) {
+        discount = 5;
+    }
+
+    return {
+        id: order.id,
+        customerName: order.customerName,
+        customerId: order.customerId,
+        salespersonId: order.salespersonId,
+        salespersonName: order.salespersonName,
+        customerPhone: order.customerPhone || '',
+        totalAmount: order.totalAmount,
+        amountPaid: amountPaid,
+        remainingBalance: remainingBalance,
+        dueDate: dueDate,
+        status: status,
+        statusText: statusText,
+        remainingCreditDays: remainingDays,
+        discountPercentage: discount,
+    }
+}

@@ -1,0 +1,85 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 220 16% 96%;
+    --foreground: 222.2 84% 4.9%;
+    --card: 0 0% 100%;
+    --card-foreground: 222.2 84% 4.9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222.2 84% 4.9%;
+    --primary: 220 96% 57%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 210 40% 96.1%;
+    --secondary-foreground: 222.2 47.4% 11.2%;
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+    --accent: 210 40% 96.1%;
+    --accent-foreground: 222.2 47.4% 11.2%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+    --success: 142 76% 36%;
+    --success-foreground: 0 0% 100%;
+    --warning: 38 100% 72%;
+    --warning-foreground: 222 47% 11%;
+    --info: 220 96% 70%;
+    --info-foreground: 0 0% 100%;
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 264 80% 45%;
+    --radius: 1.25rem;
+    
+    --sidebar: 225 100% 50%;
+    --sidebar-foreground: 0 0% 100%;
+    --sidebar-accent: 225 100% 45%;
+    --sidebar-accent-foreground: 0 0% 100%;
+    --sidebar-border: 225 100% 40%;
+    --sidebar-ring: 264 80% 45%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family: var(--font-inter);
+    background-image: radial-gradient(#cbd5e1 0.5px, transparent 0.5px);
+    background-size: 24px 24px;
+    background-attachment: fixed;
+  }
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-black;
+    font-family: var(--font-kanit);
+    letter-spacing: -0.02em;
+  }
+}
+
+@layer utilities {
+  .bg-sidebar-gradient {
+    background: linear-gradient(180deg, #2871fa 0%, #6717cd 100%);
+  }
+  
+  .glass-card {
+    @apply bg-white/80 backdrop-blur-xl border-white/40 shadow-xl ring-1 ring-black/5;
+  }
+
+  .tech-label {
+    @apply text-[9px] font-black uppercase tracking-[0.4em] text-slate-400;
+  }
+
+  .cash-glow {
+    box-shadow: 0 0 20px -5px rgba(16, 185, 129, 0.3);
+  }
+
+  .terminal-header {
+    @apply text-4xl sm:text-5xl lg:text-6xl font-black uppercase tracking-tighter text-slate-900 leading-none italic;
+  }
+
+  .terminal-card {
+    @apply border-none shadow-xl rounded-[2.5rem] bg-white overflow-hidden;
+  }
+}
