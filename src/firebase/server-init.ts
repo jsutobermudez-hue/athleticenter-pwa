@@ -1,7 +1,7 @@
 
 import { firebaseConfig } from '@/firebase/config';
 import { initializeApp, getApps, getApp, type FirebaseApp } from 'firebase/app';
-import { getAuth } from 'firebase/auth';
+import { getAuth, signInWithEmailAndPassword } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 
 /**
@@ -23,4 +23,16 @@ export function initializeFirebaseServer() {
     auth: getAuth(app),
     firestore: getFirestore(app),
   };
+}
+
+export async function ensureServerAuth() {
+  const { auth } = initializeFirebaseServer();
+  if (!auth.currentUser && process.env.FIREBASE_SERVER_EMAIL && process.env.FIREBASE_SERVER_PASSWORD) {
+    try {
+      await signInWithEmailAndPassword(auth, process.env.FIREBASE_SERVER_EMAIL, process.env.FIREBASE_SERVER_PASSWORD);
+      console.log("Server agent authenticated successfully.");
+    } catch (e: any) {
+      console.error("Failed to authenticate server agent:", e.message);
+    }
+  }
 }

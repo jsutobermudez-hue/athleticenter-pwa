@@ -1,7 +1,7 @@
 'use server';
 
 import { sendPasswordResetEmail } from 'firebase/auth';
-import { initializeFirebaseServer } from '@/firebase/server-init';
+import { initializeFirebaseServer, ensureServerAuth } from '@/firebase/server-init';
 import { aiAnalystFlow } from '@/ai/flows/ai-analyst-flow';
 import { generateWhatsAppReminder } from '@/ai/flows/whatsapp-credit-reminder';
 import { generateWhatsAppStatusUpdate } from '@/ai/flows/whatsapp-status-update';
@@ -23,6 +23,7 @@ export async function handlePasswordReset(email: string) {
 
 export async function runAIAnalyst(input: any) {
     try {
+        await ensureServerAuth();
         const result = await aiAnalystFlow(input);
         return { success: true, data: result };
     } catch (e: any) {

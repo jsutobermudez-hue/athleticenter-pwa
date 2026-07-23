@@ -131,16 +131,26 @@ export const aiAnalystFlow = ai.defineFlow(
           2. Si preguntan por ventas, pedidos o dinero recaudado, usa 'getSalesPerformance'.
           3. Si preguntan por eficiencia de envíos o transportistas, usa 'getCarrierMetrics'.
           4. Responde siempre en ESPAÑOL profesional.
-          5. IMPORTANTE: Siempre devuelve un objeto JSON que coincida exactamente con AIAnalystOutputSchema.`,
+          5. IMPORTANTE: Debes devolver una respuesta que sea ESTRICTAMENTE un objeto JSON válido con las siguientes propiedades:
+             - "answer": Tu análisis o respuesta narrativa en español.
+             - "tabularData": Un arreglo de objetos con los datos relevantes (ej. [{"Producto": "X", "Stock": 10}]) si aplica, o un arreglo vacío si no hay datos estructurados.
+             No incluyas formateadores markdown tipo \`\`\`json en tu respuesta, solo el objeto JSON limpio.`,
           prompt: input.query,
-          output: { schema: AIAnalystOutputSchema }
         });
         
-        const output = response.output;
-        if (!output) throw new Error("El modelo no generó una respuesta válida.");
+        const text = response.text;
+        if (!text) throw new Error("El modelo no generó una respuesta válida.");
+        
+        const cleanedJsonText = text.replace(/^```json\s*/, '').replace(/```\s*$/, '').trim();
+        const parsed = JSON.parse(cleanedJsonText);
 
-        return { ...output, isSimulated: false };
+        return { 
+          answer: parsed.answer || "Consulta procesada exitosamente.", 
+          tabularData: parsed.tabularData || [], 
+          isSimulated: false 
+        };
     } catch (e: any) {
+        console.error("Error in aiAnalystFlow:", e);
         return {
             answer: "Bienvenido al Mando Analítico. Para activar la inteligencia real de Gemini, debes configurar la variable GOOGLE_GENAI_API_KEY. Actualmente opero en modo estructural.",
             tabularData: [

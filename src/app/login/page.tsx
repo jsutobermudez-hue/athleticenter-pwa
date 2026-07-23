@@ -59,7 +59,16 @@ function LoginPageContent() {
       await signInWithEmailAndPassword(auth, data.email, data.password);
       toast({ title: 'Acceso Autorizado', description: 'Sincronizando terminal de mando...' });
     } catch (error: any) {
-      toast({ variant: 'destructive', title: 'Error de Acceso', description: 'Credenciales inválidas o error de conexión.' });
+      console.error("Error al iniciar sesión:", error);
+      let errorMsg = 'Error de conexión o problema con el servidor.';
+      if (error.code === 'auth/invalid-credential') {
+        errorMsg = 'Correo o contraseña incorrectos.';
+      } else if (error.code === 'auth/user-not-found') {
+        errorMsg = 'El usuario no está registrado.';
+      } else if (error.code) {
+        errorMsg = `Código de error: ${error.code}`;
+      }
+      toast({ variant: 'destructive', title: 'Error de Acceso', description: errorMsg });
     }
   };
   
