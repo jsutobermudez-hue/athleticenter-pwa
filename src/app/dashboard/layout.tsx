@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useState, useRef } from 'react';
+import { syncBcvRateAction } from '../actions';
 import { SidebarProvider, SidebarInset } from '../../components/ui/sidebar';
 import { AppSidebar } from '../../components/layout/sidebar';
 import { Header } from '../../components/layout/header';
@@ -122,7 +123,33 @@ export default function DashboardLayout({
     checkAndInitPush();
   }, [mounted, isUserLoading, user, firestore]);
 
+  // Sincronización automática de tasa BCV (solo administradores, una vez por sesión)
   useEffect(() => {
+    const autoSyncBcv = async () => {
+        if (!mounted || isUserLoading || !user || !profile) return;
+        
+        const isAdmin = ['admin', 'superadmin', 'gerencia'].includes(profile.role);
+        if (!isAdmin) return;
+
+        const sessionKey = 'bcv_auto_sync_checked';
+        if (typeof window !== 'undefined' && !sessionStorage.getItem(sessionKey)) {
+            sessionStorage.setItem(sessionKey, 'true');
+            try {
+                const res = await syncBcvRateAction();
+                if (res.success && res.action === 'updated') {
+                    console.log(`[BCV Auto Sync] Tasa oficial actualizada automáticamente a ${res.newRate} Bs.`);
+                }
+            } catch (error) {
+                console.warn("[BCV Auto Sync] Error durante la sincronización automática:", error);
+            }
+        }
+    };
+
+    autoSyncBcv();
+  }, [mounted, isUserLoading, user, profile]);
+
+  useEffect(() => {
+
     if (!isUserLoading && mounted && !user) {
         router.replace('/login');
     }

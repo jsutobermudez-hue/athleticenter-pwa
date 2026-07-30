@@ -5,7 +5,7 @@ import React, { useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useFirestore, useUser, useCollection, useMemoFirebase, useDoc } from '@/firebase';
 import { collection, query, where, doc, getDoc, updateDoc, serverTimestamp, limit } from 'firebase/firestore';
-import type { Quote, QuoteItem, Product, QuoteItemClient, CompanyProfile, Customer } from '@/lib/definitions';
+import type { Quote, QuoteItem, Product, QuoteItemClient, CompanyProfile, Customer, FinancialSettings } from '@/lib/definitions';
 import { useToast } from '@/hooks/use-toast';
 import { QuoteDetailsSheet } from './QuoteDetailsSheet';
 import { UpdateQuoteStatusDialog } from './update-quote-status-dialog';
@@ -27,6 +27,9 @@ export function QuoteSheetController({ quote, onOpenChange }: { quote: Quote, on
     
     const customerRef = useMemoFirebase(() => (firestore && quote) ? doc(firestore, 'customers', quote.customerId) : null, [firestore, quote?.customerId]);
     const { data: customerData } = useDoc<Customer>(customerRef);
+
+    const settingsRef = useMemoFirebase(() => firestore ? doc(firestore, 'system', 'financials') : null, [firestore]);
+    const { data: globalSettings } = useDoc<FinancialSettings>(settingsRef);
 
     const itemsRef = useMemoFirebase(
         () => {
@@ -116,8 +119,9 @@ export function QuoteSheetController({ quote, onOpenChange }: { quote: Quote, on
                 quoteItems: itemsWithProductData, 
                 expiryDate: quote.expiryDate, 
                 companyProfile,
-                bcvRate: 1
+                bcvRate: globalSettings?.bcvRate || 1
             });
+
         } catch (e) {
             console.error("PDF Export Error:", e);
         }

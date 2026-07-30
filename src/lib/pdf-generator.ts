@@ -317,7 +317,7 @@ export async function generateQuotePDF({
   });
 
   (doc as any).autoTable({ 
-    head: [["SKU", "DESCRIPCIÓN DEL EQUIPO", "CANT", "P. LISTA", "P. NETO", "TOTAL (USD)"]], 
+    head: [["SKU", "DESCRIPCIÓN DEL EQUIPO", "CANT", "P. LISTA\n(Ref. USD - Pago Bs. BCV)", "P. OFERTA (USD)", "TOTAL (USD)"]], 
     body: tableRows, 
     startY: 80, 
     theme: 'grid', 
@@ -333,30 +333,53 @@ export async function generateQuotePDF({
 
   const finalY = (doc as any).lastAutoTable.finalY + 10;
   const savings = totalBcvUSD - totalCashUSD;
+  const totalBcvVES = totalBcvUSD * bcvRate;
 
-  // Bloque de Totales y Ahorro
+  // Bloque de Totales y Ahorro Rediseñado para Doble Total de Pago
+  const boxWidth = 75;
+  const boxHeight = 50;
+  const boxX = 210 - boxWidth - 14;
+
   doc.setFillColor(248, 250, 252);
-  doc.rect(130, finalY, 66, 35, 'F');
+  doc.rect(boxX, finalY, boxWidth, boxHeight, 'F');
   doc.setDrawColor(226, 232, 240);
-  doc.rect(130, finalY, 66, 35, 'S');
+  doc.rect(boxX, finalY, boxWidth, boxHeight, 'S');
 
   doc.setFontSize(7); doc.setTextColor(100); doc.setFont("helvetica", "bold");
-  doc.text("RESUMEN DE INVERSIÓN:", 134, finalY + 6);
+  doc.text("RESUMEN DE INVERSIÓN:", boxX + 4, finalY + 5);
   
   doc.setFont("helvetica", "normal");
-  doc.text("SUBTOTAL NOMINAL:", 134, finalY + 13);
-  doc.text(`$ ${totalBcvUSD.toFixed(2)}`, 192, finalY + 13, { align: 'right' });
+  doc.text("SUBTOTAL LISTA (USD):", boxX + 4, finalY + 11);
+  doc.text(`$ ${totalBcvUSD.toFixed(2)}`, boxX + boxWidth - 4, finalY + 11, { align: 'right' });
 
   doc.setTextColor(16, 185, 129);
-  doc.text("AHORRO RED APLICADO:", 134, finalY + 19);
-  doc.text(`-$ ${savings.toFixed(2)}`, 192, finalY + 19, { align: 'right' });
+  doc.text("AHORRO RED APLICADO:", boxX + 4, finalY + 17);
+  doc.text(`-$ ${savings.toFixed(2)}`, boxX + boxWidth - 4, finalY + 17, { align: 'right' });
+
+  doc.setFontSize(8); doc.setTextColor(30, 41, 59); doc.setFont("helvetica", "bold");
+  doc.text("TOTAL NETO (USD):", boxX + 4, finalY + 23);
+  doc.text(`$ ${totalCashUSD.toFixed(2)}`, boxX + boxWidth - 4, finalY + 23, { align: 'right' });
 
   doc.setDrawColor(203, 213, 225);
-  doc.line(134, finalY + 22, 192, finalY + 22);
+  doc.line(boxX + 4, finalY + 26, boxX + boxWidth - 4, finalY + 26);
 
-  doc.setFontSize(11); doc.setTextColor(30, 41, 59); doc.setFont("helvetica", "bold");
-  doc.text(`TOTAL NETO:`, 134, finalY + 29);
-  doc.text(`$ ${totalCashUSD.toFixed(2)}`, 192, finalY + 29, { align: 'right' });
+  doc.setFontSize(7); doc.setTextColor(100); doc.setFont("helvetica", "normal");
+  doc.text(`Tasa oficial BCV del día:`, boxX + 4, finalY + 31);
+  doc.text(`${bcvRate.toFixed(2)} Bs/$`, boxX + boxWidth - 4, finalY + 31, { align: 'right' });
+
+  doc.setDrawColor(203, 213, 225);
+  doc.line(boxX + 4, finalY + 34, boxX + boxWidth - 4, finalY + 34);
+
+  // OPCIÓN A: Total en Bs (Lista)
+  doc.setFontSize(7.5); doc.setTextColor(30, 41, 59); doc.setFont("helvetica", "bold");
+  doc.text("PAGO A (Bs. Tasa BCV):", boxX + 4, finalY + 39);
+  doc.text(`${totalBcvVES.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Bs.`, boxX + boxWidth - 4, finalY + 39, { align: 'right' });
+
+  // OPCIÓN B: Total en Divisas (Oferta)
+  doc.setTextColor(37, 99, 235);
+  doc.text("PAGO B (USD Divisas):", boxX + 4, finalY + 45);
+  doc.text(`$ ${totalCashUSD.toFixed(2)}`, boxX + boxWidth - 4, finalY + 45, { align: 'right' });
+
 
   // Notas legales y vigencia
   doc.setFontSize(8); doc.setTextColor(100); doc.setFont("helvetica", "normal");

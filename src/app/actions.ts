@@ -5,6 +5,7 @@ import { initializeFirebaseServer, ensureServerAuth } from '@/firebase/server-in
 import { aiAnalystFlow } from '@/ai/flows/ai-analyst-flow';
 import { generateWhatsAppReminder } from '@/ai/flows/whatsapp-credit-reminder';
 import { generateWhatsAppStatusUpdate } from '@/ai/flows/whatsapp-status-update';
+import { executeBcvRateSync } from '@/services/agents';
 
 /**
  * ACCIONES DEL SERVIDOR v13.1 - BLINDAJE DE PRODUCCIÓN
@@ -52,3 +53,15 @@ export async function handleWhatsAppStatusUpdate(input: any) {
         return { success: false, error: "Error al generar la actualización de estado." };
     }
 }
+
+export async function syncBcvRateAction() {
+    try {
+        await ensureServerAuth();
+        const result = await executeBcvRateSync();
+        return result;
+    } catch (e: any) {
+        console.error("[Action Error] BCV Sync failed:", e.message);
+        return { success: false, error: e.message };
+    }
+}
+
