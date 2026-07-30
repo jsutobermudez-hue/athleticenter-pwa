@@ -15,7 +15,7 @@ import { Loader2, CheckCircle, AlertTriangle } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import type { Quote, QuoteItem, User, Product, Customer } from '@/lib/definitions';
 import { useFirestore, useUser, useCollection, useMemoFirebase, errorEmitter, FirestorePermissionError } from '@/firebase';
-import { doc, serverTimestamp, collection, getDoc, runTransaction, query, where } from 'firebase/firestore';
+import { doc, serverTimestamp, collection, getDoc, runTransaction, query, where, limit } from 'firebase/firestore';
 import { createAppNotifications } from '@/lib/notifications';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
@@ -56,8 +56,9 @@ export function ConvertToOrderDialog({ quote }: ConvertToOrderDialogProps) {
         const productSnap = await getDoc(productRef);
         if (productSnap.exists()) {
           const productData = productSnap.data() as Product;
-          if (productData.stock < item.quantity) {
-            insufficientStockItems.push(`${productData.name} (disp: ${productData.stock})`);
+          const currentStock = productData.stockLevel ?? (productData as any).stock ?? 0;
+          if (currentStock < item.quantity) {
+            insufficientStockItems.push(`${productData.name} (disp: ${currentStock})`);
           }
         }
       }

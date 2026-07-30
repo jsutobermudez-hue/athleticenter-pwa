@@ -55,8 +55,9 @@ export function ConvertToOrderDialog({ quote }: ConvertToOrderDialogProps) {
           continue;
         }
         const productData = productSnap.data() as Product;
-        if (productData.stock < item.quantity) {
-          insufficientStockItems.push(`${productData.name} (disponible: ${productData.stock}, solicitado: ${item.quantity})`);
+        const currentStock = productData.stockLevel ?? (productData as any).stock ?? 0;
+        if (currentStock < item.quantity) {
+          insufficientStockItems.push(`${productData.name} (disponible: ${currentStock}, solicitado: ${item.quantity})`);
         }
       }
       if (insufficientStockItems.length > 0) {
@@ -165,7 +166,7 @@ export function ConvertToOrderDialog({ quote }: ConvertToOrderDialogProps) {
             path: `orders/${finalOrderId}`,
             operation: 'create',
             requestResourceData: { sourceQuoteId: quote.id }
-        }, serverError);
+        });
         errorEmitter.emit('permission-error', permissionError);
     })
     .finally(() => {

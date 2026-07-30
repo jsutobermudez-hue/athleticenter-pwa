@@ -16,7 +16,7 @@ export function DirectMessageItem({ message }: { message: DirectMessage }) {
   const router = useRouter();
 
   const handleMessageClick = () => {
-    if (!firestore) return;
+    if (!firestore || !message.userId || !message.id) return;
     if (!message.isRead) {
         const msgRef = doc(firestore, `users/${message.userId}/directMessages`, message.id);
         updateDoc(msgRef, { isRead: true }).catch(() => {});

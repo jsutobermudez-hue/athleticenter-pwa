@@ -371,7 +371,7 @@ export default function ClientsPageContent() {
 
       <CustomerDetailsSheet 
         customer={selectedCustomer} 
-        user={selectedCustomer ? usersById.get(selectedCustomer.id) || null : null}
+        user={selectedCustomer && selectedCustomer.id ? usersById.get(selectedCustomer.id) || null : null}
         isOpen={!!selectedCustomer} 
         onOpenChange={(open) => !open && setSelectedCustomer(null)}
         onEdit={(user) => { setSelectedCustomer(null); setEditingUser(user); }}

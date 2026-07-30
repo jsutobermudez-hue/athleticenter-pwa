@@ -22,7 +22,8 @@ import {
     Target,
     ShieldAlert,
     DollarSign,
-    ExternalLink
+    ExternalLink,
+    Box
 } from 'lucide-react';
 import { differenceInDays, subMonths, isSameMonth } from 'date-fns';
 import { cn } from '@/lib/utils';

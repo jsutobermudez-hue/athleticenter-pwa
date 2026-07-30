@@ -44,8 +44,26 @@ const getAvailableStatuses = (currentStatus: QuoteStatus): QuoteStatus[] => {
     }
 };
 
-export function UpdateQuoteStatusDialog({ quote, onStatusUpdate }: { quote: Quote, onStatusUpdate?: () => void; }) {
-  const [isOpen, setIsOpen] = useState(false);
+export function UpdateQuoteStatusDialog({ 
+  quote, 
+  onStatusUpdate,
+  isOpen: controlledIsOpen,
+  onOpenChange: controlledOnOpenChange
+}: { 
+  quote: Quote;
+  onStatusUpdate?: () => void; 
+  isOpen?: boolean;
+  onOpenChange?: (open: boolean) => void;
+}) {
+  const [localIsOpen, setLocalIsOpen] = useState(false);
+  const isOpen = controlledIsOpen !== undefined ? controlledIsOpen : localIsOpen;
+  const setIsOpen = (open: boolean) => {
+    if (controlledOnOpenChange) {
+      controlledOnOpenChange(open);
+    } else {
+      setLocalIsOpen(open);
+    }
+  };
   const [isPending, setIsPending] = useState(false);
   const { toast } = useToast();
   const firestore = useFirestore();

@@ -30,7 +30,7 @@ export function calculateOfferPrice(
 
   const appliedOffers = allOffers.filter(
     (offer) =>
-      product.activeOfferIds?.includes(offer.id) && offer.isActive === true
+      offer.id && product.activeOfferIds?.includes(offer.id) && offer.isActive === true
   );
 
   if (appliedOffers.length === 0) {

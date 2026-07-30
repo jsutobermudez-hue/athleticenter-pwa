@@ -269,7 +269,7 @@ export function ClientBillingView() {
                             <TableBody>
                                 {combinedInvoices.length > 0 ? combinedInvoices.map((invoice) => {
                                     const orderForInvoice = allOrders?.find(o => o.id === invoice.id);
-                                    const isPaid = invoice.status === 'paid' || invoice.status === 'Pagado';
+                                    const isPaid = (invoice.status as string) === 'paid' || invoice.status === 'Pagado';
                                     
                                     return (
                                         <TableRow key={invoice.id} className="hover:bg-primary/5 transition-colors border-b last:border-none group">

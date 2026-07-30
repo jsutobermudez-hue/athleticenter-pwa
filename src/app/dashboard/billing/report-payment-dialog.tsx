@@ -221,6 +221,7 @@ export function ReportPaymentDialog({ invoice, mode = 'partial' }: { invoice: In
     
     const payload: Partial<Payment> = { 
       ...data, 
+      method: data.method as any,
       amount: calculation.finalAmount, 
       orderId: invoice.id, 
       status: 'pending_verification', 
@@ -228,7 +229,7 @@ export function ReportPaymentDialog({ invoice, mode = 'partial' }: { invoice: In
       registeredByName: currentUser.name, 
       imageUrl: uploadedImageUrl || '', 
       paymentDate: new Date(data.paymentDate), 
-      createdAt: serverTimestamp(), 
+      createdAt: serverTimestamp() as any, 
       baseAmount: calculation.baseAmount, 
       discountAmount: calculation.discountAmount, 
       taxAmount: calculation.taxAmount,

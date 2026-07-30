@@ -88,7 +88,7 @@ async function addFiscalHeader(doc: jsPDF, company: Partial<CompanyProfile> | un
   doc.line(14, 45, 196, 45);
 }
 
-function addClientBlock(doc: jsPDF, name: string, rif?: string, address?: string, y: number) {
+function addClientBlock(doc: jsPDF, name: string, rif: string | undefined, address: string | undefined, y: number) {
   const accentColor = [30, 41, 59];
   
   doc.setFillColor(248, 250, 252);

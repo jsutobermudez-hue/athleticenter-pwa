@@ -297,7 +297,7 @@ export function ConfirmPaymentDialog({ order }: { order: Order }) {
                                     <div className="space-y-3 bg-slate-50 p-6 rounded-[2rem] border border-slate-100 shadow-inner">
                                         <div className="flex justify-between items-center text-[10px] font-bold">
                                             <span className="text-slate-400 uppercase">Abono a Deuda (Base)</span>
-                                            <span className="text-slate-900 font-black">${(reportedPayment?.baseAmount || watchedValues.amount).toFixed(2)}</span>
+                                            <span className="text-slate-900 font-black">${(reportedPayment?.baseAmount ?? watchedValues.amount ?? 0).toFixed(2)}</span>
                                         </div>
                                         
                                         {reportedPayment?.discountAmount! > 0 && (
@@ -307,10 +307,10 @@ export function ConfirmPaymentDialog({ order }: { order: Order }) {
                                             </div>
                                         )}
 
-                                        {watchedValues.documentType === 'factura' && reportedPayment?.taxAmount! > 0 && (
+                                        {watchedValues.documentType === 'factura' && (reportedPayment?.taxAmount ?? 0) > 0 && (
                                             <div className="flex justify-between items-center text-[10px] font-bold text-amber-600">
                                                 <span className="uppercase">IVA (16%)</span>
-                                                <span>+${reportedPayment.taxAmount.toFixed(2)}</span>
+                                                <span>+${reportedPayment?.taxAmount?.toFixed(2)}</span>
                                             </div>
                                         )}
                                         
@@ -321,7 +321,7 @@ export function ConfirmPaymentDialog({ order }: { order: Order }) {
                                                 <p className="text-[8px] font-bold text-slate-400 uppercase">Lo que debe estar en banco</p>
                                             </div>
                                             <span className="text-3xl font-black text-slate-900 tracking-tighter">
-                                                ${(reportedPayment?.amount || watchedValues.amount).toFixed(2)}
+                                                ${(reportedPayment?.amount ?? watchedValues.amount ?? 0).toFixed(2)}
                                             </span>
                                         </div>
                                     </div>
@@ -337,7 +337,7 @@ export function ConfirmPaymentDialog({ order }: { order: Order }) {
                                         <div className="p-4 rounded-xl bg-blue-50 border border-blue-100 flex items-start gap-2">
                                             <Info className="h-4 w-4 text-blue-500 shrink-0 mt-0.5" />
                                             <p className="text-[9px] font-bold text-blue-700 uppercase leading-relaxed">
-                                                Al conciliar, se actualizará el "Crédito en Uso" del cliente restando el monto base (${(reportedPayment?.baseAmount || watchedValues.amount).toFixed(2)}).
+                                                Al conciliar, se actualizará el "Crédito en Uso" del cliente restando el monto base (${(reportedPayment?.baseAmount ?? watchedValues.amount ?? 0).toFixed(2)}).
                                             </p>
                                         </div>
                                     </div>

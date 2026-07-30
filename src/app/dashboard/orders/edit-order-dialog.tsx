@@ -89,7 +89,7 @@ export function EditOrderDialog({ order, isOpen, onOpenChange, onSuccess }: Edit
     if (isOpen && initialOrderItems && inventory && !initialOrderItemsLoaded) {
       const items = initialOrderItems.map(item => {
         const product = inventory.find(p => p.id === item.productId);
-        return product ? { ...item, product: product } : null;
+        return product ? ({ ...item, product: product } as OrderItemClient) : null;
       }).filter((i): i is OrderItemClient => i !== null);
       
       setOrderItems(items);
@@ -103,7 +103,7 @@ export function EditOrderDialog({ order, isOpen, onOpenChange, onSuccess }: Edit
   const availableProducts = useMemo(() => {
     if (!inventory) return [];
     const addedProductIds = new Set(orderItems.map(item => item.productId));
-    let filtered = inventory.filter(p => p.id && !addedProductIds.has(p.id) && p.stock > 0);
+    let filtered = inventory.filter(p => p.id && !addedProductIds.has(p.id) && (p.stockLevel ?? (p as any).stock ?? 0) > 0);
 
     if (productSearch) {
         const term = productSearch.toLowerCase();
@@ -183,9 +183,10 @@ export function EditOrderDialog({ order, isOpen, onOpenChange, onSuccess }: Edit
                         const pRef = doc(firestore, 'products', productId);
                         const pSnap = await transaction.get(pRef);
                         if (!pSnap.exists()) throw new Error(`Producto ${productId} no encontrado.`);
-                        const newStock = (pSnap.data().stock || 0) + change;
+                        const oldStock = pSnap.data().stockLevel ?? pSnap.data().stock ?? 0;
+                        const newStock = oldStock + change;
                         if (newStock < 0) throw new Error(`Stock insuficiente para ${pSnap.data().name}.`);
-                        transaction.update(pRef, { stock: newStock });
+                        transaction.update(pRef, { stockLevel: newStock, stock: newStock });
                     }
                 }
             }
@@ -257,7 +258,7 @@ export function EditOrderDialog({ order, isOpen, onOpenChange, onSuccess }: Edit
                                     <SelectContent>
                                     {availableProducts.length > 0 ? availableProducts.map(p => (
                                             <SelectItem key={p.id} value={p.id!} className="text-[10px] font-bold uppercase">
-                                                {p.name} (Stock: {p.stock})
+                                                {p.name} (Stock: {p.stockLevel ?? (p as any).stock ?? 0})
                                             </SelectItem>
                                     )) : <p className="p-4 text-center italic text-xs">Sin coincidencias.</p>}
                                     </SelectContent>

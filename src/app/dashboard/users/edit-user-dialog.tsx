@@ -181,12 +181,12 @@ export function EditUserDialog({ user, isOpen, onOpenChange, title, description 
                     <Controller name="role" control={control} render={({ field }) => (
                       <Select onValueChange={field.onChange} value={field.value}><SelectTrigger className="h-11 rounded-xl bg-slate-50 border-none shadow-inner font-bold"><SelectValue /></SelectTrigger><SelectContent position="popper" className="z-[200]">{roles.map(r => <SelectItem key={r} value={r} className="text-[10px] font-bold uppercase">{r.toUpperCase()}</SelectItem>)}</SelectContent></Select>
                     )} />
-                    {errors.role && <p className="text-[10px] text-rose-500 font-bold uppercase px-1">{errors.role.message}</p>}
+                    {errors.role?.message && <p className="text-[10px] text-rose-500 font-bold uppercase px-1">{errors.role.message.toString()}</p>}
                   </div>
                   <div className="space-y-2">
                     <Label className="text-[10px] font-black uppercase text-slate-400 px-1">Email Usuario</Label>
                     <Controller name="email" control={control} render={({ field }) => <Input type="email" {...field} className="h-11 font-bold rounded-xl bg-slate-50 border-none shadow-inner" />} />
-                    {errors.email && <p className="text-[10px] text-rose-500 font-bold uppercase px-1">{errors.email.message}</p>}
+                    {errors.email?.message && <p className="text-[10px] text-rose-500 font-bold uppercase px-1">{errors.email.message.toString()}</p>}
                   </div>
                 </div>
               </section>
@@ -226,7 +226,7 @@ export function EditUserDialog({ user, isOpen, onOpenChange, title, description 
                   <div className="space-y-2">
                     <Label className="text-[10px] font-black uppercase text-slate-400 px-1">Nombre</Label>
                     <Controller name="name" control={control} render={({ field }) => <Input {...field} className="h-11 font-bold rounded-xl bg-slate-50 border-none shadow-inner" />} />
-                    {errors.name && <p className="text-[10px] text-rose-500 font-bold uppercase px-1">{errors.name.message}</p>}
+                    {errors.name?.message && <p className="text-[10px] text-rose-500 font-bold uppercase px-1">{errors.name.message.toString()}</p>}
                   </div>
                   <div className="space-y-2">
                     <Label className="text-[10px] font-black uppercase text-slate-400 px-1">Teléfono</Label>
@@ -236,7 +236,7 @@ export function EditUserDialog({ user, isOpen, onOpenChange, title, description 
                 <div className="space-y-2">
                     <Label className="text-[10px] font-black uppercase text-slate-400 flex items-center gap-2 px-1"><MapPin className="h-3 w-3" /> Dirección Fiscal</Label>
                     <Controller name="address" control={control} render={({ field }) => <Textarea {...field} className="rounded-xl bg-slate-50 border-none shadow-inner min-h-[80px]" />} />
-                    {errors.address && <p className="text-[10px] text-rose-500 font-bold uppercase px-1">{errors.address.message}</p>}
+                    {errors.address?.message && <p className="text-[10px] text-rose-500 font-bold uppercase px-1">{errors.address.message.toString()}</p>}
                 </div>
                 <div className="pt-4">
                     <Controller name="avatarUrl" control={control} render={({ field }) => <ImageUploader folderPath="user-avatars" initialImageUrl={field.value} onImageUploaded={field.onChange} label="Imagen de Perfil" variant="avatar" />} />

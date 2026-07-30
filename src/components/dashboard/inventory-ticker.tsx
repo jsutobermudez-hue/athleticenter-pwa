@@ -40,7 +40,7 @@ export function InventoryTicker() {
               <Link key={product.id} href={`/dashboard/inventory?sku=${product.sku}`} className="block">
                 <div className="flex justify-between items-center p-2 rounded-md hover:bg-muted text-sm">
                   <p className="font-medium">{product.name}</p>
-                  <p className="text-warning-foreground font-bold">{product.stock} unidades</p>
+                  <p className="text-warning-foreground font-bold">{product.stockLevel ?? (product as any).stock ?? 0} unidades</p>
                 </div>
               </Link>
             ))

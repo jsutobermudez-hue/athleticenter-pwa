@@ -3,7 +3,7 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { Button } from './button';
-import { Camera, X, Loader2, RefreshCcw } from 'lucide-react';
+import { Camera, X, Loader2, RefreshCw, ShieldCheck } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 

@@ -45,8 +45,6 @@ export function AddToQuoteDialog({ product, allOffers, isOpen, onOpenChange, onC
       quantity,
       unitPrice: offer.finalPrice,
       product: product,
-      customerId: '',
-      salespersonId: '',
     });
     onOpenChange(false);
   };
@@ -62,7 +60,7 @@ export function AddToQuoteDialog({ product, allOffers, isOpen, onOpenChange, onC
             </Avatar>
             <div className="text-left">
                 <DialogTitle>{product.name}</DialogTitle>
-                <DialogDescription>Referencia de stock: {product.stock} un.</DialogDescription>
+                <DialogDescription>Referencia de stock: {product.stockLevel ?? (product as any).stock ?? 0} un.</DialogDescription>
             </div>
           </div>
         </DialogHeader>

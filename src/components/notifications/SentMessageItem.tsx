@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import React from 'react';
 import { cn } from '@/lib/utils';
+import { Badge } from '@/components/ui/badge';
 
 export function SentMessageItem({ message }: { message: SentMessage }) {
   const timeAgo = message.createdAt?.toDate 

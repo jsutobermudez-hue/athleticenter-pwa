@@ -211,7 +211,7 @@ export function EditOfferDialog({
   }, [offer, isOpen, reset]);
 
   const onSubmit = (data: OfferFormValues) => {
-    if (!firestore) return;
+    if (!firestore || !offer.id) return;
 
     const offerRef = doc(firestore, 'offers', offer.id);
     const updatedData = {
@@ -283,7 +283,7 @@ export function DeleteOfferDialog({
   const firestore = useFirestore();
 
   const handleDelete = () => {
-    if (!firestore) return;
+    if (!firestore || !offer.id) return;
     setIsDeleting(true);
 
     const offerRef = doc(firestore, 'offers', offer.id);
@@ -477,11 +477,11 @@ export function ApplyOffersDialog({
                   <div key={offer.id} className="flex items-center space-x-2">
                     <Checkbox
                       id={`offer-${offer.id}`}
-                      checked={!!selectedOffers[offer.id]}
+                      checked={!!selectedOffers[offer.id ?? '']}
                       onCheckedChange={(checked) =>
                         setSelectedOffers((prev) => ({
                           ...prev,
-                          [offer.id]: !!checked,
+                          [offer.id ?? '']: !!checked,
                         }))
                       }
                     />
@@ -552,7 +552,7 @@ export function ApplyToProductsDialog({
     if (isOpen && offer && allProducts) {
       const initial: Record<string, boolean> = {};
       allProducts.forEach((p) => {
-        if (p.activeOfferIds?.includes(offer.id)) {
+        if (offer.id && p.id && p.activeOfferIds?.includes(offer.id)) {
           initial[p.id] = true;
         }
       });
@@ -580,7 +580,9 @@ export function ApplyToProductsDialog({
   const handleSelectAll = (checked: boolean) => {
     const newSelection: Record<string, boolean> = {};
     if (checked) {
-      filteredProducts.forEach((p) => (newSelection[p.id] = true));
+      filteredProducts.forEach((p) => {
+        if (p.id) newSelection[p.id] = true;
+      });
     }
     setSelectedProducts(newSelection);
   };
@@ -591,6 +593,7 @@ export function ApplyToProductsDialog({
 
     const batch = writeBatch(firestore);
     allProducts.forEach((product) => {
+      if (!product.id) return;
       const wasApplied = !!initialSelection[product.id];
       const isApplied = !!selectedProducts[product.id];
 
@@ -665,11 +668,11 @@ export function ApplyToProductsDialog({
                     <div className="flex items-center gap-2">
                       <Checkbox
                         id={`product-${p.id}`}
-                        checked={!!selectedProducts[p.id]}
+                        checked={!!selectedProducts[p.id ?? '']}
                         onCheckedChange={(checked) =>
                           setSelectedProducts((prev) => ({
                             ...prev,
-                            [p.id]: !!checked,
+                            [p.id ?? '']: !!checked,
                           }))
                         }
                       />

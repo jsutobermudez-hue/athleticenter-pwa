@@ -12,7 +12,7 @@ import { useMemo } from 'react';
  * @param {React.DependencyList | undefined} deps The dependency array for `useMemo`.
  * @returns {T} The memoized value.
  */
-export function useMemoFirebase<T>(factory: () => T, deps: React.DependencyList | undefined): T {
+export function useMemoFirebase<T>(factory: () => T, deps: React.DependencyList): T {
   const result = useMemo(factory, deps);
 
   // Attach a flag to the memoized object.

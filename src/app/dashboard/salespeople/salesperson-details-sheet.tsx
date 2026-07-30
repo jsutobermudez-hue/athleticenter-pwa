@@ -21,6 +21,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
+import { Separator } from '@/components/ui/separator';
 import { useCollection, useFirestore, useMemoFirebase, useDoc } from '@/firebase';
 import { collection, query, where, orderBy, limit, Timestamp, doc } from 'firebase/firestore';
 import { format, subMonths, isSameMonth } from 'date-fns';

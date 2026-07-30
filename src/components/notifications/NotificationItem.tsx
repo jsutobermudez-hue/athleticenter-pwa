@@ -38,7 +38,7 @@ export function NotificationItem({ notification }: { notification: Notification 
   const router = useRouter();
 
   const handleNotificationClick = () => {
-    if (!firestore) return;
+    if (!firestore || !notification.userId || !notification.id) return;
     if (!notification.isRead) {
         updateDoc(doc(firestore, `users/${notification.userId}/notifications`, notification.id), { isRead: true });
     }

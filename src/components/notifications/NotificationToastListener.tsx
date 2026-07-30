@@ -22,10 +22,9 @@ export function NotificationToastListener() {
   useEffect(() => {
     if (!firestore || !user) return;
 
-    // Escuchamos solo las últimas 5 notificaciones no leídas
+    // Escuchamos las últimas 5 notificaciones de forma resiliente sin requerir índices compuestos
     const q = query(
       collection(firestore, `users/${user.uid}/notifications`),
-      where('isRead', '==', false),
       orderBy('createdAt', 'desc'),
       limit(5)
     );
@@ -43,14 +42,15 @@ export function NotificationToastListener() {
           const data = change.doc.data();
           const id = change.doc.id;
 
-          // Evitar procesar la misma notificación múltiples veces
-          if (id !== lastProcessedId.current) {
+          // Evitar procesar la misma notificación múltiples veces, y solo alertar no leídas
+          if (id !== lastProcessedId.current && !data.isRead) {
             lastProcessedId.current = id;
             
             // 1. Mostrar Toast de UI (Shadcn)
             toast({
               title: `🔔 ${data.title}`,
               description: data.message,
+              duration: 10000, // 10 segundos de permanencia
               action: data.link ? (
                 <button 
                     className="text-[10px] font-black uppercase tracking-widest bg-primary text-white px-3 py-1 rounded-lg hover:bg-primary/90 transition-colors"
@@ -68,7 +68,8 @@ export function NotificationToastListener() {
                     new window.Notification(data.title, {
                         body: data.message,
                         icon: '/icons/icon-192x192.png',
-                        tag: 'foreground-alert'
+                        tag: 'foreground-alert',
+                        requireInteraction: true // Evita que se cierre automáticamente rápido
                     });
                 }
             } catch (e) {

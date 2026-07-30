@@ -57,6 +57,7 @@ function DispatchPageContent() {
 
   const columns = useMemo(() => {
     const groups: Record<OrderStatus, { orders: Order[], count: number, total: number }> = {
+        'Borrador': { orders: [], count: 0, total: 0 },
         'Pendiente': { orders: [], count: 0, total: 0 },
         'Aprobado': { orders: [], count: 0, total: 0 },
         'En Preparación': { orders: [], count: 0, total: 0 },

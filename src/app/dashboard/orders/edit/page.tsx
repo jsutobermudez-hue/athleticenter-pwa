@@ -77,7 +77,7 @@ function EditOrderForm() {
             setSelectedCustomerId(orderData.customerId);
             const enrichedItems = dbItems.map(item => {
                 const product = inventory.find(p => p.id === item.productId);
-                return product ? { ...item, product: product } : null;
+                return product ? ({ ...item, product: product } as OrderItemClient) : null;
             }).filter((i): i is OrderItemClient => i !== null);
             setOrderItems(enrichedItems);
             setInitialOrderLoaded(true);

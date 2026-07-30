@@ -46,13 +46,14 @@ export function getInvoiceFromOrder(order: Order): Invoice | null {
     }
 
     return {
-        id: order.id,
+        id: order.id || '',
+        orderId: order.id || '',
         customerName: order.customerName,
         customerId: order.customerId,
         salespersonId: order.salespersonId,
         salespersonName: order.salespersonName,
         customerPhone: order.customerPhone || '',
-        totalAmount: order.totalAmount,
+        amountTotal: order.totalAmount,
         amountPaid: amountPaid,
         remainingBalance: remainingBalance,
         dueDate: dueDate,
@@ -60,5 +61,6 @@ export function getInvoiceFromOrder(order: Order): Invoice | null {
         statusText: statusText,
         remainingCreditDays: remainingDays,
         discountPercentage: discount,
+        currency: 'USD',
     }
 }

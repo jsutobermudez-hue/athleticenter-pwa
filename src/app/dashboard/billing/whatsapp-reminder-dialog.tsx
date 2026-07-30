@@ -65,6 +65,14 @@ export function WhatsAppReminderDialog({ invoice }: { invoice: Invoice }) {
 
   const handleSendAutomaticMessage = async () => {
     if (!generatedMessage?.message) return;
+    if (!invoice.customerPhone) {
+      toast({
+        variant: 'destructive',
+        title: 'Error de Envío',
+        description: 'El cliente no tiene un número de teléfono registrado.',
+      });
+      return;
+    }
 
     setIsSending(true);
     const result = await sendWhatsAppMessage(invoice.customerPhone, generatedMessage.message);
@@ -80,7 +88,7 @@ export function WhatsAppReminderDialog({ invoice }: { invoice: Invoice }) {
       toast({
         variant: 'destructive',
         title: 'Error de Envío',
-        description: result.error || 'No se pudo enviar el mensaje automáticamente.',
+        description: (result as any).error || 'No se pudo enviar el mensaje automáticamente.',
       });
     }
   };

@@ -20,7 +20,9 @@ import {
     Landmark, 
     Activity, 
     PieChart,
-    Settings2
+    Settings2,
+    Zap,
+    Sparkles
 } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Label } from '@/components/ui/label';
@@ -126,6 +128,7 @@ export default function TreasuryPage() {
 
   const simulation = useMemo(() => {
     if (!products || !settings || !watchedValues.bcvRate || !isMounted) return null;
+    const simulatedBcvRate = watchedValues.bcvRate;
     let currentTotalVES = 0;
     let newTotalVES = 0;
     let inventoryCount = 0;
@@ -133,7 +136,7 @@ export default function TreasuryPage() {
     targetProducts.forEach(p => {
         if (p.stockLevel > 0) {
             currentTotalVES += (p.price * p.stockLevel * settings.bcvRate);
-            newTotalVES += (p.price * p.stockLevel * watchedValues.bcvRate * inflationMultiplier);
+            newTotalVES += (p.price * p.stockLevel * simulatedBcvRate * inflationMultiplier);
             inventoryCount++;
         }
     });

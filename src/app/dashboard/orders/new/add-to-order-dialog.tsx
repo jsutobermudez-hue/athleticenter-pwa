@@ -49,8 +49,9 @@ export function AddToOrderDialog({ product, allOffers, isOpen, onOpenChange, onC
       toast({ variant: 'destructive', title: 'Cantidad inválida', description: 'La cantidad debe ser mayor a cero.' });
       return;
     }
-    if (quantity > product.stock) {
-      toast({ variant: 'destructive', title: 'Stock insuficiente', description: `Solo hay ${product.stock} unidades de ${product.name} disponibles.` });
+    const currentStock = product.stockLevel ?? (product as any).stock ?? 0;
+    if (quantity > currentStock) {
+      toast({ variant: 'destructive', title: 'Stock insuficiente', description: `Solo hay ${currentStock} unidades de ${product.name} disponibles.` });
       return;
     }
 
@@ -81,7 +82,7 @@ export function AddToOrderDialog({ product, allOffers, isOpen, onOpenChange, onC
             </Avatar>
             <div className="flex-1">
                 <DialogTitle>{product.name}</DialogTitle>
-                <DialogDescription>SKU: {product.sku} / Stock: {product.stock}</DialogDescription>
+                <DialogDescription>SKU: {product.sku} / Stock: {product.stockLevel ?? (product as any).stock ?? 0}</DialogDescription>
             </div>
           </div>
         </DialogHeader>
@@ -113,7 +114,7 @@ export function AddToOrderDialog({ product, allOffers, isOpen, onOpenChange, onC
                 id="quantity"
                 type="number"
                 min="1"
-                max={product.stock}
+                max={product.stockLevel ?? (product as any).stock ?? 0}
                 value={quantity}
                 onChange={(e) => setQuantity(Number(e.target.value))}
                 autoFocus

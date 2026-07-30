@@ -163,7 +163,7 @@ export function PurchaseOrderDetailSheet({ order, isOpen, onOpenChange }: Purcha
                 const productData = productDataMap.get(item.productId);
                 
                 if (productData) {
-                    const oldStock = productData.stock || 0;
+                    const oldStock = productData.stockLevel ?? (productData as any).stock ?? 0;
                     const oldCost = productData.cost || 0;
                     const newQty = item.quantity;
                     const newCost = item.unitCost;

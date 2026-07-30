@@ -1,7 +1,7 @@
 
 'use client';
 
-import { doc, updateDoc, arrayUnion, getDoc, type Firestore } from 'firebase/firestore';
+import { doc, updateDoc, arrayUnion, getDoc, serverTimestamp, type Firestore } from 'firebase/firestore';
 
 /**
  * MOTOR DE PWA Y NOTIFICACIONES v310.0.0

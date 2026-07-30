@@ -20,6 +20,8 @@ const steps: { status: OrderStatus; icon: React.ElementType; label: string }[] =
 ];
 
 const statusOrder: Record<OrderStatus, number> = {
+    'Borrador': -2,
+    'Rechazado': -3,
     'Pendiente': 0,
     'Aprobado': 1,
     'En Preparación': 2,

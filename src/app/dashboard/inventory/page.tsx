@@ -118,7 +118,7 @@ function InventoryContent() {
   }, [searchParams, inventory]);
 
   const isLoading = isUserLoading || isLoadingInventory || isLoadingOffers;
-  const isAdmin = currentUser && ['superadmin', 'admin', 'gerencia'].includes(currentUser.role);
+  const isAdmin = !!(currentUser && ['superadmin', 'admin', 'gerencia'].includes(currentUser.role));
   const isWarehouse = currentUser?.role === 'deposito';
   const isCommercial = currentUser && ['ventas', 'cliente'].includes(currentUser.role);
   

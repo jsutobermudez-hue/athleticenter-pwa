@@ -118,10 +118,10 @@ export function NewProductDialog() {
     setIsGenerating(true);
     try {
         const result = await generateProductDescription({ 
-            name: values.name, 
-            brand: values.brand, 
-            category: values.category, 
-            discipline: values.discipline 
+            name: values.name || '', 
+            brand: values.brand || '', 
+            category: values.category || '', 
+            discipline: values.discipline || '' 
         });
         setValue('features', result.description);
         toast({ title: 'IA Copywriter', description: 'Descripción técnica generada.' });

@@ -22,3 +22,5 @@ export {
 
 export { FirebaseClientProvider } from './client-provider';
 export { initializeFirebase } from './setup';
+export { errorEmitter } from './error-emitter';
+export { FirestorePermissionError } from './errors';

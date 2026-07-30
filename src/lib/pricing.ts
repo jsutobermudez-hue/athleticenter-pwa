@@ -23,7 +23,8 @@ export function calculatePricingTier(
     earlyPayment15Days: 5,
     roundingTolerance: 0.05,
     overdueBlockDays: 35,
-    historicalDilutionFactor: 0.65
+    historicalDilutionFactor: 0.65,
+    stripeEnabled: false
   };
 
   const safeNum = (val: any) => {

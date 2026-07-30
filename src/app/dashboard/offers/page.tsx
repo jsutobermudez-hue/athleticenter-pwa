@@ -61,7 +61,7 @@ function OfferCard({
     return (
         <Card 
             className={cn("transition-all flex flex-col", isSelected && "ring-2 ring-primary")}
-            onClick={() => onSelect(offer.id, !isSelected)}
+            onClick={() => offer.id && onSelect(offer.id, !isSelected)}
         >
             <CardHeader className="flex-row items-start justify-between p-4">
                 <div className="flex-1 space-y-1">
@@ -94,7 +94,7 @@ function OfferCard({
                     className="flex items-center space-x-2 w-full justify-center p-2 rounded-md hover:bg-primary/10"
                     onClick={(e) => {
                         e.stopPropagation();
-                        onSelect(offer.id, !isSelected);
+                        if (offer.id) onSelect(offer.id, !isSelected);
                     }}
                  >
                     <Checkbox id={`select-${offer.id}`} checked={isSelected} />
@@ -239,7 +239,7 @@ export default function OffersPage() {
                         <div className="flex items-center space-x-2">
                             <Checkbox 
                                 id="select-all-contextual" 
-                                checked={isAllSelected}
+                                checked={!!isAllSelected}
                                 onCheckedChange={(checked) => handleSelectAll(!!checked)}
                             />
                             <Label htmlFor="select-all-contextual" className="text-sm font-medium">

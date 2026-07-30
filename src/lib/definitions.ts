@@ -378,3 +378,30 @@ export interface CompanyProfile extends Auditable {
     loginShowBranding?: boolean;
     headerShowLogo?: boolean;
 }
+
+export interface CarrierContact {
+  name: string;
+  position: string;
+  phone?: string;
+  email?: string;
+}
+
+export interface Carrier extends Auditable {
+  id: string;
+  name: string;
+  contacts: CarrierContact[];
+  trackingUrlTemplate?: string;
+  status: 'Activo' | 'Inactivo';
+}
+
+export interface QuoteItem {
+  id?: string;
+  productId: string;
+  quantity: number;
+  unitPrice: number;
+  size?: string;
+}
+
+export interface QuoteItemClient extends QuoteItem {
+  product: Product;
+}

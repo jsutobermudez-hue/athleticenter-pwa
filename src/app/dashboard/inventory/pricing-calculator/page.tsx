@@ -21,7 +21,8 @@ import {
     Search,
     Lock,
     Zap,
-    ShieldCheck
+    ShieldCheck,
+    Save
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { FinancialSettings, PricingStrategy, Product } from '@/lib/definitions';
