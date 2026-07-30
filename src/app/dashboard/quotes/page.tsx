@@ -54,15 +54,18 @@ function QuotesPageContent() {
     return (
         <>
             <div className="flex flex-col gap-10 max-w-7xl mx-auto pb-20 animate-in fade-in-50 duration-500">
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between px-2">
-                    <div className="space-y-1">
-                        <h1 className="text-5xl font-black uppercase tracking-tighter text-slate-900">
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between px-2 sm:px-4">
+                    <div className="space-y-1.5">
+                        <h1 className="text-3xl sm:text-4xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">
                             {isAdminView ? 'Control de Cotizaciones' : 'Mis Presupuestos'}
                         </h1>
-                        <p className="text-muted-foreground font-medium italic text-sm">Gestión de propuestas comerciales y prospección.</p>
+                        <p className="text-muted-foreground font-medium italic text-xs sm:text-sm">Gestión de propuestas comerciales y prospección.</p>
                     </div>
-                    <NewQuoteDialog isLoading={isUserLoading} />
+                    <div className="w-full sm:w-auto">
+                        <NewQuoteDialog isLoading={isUserLoading} />
+                    </div>
                 </div>
+
                 
                 {isAdminView ? (
                     <AdminQuotesView />
