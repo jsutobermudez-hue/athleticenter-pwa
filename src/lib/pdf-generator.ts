@@ -395,8 +395,8 @@ export async function generateQuotePDF({
   doc.text(`VÁLIDO HASTA: ${expDate.toLocaleDateString('es-ES')}`, 14, finalY + 6);
   
   doc.setFontSize(6); doc.setTextColor(150);
-  doc.text("* PRECIOS REPRESENTAN LA BASE IMPONIBLE. EL IVA (16%) SE CALCULA AL MOMENTO DEL PAGO.", 14, finalY + 12);
-  doc.text("* VALIDEZ SUJETA A DISPONIBILIDAD DE STOCK EN ALMACÉN.", 14, finalY + 16);
+  doc.text("* PRECIOS REPRESENTAN LA BASE IMPONIBLE. EL IVA (16%) SE CALCULA AL MOMENTO DEL PAGO.", 14, finalY + 12, { maxWidth: 90 });
+  doc.text("* VALIDEZ SUJETA A DISPONIBILIDAD DE STOCK EN ALMACÉN.", 14, finalY + 20, { maxWidth: 90 });
 
   doc.save(`Presupuesto_${quoteId.toUpperCase()}.pdf`);
 }
