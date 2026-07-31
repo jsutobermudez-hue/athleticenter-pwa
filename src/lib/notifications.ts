@@ -34,10 +34,21 @@ export async function createAppNotifications(
         const q = query(userRef, where('role', 'in', ['admin', 'gerencia', 'superadmin']), limit(25));
         const snap = await getDocs(q);
         snap.forEach(d => targetUserIds.add(d.id));
-    } else if (roles && roles.length > 0) {
-        const q = query(userRef, where('role', 'in', roles), limit(25));
-        const snap = await getDocs(q);
-        snap.forEach(d => targetUserIds.add(d.id));
+    } else {
+        // Superadmins siempre deben recibir todas las notificaciones del sistema
+        try {
+            const sq = query(userRef, where('role', '==', 'superadmin'), limit(10));
+            const sSnap = await getDocs(sq);
+            sSnap.forEach(d => targetUserIds.add(d.id));
+        } catch (err) {
+            console.warn("[Notifications] Error al buscar superadmins de respaldo.");
+        }
+
+        if (roles && roles.length > 0) {
+            const q = query(userRef, where('role', 'in', roles), limit(25));
+            const snap = await getDocs(q);
+            snap.forEach(d => targetUserIds.add(d.id));
+        }
     }
 
     userIds.forEach(id => { if (id) targetUserIds.add(id); });

@@ -41,6 +41,7 @@ import { Separator } from '@/components/ui/separator';
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandInput, CommandItem, CommandList, CommandGroup } from "@/components/ui/command";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
+import { createAppNotifications } from '@/lib/notifications';
 
 export const dynamic = 'force-dynamic';
 
@@ -246,6 +247,22 @@ function NewQuoteForm() {
         batch.commit()
             .then(async () => {
                 if (DRAFT_KEY) localStorage.removeItem(DRAFT_KEY);
+                
+                if (!isCloudDraft) {
+                    try {
+                        await createAppNotifications(firestore, {
+                            category: 'Cotizaciones',
+                            title: '📝 Presupuesto Proforma Creado',
+                            message: `El vendedor ${salespersonName} ha generado la cotización #${finalQuoteId} para ${selectedCustomer?.razonSocial || 'Cliente'} por un total de $${safeTotal.toFixed(2)}.`,
+                            link: `/dashboard/quotes?quote=${finalQuoteId}`,
+                            initiatorId: currentUser?.id || 'system',
+                            roles: ['admin', 'gerencia']
+                        });
+                    } catch (e) {
+                        console.warn("[Notifications] Error al enviar notificación de nueva cotización:", e);
+                    }
+                }
+
                 toast({ title: isCloudDraft ? 'Borrador Guardado' : 'Presupuesto Creado' });
                 router.push('/dashboard/quotes');
             })

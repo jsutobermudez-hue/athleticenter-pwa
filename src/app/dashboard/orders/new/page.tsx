@@ -202,11 +202,10 @@ function NewOrderForm() {
         const finalOrderId = `${prefix}-${acronym}-${Date.now().toString().slice(-4)}`;
         
         const safeTotalAmount = isNaN(totalAmount) ? 0 : totalAmount;
+        const spId = isSalesperson ? currentUser.id : (selectedCustomer?.assignedSalespersonId || currentUser.id);
+        const spName = isSalesperson ? currentUser.name : (selectedCustomer?.assignedSalespersonName || currentUser.name || 'Sistema');
 
         runTransaction(firestore, async (transaction) => {
-            const spId = isSalesperson ? currentUser.id : (selectedCustomer?.assignedSalespersonId || currentUser.id);
-            const spName = isSalesperson ? currentUser.name : (selectedCustomer?.assignedSalespersonName || currentUser.name || 'Sistema');
-            
             const orderRef = doc(firestore, 'orders', finalOrderId);
             const orderData = {
                 id: finalOrderId, 
@@ -238,8 +237,24 @@ function NewOrderForm() {
                     createdAt: serverTimestamp()
                 });
             }
-        }).then(() => {
+        }).then(async () => {
             if (DRAFT_KEY) localStorage.removeItem(DRAFT_KEY);
+            
+            if (!isDraft) {
+                try {
+                    await createAppNotifications(firestore, {
+                        category: 'Pedidos',
+                        title: '🛍️ Nuevo Pedido Registrado',
+                        message: `El vendedor ${spName} ha registrado el pedido #${finalOrderId} para ${rawName} por un total de $${safeTotalAmount.toFixed(2)}.`,
+                        link: `/dashboard/dispatch?orderId=${finalOrderId}`,
+                        initiatorId: currentUser.id,
+                        roles: ['admin', 'gerencia', 'deposito']
+                    });
+                } catch (e) {
+                    console.warn("[Notifications] Error al enviar notificación de nuevo pedido:", e);
+                }
+            }
+
             toast({ title: isDraft ? 'Borrador Guardado' : '¡Pedido Procesado!' });
             router.push('/dashboard/orders');
         }).catch(async (serverError) => {
