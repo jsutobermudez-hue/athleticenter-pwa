@@ -312,22 +312,24 @@ export async function generateQuotePDF({
       item.quantity, 
       `$ ${listPrice.toFixed(2)}`, 
       `$ ${finalPrice.toFixed(2)}`, 
+      `$ ${(item.quantity * listPrice).toFixed(2)}`,
       `$ ${(item.quantity * finalPrice).toFixed(2)}`
     ];
   });
 
   (doc as any).autoTable({ 
-    head: [["SKU", "DESCRIPCIÓN DEL EQUIPO", "CANT", "P. LISTA\n(Ref. USD - Pago Bs. BCV)", "P. OFERTA (USD)", "TOTAL (USD)"]], 
+    head: [["SKU", "DESCRIPCIÓN DEL EQUIPO", "CANT", "P. LISTA\n(Ref. USD - Pago Bs. BCV)", "P. OFERTA (USD)", "T. LISTA (USD)", "T. OFERTA (USD)"]], 
     body: tableRows, 
     startY: 80, 
     theme: 'grid', 
-    styles: { fontSize: 7 },
-    headStyles: { fillColor: [37, 99, 235], halign: 'center', fontSize: 7, fontStyle: 'bold' },
+    styles: { fontSize: 6.5 },
+    headStyles: { fillColor: [37, 99, 235], halign: 'center', fontSize: 6.5, fontStyle: 'bold' },
     columnStyles: { 
         2: { halign: 'center' },
         3: { halign: 'right' },
         4: { halign: 'right' },
-        5: { halign: 'right', fontStyle: 'bold' }
+        5: { halign: 'right' },
+        6: { halign: 'right', fontStyle: 'bold' }
     }
   });
 
@@ -336,8 +338,8 @@ export async function generateQuotePDF({
   const totalBcvVES = totalBcvUSD * bcvRate;
 
   // Bloque de Totales y Ahorro Rediseñado para Doble Total de Pago
-  const boxWidth = 75;
-  const boxHeight = 50;
+  const boxWidth = 80;
+  const boxHeight = 52;
   const boxX = 210 - boxWidth - 14;
 
   doc.setFillColor(248, 250, 252);
@@ -349,14 +351,14 @@ export async function generateQuotePDF({
   doc.text("RESUMEN DE INVERSIÓN:", boxX + 4, finalY + 5);
   
   doc.setFont("helvetica", "normal");
-  doc.text("SUBTOTAL LISTA (USD):", boxX + 4, finalY + 11);
+  doc.text("TOTAL LISTA (USD):", boxX + 4, finalY + 11);
   doc.text(`$ ${totalBcvUSD.toFixed(2)}`, boxX + boxWidth - 4, finalY + 11, { align: 'right' });
 
   doc.setTextColor(16, 185, 129);
   doc.text("AHORRO RED APLICADO:", boxX + 4, finalY + 17);
   doc.text(`-$ ${savings.toFixed(2)}`, boxX + boxWidth - 4, finalY + 17, { align: 'right' });
 
-  doc.setFontSize(8); doc.setTextColor(30, 41, 59); doc.setFont("helvetica", "bold");
+  doc.setFontSize(7.5); doc.setTextColor(30, 41, 59); doc.setFont("helvetica", "bold");
   doc.text("TOTAL NETO (USD):", boxX + 4, finalY + 23);
   doc.text(`$ ${totalCashUSD.toFixed(2)}`, boxX + boxWidth - 4, finalY + 23, { align: 'right' });
 
