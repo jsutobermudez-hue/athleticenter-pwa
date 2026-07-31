@@ -312,22 +312,24 @@ export async function generateQuotePDF({
       item.quantity, 
       `$ ${listPrice.toFixed(2)}`, 
       `$ ${finalPrice.toFixed(2)}`, 
+      `$ ${(item.quantity * listPrice).toFixed(2)}`,
       `$ ${(item.quantity * finalPrice).toFixed(2)}`
     ];
   });
 
   (doc as any).autoTable({ 
-    head: [["SKU", "DESCRIPCIÓN DEL EQUIPO", "CANT", "P. LISTA\n(Ref. USD - Pago Bs. BCV)", "P. OFERTA (USD)", "TOTAL (USD)"]], 
+    head: [["SKU", "DESCRIPCIÓN DEL EQUIPO", "CANT", "P. LISTA\n(Ref. USD - Pago Bs. BCV)", "P. OFERTA (USD)", "T. LISTA (USD)", "T. OFERTA (USD)"]], 
     body: tableRows, 
     startY: 80, 
     theme: 'grid', 
-    styles: { fontSize: 7 },
-    headStyles: { fillColor: [37, 99, 235], halign: 'center', fontSize: 7, fontStyle: 'bold' },
+    styles: { fontSize: 6.5 },
+    headStyles: { fillColor: [37, 99, 235], halign: 'center', fontSize: 6.5, fontStyle: 'bold' },
     columnStyles: { 
         2: { halign: 'center' },
         3: { halign: 'right' },
         4: { halign: 'right' },
-        5: { halign: 'right', fontStyle: 'bold' }
+        5: { halign: 'right' },
+        6: { halign: 'right', fontStyle: 'bold' }
     }
   });
 
