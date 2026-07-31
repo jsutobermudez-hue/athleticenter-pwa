@@ -6,6 +6,8 @@ import { aiAnalystFlow } from '@/ai/flows/ai-analyst-flow';
 import { generateWhatsAppReminder } from '@/ai/flows/whatsapp-credit-reminder';
 import { generateWhatsAppStatusUpdate } from '@/ai/flows/whatsapp-status-update';
 import { executeBcvRateSync } from '@/services/agents';
+import { sendPushNotification } from '@/lib/web-push-server';
+
 
 /**
  * ACCIONES DEL SERVIDOR v13.1 - BLINDAJE DE PRODUCCIÓN
@@ -64,5 +66,22 @@ export async function syncBcvRateAction() {
         return { success: false, error: e.message };
     }
 }
+
+export async function triggerPushNotificationAction(
+    userIds: string[], 
+    payload: { title: string; body: string; url?: string }
+) {
+    try {
+        await ensureServerAuth();
+        const { firestore } = initializeFirebaseServer();
+        const promises = userIds.map(uid => sendPushNotification(firestore, uid, payload));
+        await Promise.all(promises);
+        return { success: true };
+    } catch (e: any) {
+        console.error("[Action Error] Push trigger failed:", e.message);
+        return { success: false, error: e.message };
+    }
+}
+
 
 

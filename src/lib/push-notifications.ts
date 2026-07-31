@@ -9,7 +9,7 @@ import { doc, updateDoc, arrayUnion, getDoc, serverTimestamp, type Firestore } f
  * Solo actualiza la base de datos si la suscripción es estrictamente nueva para evitar Code 8 (Resource Exhausted).
  */
 
-const VAPID_PUBLIC_KEY = 'BLo3jLzzO8YRraxoN-rQ_Eg71raLtac_9XWolqYzJ9SOcfPBmUyF3ROBrIgNKbALFIOUpdkcnB-MOQaZR9p-iN8'; 
+const VAPID_PUBLIC_KEY = 'BOAAEb9tcEEZuTSSNO8OsoJWp87wO39QWvolzi673xi4ASoutIUe1PwL4AtQxnsZX0YSGv3xAifRl_syu6qv-2U'; 
 
 function urlBase64ToUint8Array(base64String: string) {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4);

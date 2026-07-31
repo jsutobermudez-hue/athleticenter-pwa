@@ -72,6 +72,18 @@ export async function createAppNotifications(
     await batch.commit();
     // LOG DE WHATSAPP (Simulado para publicación exitosa)
     await sendWhatsAppMessage('LOG_SYSTEM', `Notificación emitida: ${title}`);
+    
+    // Disparar notificaciones Push nativas en segundo plano
+    try {
+        const { triggerPushNotificationAction } = await import('@/app/actions');
+        await triggerPushNotificationAction(finalTargetIds, {
+            title,
+            body: message,
+            url: link || '#'
+        });
+    } catch (pushErr) {
+        console.warn("[Notifications] Error al invocar la acción de envío push:", pushErr);
+    }
   } catch (e) {
     console.error("[Notifications] Fallo crítico al guardar en base de datos.");
   }
