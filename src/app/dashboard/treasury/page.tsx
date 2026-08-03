@@ -288,9 +288,9 @@ export default function TreasuryPage() {
       </header>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
-          <MetricCard title="Liquidez Real" value={`$${metrics?.totalCashVerified.toLocaleString() || '0'}`} subValue="Efectivo en Banco (CASH)" icon={TrendingUp} colorClass="bg-emerald-50 text-emerald-500" />
-          <MetricCard title="Capital en Calle" value={`$${metrics?.liquidityGap.toLocaleString() || '0'}`} subValue="Cuentas por Cobrar" icon={Wallet} colorClass="bg-blue-50 text-blue-500" />
-          <MetricCard title="Valor Activo" value={`$${metrics?.replacementCostTotal.toLocaleString() || '0'}`} subValue="Costo Reposición WAC" icon={Boxes} colorClass="bg-slate-900 text-white" />
+          <MetricCard title="Liquidez Real" value={`$${metrics?.totalCashVerified?.toLocaleString() || '0'}`} subValue="Efectivo en Banco (CASH)" icon={TrendingUp} colorClass="bg-emerald-50 text-emerald-500" />
+          <MetricCard title="Capital en Calle" value={`$${metrics?.liquidityGap?.toLocaleString() || '0'}`} subValue="Cuentas por Cobrar" icon={Wallet} colorClass="bg-blue-50 text-blue-500" />
+          <MetricCard title="Valor Activo" value={`$${metrics?.replacementCostTotal?.toLocaleString() || '0'}`} subValue="Costo Reposición WAC" icon={Boxes} colorClass="bg-slate-900 text-white" />
           <MetricCard title="Tasa BCV" value={`${settings?.bcvRate || '---'} Bs`} subValue="Parámetro de Red" icon={Landmark} colorClass="bg-primary/5 text-primary" />
       </div>
 
@@ -307,22 +307,22 @@ export default function TreasuryPage() {
                     <div className="space-y-6">
                         <div className="space-y-1">
                             <p className="text-[10px] font-black uppercase text-slate-500">Facturación Nominal (En Libros)</p>
-                            <p className="text-4xl font-black text-white tracking-tighter">${metrics?.totalBilling.toLocaleString()}</p>
+                            <p className="text-4xl font-black text-white tracking-tighter">${metrics?.totalBilling?.toLocaleString() || '0'}</p>
                         </div>
                         <div className="p-4 rounded-2xl bg-white/5 border border-white/10 space-y-2">
                             <p className="text-[8px] font-black uppercase text-slate-400">Estado de Conversión a Cash</p>
                             <Progress value={metrics?.efficiency || 0} className="h-2 bg-white/5" />
-                            <div className="flex justify-between text-[9px] font-black uppercase"><span className="text-slate-500">Efficiency</span><span className="text-emerald-400">{metrics?.efficiency.toFixed(1)}%</span></div>
+                            <div className="flex justify-between text-[9px] font-black uppercase"><span className="text-slate-500">Efficiency</span><span className="text-emerald-400">{metrics?.efficiency?.toFixed(1) || '0'}%</span></div>
                         </div>
                     </div>
 
                     <div className="space-y-6 border-l border-white/5 pl-12">
                         <div className="space-y-1">
                             <p className="text-[10px] font-black uppercase text-primary">Liquidez Real Verificada</p>
-                            <p className="text-4xl font-black text-white tracking-tighter">${metrics?.totalCashVerified.toLocaleString()}</p>
+                            <p className="text-4xl font-black text-white tracking-tighter">${metrics?.totalCashVerified?.toLocaleString() || '0'}</p>
                         </div>
                         <p className="text-[9px] font-medium text-slate-400 leading-relaxed uppercase">
-                            VALOR TOTAL DEL EFECTIVO (CASH/ZELLE/VES) CONCILIADO POR ADMINISTRACIÓN TRAS DILUCIÓN DE INCENTIVOS.
+                             VALOR TOTAL DEL EFECTIVO (CASH/ZELLE/VES) CONCILIADO POR ADMINISTRACIÓN TRAS DILUCIÓN DE INCENTIVOS.
                         </p>
                     </div>
 
@@ -332,7 +332,7 @@ export default function TreasuryPage() {
                             (metrics?.efficiency || 0) < 50 ? "bg-rose-500/10 border-2 border-rose-500/20" : "bg-emerald-500/10 border-2 border-emerald-500/20"
                         )}>
                             <p className="text-[10px] font-black uppercase text-slate-400">Gap de Cartera</p>
-                            <p className="text-3xl font-black text-white tracking-tighter">-${metrics?.liquidityGap.toLocaleString()}</p>
+                            <p className="text-3xl font-black text-white tracking-tighter">-${metrics?.liquidityGap?.toLocaleString() || '0'}</p>
                             <Badge variant="outline" className="border-white/10 text-[8px] font-black text-slate-500">DINERO PENDIENTE</Badge>
                         </div>
                     </div>
