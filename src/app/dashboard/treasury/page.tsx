@@ -26,7 +26,7 @@ import {
 } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Label } from '@/components/ui/label';
-import type { FinancialSettings, Product, PricingStrategy, Order } from '@/lib/definitions';
+import type { FinancialSettings, Product, PricingStrategy, Order, PriceBackupItem } from '@/lib/definitions';
 import { Input } from '@/components/ui/input';
 import { fetchLatestBcvRate } from '@/lib/bcv-fetcher';
 import { logActivity } from '@/lib/audit';
@@ -38,8 +38,8 @@ import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
-import type { PriceBackupItem } from '@/lib/definitions';
-import { executePriceAdjustment, executePriceRollback } from '@/app/actions';
+
+
 
 const financialSchema = z.object({
   bcvRate: z.coerce.number().min(1, 'La tasa debe ser mayor o igual a 1'),
@@ -224,27 +224,153 @@ export default function TreasuryPage() {
   const handleMassUpdate = async () => {
     if (!firestore || !currentUser || !settings || !simulation) return;
     setIsMassUpdating(true);
-    setProgressVal(30);
+    setProgressVal(0);
+    
+    const targetProducts = simulation.targetProducts;
+    setTotalToProcess(targetProducts.length);
     
     try {
-        const res = await executePriceAdjustment({
-            adjustmentPercent,
-            syncType,
-            brandFilter,
-            categoryFilter,
-            modelFilter,
-            userId: currentUser.id,
-            userName: currentUser.name
-        });
+        // 1. Fetch private pricing documents in parallel
+        const pricingRefs = targetProducts.map(p => doc(firestore, `products/${p.id}/private/pricing`));
+        const pricingPromises = pricingRefs.map(ref => getDoc(ref));
+        const pricingSnaps = await Promise.all(pricingPromises);
         
-        if (res.success) {
-            setProgressVal(100);
-            toast({ title: "Sincronización Completa", description: `${res.count} productos actualizados.` });
-            setShowConfirmModal(false);
-            setAcceptResponsibility(false);
-        } else {
-            toast({ variant: "destructive", title: "Error Masivo", description: res.error });
+        const backups: PriceBackupItem[] = [];
+        const updatesList: Array<{
+            productRef: any;
+            pricingRef: any;
+            productUpdate: any;
+            pricingUpdate: any;
+        }> = [];
+        
+        for (let i = 0; i < targetProducts.length; i++) {
+            const product = targetProducts[i];
+            const pricingSnap = pricingSnaps[i];
+            
+            if (pricingSnap.exists()) {
+                const pricingData = pricingSnap.data();
+                const strategy = pricingData.strategyDetails as PricingStrategy | undefined;
+                if (strategy?.strategy === 'target_price') continue;
+                
+                const safeStrategy: any = strategy || {
+                    strategy: 'smart_import',
+                    useGlobalSettings: true,
+                    costLanded: product.cost || 0,
+                    importDetails: {
+                        factoryCost: product.cost || 0,
+                        chinaShipping: 0,
+                        dimensions: { length: 10, width: 10, height: 10 },
+                        unitsPerBox: 1,
+                        freightRatePerCBM: 450,
+                        otherExpenses: 0
+                    }
+                };
+
+                const baseCost = (syncType === 'wac' && product.cost) ? product.cost : (safeStrategy.importDetails?.factoryCost || 0);
+                const chinaShipping = syncType === 'wac' ? 0 : (safeStrategy.importDetails?.chinaShipping || 0);
+                
+                const newFactoryCost = baseCost * inflationMultiplier;
+                const costLanded = newFactoryCost + chinaShipping;
+                
+                const adjustedStrategy: any = {
+                    ...safeStrategy,
+                    costLanded: costLanded,
+                    importDetails: {
+                        ...(safeStrategy.importDetails || { dimensions: { length: 10, width: 10, height: 10 }, unitsPerBox: 1 }),
+                        factoryCost: newFactoryCost,
+                        chinaShipping: chinaShipping
+                    }
+                };
+
+                const newCalc = calculatePricingTier(adjustedStrategy, watchedValues as any);
+                adjustedStrategy.calculated = newCalc;
+
+                backups.push({
+                    productId: product.id!,
+                    oldPrice: product.price,
+                    oldPriceCashUSD: product.priceCashUSD || 0,
+                    oldPriceEarly7d: product.priceEarly7d || 0,
+                    oldPriceEarly15d: product.priceEarly15d || 0,
+                    oldCost: product.cost || 0,
+                    oldFactoryCost: safeStrategy.importDetails?.factoryCost || 0,
+                    oldChinaShipping: safeStrategy.importDetails?.chinaShipping || 0
+                });
+
+                updatesList.push({
+                    productRef: doc(firestore, 'products', product.id!),
+                    pricingRef: pricingSnap.ref,
+                    productUpdate: {
+                        price: newCalc.priceListBCV,
+                        priceCashUSD: newCalc.priceCashUSD,
+                        priceEarly7d: newCalc.priceEarly7d,
+                        priceEarly15d: newCalc.priceEarly15d,
+                        cost: newCalc.landedCost,
+                        updatedAt: serverTimestamp()
+                    },
+                    pricingUpdate: {
+                        landedCost: newCalc.landedCost,
+                        netProfit: newCalc.netProfitUSD,
+                        strategyDetails: adjustedStrategy,
+                        updatedAt: serverTimestamp()
+                    }
+                });
+            }
         }
+
+        if (updatesList.length === 0) {
+            toast({ title: "Sin productos", description: "Ningún producto califica para el ajuste." });
+            setIsMassUpdating(false);
+            return;
+        }
+
+        // 2. Save lastPriceAdjustmentBackup inside system/financials document
+        await setDoc(doc(firestore, 'system', 'financials'), {
+            lastPriceAdjustmentBackup: {
+                userId: currentUser.id,
+                userName: currentUser.name,
+                adjustmentPercent: adjustmentPercent,
+                syncType: syncType,
+                brandFilter: brandFilter,
+                categoryFilter: categoryFilter,
+                modelFilter: modelFilter,
+                backups: backups,
+                createdAt: new Date(),
+                isRestored: false
+            }
+        }, { merge: true });
+
+        // 3. Commit batches of max 400 writes
+        let batch = writeBatch(firestore);
+        let batchOpCount = 0;
+        
+        for (let i = 0; i < updatesList.length; i++) {
+            const updateItem = updatesList[i];
+            batch.update(updateItem.productRef, updateItem.productUpdate);
+            batch.update(updateItem.pricingRef, updateItem.pricingUpdate);
+            batchOpCount += 2;
+            
+            if (batchOpCount >= 400 || i === updatesList.length - 1) {
+                await batch.commit();
+                setProgressVal(Math.round(((i + 1) / updatesList.length) * 100));
+                if (i < updatesList.length - 1) {
+                    batch = writeBatch(firestore);
+                    batchOpCount = 0;
+                }
+            }
+        }
+
+        await logActivity(firestore, {
+            userId: currentUser.id,
+            userName: currentUser.name,
+            action: 'MASS_PRICE_UPDATE',
+            resource: 'products',
+            severity: 'critical',
+            details: `Ajuste masivo de precios del ${adjustmentPercent}%. Tipo: ${syncType}. F: Marca=${brandFilter}, Cat=${categoryFilter}, Mod=${modelFilter}. ${updatesList.length} prod. actualizados.`
+        });
+
+        toast({ title: "Sincronización Completa", description: `${updatesList.length} productos actualizados.` });
+        setShowConfirmModal(false);
+        setAcceptResponsibility(false);
     } catch (e: any) {
         console.error("Error in mass price adjustment:", e);
         toast({ variant: "destructive", title: "Error Masivo", description: e.message || "Fallo de conexión." });
@@ -256,20 +382,128 @@ export default function TreasuryPage() {
   const handleRollback = async () => {
     if (!firestore || !currentUser) return;
     setIsRollbacking(true);
-    setProgressVal(30);
+    setProgressVal(0);
     
     try {
-        const res = await executePriceRollback({
+        // 1. Read lastPriceAdjustmentBackup from system/financials
+        const settingsSnap = await getDoc(doc(firestore, 'system', 'financials'));
+        const settingsData = settingsSnap.data();
+        const lastBackup = settingsData?.lastPriceAdjustmentBackup;
+        
+        if (!lastBackup || lastBackup.isRestored) {
+            toast({ title: "Sin registros", description: "No se encontró ningún ajuste pendiente por revertir." });
+            setIsRollbacking(false);
+            return;
+        }
+        
+        const backups = lastBackup.backups as PriceBackupItem[];
+        setTotalToProcess(backups.length);
+        
+        const pricingPromises = backups.map(backup => {
+            const pricingRef = doc(firestore, `products/${backup.productId}/private/pricing`);
+            return getDoc(pricingRef);
+        });
+        const pricingSnaps = await Promise.all(pricingPromises);
+        
+        let batch = writeBatch(firestore);
+        let batchOpCount = 0;
+        let processedCount = 0;
+        
+        for (let i = 0; i < backups.length; i++) {
+            const backup = backups[i];
+            const pricingSnap = pricingSnaps[i];
+            
+            if (pricingSnap.exists()) {
+                const pricingData = pricingSnap.data();
+                const strategy = pricingData.strategyDetails as PricingStrategy | undefined;
+                
+                const safeStrategy: any = strategy || {
+                    strategy: 'smart_import',
+                    useGlobalSettings: true,
+                    costLanded: backup.oldCost,
+                    importDetails: {
+                        factoryCost: backup.oldFactoryCost,
+                        chinaShipping: backup.oldChinaShipping,
+                        dimensions: { length: 10, width: 10, height: 10 },
+                        unitsPerBox: 1,
+                        freightRatePerCBM: 450,
+                        otherExpenses: 0
+                    }
+                };
+
+                const restoredStrategy: any = {
+                    ...safeStrategy,
+                    costLanded: backup.oldCost,
+                    importDetails: {
+                        ...(safeStrategy.importDetails || { dimensions: { length: 10, width: 10, height: 10 }, unitsPerBox: 1 }),
+                        factoryCost: backup.oldFactoryCost,
+                        chinaShipping: backup.oldChinaShipping
+                    }
+                };
+                
+                const restoredCalc = {
+                    priceListBCV: backup.oldPrice,
+                    priceCashUSD: backup.oldPriceCashUSD,
+                    priceEarly7d: backup.oldPriceEarly7d,
+                    priceEarly15d: backup.oldPriceEarly15d,
+                    netProfitUSD: pricingData.netProfit || 0,
+                    netMarginPercent: safeStrategy.calculated?.netMarginPercent || 0,
+                    totalCommissionsUSD: safeStrategy.calculated?.totalCommissionsUSD || 0,
+                    adminOverheadUSD: safeStrategy.calculated?.adminOverheadUSD || 0,
+                    landedCost: backup.oldCost
+                };
+                
+                restoredStrategy.calculated = restoredCalc;
+                
+                const productRef = doc(firestore, 'products', backup.productId);
+                batch.update(productRef, {
+                    price: backup.oldPrice,
+                    priceCashUSD: backup.oldPriceCashUSD,
+                    priceEarly7d: backup.oldPriceEarly7d,
+                    priceEarly15d: backup.oldPriceEarly15d,
+                    cost: backup.oldCost,
+                    updatedAt: serverTimestamp()
+                });
+                
+                batch.update(pricingSnap.ref, {
+                    landedCost: backup.oldCost,
+                    strategyDetails: restoredStrategy,
+                    updatedAt: serverTimestamp()
+                });
+                
+                batchOpCount += 2;
+                processedCount++;
+                
+                if (batchOpCount >= 400 || i === backups.length - 1) {
+                    await batch.commit();
+                    setProgressVal(Math.round(((i + 1) / backups.length) * 100));
+                    if (i < backups.length - 1) {
+                        batch = writeBatch(firestore);
+                        batchOpCount = 0;
+                    }
+                }
+            }
+        }
+        
+        // 2. Mark backup as restored in system/financials
+        await setDoc(doc(firestore, 'system', 'financials'), {
+            lastPriceAdjustmentBackup: {
+                isRestored: true,
+                restoredAt: new Date(),
+                restoredBy: currentUser.id
+            }
+        }, { merge: true });
+        
+        await logActivity(firestore, {
             userId: currentUser.id,
-            userName: currentUser.name
+            userName: currentUser.name,
+            action: 'ROLLBACK_PRICE_UPDATE',
+            resource: 'products',
+            severity: 'critical',
+            details: `Reversión masiva del ajuste de precios. ${processedCount} productos restaurados.`
         });
         
-        if (res.success) {
-            setProgressVal(100);
-            toast({ title: "Ajuste Revertido", description: `${res.count} productos restaurados a sus valores anteriores.` });
-        } else {
-            toast({ variant: "destructive", title: "Error de Reversión", description: res.error });
-        }
+        toast({ title: "Ajuste Revertido", description: `${processedCount} productos restaurados a sus valores anteriores.` });
     } catch (e: any) {
         console.error("Error in price rollback:", e);
         toast({ variant: "destructive", title: "Error de Reversión", description: e.message || "Fallo de conexión." });
