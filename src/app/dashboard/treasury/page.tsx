@@ -246,20 +246,34 @@ export default function TreasuryPage() {
             
             if (pricingSnap.exists()) {
                 const pricingData = pricingSnap.data();
-                const strategy = pricingData.strategyDetails as PricingStrategy;
+                const strategy = pricingData.strategyDetails as PricingStrategy | undefined;
                 if (strategy?.strategy === 'target_price') continue;
                 
-                const baseCost = (syncType === 'wac' && product.cost) ? product.cost : (strategy.importDetails?.factoryCost || 0);
-                const chinaShipping = syncType === 'wac' ? 0 : (strategy.importDetails?.chinaShipping || 0);
+                const safeStrategy = strategy || {
+                    strategy: 'smart_import',
+                    useGlobalSettings: true,
+                    costLanded: product.cost || 0,
+                    importDetails: {
+                        factoryCost: product.cost || 0,
+                        chinaShipping: 0,
+                        dimensions: { length: 10, width: 10, height: 10 },
+                        unitsPerBox: 1,
+                        freightRatePerCBM: 450,
+                        otherExpenses: 0
+                    }
+                };
+
+                const baseCost = (syncType === 'wac' && product.cost) ? product.cost : (safeStrategy.importDetails?.factoryCost || 0);
+                const chinaShipping = syncType === 'wac' ? 0 : (safeStrategy.importDetails?.chinaShipping || 0);
                 
                 const newFactoryCost = baseCost * inflationMultiplier;
                 const costLanded = newFactoryCost + chinaShipping;
                 
                 const adjustedStrategy = {
-                    ...strategy,
+                    ...safeStrategy,
                     costLanded: costLanded,
                     importDetails: {
-                        ...(strategy.importDetails || { dimensions: { length: 10, width: 10, height: 10 }, unitsPerBox: 1 }),
+                        ...(safeStrategy.importDetails || { dimensions: { length: 10, width: 10, height: 10 }, unitsPerBox: 1 }),
                         factoryCost: newFactoryCost,
                         chinaShipping: chinaShipping
                     }
@@ -275,8 +289,8 @@ export default function TreasuryPage() {
                     oldPriceEarly7d: product.priceEarly7d || 0,
                     oldPriceEarly15d: product.priceEarly15d || 0,
                     oldCost: product.cost || 0,
-                    oldFactoryCost: strategy.importDetails?.factoryCost || 0,
-                    oldChinaShipping: strategy.importDetails?.chinaShipping || 0
+                    oldFactoryCost: safeStrategy.importDetails?.factoryCost || 0,
+                    oldChinaShipping: safeStrategy.importDetails?.chinaShipping || 0
                 });
 
                 updatesList.push({
@@ -400,13 +414,27 @@ export default function TreasuryPage() {
             
             if (pricingSnap.exists()) {
                 const pricingData = pricingSnap.data();
-                const strategy = pricingData.strategyDetails as PricingStrategy;
+                const strategy = pricingData.strategyDetails as PricingStrategy | undefined;
                 
-                const restoredStrategy = {
-                    ...strategy,
+                const safeStrategy = strategy || {
+                    strategy: 'smart_import',
+                    useGlobalSettings: true,
                     costLanded: backup.oldCost,
                     importDetails: {
-                        ...(strategy.importDetails || { dimensions: { length: 10, width: 10, height: 10 }, unitsPerBox: 1 }),
+                        factoryCost: backup.oldFactoryCost,
+                        chinaShipping: backup.oldChinaShipping,
+                        dimensions: { length: 10, width: 10, height: 10 },
+                        unitsPerBox: 1,
+                        freightRatePerCBM: 450,
+                        otherExpenses: 0
+                    }
+                };
+
+                const restoredStrategy = {
+                    ...safeStrategy,
+                    costLanded: backup.oldCost,
+                    importDetails: {
+                        ...(safeStrategy.importDetails || { dimensions: { length: 10, width: 10, height: 10 }, unitsPerBox: 1 }),
                         factoryCost: backup.oldFactoryCost,
                         chinaShipping: backup.oldChinaShipping
                     }
@@ -418,9 +446,9 @@ export default function TreasuryPage() {
                     priceEarly7d: backup.oldPriceEarly7d,
                     priceEarly15d: backup.oldPriceEarly15d,
                     netProfitUSD: pricingData.netProfit || 0,
-                    netMarginPercent: strategy.calculated?.netMarginPercent || 0,
-                    totalCommissionsUSD: strategy.calculated?.totalCommissionsUSD || 0,
-                    adminOverheadUSD: strategy.calculated?.adminOverheadUSD || 0,
+                    netMarginPercent: safeStrategy.calculated?.netMarginPercent || 0,
+                    totalCommissionsUSD: safeStrategy.calculated?.totalCommissionsUSD || 0,
+                    adminOverheadUSD: safeStrategy.calculated?.adminOverheadUSD || 0,
                     landedCost: backup.oldCost
                 };
                 
