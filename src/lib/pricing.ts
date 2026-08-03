@@ -1,5 +1,3 @@
-'use client';
-
 import type { FinancialSettings, PricingStrategy } from './definitions';
 
 /**
