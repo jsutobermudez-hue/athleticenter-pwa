@@ -147,6 +147,7 @@ export default function TreasuryPage() {
 
   const simulation = useMemo(() => {
     if (!products || !settings || !watchedValues.bcvRate || !isMounted) return null;
+    console.log("TREASURY SIMULATION PRODUCTS SAMPLE:", products.slice(0, 3).map(p => ({ name: p.name, price: p.price, priceCashUSD: p.priceCashUSD, cost: p.cost })));
     const simulatedBcvRate = watchedValues.bcvRate;
     let currentTotalVES = 0;
     let newTotalVES = 0;
@@ -691,17 +692,42 @@ export default function TreasuryPage() {
                             {simulation.targetProducts.length > 0 && (
                                 <div className="space-y-3 mt-2">
                                     <p className="text-[8px] font-black uppercase text-slate-400">Muestra de Precios de Venta (PVP):</p>
-                                    <div className="space-y-2 max-h-[160px] overflow-y-auto pr-1">
+                                    <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1">
                                         {simulation.targetProducts.slice(0, 3).map(p => {
-                                            const oldVal = p.priceCashUSD || 0;
-                                            const newVal = oldVal * inflationMultiplier;
+                                            const oldPriceList = p.price || 0;
+                                            const newPriceList = oldPriceList * inflationMultiplier;
+                                            
+                                            // Calculate Cash Price fallback dynamically if priceCashUSD is 0
+                                            let oldPriceCash = p.priceCashUSD || 0;
+                                            if (oldPriceCash === 0 && oldPriceList > 0) {
+                                                const discount = settings?.defaultBcvDiscount || 35;
+                                                oldPriceCash = oldPriceList * (1 - discount / 100);
+                                            }
+                                            const newPriceCash = oldPriceCash * inflationMultiplier;
+
                                             return (
-                                                <div key={p.id} className="flex justify-between items-center text-[9px] bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
-                                                    <span className="font-bold text-slate-700 truncate max-w-[140px]">{p.name}</span>
-                                                    <div className="flex items-center gap-2 font-black">
-                                                        <span className="text-slate-400 font-medium">${oldVal.toFixed(2)}</span>
-                                                        <span className="text-slate-300">➔</span>
-                                                        <span className={adjustmentPercent >= 0 ? "text-emerald-600" : "text-rose-600"}>${newVal.toFixed(2)}</span>
+                                                <div key={p.id} className="flex flex-col gap-1.5 bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm hover:shadow transition-shadow duration-200">
+                                                    <div className="flex justify-between items-center text-[10px] font-bold text-slate-800">
+                                                        <span className="truncate max-w-[170px]">{p.name}</span>
+                                                        <span className="text-[7px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded-md uppercase font-black">{p.brand || 'OTRA'}</span>
+                                                    </div>
+                                                    <div className="grid grid-cols-2 gap-4 pt-1 border-t border-slate-100/60 text-[8px] text-slate-500 font-bold uppercase leading-none">
+                                                        <div className="flex flex-col gap-0.5">
+                                                            <span className="text-[7px] text-slate-400 font-semibold">PVP Lista (BCV):</span>
+                                                            <div className="flex items-center gap-1 font-black">
+                                                                <span className="text-slate-400 font-medium">${oldPriceList.toFixed(2)}</span>
+                                                                <span className="text-slate-300">➔</span>
+                                                                <span className={adjustmentPercent >= 0 ? "text-emerald-600" : "text-rose-600"}>${newPriceList.toFixed(2)}</span>
+                                                            </div>
+                                                        </div>
+                                                        <div className="flex flex-col gap-0.5">
+                                                            <span className="text-[7px] text-slate-400 font-semibold">PVP Efectivo (Cash):</span>
+                                                            <div className="flex items-center gap-1 font-black">
+                                                                <span className="text-slate-400 font-medium">${oldPriceCash.toFixed(2)}</span>
+                                                                <span className="text-slate-300">➔</span>
+                                                                <span className={adjustmentPercent >= 0 ? "text-emerald-600" : "text-rose-600"}>${newPriceCash.toFixed(2)}</span>
+                                                            </div>
+                                                        </div>
                                                     </div>
                                                 </div>
                                             );
