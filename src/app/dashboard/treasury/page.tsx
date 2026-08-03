@@ -300,7 +300,7 @@ export default function TreasuryPage() {
                 }
             };
 
-            // Back up the COMPLETE old strategy and values
+            // Back up the COMPLETE old strategy only if it was NOT target_price to save bandwidth/storage size
             backups.push({
                 productId: product.id!,
                 oldPrice: oldPriceList,
@@ -308,7 +308,7 @@ export default function TreasuryPage() {
                 oldPriceEarly7d: product.priceEarly7d || 0,
                 oldPriceEarly15d: product.priceEarly15d || 0,
                 oldCost: oldCost,
-                oldStrategyDetails: strategy || null // Entire original pricing strategy structure
+                oldStrategyDetails: strategy?.strategy !== 'target_price' ? (strategy || null) : null
             });
 
             const pricingRef = doc(firestore, `products/${product.id}/private/pricing`);
@@ -355,7 +355,7 @@ export default function TreasuryPage() {
             }
         }, { merge: true });
 
-        // 3. Commit batches of max 400 writes
+        // 3. Commit batches of max 400 writes with 600ms throttle delay
         let batch = writeBatch(firestore);
         let batchOpCount = 0;
         
@@ -369,6 +369,7 @@ export default function TreasuryPage() {
                 await batch.commit();
                 setProgressVal(Math.round(((i + 1) / updatesList.length) * 100));
                 if (i < updatesList.length - 1) {
+                    await new Promise(resolve => setTimeout(resolve, 600)); // Throttling delay
                     batch = writeBatch(firestore);
                     batchOpCount = 0;
                 }
@@ -455,6 +456,7 @@ export default function TreasuryPage() {
                 await batch.commit();
                 setProgressVal(Math.round(((i + 1) / backups.length) * 100));
                 if (i < backups.length - 1) {
+                    await new Promise(resolve => setTimeout(resolve, 600)); // Throttling delay
                     batch = writeBatch(firestore);
                     batchOpCount = 0;
                 }
