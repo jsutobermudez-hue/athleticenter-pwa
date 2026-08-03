@@ -184,22 +184,17 @@ export async function generateOrderPDF({
   doc.rect(14, finalY, 85, 30, 'S');
 
   doc.setFontSize(7); doc.setTextColor(100); doc.setFont("helvetica", "bold");
-  doc.text("PAGO EN BOLÍVARES (TASA BCV):", 18, finalY + 6);
+  doc.text("PAGO EN BOLÍVARES (TASA BCV):", 18, finalY + 11);
   doc.setFontSize(11); doc.setTextColor(37, 99, 235); doc.setFont("helvetica", "bold");
-  doc.text(`TOTAL USD BCV: $ ${totalBcvUSD.toFixed(2)}`, 18, finalY + 16);
-  doc.setFontSize(7); doc.setTextColor(120); doc.setFont("helvetica", "normal");
-  doc.text(`TASA REF: ${rate.toFixed(2)} Bs/$`, 18, finalY + 22);
-  doc.text(`EQUIV. BS: ${totalVES.toLocaleString('es-VE', { minimumFractionDigits: 2 })} Bs.`, 18, finalY + 27);
+  doc.text(`TOTAL USD: $ ${totalBcvUSD.toFixed(2)}`, 18, finalY + 21);
 
   doc.setFillColor(30, 41, 59);
   doc.rect(111, finalY, 85, 30, 'F');
   
   doc.setFontSize(7); doc.setTextColor(148, 163, 184); doc.setFont("helvetica", "bold");
-  doc.text("PAGO EN DIVISAS (CASH/ZELLE):", 115, finalY + 6);
+  doc.text("PAGO EN DIVISAS (CASH/ZELLE):", 115, finalY + 11);
   doc.setFontSize(11); doc.setTextColor(16, 185, 129); doc.setFont("helvetica", "bold");
-  doc.text(`TOTAL USD CASH: $ ${totalCashUSD.toFixed(2)}`, 115, finalY + 16);
-  doc.setFontSize(7); doc.setTextColor(148, 163, 184); doc.setFont("helvetica", "normal");
-  doc.text(`INCENTIVO RED APLICADO`, 115, finalY + 23);
+  doc.text(`TOTAL USD CASH: $ ${totalCashUSD.toFixed(2)}`, 115, finalY + 21);
 
   doc.setFontSize(6); doc.setTextColor(150); doc.setFont("helvetica", "normal");
   doc.text("* ESTE DOCUMENTO REPRESENTA LA BASE IMPONIBLE. EL IVA (16%) SE CALCULA AL MOMENTO DEL PAGO FISCAL.", 14, finalY + 38);
