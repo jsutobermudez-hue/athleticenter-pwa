@@ -355,7 +355,7 @@ export default function TreasuryPage() {
             }
         }, { merge: true });
 
-        // 3. Commit batches of max 400 writes with 600ms throttle delay
+        // 3. Commit batches of max 100 writes (50 products) with 1200ms throttle delay
         let batch = writeBatch(firestore);
         let batchOpCount = 0;
         
@@ -365,11 +365,11 @@ export default function TreasuryPage() {
             batch.set(updateItem.pricingRef, updateItem.pricingUpdate, { merge: true });
             batchOpCount += 2;
             
-            if (batchOpCount >= 400 || i === updatesList.length - 1) {
+            if (batchOpCount >= 100 || i === updatesList.length - 1) {
                 await batch.commit();
                 setProgressVal(Math.round(((i + 1) / updatesList.length) * 100));
                 if (i < updatesList.length - 1) {
-                    await new Promise(resolve => setTimeout(resolve, 600)); // Throttling delay
+                    await new Promise(resolve => setTimeout(resolve, 1200)); // Throttling delay
                     batch = writeBatch(firestore);
                     batchOpCount = 0;
                 }
@@ -452,11 +452,11 @@ export default function TreasuryPage() {
             batchOpCount += 2;
             processedCount++;
             
-            if (batchOpCount >= 400 || i === backups.length - 1) {
+            if (batchOpCount >= 100 || i === backups.length - 1) {
                 await batch.commit();
                 setProgressVal(Math.round(((i + 1) / backups.length) * 100));
                 if (i < backups.length - 1) {
-                    await new Promise(resolve => setTimeout(resolve, 600)); // Throttling delay
+                    await new Promise(resolve => setTimeout(resolve, 1200)); // Throttling delay
                     batch = writeBatch(firestore);
                     batchOpCount = 0;
                 }
@@ -685,9 +685,20 @@ export default function TreasuryPage() {
                         </div>
                     ) : (
                         <div className="space-y-4 p-5 bg-slate-50 rounded-2xl border border-slate-200">
+                            <div className="grid grid-cols-2 gap-2 pb-3 border-b border-slate-200/60 text-[9px] font-black uppercase text-slate-500 leading-none">
+                                <div className="p-3 bg-white rounded-xl border border-slate-100 flex flex-col gap-1">
+                                    <span className="text-slate-400 text-[7px]">Total Catálogo</span>
+                                    <span className="text-slate-900 text-xs font-black">{products?.length || 0}</span>
+                                </div>
+                                <div className="p-3 bg-white rounded-xl border border-slate-100 flex flex-col gap-1">
+                                    <span className="text-slate-400 text-[7px]">Seleccionados</span>
+                                    <span className="text-primary text-xs font-black">{simulation.targetProducts.length}</span>
+                                </div>
+                            </div>
+                            
                             <div className="flex justify-between items-center text-[10px] font-black uppercase text-slate-500">
-                                <span>Productos Afectados</span>
-                                <span className="text-primary font-black">{simulation.targetProducts.length} ítems</span>
+                                <span>Con Existencia Física</span>
+                                <span className="text-emerald-600 font-black">{simulation.inventoryCount} ítems</span>
                             </div>
                             
                             {simulation.targetProducts.length > 0 && (
