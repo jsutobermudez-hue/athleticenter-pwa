@@ -147,9 +147,9 @@ export default function TreasuryPage() {
   }, [products, settings, isMounted, allOrders]);
 
   const simulation = useMemo(() => {
-    if (!products || !settings || !watchedValues.bcvRate || !isMounted) return null;
+    const simulatedBcvRate = watchedValues.bcvRate || settings?.bcvRate || 1;
+    if (!products || !settings || !simulatedBcvRate || !isMounted) return null;
     console.log("TREASURY SIMULATION PRODUCTS SAMPLE:", products.slice(0, 3).map(p => ({ name: p.name, price: p.price, priceCashUSD: p.priceCashUSD, cost: p.cost })));
-    const simulatedBcvRate = watchedValues.bcvRate;
     let currentTotalVES = 0;
     let newTotalVES = 0;
     let inventoryCount = 0;
