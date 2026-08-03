@@ -102,13 +102,19 @@ export default function TreasuryPage() {
   }, []);
 
   const settingsRef = useMemoFirebase(() => firestore ? doc(firestore, 'system', 'financials') : null, [firestore]);
-  const { data: settings, isLoading } = useDoc<FinancialSettings>(settingsRef);
+  const { data: settings, isLoading, error: settingsError } = useDoc<FinancialSettings>(settingsRef);
 
   const productsRef = useMemoFirebase(() => firestore ? query(collection(firestore, 'products'), limit(300)) : null, [firestore]);
-  const { data: products } = useCollection<Product>(productsRef);
+  const { data: products, error: productsError } = useCollection<Product>(productsRef);
 
   const ordersRef = useMemoFirebase(() => (firestore && isMounted) ? query(collection(firestore, 'orders'), limit(300)) : null, [firestore, isMounted]);
-  const { data: allOrders } = useCollection<Order>(ordersRef);
+  const { data: allOrders, error: ordersError } = useCollection<Order>(ordersRef);
+
+  useEffect(() => {
+    if (productsError) console.error("[Treasury] Error loading products:", productsError);
+    if (settingsError) console.error("[Treasury] Error loading settings:", settingsError);
+    if (ordersError) console.error("[Treasury] Error loading orders:", ordersError);
+  }, [productsError, settingsError, ordersError]);
 
   const uniqueBrands = useMemo(() => {
     if (!products) return [];
@@ -543,9 +549,9 @@ export default function TreasuryPage() {
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
         <div className="lg:col-span-12">
-            <Card className="terminal-card bg-slate-900 text-white border-none shadow-2xl relative overflow-hidden">
-                <div className="absolute top-0 right-0 p-8 opacity-5"><PieChart className="h-48 w-48" /></div>
-                <CardHeader className="p-8 border-b border-white/5">
+            <Card className="terminal-card bg-white text-slate-900 border border-slate-100 shadow-xl overflow-hidden rounded-[2.5rem] relative">
+                <div className="absolute top-0 right-0 p-8 opacity-5 text-slate-400"><PieChart className="h-48 w-48" /></div>
+                <CardHeader className="p-8 border-b border-slate-100 bg-slate-50/50">
                     <CardTitle className="text-xs font-black uppercase tracking-[0.3em] text-primary flex items-center gap-3">
                         <Activity className="h-5 w-5" /> Auditoría de Sinceración Financiera
                     </CardTitle>
@@ -553,34 +559,36 @@ export default function TreasuryPage() {
                 <CardContent className="p-8 grid grid-cols-1 md:grid-cols-3 gap-12">
                     <div className="space-y-6">
                         <div className="space-y-1">
-                            <p className="text-[10px] font-black uppercase text-slate-500">Facturación Nominal (En Libros)</p>
-                            <p className="text-4xl font-black text-white tracking-tighter">${metrics?.totalBilling?.toLocaleString() || '0'}</p>
+                            <p className="text-[10px] font-black uppercase text-slate-400">Facturación Nominal (En Libros)</p>
+                            <p className="text-4xl font-black text-slate-900 tracking-tighter">${metrics?.totalBilling?.toLocaleString() || '0'}</p>
                         </div>
-                        <div className="p-4 rounded-2xl bg-white/5 border border-white/10 space-y-2">
+                        <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100 space-y-2">
                             <p className="text-[8px] font-black uppercase text-slate-400">Estado de Conversión a Cash</p>
-                            <Progress value={metrics?.efficiency || 0} className="h-2 bg-white/5" />
-                            <div className="flex justify-between text-[9px] font-black uppercase"><span className="text-slate-500">Efficiency</span><span className="text-emerald-400">{metrics?.efficiency?.toFixed(1) || '0'}%</span></div>
+                            <Progress value={metrics?.efficiency || 0} className="h-2 bg-slate-200" />
+                            <div className="flex justify-between text-[9px] font-black uppercase"><span className="text-slate-500">Efficiency</span><span className="text-emerald-600">{metrics?.efficiency?.toFixed(1) || '0'}%</span></div>
                         </div>
                     </div>
 
-                    <div className="space-y-6 border-l border-white/5 pl-12">
+                    <div className="space-y-6 border-l border-slate-100 pl-12">
                         <div className="space-y-1">
                             <p className="text-[10px] font-black uppercase text-primary">Liquidez Real Verificada</p>
-                            <p className="text-4xl font-black text-white tracking-tighter">${metrics?.totalCashVerified?.toLocaleString() || '0'}</p>
+                            <p className="text-4xl font-black text-slate-900 tracking-tighter">${metrics?.totalCashVerified?.toLocaleString() || '0'}</p>
                         </div>
-                        <p className="text-[9px] font-medium text-slate-400 leading-relaxed uppercase">
+                        <p className="text-[9px] font-bold text-slate-500 leading-relaxed uppercase">
                              VALOR TOTAL DEL EFECTIVO (CASH/ZELLE/VES) CONCILIADO POR ADMINISTRACIÓN TRAS DILUCIÓN DE INCENTIVOS.
                         </p>
                     </div>
 
-                    <div className="space-y-6 border-l border-white/5 pl-12 flex flex-col justify-center">
+                    <div className="space-y-6 border-l border-slate-100 pl-12 flex flex-col justify-center">
                         <div className={cn(
                             "p-6 rounded-[2rem] flex flex-col items-center justify-center text-center gap-2 transition-all",
-                            (metrics?.efficiency || 0) < 50 ? "bg-rose-500/10 border-2 border-rose-500/20" : "bg-emerald-500/10 border-2 border-emerald-500/20"
+                            (metrics?.efficiency || 0) < 50 ? "bg-rose-50 border border-rose-100" : "bg-emerald-50 border border-emerald-100"
                         )}>
-                            <p className="text-[10px] font-black uppercase text-slate-400">Gap de Cartera</p>
-                            <p className="text-3xl font-black text-white tracking-tighter">-${metrics?.liquidityGap?.toLocaleString() || '0'}</p>
-                            <Badge variant="outline" className="border-white/10 text-[8px] font-black text-slate-500">DINERO PENDIENTE</Badge>
+                            <p className="text-[10px] font-black uppercase text-slate-500">Gap de Cartera</p>
+                            <p className={cn("text-3xl font-black tracking-tighter", (metrics?.efficiency || 0) < 50 ? "text-rose-600" : "text-emerald-600")}>
+                                -${metrics?.liquidityGap?.toLocaleString() || '0'}
+                            </p>
+                            <Badge variant="outline" className="border-slate-200 text-[8px] font-black text-slate-500 bg-white">DINERO PENDIENTE</Badge>
                         </div>
                     </div>
                 </CardContent>
@@ -588,15 +596,11 @@ export default function TreasuryPage() {
         </div>
 
         <div className="lg:col-span-7 space-y-8">
-            <Card className="terminal-card">
-                <CardHeader className="bg-slate-50 py-6 px-8 flex flex-row items-center justify-between border-b">
-                    <div className="flex items-center gap-3">
-                        <Settings2 className="h-5 w-5 text-primary" />
-                        <CardTitle className="text-xs font-black uppercase tracking-widest">Política de Red</CardTitle>
-                    </div>
-                    <Button variant="outline" size="sm" onClick={handleSyncBcv} disabled={isSyncing} className="text-[9px] font-black uppercase h-9 rounded-xl border-slate-200">
-                        {isSyncing ? <Loader2 className="h-3 w-3 animate-spin mr-2" /> : <RefreshCw className="h-3 w-3 mr-2" />} Sync BCV
-                    </Button>
+            <Card className="terminal-card bg-white text-slate-900 border border-slate-100 shadow-xl overflow-hidden rounded-[2.5rem]">
+                <CardHeader className="p-8 border-b border-slate-100 bg-slate-50/50">
+                    <CardTitle className="text-xs font-black uppercase tracking-[0.3em] text-primary flex items-center gap-3">
+                        <Landmark className="h-5 w-5" /> Políticas de Sincronización
+                    </CardTitle>
                 </CardHeader>
                 <form onSubmit={handleSubmit(onSubmit)}>
                     <CardContent className="p-8 space-y-10">
@@ -625,15 +629,15 @@ export default function TreasuryPage() {
                             <div className="space-y-6">
                                 <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-primary flex items-center gap-2"><ShieldCheck className="h-4 w-4" /> Hardening</h3>
                                 <div className="space-y-4 p-6 bg-slate-50/50 rounded-[2rem] border border-slate-100">
-                                    <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-slate-500">Bloqueo Mora (Días)</Label><Controller name="overdueBlockDays" control={control} render={({ field }) => <Input type="number" {...field} value={isNaN(field.value) ? "" : field.value} className="h-11 font-black bg-white rounded-xl" />} /></div>
-                                    <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-slate-500">Dilución CASH (Factor)</Label><Controller name="historicalDilutionFactor" control={control} render={({ field }) => <Input type="number" step="0.01" {...field} value={isNaN(field.value) ? "" : field.value} className="h-11 font-black bg-white rounded-xl" />} /></div>
+                                    <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-slate-500">Bloqueo Mora (Días)</Label><Controller name="overdueBlockDays" control={control} render={({ field }) => <Input type="number" {...field} value={isNaN(field.value) ? "" : field.value} className="h-11 font-black bg-white rounded-xl text-slate-900" />} /></div>
+                                    <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-slate-500">Dilución CASH (Factor)</Label><Controller name="historicalDilutionFactor" control={control} render={({ field }) => <Input type="number" step="0.01" {...field} value={isNaN(field.value) ? "" : field.value} className="h-11 font-black bg-white rounded-xl text-slate-900" />} /></div>
                                 </div>
                             </div>
                             <div className="space-y-6">
                                 <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-primary flex items-center gap-2"><Zap className="h-4 w-4" /> Pronto Pago</h3>
                                 <div className="grid grid-cols-2 gap-4 p-6 bg-slate-50/50 rounded-[2rem] border border-slate-100">
-                                    <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-slate-500">Tier 7D (%)</Label><Controller name="earlyPayment7Days" control={control} render={({ field }) => <Input type="number" {...field} value={isNaN(field.value) ? "" : field.value} className="h-11 font-black bg-white text-center rounded-xl" />} /></div>
-                                    <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-slate-500">Tier 15D (%)</Label><Controller name="earlyPayment15Days" control={control} render={({ field }) => <Input type="number" {...field} value={isNaN(field.value) ? "" : field.value} className="h-11 font-black bg-white text-center rounded-xl" />} /></div>
+                                    <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-slate-500">Tier 7D (%)</Label><Controller name="earlyPayment7Days" control={control} render={({ field }) => <Input type="number" {...field} value={isNaN(field.value) ? "" : field.value} className="h-11 font-black bg-white text-center rounded-xl text-slate-900" />} /></div>
+                                    <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-slate-500">Tier 15D (%)</Label><Controller name="earlyPayment15Days" control={control} render={({ field }) => <Input type="number" {...field} value={isNaN(field.value) ? "" : field.value} className="h-11 font-black bg-white text-center rounded-xl text-slate-900" />} /></div>
                                 </div>
                             </div>
                         </div>
@@ -702,7 +706,25 @@ export default function TreasuryPage() {
                         </div>
                     </div>
 
-                    {simulation && simulation.targetProducts && (
+                    {productsError || settingsError ? (
+                        <div className="p-5 rounded-2xl bg-rose-50 border border-rose-100 text-rose-700 text-xs font-bold uppercase tracking-wider space-y-2">
+                            <p className="flex items-center gap-2 text-rose-600"><Activity className="h-4 w-4" /> ERROR DE CONEXIÓN</p>
+                            <p className="text-[10px] text-rose-500 font-medium normal-case leading-relaxed">
+                                {productsError?.message || settingsError?.message || "No se pudieron obtener los datos de Firestore. Verifica tus permisos de red."}
+                            </p>
+                        </div>
+                    ) : !simulation ? (
+                        <div className="space-y-4 p-5 bg-slate-50 rounded-2xl border border-slate-200 animate-pulse">
+                            <div className="flex justify-between items-center">
+                                <div className="h-3 w-24 bg-slate-200 rounded-md"></div>
+                                <div className="h-4 w-12 bg-slate-200 rounded-md"></div>
+                            </div>
+                            <div className="space-y-2">
+                                <div className="h-16 bg-white rounded-xl border border-slate-100"></div>
+                                <div className="h-16 bg-white rounded-xl border border-slate-100"></div>
+                            </div>
+                        </div>
+                    ) : (
                         <div className="space-y-4 p-5 bg-slate-50 rounded-2xl border border-slate-200">
                             <div className="flex justify-between items-center text-[10px] font-black uppercase text-slate-500">
                                 <span>Productos Afectados</span>
