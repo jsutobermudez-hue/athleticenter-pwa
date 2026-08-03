@@ -33,7 +33,7 @@ import { logActivity } from '@/lib/audit';
 import { Separator } from '@/components/ui/separator';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
-import { calculatePricingTier } from '@/lib/pricing';
+import { calculatePricingTier, applyRounding, type RoundingStrategy } from '@/lib/pricing';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -87,6 +87,7 @@ export default function TreasuryPage() {
   const [categoryFilter, setCategoryFilter] = useState('todos');
   const [modelFilter, setModelFilter] = useState('');
   const [adjustmentPercent, setAdjustmentPercent] = useState(0);
+  const [roundingStrategy, setRoundingStrategy] = useState<RoundingStrategy>('none');
   
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [acceptResponsibility, setAcceptResponsibility] = useState(false);
@@ -171,13 +172,14 @@ export default function TreasuryPage() {
     targetProducts.forEach(p => {
         if (p.stockLevel > 0) {
             currentTotalVES += (p.price * p.stockLevel * settings.bcvRate);
-            newTotalVES += (p.price * p.stockLevel * simulatedBcvRate * inflationMultiplier);
+            const roundedPrice = applyRounding(p.price * inflationMultiplier, roundingStrategy);
+            newTotalVES += (roundedPrice * p.stockLevel * simulatedBcvRate);
             inventoryCount++;
         }
     });
     const diff = newTotalVES - currentTotalVES;
     return { currentTotalVES, newTotalVES, diff, inventoryCount, targetProducts };
-  }, [products, settings, watchedValues.bcvRate, brandFilter, categoryFilter, modelFilter, inflationMultiplier, isMounted]);
+  }, [products, settings, watchedValues.bcvRate, brandFilter, categoryFilter, modelFilter, inflationMultiplier, isMounted, roundingStrategy]);
 
   useEffect(() => {
     if (settings) {
@@ -261,14 +263,14 @@ export default function TreasuryPage() {
             const pricingData = pricingSnapExists ? pricingSnap.data() : null;
             const strategy = pricingData?.strategyDetails as PricingStrategy | undefined;
             
-            // Calculate new List Price BCV directly by applying the adjustment multiplier
+            // Calculate new List Price BCV directly by applying the adjustment multiplier and rounding strategy
             const oldPriceList = product.price || 0;
-            const newPriceList = oldPriceList * inflationMultiplier;
+            const newPriceList = applyRounding(oldPriceList * inflationMultiplier, roundingStrategy);
             
-            // Recalculate Cash Price and Pronto Pago tiers from the newly adjusted list price
-            const newPriceCash = newPriceList * (1 - discountVal / 100);
-            const newPrice7d = newPriceList * (1 - p7dVal / 100);
-            const newPrice15d = newPriceList * (1 - p15dVal / 100);
+            // Recalculate Cash Price and Pronto Pago tiers from the newly adjusted and rounded list price
+            const newPriceCash = applyRounding(newPriceList * (1 - discountVal / 100), roundingStrategy);
+            const newPrice7d = applyRounding(newPriceList * (1 - p7dVal / 100), roundingStrategy);
+            const newPrice15d = applyRounding(newPriceList * (1 - p15dVal / 100), roundingStrategy);
 
             // Cost adjustments (if syncing by WAC, we inflate product cost)
             const oldCost = product.cost || 0;
@@ -288,10 +290,10 @@ export default function TreasuryPage() {
                 targetPriceUSD: newPriceList,
                 costLanded: newCost,
                 calculated: {
-                    priceListBCV: Number(newPriceList.toFixed(2)),
-                    priceCashUSD: Number(newPriceCash.toFixed(2)),
-                    priceEarly7d: Number(newPrice7d.toFixed(2)),
-                    priceEarly15d: Number(newPrice15d.toFixed(2)),
+                    priceListBCV: newPriceList,
+                    priceCashUSD: newPriceCash,
+                    priceEarly7d: newPrice7d,
+                    priceEarly15d: newPrice15d,
                     netProfitUSD: Number((newPriceCash - newCost).toFixed(2)),
                     netMarginPercent: safeStrategy.calculated?.netMarginPercent || 0,
                     totalCommissionsUSD: safeStrategy.calculated?.totalCommissionsUSD || 0,
@@ -317,10 +319,10 @@ export default function TreasuryPage() {
                 productRef: doc(firestore, 'products', product.id!),
                 pricingRef: pricingRef,
                 productUpdate: {
-                    price: Number(newPriceList.toFixed(2)),
-                    priceCashUSD: Number(newPriceCash.toFixed(2)),
-                    priceEarly7d: Number(newPrice7d.toFixed(2)),
-                    priceEarly15d: Number(newPrice15d.toFixed(2)),
+                    price: newPriceList,
+                    priceCashUSD: newPriceCash,
+                    priceEarly7d: newPrice7d,
+                    priceEarly15d: newPrice15d,
                     cost: Number(newCost.toFixed(2)),
                     updatedAt: serverTimestamp()
                 },
@@ -349,6 +351,7 @@ export default function TreasuryPage() {
                 brandFilter: brandFilter,
                 categoryFilter: categoryFilter,
                 modelFilter: modelFilter,
+                roundingStrategy: roundingStrategy,
                 backups: backups,
                 createdAt: new Date(),
                 isRestored: false
@@ -665,6 +668,20 @@ export default function TreasuryPage() {
                         </div>
                     </div>
 
+                    <div className="space-y-3">
+                        <Label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Estrategia de Redondeo</Label>
+                        <Select value={roundingStrategy} onValueChange={(val: any) => setRoundingStrategy(val)}>
+                            <SelectTrigger className="h-12 bg-slate-50 border border-slate-200 rounded-xl font-bold uppercase text-xs text-slate-800 hover:bg-slate-100/50"><SelectValue placeholder="SIN REDONDEO" /></SelectTrigger>
+                            <SelectContent className="z-[200] bg-white border border-slate-200 rounded-xl shadow-lg">
+                                <SelectItem value="none" className="font-bold uppercase text-[10px] text-slate-800 hover:bg-slate-50">EXACTO (SIN REDONDEO)</SelectItem>
+                                <SelectItem value="nearest_integer" className="font-bold uppercase text-[10px] text-slate-800 hover:bg-slate-50">ENTERO MÁS CERCANO ($X.00)</SelectItem>
+                                <SelectItem value="ceil_integer" className="font-bold uppercase text-[10px] text-slate-800 hover:bg-slate-50">SIEMPRE HACIA ARRIBA ($X.00)</SelectItem>
+                                <SelectItem value="psychological" className="font-bold uppercase text-[10px] text-slate-800 hover:bg-slate-50">PRECIO PSICOLÓGICO ($X.99)</SelectItem>
+                                <SelectItem value="cash_friendly" className="font-bold uppercase text-[10px] text-slate-800 hover:bg-slate-50">EFECTIVO AMIGABLE ($X.00 / $X.50)</SelectItem>
+                            </SelectContent>
+                        </Select>
+                    </div>
+
                     {productsError || settingsError ? (
                         <div className="p-5 rounded-2xl bg-rose-50 border border-rose-100 text-rose-700 text-xs font-bold uppercase tracking-wider space-y-2">
                             <p className="flex items-center gap-2 text-rose-600"><Activity className="h-4 w-4" /> ERROR DE CONEXIÓN</p>
@@ -707,15 +724,15 @@ export default function TreasuryPage() {
                                     <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1">
                                         {simulation.targetProducts.slice(0, 3).map(p => {
                                             const oldPriceList = p.price || 0;
-                                            const newPriceList = oldPriceList * inflationMultiplier;
+                                            const newPriceList = applyRounding(oldPriceList * inflationMultiplier, roundingStrategy);
                                             
                                             // Calculate Cash Price fallback dynamically if priceCashUSD is 0
                                             let oldPriceCash = p.priceCashUSD || 0;
+                                            const discount = settings?.defaultBcvDiscount || 35;
                                             if (oldPriceCash === 0 && oldPriceList > 0) {
-                                                const discount = settings?.defaultBcvDiscount || 35;
                                                 oldPriceCash = oldPriceList * (1 - discount / 100);
                                             }
-                                            const newPriceCash = oldPriceCash * inflationMultiplier;
+                                            const newPriceCash = applyRounding(oldPriceList * (1 - discount / 100) * inflationMultiplier, roundingStrategy);
 
                                             return (
                                                 <div key={p.id} className="flex flex-col gap-1.5 bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm hover:shadow transition-shadow duration-200">
@@ -803,6 +820,16 @@ export default function TreasuryPage() {
                             <span className="text-slate-400">Tipo de cambio:</span>
                             <span className={adjustmentPercent >= 0 ? "text-emerald-600 font-black" : "text-rose-600 font-black"}>
                                 {adjustmentPercent >= 0 ? `Incremento de +${adjustmentPercent}` : `Reducción de ${adjustmentPercent}`}%
+                            </span>
+                        </div>
+                        <div className="flex justify-between">
+                            <span className="text-slate-400">Redondeo:</span>
+                            <span className="text-slate-900 font-black">
+                                {roundingStrategy === 'none' ? 'SIN REDONDEO' :
+                                 roundingStrategy === 'nearest_integer' ? 'ENTERO MÁS CERCANO ($X.00)' :
+                                 roundingStrategy === 'ceil_integer' ? 'SIEMPRE HACIA ARRIBA ($X.00)' :
+                                 roundingStrategy === 'psychological' ? 'PRECIO PSICOLÓGICO ($X.99)' :
+                                 'EFECTIVO AMIGABLE ($X.50)'}
                             </span>
                         </div>
                         <div className="flex justify-between">

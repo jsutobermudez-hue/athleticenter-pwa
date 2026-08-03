@@ -88,3 +88,31 @@ export function calculatePricingTier(
     landedCost: fix(cost)
   };
 }
+
+export type RoundingStrategy = 'none' | 'nearest_integer' | 'ceil_integer' | 'psychological' | 'cash_friendly';
+
+export function applyRounding(price: number, strategy: RoundingStrategy): number {
+  if (price <= 0 || isNaN(price) || !isFinite(price)) return 0;
+  
+  switch (strategy) {
+    case 'nearest_integer':
+      return Math.round(price);
+      
+    case 'ceil_integer':
+      return Math.ceil(price);
+      
+    case 'psychological': {
+      // Redondea al entero y le resta un centavo (.99)
+      const base = Math.round(price);
+      return Math.max(0.99, base - 0.01);
+    }
+      
+    case 'cash_friendly':
+      // Redondea a los 0.50 centavos o al entero más cercano (ej. 45.24 -> 45.00, 45.26 -> 45.50)
+      return Math.round(price * 2) / 2;
+      
+    case 'none':
+    default:
+      return Number(price.toFixed(2));
+  }
+}
