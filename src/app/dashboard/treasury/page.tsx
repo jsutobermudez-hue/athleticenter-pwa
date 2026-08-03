@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { useDoc, useFirestore, useMemoFirebase, useUser, useCollection } from '@/firebase';
 import { useToast } from '@/hooks/use-toast';
-import { doc, setDoc, serverTimestamp, writeBatch, collection, getDocs, getDoc, query, where, limit } from 'firebase/firestore';
+import { doc, setDoc, serverTimestamp, writeBatch, collection, getDocs, getDoc, query, where, limit, orderBy } from 'firebase/firestore';
 import { 
     Loader2, 
     RefreshCw, 
@@ -36,6 +36,9 @@ import { cn } from '@/lib/utils';
 import { calculatePricingTier } from '@/lib/pricing';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
+import type { PriceBackupItem } from '@/lib/definitions';
 
 const financialSchema = z.object({
   bcvRate: z.coerce.number().min(1, 'La tasa debe ser mayor o igual a 1'),
@@ -78,9 +81,20 @@ export default function TreasuryPage() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [isMassUpdating, setIsMassUpdating] = useState(false);
   const [syncType, setSyncType] = useState<'bcv' | 'wac'>('bcv');
+  
   const [brandFilter, setBrandFilter] = useState('todos');
-  const [inflationMultiplier, setInflationMultiplier] = useState(1.0);
+  const [categoryFilter, setCategoryFilter] = useState('todos');
+  const [modelFilter, setModelFilter] = useState('');
+  const [adjustmentPercent, setAdjustmentPercent] = useState(0);
+  
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [acceptResponsibility, setAcceptResponsibility] = useState(false);
+  const [progressVal, setProgressVal] = useState(0);
+  const [totalToProcess, setTotalToProcess] = useState(0);
+  const [isRollbacking, setIsRollbacking] = useState(false);
+  
   const [isMounted, setIsMounted] = useState(false);
+  const inflationMultiplier = useMemo(() => 1 + (adjustmentPercent / 100), [adjustmentPercent]);
 
   useEffect(() => {
     setIsMounted(true);
@@ -98,6 +112,11 @@ export default function TreasuryPage() {
   const uniqueBrands = useMemo(() => {
     if (!products) return [];
     return Array.from(new Set(products.map(p => p.brand || 'Otras'))).filter(Boolean).sort();
+  }, [products]);
+
+  const uniqueCategories = useMemo(() => {
+    if (!products) return [];
+    return Array.from(new Set(products.map(p => p.category))).filter(Boolean).sort();
   }, [products]);
 
   const { control, handleSubmit, reset, setValue, formState: { isSubmitting } } = useForm<FinancialFormValues>({
@@ -132,7 +151,15 @@ export default function TreasuryPage() {
     let currentTotalVES = 0;
     let newTotalVES = 0;
     let inventoryCount = 0;
-    const targetProducts = brandFilter === 'todos' ? products : products.filter(p => (p.brand || 'Otras') === brandFilter);
+    const targetProducts = products.filter(p => {
+        if (brandFilter !== 'todos' && (p.brand || 'Otras') !== brandFilter) return false;
+        if (categoryFilter !== 'todos' && p.category !== categoryFilter) return false;
+        if (modelFilter.trim() !== '') {
+            const m = (p.model || '').toLowerCase();
+            if (!m.includes(modelFilter.trim().toLowerCase())) return false;
+        }
+        return true;
+    });
     targetProducts.forEach(p => {
         if (p.stockLevel > 0) {
             currentTotalVES += (p.price * p.stockLevel * settings.bcvRate);
@@ -141,8 +168,8 @@ export default function TreasuryPage() {
         }
     });
     const diff = newTotalVES - currentTotalVES;
-    return { currentTotalVES, newTotalVES, diff, inventoryCount };
-  }, [products, settings, watchedValues.bcvRate, brandFilter, inflationMultiplier, isMounted]);
+    return { currentTotalVES, newTotalVES, diff, inventoryCount, targetProducts };
+  }, [products, settings, watchedValues.bcvRate, brandFilter, categoryFilter, modelFilter, inflationMultiplier, isMounted]);
 
   useEffect(() => {
     if (settings) {
@@ -193,47 +220,261 @@ export default function TreasuryPage() {
   };
 
   const handleMassUpdate = async () => {
-    if (!firestore || !currentUser || !settings) return;
+    if (!firestore || !currentUser || !settings || !simulation) return;
     setIsMassUpdating(true);
+    setProgressVal(0);
+    
+    const targetProducts = simulation.targetProducts;
+    setTotalToProcess(targetProducts.length);
+    
     try {
-        const q = brandFilter === 'todos' ? collection(firestore, 'products') : query(collection(firestore, 'products'), where('brand', '==', brandFilter));
-        const productsSnap = await getDocs(q);
-        const batch = writeBatch(firestore);
-        let processedCount = 0;
-
-        for (const productDoc of productsSnap.docs) {
-            const pricingRef = doc(firestore, `products/${productDoc.id}/private/pricing`);
-            const pricingSnap = await getDoc(pricingRef);
+        const pricingRefs = targetProducts.map(p => doc(firestore, `products/${p.id}/private/pricing`));
+        const pricingPromises = pricingRefs.map(ref => getDoc(ref));
+        const pricingSnaps = await Promise.all(pricingPromises);
+        
+        const backups: PriceBackupItem[] = [];
+        const updatesList: Array<{
+            productRef: any;
+            pricingRef: any;
+            productUpdate: any;
+            pricingUpdate: any;
+        }> = [];
+        
+        for (let i = 0; i < targetProducts.length; i++) {
+            const product = targetProducts[i];
+            const pricingSnap = pricingSnaps[i];
             
             if (pricingSnap.exists()) {
                 const pricingData = pricingSnap.data();
                 const strategy = pricingData.strategyDetails as PricingStrategy;
                 if (strategy?.strategy === 'target_price') continue;
                 
-                const product = productDoc.data() as Product;
                 const baseCost = (syncType === 'wac' && product.cost) ? product.cost : (strategy.importDetails?.factoryCost || 0);
-
+                const chinaShipping = syncType === 'wac' ? 0 : (strategy.importDetails?.chinaShipping || 0);
+                
+                const newFactoryCost = baseCost * inflationMultiplier;
+                const costLanded = newFactoryCost + chinaShipping;
+                
                 const adjustedStrategy = {
                     ...strategy,
+                    costLanded: costLanded,
                     importDetails: {
                         ...(strategy.importDetails || { dimensions: { length: 10, width: 10, height: 10 }, unitsPerBox: 1 }),
-                        factoryCost: baseCost * inflationMultiplier,
-                        chinaShipping: syncType === 'wac' ? 0 : (strategy.importDetails?.chinaShipping || 0)
+                        factoryCost: newFactoryCost,
+                        chinaShipping: chinaShipping
                     }
                 };
 
                 const newCalc = calculatePricingTier(adjustedStrategy as any, watchedValues as any);
-                batch.update(productDoc.ref, { price: newCalc.priceListBCV, priceCashUSD: newCalc.priceCashUSD, updatedAt: serverTimestamp() });
-                batch.update(pricingRef, { landedCost: newCalc.landedCost, netProfit: newCalc.netProfitUSD, updatedAt: serverTimestamp() });
-                processedCount++;
+                adjustedStrategy.calculated = newCalc;
+
+                backups.push({
+                    productId: product.id!,
+                    oldPrice: product.price,
+                    oldPriceCashUSD: product.priceCashUSD || 0,
+                    oldPriceEarly7d: product.priceEarly7d || 0,
+                    oldPriceEarly15d: product.priceEarly15d || 0,
+                    oldCost: product.cost || 0,
+                    oldFactoryCost: strategy.importDetails?.factoryCost || 0,
+                    oldChinaShipping: strategy.importDetails?.chinaShipping || 0
+                });
+
+                updatesList.push({
+                    productRef: doc(firestore, 'products', product.id!),
+                    pricingRef: pricingSnap.ref,
+                    productUpdate: {
+                        price: newCalc.priceListBCV,
+                        priceCashUSD: newCalc.priceCashUSD,
+                        priceEarly7d: newCalc.priceEarly7d,
+                        priceEarly15d: newCalc.priceEarly15d,
+                        cost: newCalc.landedCost,
+                        updatedAt: serverTimestamp()
+                    },
+                    pricingUpdate: {
+                        landedCost: newCalc.landedCost,
+                        netProfit: newCalc.netProfitUSD,
+                        strategyDetails: adjustedStrategy,
+                        updatedAt: serverTimestamp()
+                    }
+                });
             }
         }
-        await batch.commit();
-        toast({ title: "Sincronización Completa", description: `${processedCount} productos actualizados.` });
+
+        if (updatesList.length === 0) {
+            toast({ title: "Sin productos", description: "Ningún producto califica para el ajuste." });
+            setIsMassUpdating(false);
+            return;
+        }
+
+        const historyRef = doc(collection(firestore, 'priceAdjustmentHistory'));
+        await setDoc(historyRef, {
+            userId: currentUser.id,
+            userName: currentUser.name,
+            adjustmentPercent: adjustmentPercent,
+            syncType: syncType,
+            brandFilter: brandFilter,
+            categoryFilter: categoryFilter,
+            modelFilter: modelFilter,
+            backups: backups,
+            createdAt: serverTimestamp(),
+            isRestored: false
+        });
+
+        let batch = writeBatch(firestore);
+        let batchOpCount = 0;
+        
+        for (let i = 0; i < updatesList.length; i++) {
+            const updateItem = updatesList[i];
+            batch.update(updateItem.productRef, updateItem.productUpdate);
+            batch.update(updateItem.pricingRef, updateItem.pricingUpdate);
+            batchOpCount += 2;
+            
+            if (batchOpCount >= 400 || i === updatesList.length - 1) {
+                await batch.commit();
+                setProgressVal(Math.round(((i + 1) / updatesList.length) * 100));
+                if (i < updatesList.length - 1) {
+                    batch = writeBatch(firestore);
+                    batchOpCount = 0;
+                }
+            }
+        }
+
+        await logActivity(firestore, {
+            userId: currentUser.id,
+            userName: currentUser.name,
+            action: 'MASS_PRICE_UPDATE',
+            resource: 'products',
+            severity: 'critical',
+            details: `Ajuste masivo de precios del ${adjustmentPercent}%. Tipo: ${syncType}. F: Marca=${brandFilter}, Cat=${categoryFilter}, Mod=${modelFilter}. ${updatesList.length} prod. actualizados. Ref Historial: ${historyRef.id}`
+        });
+
+        toast({ title: "Sincronización Completa", description: `${updatesList.length} productos actualizados.` });
+        setShowConfirmModal(false);
+        setAcceptResponsibility(false);
     } catch (e: any) {
-        toast({ variant: "destructive", title: "Error Masivo" });
-    } finally { setIsMassUpdating(false); }
-  }
+        console.error("Error in mass price adjustment:", e);
+        toast({ variant: "destructive", title: "Error Masivo", description: e.message || "Fallo de conexión." });
+    } finally { 
+        setIsMassUpdating(false); 
+    }
+  };
+
+  const handleRollback = async () => {
+    if (!firestore || !currentUser) return;
+    setIsRollbacking(true);
+    setProgressVal(0);
+    
+    try {
+        const historyQuery = query(
+            collection(firestore, 'priceAdjustmentHistory'), 
+            where('isRestored', '==', false),
+            orderBy('createdAt', 'desc'), 
+            limit(1)
+        );
+        const historySnap = await getDocs(historyQuery);
+        
+        if (historySnap.empty) {
+            toast({ title: "Sin registros", description: "No se encontró ningún ajuste pendiente por revertir." });
+            setIsRollbacking(false);
+            return;
+        }
+        
+        const historyDoc = historySnap.docs[0];
+        const historyData = historyDoc.data();
+        const backups = historyData.backups as PriceBackupItem[];
+        setTotalToProcess(backups.length);
+        
+        const pricingPromises = backups.map(backup => {
+            const pricingRef = doc(firestore, `products/${backup.productId}/private/pricing`);
+            return getDoc(pricingRef);
+        });
+        const pricingSnaps = await Promise.all(pricingPromises);
+        
+        let batch = writeBatch(firestore);
+        let batchOpCount = 0;
+        let processedCount = 0;
+        
+        for (let i = 0; i < backups.length; i++) {
+            const backup = backups[i];
+            const pricingSnap = pricingSnaps[i];
+            
+            if (pricingSnap.exists()) {
+                const pricingData = pricingSnap.data();
+                const strategy = pricingData.strategyDetails as PricingStrategy;
+                
+                const restoredStrategy = {
+                    ...strategy,
+                    costLanded: backup.oldCost,
+                    importDetails: {
+                        ...(strategy.importDetails || { dimensions: { length: 10, width: 10, height: 10 }, unitsPerBox: 1 }),
+                        factoryCost: backup.oldFactoryCost,
+                        chinaShipping: backup.oldChinaShipping
+                    }
+                };
+                
+                const restoredCalc = {
+                    priceListBCV: backup.oldPrice,
+                    priceCashUSD: backup.oldPriceCashUSD,
+                    priceEarly7d: backup.oldPriceEarly7d,
+                    priceEarly15d: backup.oldPriceEarly15d,
+                    netProfitUSD: pricingData.netProfit || 0,
+                    netMarginPercent: strategy.calculated?.netMarginPercent || 0,
+                    totalCommissionsUSD: strategy.calculated?.totalCommissionsUSD || 0,
+                    adminOverheadUSD: strategy.calculated?.adminOverheadUSD || 0,
+                    landedCost: backup.oldCost
+                };
+                
+                restoredStrategy.calculated = restoredCalc;
+                
+                const productRef = doc(firestore, 'products', backup.productId);
+                batch.update(productRef, {
+                    price: backup.oldPrice,
+                    priceCashUSD: backup.oldPriceCashUSD,
+                    priceEarly7d: backup.oldPriceEarly7d,
+                    priceEarly15d: backup.oldPriceEarly15d,
+                    cost: backup.oldCost,
+                    updatedAt: serverTimestamp()
+                });
+                
+                batch.update(pricingSnap.ref, {
+                    landedCost: backup.oldCost,
+                    strategyDetails: restoredStrategy,
+                    updatedAt: serverTimestamp()
+                });
+                
+                batchOpCount += 2;
+                processedCount++;
+                
+                if (batchOpCount >= 400 || i === backups.length - 1) {
+                    await batch.commit();
+                    setProgressVal(Math.round(((i + 1) / backups.length) * 100));
+                    if (i < backups.length - 1) {
+                        batch = writeBatch(firestore);
+                        batchOpCount = 0;
+                    }
+                }
+            }
+        }
+        
+        await setDoc(historyDoc.ref, { isRestored: true, restoredAt: serverTimestamp(), restoredBy: currentUser.id }, { merge: true });
+        
+        await logActivity(firestore, {
+            userId: currentUser.id,
+            userName: currentUser.name,
+            action: 'ROLLBACK_PRICE_UPDATE',
+            resource: 'products',
+            severity: 'critical',
+            details: `Reversión masiva del ajuste de precios. Ref Historial: ${historyDoc.id}. ${processedCount} productos restaurados.`
+        });
+        
+        toast({ title: "Ajuste Revertido", description: `${processedCount} productos restaurados a sus valores anteriores.` });
+    } catch (e: any) {
+        console.error("Error in price rollback:", e);
+        toast({ variant: "destructive", title: "Error de Reversión", description: e.message || "Fallo de conexión." });
+    } finally {
+        setIsRollbacking(false);
+    }
+  };
 
   if (isUserLoading || !currentUser) return <div className="flex h-screen items-center justify-center"><Loader2 className="animate-spin text-primary" /></div>;
 
@@ -382,21 +623,160 @@ export default function TreasuryPage() {
                         </Select>
                     </div>
 
+                    <div className="space-y-3">
+                        <Label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Categoría / Tipo</Label>
+                        <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+                            <SelectTrigger className="h-12 bg-white/5 border-white/10 rounded-xl font-bold uppercase text-xs text-white"><SelectValue placeholder="TODAS LAS CATEGORÍAS" /></SelectTrigger>
+                            <SelectContent className="z-[200]">
+                                <SelectItem value="todos" className="font-bold uppercase text-[10px]">TODAS LAS CATEGORÍAS</SelectItem>
+                                {uniqueCategories.map(c => <SelectItem key={c} value={c} className="font-bold uppercase text-[10px]">{c.toUpperCase()}</SelectItem>)}
+                            </SelectContent>
+                        </Select>
+                    </div>
+
+                    <div className="space-y-3">
+                        <Label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Modelo (Búsqueda Parcial)</Label>
+                        <Input type="text" placeholder="Ej: Air Max, Runner..." value={modelFilter} onChange={(e) => setModelFilter(e.target.value)} className="h-12 bg-white/5 border-white/10 rounded-xl font-bold text-xs text-white focus-visible:ring-1 focus-visible:ring-primary" />
+                    </div>
+
                     <div className="space-y-3 p-6 bg-white/5 rounded-[2rem] border border-white/10 relative overflow-hidden">
                         <div className="absolute top-0 right-0 p-4 opacity-5"><TrendingUp className="h-12 w-12" /></div>
-                        <Label className="text-[10px] font-black text-primary uppercase tracking-widest">Factor de Ajuste (Bump)</Label>
+                        <Label className="text-[10px] font-black text-primary uppercase tracking-widest">Ajuste Porcentual (%)</Label>
                         <div className="flex items-center gap-4">
-                            <Input type="number" step="0.01" value={isNaN(inflationMultiplier) ? "" : inflationMultiplier} onChange={(e) => setInflationMultiplier(e.target.value === "" ? 1.0 : Number(e.target.value))} className="h-14 bg-transparent border-none text-4xl font-black text-white focus-visible:ring-0 p-0" />
-                            <div className="text-right"><p className="text-[10px] font-black text-emerald-400">+{((inflationMultiplier - 1) * 100).toFixed(1)}%</p><p className="text-[7px] font-bold text-slate-500 uppercase">BUMP</p></div>
+                            <Input type="number" step="1" value={adjustmentPercent} onChange={(e) => setAdjustmentPercent(e.target.value === "" ? 0 : Number(e.target.value))} className="h-14 bg-transparent border-none text-4xl font-black text-white focus-visible:ring-0 p-0" />
+                            <div className="text-right">
+                                <p className={cn("text-[10px] font-black", adjustmentPercent >= 0 ? "text-emerald-400" : "text-rose-400")}>
+                                    {adjustmentPercent >= 0 ? `+${adjustmentPercent}` : adjustmentPercent}%
+                                </p>
+                                <p className="text-[7px] font-bold text-slate-500 uppercase">AJUSTE</p>
+                            </div>
                         </div>
                     </div>
+
+                    {simulation && simulation.targetProducts && (
+                        <div className="space-y-4 p-5 bg-white/5 rounded-2xl border border-white/5">
+                            <div className="flex justify-between items-center text-[10px] font-black uppercase text-slate-400">
+                                <span>Productos Afectados</span>
+                                <span className="text-primary">{simulation.targetProducts.length} ítems</span>
+                            </div>
+                            
+                            {simulation.targetProducts.length > 0 && (
+                                <div className="space-y-3 mt-2">
+                                    <p className="text-[8px] font-black uppercase text-slate-500">Muestra de Precios de Venta (PVP):</p>
+                                    <div className="space-y-2 max-h-[160px] overflow-y-auto pr-1">
+                                        {simulation.targetProducts.slice(0, 3).map(p => {
+                                            const oldVal = p.priceCashUSD || 0;
+                                            const newVal = oldVal * inflationMultiplier;
+                                            return (
+                                                <div key={p.id} className="flex justify-between items-center text-[9px] bg-slate-950/40 p-2.5 rounded-xl border border-white/5">
+                                                    <span className="font-bold truncate max-w-[140px]">{p.name}</span>
+                                                    <div className="flex items-center gap-2 font-black">
+                                                        <span className="text-slate-500">${oldVal.toFixed(2)}</span>
+                                                        <span className="text-slate-400">➔</span>
+                                                        <span className={adjustmentPercent >= 0 ? "text-emerald-400" : "text-rose-400"}>${newVal.toFixed(2)}</span>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                        {simulation.targetProducts.length > 3 && (
+                                            <p className="text-[8px] font-black text-slate-500 text-center uppercase tracking-widest pt-1">
+                                                + {simulation.targetProducts.length - 3} productos más
+                                            </p>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {(isMassUpdating || isRollbacking) && (
+                        <div className="space-y-2">
+                            <div className="flex justify-between text-[10px] font-black uppercase text-slate-400">
+                                <span>Procesando lote...</span>
+                                <span className="text-primary">{progressVal}%</span>
+                            </div>
+                            <Progress value={progressVal} className="h-2 bg-white/5" />
+                        </div>
+                    )}
                 </CardContent>
-                <CardFooter className="p-8 bg-white/5 border-t border-white/5">
-                    <Button onClick={handleMassUpdate} disabled={isMassUpdating || !simulation} className={cn("w-full h-16 font-black uppercase text-[11px] tracking-[0.25em] rounded-2xl shadow-2xl", syncType === 'wac' ? "bg-indigo-600" : "bg-primary")}>
-                        {isMassUpdating ? <Loader2 className="mr-3 h-5 w-5 animate-spin" /> : "EJECUTAR SINCRONIZACIÓN"}
+                <CardFooter className="p-8 bg-white/5 border-t border-white/5 flex flex-col gap-4">
+                    <Button 
+                        onClick={() => setShowConfirmModal(true)} 
+                        disabled={isMassUpdating || isRollbacking || !simulation || simulation.targetProducts.length === 0} 
+                        className={cn("w-full h-16 font-black uppercase text-[11px] tracking-[0.25em] rounded-2xl shadow-2xl", syncType === 'wac' ? "bg-indigo-600 hover:bg-indigo-700" : "bg-primary hover:bg-primary/95")}
+                    >
+                        {isMassUpdating ? <Loader2 className="mr-3 h-5 w-5 animate-spin" /> : "EJECUTAR AJUSTE MASIVO"}
+                    </Button>
+
+                    <Button 
+                        onClick={handleRollback} 
+                        disabled={isMassUpdating || isRollbacking} 
+                        variant="outline" 
+                        className="w-full h-11 border-white/10 hover:bg-white/5 text-white/80 font-black uppercase text-[9px] tracking-widest rounded-xl"
+                    >
+                        {isRollbacking ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : "Deshacer Último Ajuste"}
                     </Button>
                 </CardFooter>
             </Card>
+
+            <Dialog open={showConfirmModal} onOpenChange={setShowConfirmModal}>
+                <DialogContent className="bg-slate-900 border border-white/10 text-white rounded-[2rem] max-w-md p-8">
+                    <DialogHeader className="space-y-3">
+                        <DialogTitle className="text-lg font-black uppercase tracking-wider text-rose-500">Confirmación de Seguridad</DialogTitle>
+                        <DialogDescription className="text-slate-400 text-xs font-bold leading-relaxed uppercase">
+                            Vas a realizar un ajuste estructural de precios permanente en el catálogo de productos de la base de datos de producción.
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    <div className="my-6 p-6 rounded-2xl bg-white/5 border border-white/10 space-y-4 text-xs font-black uppercase leading-relaxed">
+                        <div className="flex justify-between">
+                            <span className="text-slate-400">Total a ajustar:</span>
+                            <span className="text-white">{simulation?.targetProducts.length} productos</span>
+                        </div>
+                        <div className="flex justify-between">
+                            <span className="text-slate-400">Tipo de cambio:</span>
+                            <span className={adjustmentPercent >= 0 ? "text-emerald-400" : "text-rose-400"}>
+                                {adjustmentPercent >= 0 ? `Incremento de +${adjustmentPercent}` : `Reducción de ${adjustmentPercent}`}%
+                            </span>
+                        </div>
+                        <div className="flex justify-between">
+                            <span className="text-slate-400">Filtro aplicado:</span>
+                            <span className="text-primary">
+                                M:{brandFilter.toUpperCase()} | C:{categoryFilter.toUpperCase()}
+                            </span>
+                        </div>
+                    </div>
+
+                    <div className="flex items-center gap-3 bg-rose-500/10 border border-rose-500/20 p-4 rounded-xl mb-6">
+                        <Checkbox 
+                            id="accept" 
+                            checked={acceptResponsibility} 
+                            onCheckedChange={(checked) => setAcceptResponsibility(!!checked)}
+                            className="border-rose-500 data-[state=checked]:bg-rose-500 data-[state=checked]:text-white h-5 w-5 rounded"
+                        />
+                        <Label htmlFor="accept" className="text-[10px] font-black text-rose-400 leading-normal uppercase cursor-pointer select-none">
+                            Acepto la responsabilidad de este cambio de precios estructural en producción.
+                        </Label>
+                    </div>
+
+                    <DialogFooter className="grid grid-cols-2 gap-4">
+                        <Button 
+                            variant="outline" 
+                            onClick={() => { setShowConfirmModal(false); setAcceptResponsibility(false); }}
+                            className="h-12 border-white/10 text-white font-black uppercase text-[10px] rounded-xl hover:bg-white/5"
+                        >
+                            Cancelar
+                        </Button>
+                        <Button 
+                            onClick={handleMassUpdate} 
+                            disabled={!acceptResponsibility || isMassUpdating}
+                            className="h-12 bg-rose-600 hover:bg-rose-700 text-white font-black uppercase text-[10px] rounded-xl shadow-lg shadow-rose-950/50"
+                        >
+                            {isMassUpdating ? <Loader2 className="animate-spin h-4 w-4 mr-2" /> : "Confirmar Ajuste"}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
       </div>
     </div>

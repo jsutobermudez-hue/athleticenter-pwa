@@ -405,3 +405,28 @@ export interface QuoteItem {
 export interface QuoteItemClient extends QuoteItem {
   product: Product;
 }
+
+export interface PriceBackupItem {
+  productId: string;
+  oldPrice: number;
+  oldPriceCashUSD: number;
+  oldPriceEarly7d: number;
+  oldPriceEarly15d: number;
+  oldCost: number;
+  oldFactoryCost: number;
+  oldChinaShipping: number;
+}
+
+export interface PriceAdjustmentHistory {
+  id?: string;
+  userId: string;
+  userName: string;
+  adjustmentPercent: number;
+  syncType: 'bcv' | 'wac';
+  brandFilter: string;
+  categoryFilter: string;
+  modelFilter: string;
+  backups: PriceBackupItem[];
+  createdAt: any; // ServerTimestamp
+  isRestored?: boolean;
+}
