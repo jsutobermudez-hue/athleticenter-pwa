@@ -625,89 +625,89 @@ export default function TreasuryPage() {
         </div>
 
         <div className="lg:col-span-5 space-y-8">
-            <Card className="terminal-card bg-slate-900 text-white border-none shadow-2xl overflow-hidden rounded-[2.5rem]">
-                <CardHeader className="p-8 border-b border-white/5">
+            <Card className="terminal-card bg-white text-slate-900 border border-slate-100 shadow-xl overflow-hidden rounded-[2.5rem]">
+                <CardHeader className="p-8 border-b border-slate-100 bg-slate-50/50">
                     <CardTitle className="text-xs font-black uppercase tracking-[0.3em] text-primary flex items-center gap-3">
                         <Sparkles className="h-5 w-5" /> Sincronizador Maestro
                     </CardTitle>
                 </CardHeader>
                 <CardContent className="p-8 space-y-8">
                     <div className="space-y-4">
-                        <Label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Base de Recálculo</Label>
+                        <Label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Base de Recálculo</Label>
                         <div className="grid grid-cols-2 gap-3">
-                            <Button variant={syncType === 'bcv' ? 'default' : 'outline'} onClick={() => setSyncType('bcv')} className={cn("text-[9px] font-black uppercase h-11 rounded-xl", syncType === 'bcv' ? "bg-primary text-white" : "text-white/60 border-white/10")}>Dinámica BCV</Button>
-                            <Button variant={syncType === 'wac' ? 'default' : 'outline'} onClick={() => setSyncType('wac')} className={cn("text-[9px] font-black uppercase h-11 rounded-xl", syncType === 'wac' ? "bg-indigo-600 text-white" : "text-white/60 border-white/10")}>Costo Real WAC</Button>
+                            <Button variant={syncType === 'bcv' ? 'default' : 'outline'} onClick={() => setSyncType('bcv')} className={cn("text-[9px] font-black uppercase h-11 rounded-xl transition-all", syncType === 'bcv' ? "bg-primary text-white hover:bg-primary/95" : "bg-slate-50 border border-slate-200 text-slate-700 hover:bg-slate-100")}>Dinámica BCV</Button>
+                            <Button variant={syncType === 'wac' ? 'default' : 'outline'} onClick={() => setSyncType('wac')} className={cn("text-[9px] font-black uppercase h-11 rounded-xl transition-all", syncType === 'wac' ? "bg-indigo-600 text-white hover:bg-indigo-650" : "bg-slate-50 border border-slate-200 text-slate-700 hover:bg-slate-100")}>Costo Real WAC</Button>
                         </div>
                     </div>
 
                     <div className="space-y-3">
-                        <Label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Unidad de Negocio (Marca)</Label>
+                        <Label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Unidad de Negocio (Marca)</Label>
                         <Select value={brandFilter} onValueChange={setBrandFilter}>
-                            <SelectTrigger className="h-12 bg-white/5 border-white/10 rounded-xl font-bold uppercase text-xs text-white"><SelectValue placeholder="TODA LA RED" /></SelectTrigger>
-                            <SelectContent className="z-[200]">
-                                <SelectItem value="todos" className="font-bold uppercase text-[10px]">TODA LA RED</SelectItem>
-                                {uniqueBrands.map(b => <SelectItem key={b} value={b} className="font-bold uppercase text-[10px]">{b.toUpperCase()}</SelectItem>)}
+                            <SelectTrigger className="h-12 bg-slate-50 border border-slate-200 rounded-xl font-bold uppercase text-xs text-slate-800 hover:bg-slate-100/50"><SelectValue placeholder="TODA LA RED" /></SelectTrigger>
+                            <SelectContent className="z-[200] bg-white border border-slate-200 rounded-xl shadow-lg">
+                                <SelectItem value="todos" className="font-bold uppercase text-[10px] text-slate-800 hover:bg-slate-50">TODA LA RED</SelectItem>
+                                {uniqueBrands.map(b => <SelectItem key={b} value={b} className="font-bold uppercase text-[10px] text-slate-800 hover:bg-slate-50">{b.toUpperCase()}</SelectItem>)}
                             </SelectContent>
                         </Select>
                     </div>
 
                     <div className="space-y-3">
-                        <Label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Categoría / Tipo</Label>
+                        <Label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Categoría / Tipo</Label>
                         <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-                            <SelectTrigger className="h-12 bg-white/5 border-white/10 rounded-xl font-bold uppercase text-xs text-white"><SelectValue placeholder="TODAS LAS CATEGORÍAS" /></SelectTrigger>
-                            <SelectContent className="z-[200]">
-                                <SelectItem value="todos" className="font-bold uppercase text-[10px]">TODAS LAS CATEGORÍAS</SelectItem>
-                                {uniqueCategories.map(c => <SelectItem key={c} value={c} className="font-bold uppercase text-[10px]">{c.toUpperCase()}</SelectItem>)}
+                            <SelectTrigger className="h-12 bg-slate-50 border border-slate-200 rounded-xl font-bold uppercase text-xs text-slate-800 hover:bg-slate-100/50"><SelectValue placeholder="TODAS LAS CATEGORÍAS" /></SelectTrigger>
+                            <SelectContent className="z-[200] bg-white border border-slate-200 rounded-xl shadow-lg">
+                                <SelectItem value="todos" className="font-bold uppercase text-[10px] text-slate-800 hover:bg-slate-50">TODAS LAS CATEGORÍAS</SelectItem>
+                                {uniqueCategories.map(c => <SelectItem key={c} value={c} className="font-bold uppercase text-[10px] text-slate-800 hover:bg-slate-50">{c.toUpperCase()}</SelectItem>)}
                             </SelectContent>
                         </Select>
                     </div>
 
                     <div className="space-y-3">
-                        <Label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Modelo (Búsqueda Parcial)</Label>
-                        <Input type="text" placeholder="Ej: Air Max, Runner..." value={modelFilter} onChange={(e) => setModelFilter(e.target.value)} className="h-12 bg-white/5 border-white/10 rounded-xl font-bold text-xs text-white focus-visible:ring-1 focus-visible:ring-primary" />
+                        <Label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Modelo (Búsqueda Parcial)</Label>
+                        <Input type="text" placeholder="Ej: Air Max, Runner..." value={modelFilter} onChange={(e) => setModelFilter(e.target.value)} className="h-12 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs text-slate-800 focus-visible:ring-1 focus-visible:ring-primary focus:bg-white" />
                     </div>
 
-                    <div className="space-y-3 p-6 bg-white/5 rounded-[2rem] border border-white/10 relative overflow-hidden">
-                        <div className="absolute top-0 right-0 p-4 opacity-5"><TrendingUp className="h-12 w-12" /></div>
+                    <div className="space-y-3 p-6 bg-slate-50 rounded-[2rem] border border-slate-200 relative overflow-hidden">
+                        <div className="absolute top-0 right-0 p-4 opacity-5 text-slate-600"><TrendingUp className="h-12 w-12" /></div>
                         <Label className="text-[10px] font-black text-primary uppercase tracking-widest">Ajuste Porcentual (%)</Label>
                         <div className="flex items-center gap-4">
-                            <Input type="number" step="1" value={adjustmentPercent} onChange={(e) => setAdjustmentPercent(e.target.value === "" ? 0 : Number(e.target.value))} className="h-14 bg-transparent border-none text-4xl font-black text-white focus-visible:ring-0 p-0" />
+                            <Input type="number" step="1" value={adjustmentPercent} onChange={(e) => setAdjustmentPercent(e.target.value === "" ? 0 : Number(e.target.value))} className="h-14 bg-transparent border-none text-4xl font-black text-slate-800 focus-visible:ring-0 p-0" />
                             <div className="text-right">
-                                <p className={cn("text-[10px] font-black", adjustmentPercent >= 0 ? "text-emerald-400" : "text-rose-400")}>
+                                <p className={cn("text-[10px] font-black", adjustmentPercent >= 0 ? "text-emerald-600" : "text-rose-600")}>
                                     {adjustmentPercent >= 0 ? `+${adjustmentPercent}` : adjustmentPercent}%
                                 </p>
-                                <p className="text-[7px] font-bold text-slate-500 uppercase">AJUSTE</p>
+                                <p className="text-[7px] font-bold text-slate-400 uppercase">AJUSTE</p>
                             </div>
                         </div>
                     </div>
 
                     {simulation && simulation.targetProducts && (
-                        <div className="space-y-4 p-5 bg-white/5 rounded-2xl border border-white/5">
-                            <div className="flex justify-between items-center text-[10px] font-black uppercase text-slate-400">
+                        <div className="space-y-4 p-5 bg-slate-50 rounded-2xl border border-slate-200">
+                            <div className="flex justify-between items-center text-[10px] font-black uppercase text-slate-500">
                                 <span>Productos Afectados</span>
-                                <span className="text-primary">{simulation.targetProducts.length} ítems</span>
+                                <span className="text-primary font-black">{simulation.targetProducts.length} ítems</span>
                             </div>
                             
                             {simulation.targetProducts.length > 0 && (
                                 <div className="space-y-3 mt-2">
-                                    <p className="text-[8px] font-black uppercase text-slate-500">Muestra de Precios de Venta (PVP):</p>
+                                    <p className="text-[8px] font-black uppercase text-slate-400">Muestra de Precios de Venta (PVP):</p>
                                     <div className="space-y-2 max-h-[160px] overflow-y-auto pr-1">
                                         {simulation.targetProducts.slice(0, 3).map(p => {
                                             const oldVal = p.priceCashUSD || 0;
                                             const newVal = oldVal * inflationMultiplier;
                                             return (
-                                                <div key={p.id} className="flex justify-between items-center text-[9px] bg-slate-950/40 p-2.5 rounded-xl border border-white/5">
-                                                    <span className="font-bold truncate max-w-[140px]">{p.name}</span>
+                                                <div key={p.id} className="flex justify-between items-center text-[9px] bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
+                                                    <span className="font-bold text-slate-700 truncate max-w-[140px]">{p.name}</span>
                                                     <div className="flex items-center gap-2 font-black">
-                                                        <span className="text-slate-500">${oldVal.toFixed(2)}</span>
-                                                        <span className="text-slate-400">➔</span>
-                                                        <span className={adjustmentPercent >= 0 ? "text-emerald-400" : "text-rose-400"}>${newVal.toFixed(2)}</span>
+                                                        <span className="text-slate-400 font-medium">${oldVal.toFixed(2)}</span>
+                                                        <span className="text-slate-300">➔</span>
+                                                        <span className={adjustmentPercent >= 0 ? "text-emerald-600" : "text-rose-600"}>${newVal.toFixed(2)}</span>
                                                     </div>
                                                 </div>
                                             );
                                         })}
                                         {simulation.targetProducts.length > 3 && (
-                                            <p className="text-[8px] font-black text-slate-500 text-center uppercase tracking-widest pt-1">
+                                            <p className="text-[8px] font-black text-slate-400 text-center uppercase tracking-widest pt-1">
                                                 + {simulation.targetProducts.length - 3} productos más
                                             </p>
                                         )}
@@ -719,19 +719,19 @@ export default function TreasuryPage() {
 
                     {(isMassUpdating || isRollbacking) && (
                         <div className="space-y-2">
-                            <div className="flex justify-between text-[10px] font-black uppercase text-slate-400">
+                            <div className="flex justify-between text-[10px] font-black uppercase text-slate-500">
                                 <span>Procesando lote...</span>
-                                <span className="text-primary">{progressVal}%</span>
+                                <span className="text-primary font-black">{progressVal}%</span>
                             </div>
-                            <Progress value={progressVal} className="h-2 bg-white/5" />
+                            <Progress value={progressVal} className="h-2 bg-slate-100" />
                         </div>
                     )}
                 </CardContent>
-                <CardFooter className="p-8 bg-white/5 border-t border-white/5 flex flex-col gap-4">
+                <CardFooter className="p-8 bg-slate-50/50 border-t border-slate-100 flex flex-col gap-4">
                     <Button 
                         onClick={() => setShowConfirmModal(true)} 
                         disabled={isMassUpdating || isRollbacking || !simulation || simulation.targetProducts.length === 0} 
-                        className={cn("w-full h-16 font-black uppercase text-[11px] tracking-[0.25em] rounded-2xl shadow-2xl", syncType === 'wac' ? "bg-indigo-600 hover:bg-indigo-700" : "bg-primary hover:bg-primary/95")}
+                        className={cn("w-full h-16 font-black uppercase text-[11px] tracking-[0.25em] rounded-2xl shadow-md transition-all duration-200 active:scale-95 text-white", syncType === 'wac' ? "bg-indigo-600 hover:bg-indigo-700" : "bg-primary hover:bg-primary/95")}
                     >
                         {isMassUpdating ? <Loader2 className="mr-3 h-5 w-5 animate-spin" /> : "EJECUTAR AJUSTE MASIVO"}
                     </Button>
@@ -740,7 +740,7 @@ export default function TreasuryPage() {
                         onClick={handleRollback} 
                         disabled={isMassUpdating || isRollbacking} 
                         variant="outline" 
-                        className="w-full h-11 border-white/10 hover:bg-white/5 text-white/80 font-black uppercase text-[9px] tracking-widest rounded-xl"
+                        className="w-full h-11 border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-black uppercase text-[9px] tracking-widest rounded-xl transition-all duration-200 active:scale-95"
                     >
                         {isRollbacking ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : "Deshacer Último Ajuste"}
                     </Button>
@@ -748,41 +748,41 @@ export default function TreasuryPage() {
             </Card>
 
             <Dialog open={showConfirmModal} onOpenChange={setShowConfirmModal}>
-                <DialogContent className="bg-slate-900 border border-white/10 text-white rounded-[2rem] max-w-md p-8">
+                <DialogContent className="bg-white border border-slate-200 text-slate-900 rounded-[2rem] max-w-md p-8 shadow-2xl">
                     <DialogHeader className="space-y-3">
-                        <DialogTitle className="text-lg font-black uppercase tracking-wider text-rose-500">Confirmación de Seguridad</DialogTitle>
-                        <DialogDescription className="text-slate-400 text-xs font-bold leading-relaxed uppercase">
+                        <DialogTitle className="text-lg font-black uppercase tracking-wider text-rose-600">Confirmación de Seguridad</DialogTitle>
+                        <DialogDescription className="text-slate-500 text-xs font-bold leading-relaxed uppercase">
                             Vas a realizar un ajuste estructural de precios permanente en el catálogo de productos de la base de datos de producción.
                         </DialogDescription>
                     </DialogHeader>
 
-                    <div className="my-6 p-6 rounded-2xl bg-white/5 border border-white/10 space-y-4 text-xs font-black uppercase leading-relaxed">
+                    <div className="my-6 p-6 rounded-2xl bg-slate-50 border border-slate-100 space-y-4 text-xs font-black uppercase leading-relaxed text-slate-700">
                         <div className="flex justify-between">
                             <span className="text-slate-400">Total a ajustar:</span>
-                            <span className="text-white">{simulation?.targetProducts.length} productos</span>
+                            <span className="text-slate-900 font-black">{simulation?.targetProducts.length} productos</span>
                         </div>
                         <div className="flex justify-between">
                             <span className="text-slate-400">Tipo de cambio:</span>
-                            <span className={adjustmentPercent >= 0 ? "text-emerald-400" : "text-rose-400"}>
+                            <span className={adjustmentPercent >= 0 ? "text-emerald-600 font-black" : "text-rose-600 font-black"}>
                                 {adjustmentPercent >= 0 ? `Incremento de +${adjustmentPercent}` : `Reducción de ${adjustmentPercent}`}%
                             </span>
                         </div>
                         <div className="flex justify-between">
                             <span className="text-slate-400">Filtro aplicado:</span>
-                            <span className="text-primary">
+                            <span className="text-primary font-black">
                                 M:{brandFilter.toUpperCase()} | C:{categoryFilter.toUpperCase()}
                             </span>
                         </div>
                     </div>
 
-                    <div className="flex items-center gap-3 bg-rose-500/10 border border-rose-500/20 p-4 rounded-xl mb-6">
+                    <div className="flex items-center gap-3 bg-rose-50 border border-rose-100 p-4 rounded-xl mb-6">
                         <Checkbox 
                             id="accept" 
                             checked={acceptResponsibility} 
                             onCheckedChange={(checked) => setAcceptResponsibility(!!checked)}
                             className="border-rose-500 data-[state=checked]:bg-rose-500 data-[state=checked]:text-white h-5 w-5 rounded"
                         />
-                        <Label htmlFor="accept" className="text-[10px] font-black text-rose-400 leading-normal uppercase cursor-pointer select-none">
+                        <Label htmlFor="accept" className="text-[10px] font-black text-rose-600 leading-normal uppercase cursor-pointer select-none">
                             Acepto la responsabilidad de este cambio de precios estructural en producción.
                         </Label>
                     </div>
@@ -791,14 +791,14 @@ export default function TreasuryPage() {
                         <Button 
                             variant="outline" 
                             onClick={() => { setShowConfirmModal(false); setAcceptResponsibility(false); }}
-                            className="h-12 border-white/10 text-white font-black uppercase text-[10px] rounded-xl hover:bg-white/5"
+                            className="h-12 border-slate-200 text-slate-600 font-black uppercase text-[10px] rounded-xl hover:bg-slate-50 bg-white"
                         >
                             Cancelar
                         </Button>
                         <Button 
                             onClick={handleMassUpdate} 
                             disabled={!acceptResponsibility || isMassUpdating}
-                            className="h-12 bg-rose-600 hover:bg-rose-700 text-white font-black uppercase text-[10px] rounded-xl shadow-lg shadow-rose-950/50"
+                            className="h-12 bg-rose-600 hover:bg-rose-700 text-white font-black uppercase text-[10px] rounded-xl shadow-lg shadow-rose-100"
                         >
                             {isMassUpdating ? <Loader2 className="animate-spin h-4 w-4 mr-2" /> : "Confirmar Ajuste"}
                         </Button>
