@@ -104,10 +104,10 @@ export default function TreasuryPage() {
   const settingsRef = useMemoFirebase(() => firestore ? doc(firestore, 'system', 'financials') : null, [firestore]);
   const { data: settings, isLoading, error: settingsError } = useDoc<FinancialSettings>(settingsRef);
 
-  const productsRef = useMemoFirebase(() => firestore ? query(collection(firestore, 'products'), limit(300)) : null, [firestore]);
+  const productsRef = useMemoFirebase(() => firestore ? query(collection(firestore, 'products'), limit(5000)) : null, [firestore]);
   const { data: products, error: productsError } = useCollection<Product>(productsRef);
 
-  const ordersRef = useMemoFirebase(() => (firestore && isMounted) ? query(collection(firestore, 'orders'), limit(300)) : null, [firestore, isMounted]);
+  const ordersRef = useMemoFirebase(() => (firestore && isMounted) ? query(collection(firestore, 'orders'), limit(5000)) : null, [firestore, isMounted]);
   const { data: allOrders, error: ordersError } = useCollection<Order>(ordersRef);
 
   useEffect(() => {
@@ -241,7 +241,7 @@ export default function TreasuryPage() {
         const pricingPromises = pricingRefs.map(ref => getDoc(ref));
         const pricingSnaps = await Promise.all(pricingPromises);
         
-        const backups: PriceBackupItem[] = [];
+        const backups: any[] = [];
         const updatesList: Array<{
             productRef: any;
             pricingRef: any;
@@ -249,6 +249,10 @@ export default function TreasuryPage() {
             pricingUpdate: any;
         }> = [];
         
+        const discountVal = settings.defaultBcvDiscount || 35;
+        const p7dVal = settings.earlyPayment7Days || 10;
+        const p15dVal = settings.earlyPayment15Days || 5;
+
         for (let i = 0; i < targetProducts.length; i++) {
             const product = targetProducts[i];
             const pricingSnap = pricingSnaps[i];
@@ -257,58 +261,54 @@ export default function TreasuryPage() {
             const pricingData = pricingSnapExists ? pricingSnap.data() : null;
             const strategy = pricingData?.strategyDetails as PricingStrategy | undefined;
             
-            // Determine the pricing strategy to use (or default to target_price with current price)
+            // Calculate new List Price BCV directly by applying the adjustment multiplier
+            const oldPriceList = product.price || 0;
+            const newPriceList = oldPriceList * inflationMultiplier;
+            
+            // Recalculate Cash Price and Pronto Pago tiers from the newly adjusted list price
+            const newPriceCash = newPriceList * (1 - discountVal / 100);
+            const newPrice7d = newPriceList * (1 - p7dVal / 100);
+            const newPrice15d = newPriceList * (1 - p15dVal / 100);
+
+            // Cost adjustments (if syncing by WAC, we inflate product cost)
+            const oldCost = product.cost || 0;
+            const newCost = syncType === 'wac' ? oldCost * inflationMultiplier : oldCost;
+
             const safeStrategy: any = strategy || {
                 strategy: 'target_price',
                 useGlobalSettings: true,
-                targetPriceUSD: product.price || 0,
-                costLanded: product.cost || 0
+                targetPriceUSD: oldPriceList,
+                costLanded: oldCost
             };
 
-            let adjustedStrategy: any = {};
-            
-            if (safeStrategy.strategy === 'target_price') {
-                const oldTargetPrice = safeStrategy.targetPriceUSD || product.price || 0;
-                const newTargetPriceUSD = oldTargetPrice * inflationMultiplier;
-                const oldCost = safeStrategy.costLanded || product.cost || 0;
-                // If syncing by WAC, also inflate cost
-                const newCostLanded = syncType === 'wac' ? oldCost * inflationMultiplier : oldCost;
-                
-                adjustedStrategy = {
-                    ...safeStrategy,
-                    targetPriceUSD: newTargetPriceUSD,
-                    costLanded: newCostLanded
-                };
-            } else {
-                const baseCost = (syncType === 'wac' && product.cost) ? product.cost : (safeStrategy.importDetails?.factoryCost || 0);
-                const chinaShipping = syncType === 'wac' ? 0 : (safeStrategy.importDetails?.chinaShipping || 0);
-                
-                const newFactoryCost = baseCost * inflationMultiplier;
-                const costLanded = newFactoryCost + chinaShipping;
-                
-                adjustedStrategy = {
-                    ...safeStrategy,
-                    costLanded: costLanded,
-                    importDetails: {
-                        ...(safeStrategy.importDetails || { dimensions: { length: 10, width: 10, height: 10 }, unitsPerBox: 1 }),
-                        factoryCost: newFactoryCost,
-                        chinaShipping: chinaShipping
-                    }
-                };
-            }
+            // Force target_price strategy with the new list price
+            const adjustedStrategy: any = {
+                ...safeStrategy,
+                strategy: 'target_price',
+                targetPriceUSD: newPriceList,
+                costLanded: newCost,
+                calculated: {
+                    priceListBCV: Number(newPriceList.toFixed(2)),
+                    priceCashUSD: Number(newPriceCash.toFixed(2)),
+                    priceEarly7d: Number(newPrice7d.toFixed(2)),
+                    priceEarly15d: Number(newPrice15d.toFixed(2)),
+                    netProfitUSD: Number((newPriceCash - newCost).toFixed(2)),
+                    netMarginPercent: safeStrategy.calculated?.netMarginPercent || 0,
+                    totalCommissionsUSD: safeStrategy.calculated?.totalCommissionsUSD || 0,
+                    adminOverheadUSD: safeStrategy.calculated?.adminOverheadUSD || 0,
+                    landedCost: Number(newCost.toFixed(2))
+                }
+            };
 
-            const newCalc = calculatePricingTier(adjustedStrategy, watchedValues as any);
-            adjustedStrategy.calculated = newCalc;
-
+            // Back up the COMPLETE old strategy and values
             backups.push({
                 productId: product.id!,
-                oldPrice: product.price,
+                oldPrice: oldPriceList,
                 oldPriceCashUSD: product.priceCashUSD || 0,
                 oldPriceEarly7d: product.priceEarly7d || 0,
                 oldPriceEarly15d: product.priceEarly15d || 0,
-                oldCost: product.cost || 0,
-                oldFactoryCost: safeStrategy.importDetails?.factoryCost || 0,
-                oldChinaShipping: safeStrategy.importDetails?.chinaShipping || 0
+                oldCost: oldCost,
+                oldStrategyDetails: strategy || null // Entire original pricing strategy structure
             });
 
             const pricingRef = doc(firestore, `products/${product.id}/private/pricing`);
@@ -317,16 +317,16 @@ export default function TreasuryPage() {
                 productRef: doc(firestore, 'products', product.id!),
                 pricingRef: pricingRef,
                 productUpdate: {
-                    price: newCalc.priceListBCV,
-                    priceCashUSD: newCalc.priceCashUSD,
-                    priceEarly7d: newCalc.priceEarly7d,
-                    priceEarly15d: newCalc.priceEarly15d,
-                    cost: newCalc.landedCost,
+                    price: Number(newPriceList.toFixed(2)),
+                    priceCashUSD: Number(newPriceCash.toFixed(2)),
+                    priceEarly7d: Number(newPrice7d.toFixed(2)),
+                    priceEarly15d: Number(newPrice15d.toFixed(2)),
+                    cost: Number(newCost.toFixed(2)),
                     updatedAt: serverTimestamp()
                 },
                 pricingUpdate: {
-                    landedCost: newCalc.landedCost,
-                    netProfit: newCalc.netProfitUSD,
+                    landedCost: Number(newCost.toFixed(2)),
+                    netProfit: Number((newPriceCash - newCost).toFixed(2)),
                     strategyDetails: adjustedStrategy,
                     updatedAt: serverTimestamp()
                 }
@@ -412,14 +412,8 @@ export default function TreasuryPage() {
             return;
         }
         
-        const backups = lastBackup.backups as PriceBackupItem[];
+        const backups = lastBackup.backups as any[];
         setTotalToProcess(backups.length);
-        
-        const pricingPromises = backups.map(backup => {
-            const pricingRef = doc(firestore, `products/${backup.productId}/private/pricing`);
-            return getDoc(pricingRef);
-        });
-        const pricingSnaps = await Promise.all(pricingPromises);
         
         let batch = writeBatch(firestore);
         let batchOpCount = 0;
@@ -427,52 +421,6 @@ export default function TreasuryPage() {
         
         for (let i = 0; i < backups.length; i++) {
             const backup = backups[i];
-            const pricingSnap = pricingSnaps[i];
-            
-            const pricingSnapExists = pricingSnap && pricingSnap.exists();
-            const pricingData = pricingSnapExists ? pricingSnap.data() : null;
-            const strategy = pricingData?.strategyDetails as PricingStrategy | undefined;
-            
-            const safeStrategy: any = strategy || {
-                strategy: 'target_price',
-                useGlobalSettings: true,
-                targetPriceUSD: backup.oldPrice,
-                costLanded: backup.oldCost
-            };
-
-            let restoredStrategy: any = {};
-            
-            if (safeStrategy.strategy === 'target_price') {
-                restoredStrategy = {
-                    ...safeStrategy,
-                    targetPriceUSD: backup.oldPrice,
-                    costLanded: backup.oldCost
-                };
-            } else {
-                restoredStrategy = {
-                    ...safeStrategy,
-                    costLanded: backup.oldCost,
-                    importDetails: {
-                        ...(safeStrategy.importDetails || { dimensions: { length: 10, width: 10, height: 10 }, unitsPerBox: 1 }),
-                        factoryCost: backup.oldFactoryCost,
-                        chinaShipping: backup.oldChinaShipping
-                    }
-                };
-            }
-            
-            const restoredCalc = {
-                priceListBCV: backup.oldPrice,
-                priceCashUSD: backup.oldPriceCashUSD,
-                priceEarly7d: backup.oldPriceEarly7d,
-                priceEarly15d: backup.oldPriceEarly15d,
-                netProfitUSD: pricingData?.netProfit || 0,
-                netMarginPercent: safeStrategy.calculated?.netMarginPercent || 0,
-                totalCommissionsUSD: safeStrategy.calculated?.totalCommissionsUSD || 0,
-                adminOverheadUSD: safeStrategy.calculated?.adminOverheadUSD || 0,
-                landedCost: backup.oldCost
-            };
-            
-            restoredStrategy.calculated = restoredCalc;
             
             const productRef = doc(firestore, 'products', backup.productId);
             batch.update(productRef, {
@@ -485,11 +433,20 @@ export default function TreasuryPage() {
             });
             
             const pricingRef = doc(firestore, `products/${backup.productId}/private/pricing`);
-            batch.set(pricingRef, {
-                landedCost: backup.oldCost,
-                strategyDetails: restoredStrategy,
-                updatedAt: serverTimestamp()
-            }, { merge: true });
+            
+            if (backup.oldStrategyDetails) {
+                batch.set(pricingRef, {
+                    landedCost: backup.oldCost,
+                    strategyDetails: backup.oldStrategyDetails,
+                    updatedAt: serverTimestamp()
+                }, { merge: true });
+            } else {
+                batch.set(pricingRef, {
+                    landedCost: backup.oldCost,
+                    strategyDetails: null,
+                    updatedAt: serverTimestamp()
+                }, { merge: true });
+            }
             
             batchOpCount += 2;
             processedCount++;
