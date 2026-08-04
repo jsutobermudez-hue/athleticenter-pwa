@@ -87,7 +87,6 @@ function InventoryContent() {
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [productToDelete, setProductToDelete] = useState<Product | null>(null);
   
-  const [visibleLimit, setVisibleLimit] = useState(24);
   const [catalogFilter, setCatalogFilter] = useState<'todos' | 'offers' | 'new' | 'active'>('todos');
   const [stockStatusFilter, setStockStatusFilter] = useState('todos');
   const [searchTerm, setSearchTerm] = useState('');
@@ -180,12 +179,10 @@ function InventoryContent() {
 
   const toggleCatalogFilter = (filter: typeof catalogFilter) => {
       setCatalogFilter(prev => prev === filter ? 'todos' : filter);
-      setVisibleLimit(24);
   };
 
   const handleToggleStockFilter = (status: string) => {
       setStockStatusFilter(prev => prev === status ? 'todos' : status);
-      setVisibleLimit(24);
   };
 
   const handleClearFilters = (e: React.MouseEvent) => {
@@ -194,7 +191,6 @@ function InventoryContent() {
       setStockStatusFilter('todos');
       setCatalogFilter('todos');
       setSearchTerm('');
-      setVisibleLimit(24);
   };
 
   if (isUserLoading || !currentUser) return <div className="flex h-screen items-center justify-center"><Loader2 className="animate-spin text-primary h-10 w-10" /></div>;
@@ -327,7 +323,7 @@ function InventoryContent() {
             ) : (
                 <div className="space-y-10">
                     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-6">
-                        {filteredInventory.slice(0, visibleLimit).map(product => (
+                        {filteredInventory.map(product => (
                             <ProductCard 
                                 key={product.id} 
                                 product={product} 
@@ -337,14 +333,6 @@ function InventoryContent() {
                             />
                         ))}
                     </div>
-                    {filteredInventory.length > visibleLimit && (
-                        <div className="flex justify-center pb-10">
-                            <Button variant="outline" onClick={() => setVisibleLimit(prev => prev + 24)} className="font-black uppercase tracking-widest px-10 h-14 rounded-2xl border-primary/20 hover:bg-primary/5 text-primary text-[10px]">
-                                <Plus className="mr-2 h-4 w-4" />
-                                Cargar Más Productos...
-                            </Button>
-                        </div>
-                    )}
                 </div>
             )}
           </div>
