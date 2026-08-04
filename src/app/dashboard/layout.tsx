@@ -5,7 +5,7 @@ import { syncBcvRateAction } from '../actions';
 import { SidebarProvider, SidebarInset } from '../../components/ui/sidebar';
 import { AppSidebar } from '../../components/layout/sidebar';
 import { Header } from '../../components/layout/header';
-import { useUser, useFirestore } from '../../firebase/context';
+import { useUser, useFirestore, CatalogProvider } from '../../firebase';
 import { useRouter } from 'next/navigation';
 import { Loader2, AlertTriangle, ShieldCheck } from 'lucide-react';
 import { InstallBanner } from '../../components/layout/InstallBanner';
@@ -173,17 +173,19 @@ export default function DashboardLayout({
 
   return (
       <SidebarProvider>
-          <NotificationToastListener />
-          <AppSidebar />
-          <SidebarInset className="max-w-full overflow-x-hidden">
-              <Header />
-              <main className="p-2 sm:p-4 lg:p-6 mx-auto w-full max-w-[1600px] h-[calc(100svh-60px)] overflow-y-auto overflow-x-hidden relative">
-                  {children}
-              </main>
-              <InstallBanner />
-              <GlobalSearch />
-              <FloatingSearchButton />
-          </SidebarInset>
+          <CatalogProvider>
+              <NotificationToastListener />
+              <AppSidebar />
+              <SidebarInset className="max-w-full overflow-x-hidden">
+                  <Header />
+                  <main className="p-2 sm:p-4 lg:p-6 mx-auto w-full max-w-[1600px] h-[calc(100svh-60px)] overflow-y-auto overflow-x-hidden relative">
+                      {children}
+                  </main>
+                  <InstallBanner />
+                  <GlobalSearch />
+                  <FloatingSearchButton />
+              </SidebarInset>
+          </CatalogProvider>
       </SidebarProvider>
   );
 }

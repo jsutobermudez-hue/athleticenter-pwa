@@ -3,7 +3,7 @@
 
 import React, { useState, useMemo, useEffect, Suspense } from 'react';
 import { useRouter } from 'next/navigation';
-import { useCollection, useFirestore, useMemoFirebase, useUser, useDoc, errorEmitter, FirestorePermissionError } from '@/firebase';
+import { useCollection, useFirestore, useMemoFirebase, useUser, useDoc, errorEmitter, FirestorePermissionError, useCatalog } from '@/firebase';
 import { collection, query, where, doc, serverTimestamp, writeBatch, limit, Timestamp, getDocs } from 'firebase/firestore';
 import type { Product, Customer, QuoteItemClient, Offer, FinancialSettings } from '@/lib/definitions';
 
@@ -72,8 +72,7 @@ function NewQuoteForm() {
         return () => window.removeEventListener('beforeunload', handleBeforeUnload);
     }, [quoteItems]);
 
-    const productsCollection = useMemoFirebase(() => (firestore ? query(collection(firestore, 'products'), limit(150)) : null), [firestore]);
-    const { data: inventory, isLoading: isLoadingInventory } = useCollection<Product>(productsCollection);
+    const { products: inventory, isLoading: isLoadingInventory } = useCatalog();
 
     const offersCollection = useMemoFirebase(() => (firestore ? query(collection(firestore, 'offers'), limit(100)) : null), [firestore]);
     const { data: allOffers } = useCollection<Offer>(offersCollection);

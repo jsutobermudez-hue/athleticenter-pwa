@@ -11,8 +11,8 @@ import {
   CommandList,
   CommandSeparator
 } from "@/components/ui/command";
-import { useFirestore, useCollection, useMemoFirebase, useUser } from '@/firebase';
-import { collection, query, limit, doc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { useFirestore, useCollection, useMemoFirebase, useUser, useCatalog } from '@/firebase';
+import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 import type { Product, Customer, Order } from '@/lib/definitions';
 import { Package, User as UserIcon, ShoppingCart, Zap, Landmark, RefreshCw, Loader2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
@@ -61,9 +61,7 @@ export function GlobalSearch() {
     if (open) setShouldLoad(true);
   }, [open]);
 
-  // Saneamiento: Solo cargamos productos para evitar colapsos de permisos en pedidos/clientes
-  const productsQuery = useMemoFirebase(() => (firestore && shouldLoad) ? query(collection(firestore, 'products'), limit(100)) : null, [firestore, shouldLoad]);
-  const { data: allProducts } = useCollection<Product>(productsQuery);
+  const { products: allProducts } = useCatalog();
 
   const navigate = (path: string) => {
     router.push(path);
