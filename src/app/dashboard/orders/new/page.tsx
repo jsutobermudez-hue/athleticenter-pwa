@@ -3,7 +3,8 @@
 
 import React, { useState, useMemo, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useCollection, useFirestore, useMemoFirebase, useUser, useDoc, errorEmitter, FirestorePermissionError, useCatalog } from '@/firebase';
+import { useCollection, useFirestore, useMemoFirebase, useUser, useDoc, errorEmitter, FirestorePermissionError } from '@/firebase';
+import { useCatalog } from '@/firebase/catalog-context';
 import { collection, query, where, doc, serverTimestamp, runTransaction, limit, getDocs, getDoc, Timestamp } from 'firebase/firestore';
 import type { Product, Customer, OrderItemClient, Order, Offer, FinancialSettings } from '@/lib/definitions';
 

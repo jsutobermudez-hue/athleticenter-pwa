@@ -27,7 +27,8 @@ import {
 import { NewProductDialog } from './manage-inventory-dialog';
 import type { Product, Offer, FinancialSettings, CompanyProfile } from '@/lib/definitions';
 import { TooltipProvider } from '@/components/ui/tooltip';
-import { useCollection, useFirestore, useMemoFirebase, useUser, useDoc, useCatalog } from '@/firebase';
+import { useCollection, useFirestore, useMemoFirebase, useUser, useDoc } from '@/firebase';
+import { useCatalog } from '@/firebase/catalog-context';
 import { collection, query, limit, doc, Timestamp } from 'firebase/firestore';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';

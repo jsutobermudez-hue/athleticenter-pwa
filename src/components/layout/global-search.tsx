@@ -11,7 +11,8 @@ import {
   CommandList,
   CommandSeparator
 } from "@/components/ui/command";
-import { useFirestore, useCollection, useMemoFirebase, useUser, useCatalog } from '@/firebase';
+import { useFirestore, useCollection, useMemoFirebase, useUser } from '@/firebase';
+import { useCatalog } from '@/firebase/catalog-context';
 import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 import type { Product, Customer, Order } from '@/lib/definitions';
 import { Package, User as UserIcon, ShoppingCart, Zap, Landmark, RefreshCw, Loader2 } from 'lucide-react';
