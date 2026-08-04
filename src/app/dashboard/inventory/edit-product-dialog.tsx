@@ -155,7 +155,7 @@ export function EditProductDialog({ product, useTriggerButton = false }: { produ
                     freightRatePerCBM: s?.importDetails?.freightRatePerCBM || 450,
                     otherExpenses: s?.importDetails?.otherExpenses || 0,
                     targetMarginPercent: s?.targetMarginPercent || 60,
-                    useManualPVP: s?.strategy === 'target_price' || !s,
+                    useManualPVP: true,
                     manualPVP: product.price || 0
                 });
             } else {
