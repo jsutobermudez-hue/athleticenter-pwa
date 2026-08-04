@@ -31,13 +31,13 @@ export async function createAppNotifications(
     const userRef = collection(firestore, 'users');
     
     if (broadcast) {
-        const q = query(userRef, where('role', 'in', ['admin', 'gerencia', 'superadmin']), limit(25));
+        const q = query(userRef, where('role', 'in', ['admin', 'gerencia', 'superadmin', 'ventas', 'deposito']), limit(100));
         const snap = await getDocs(q);
         snap.forEach(d => targetUserIds.add(d.id));
     } else {
         // Superadmins siempre deben recibir todas las notificaciones del sistema
         try {
-            const sq = query(userRef, where('role', '==', 'superadmin'), limit(10));
+            const sq = query(userRef, where('role', '==', 'superadmin'), limit(20));
             const sSnap = await getDocs(sq);
             sSnap.forEach(d => targetUserIds.add(d.id));
         } catch (err) {
@@ -45,7 +45,7 @@ export async function createAppNotifications(
         }
 
         if (roles && roles.length > 0) {
-            const q = query(userRef, where('role', 'in', roles), limit(25));
+            const q = query(userRef, where('role', 'in', roles), limit(100));
             const snap = await getDocs(q);
             snap.forEach(d => targetUserIds.add(d.id));
         }

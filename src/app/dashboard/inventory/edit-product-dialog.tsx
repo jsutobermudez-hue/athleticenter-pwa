@@ -29,6 +29,7 @@ import { Separator } from '@/components/ui/separator';
 import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
 import { calculatePricingTier } from '@/lib/pricing';
+import { createAppNotifications } from '@/lib/notifications';
 
 const productEditSchema = z.object({
     name: z.string().min(1, "El nombre es requerido."),
@@ -194,6 +195,8 @@ export function EditProductDialog({ product, useTriggerButton = false }: { produ
     if (!firestore || !currentUser || !results) return;
     try {
         const cleanNumber = (val: any) => isNaN(parseFloat(val)) ? 0 : parseFloat(val);
+        let stockIncreased = false;
+        let diff = 0;
 
         await runTransaction(firestore, async (transaction) => {
             const productRef = doc(firestore, 'products', product.id!);
@@ -202,7 +205,12 @@ export function EditProductDialog({ product, useTriggerButton = false }: { produ
             const prodSnap = await transaction.get(productRef);
             if (!prodSnap.exists()) throw new Error("Producto no encontrado.");
 
+            const oldStockVal = prodSnap.data()?.stockLevel || 0;
             const stockVal = Math.floor(cleanNumber(data.stockLevel));
+            diff = stockVal - oldStockVal;
+            if (diff > 0) {
+                stockIncreased = true;
+            }
 
             const productPayload = {
                 name: data.name,
@@ -244,6 +252,22 @@ export function EditProductDialog({ product, useTriggerButton = false }: { produ
         });
 
         toast({ title: '¡Producto Sincronizado!' });
+
+        if (stockIncreased) {
+            try {
+                await createAppNotifications(firestore, {
+                    category: 'Inventario',
+                    title: `📈 Reposición de Stock: ${data.name}`,
+                    message: `Se ha repuesto el inventario de "${data.name}" (SKU: ${product.sku}). Ingreso de +${diff} un. (Stock total actual: ${data.stockLevel} un.).`,
+                    link: `/dashboard/inventory?sku=${product.sku}`,
+                    initiatorId: currentUser.id,
+                    roles: ['admin', 'gerencia', 'ventas', 'deposito']
+                });
+            } catch (notifyErr) {
+                console.warn("[Notifications] Error al notificar reposición de stock:", notifyErr);
+            }
+        }
+
         setIsOpen(false);
     } catch (e: any) {
         toast({ variant: 'destructive', title: 'Error', description: e.message });

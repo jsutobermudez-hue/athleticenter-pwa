@@ -143,24 +143,24 @@ export function NewProductDialog() {
     try {
         const cleanNumber = (val: any) => isNaN(parseFloat(val)) ? 0 : parseFloat(val);
 
+        const sizesMap: { [key: string]: number } = {};
+        let totalStockFromSizes = 0;
+        if (data.hasSizes && data.sizeVariants) {
+            data.sizeVariants.forEach((v: any) => {
+                const s = Math.floor(cleanNumber(v.stock));
+                sizesMap[v.label] = s;
+                totalStockFromSizes += s;
+            });
+        }
+
+        const stockVal = data.hasSizes ? totalStockFromSizes : Math.floor(cleanNumber(data.stockLevel));
+
         await runTransaction(firestore, async (transaction) => {
             const productRef = doc(firestore, 'products', data.sku);
             const pricingRef = doc(firestore, `products/${data.sku}/private/pricing`);
             
             const productDoc = await transaction.get(productRef);
             if (productDoc.exists()) throw new Error(`El SKU '${data.sku}' ya existe.`);
-
-            const sizesMap: { [key: string]: number } = {};
-            let totalStockFromSizes = 0;
-            if (data.hasSizes && data.sizeVariants) {
-                data.sizeVariants.forEach((v: any) => {
-                    const s = Math.floor(cleanNumber(v.stock));
-                    sizesMap[v.label] = s;
-                    totalStockFromSizes += s;
-                });
-            }
-
-            const stockVal = data.hasSizes ? totalStockFromSizes : Math.floor(cleanNumber(data.stockLevel));
 
             const productPayload = { 
                 id: data.sku, 
@@ -203,6 +203,20 @@ export function NewProductDialog() {
         });
 
         toast({ title: '¡Producto Sincronizado!' });
+        
+        try {
+            await createAppNotifications(firestore, {
+                category: 'Inventario',
+                title: `📦 Nuevo Producto: ${data.name}`,
+                message: `Se ha registrado el nuevo producto "${data.name}" (SKU: ${data.sku}) en el catálogo con un stock de ${stockVal} un.`,
+                link: `/dashboard/inventory?sku=${data.sku}`,
+                initiatorId: authUser.uid,
+                roles: ['admin', 'gerencia', 'ventas', 'deposito']
+            });
+        } catch (e) {
+            console.warn("[Notifications] Error al notificar nuevo producto:", e);
+        }
+
         resetAndClose();
     } catch (error: any) {
         toast({ variant: 'destructive', title: 'Fallo de Persistencia', description: error.message });
