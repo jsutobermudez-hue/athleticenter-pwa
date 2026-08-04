@@ -29,6 +29,7 @@ import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { calculatePricingTier } from '@/lib/pricing';
+import { cn } from '@/lib/utils';
 
 const productSchema = z.object({
   sku: z.string().min(1, 'El SKU es requerido.').max(50).transform(s => s.trim().toUpperCase()),
@@ -56,6 +57,8 @@ const productSchema = z.object({
   freightRatePerCBM: z.coerce.number().default(450),
   otherExpenses: z.coerce.number().default(0),
   targetMarginPercent: z.coerce.number().default(60),
+  useManualPVP: z.boolean().default(false),
+  manualPVP: z.coerce.number().default(0),
 });
 
 type ProductFormValues = z.infer<typeof productSchema>;
@@ -78,7 +81,8 @@ export function NewProductDialog() {
       features: '', imageUrl: '', stockLevel: 0, minStockThreshold: 5, hasSizes: false,
       sizeVariants: [{ label: 'M', stock: 0 }],
       factoryCost: 0, chinaShipping: 0, length: 10, width: 10, height: 10,
-      unitsPerBox: 1, freightRatePerCBM: 450, otherExpenses: 0, targetMarginPercent: 60
+      unitsPerBox: 1, freightRatePerCBM: 450, otherExpenses: 0, targetMarginPercent: 60,
+      useManualPVP: false, manualPVP: 0
     },
   });
 
@@ -93,8 +97,9 @@ export function NewProductDialog() {
 
     const pricingStrategy: Partial<PricingStrategy> = {
         costLanded: safeVal(values.factoryCost) + safeVal(values.chinaShipping),
-        strategy: 'smart_import',
+        strategy: values.useManualPVP ? 'target_price' : 'smart_import',
         targetMarginPercent: safeVal(values.targetMarginPercent || 60),
+        targetPriceUSD: safeVal(values.manualPVP),
         importDetails: { 
             factoryCost: safeVal(values.factoryCost), 
             chinaShipping: safeVal(values.chinaShipping),
@@ -343,29 +348,46 @@ export function NewProductDialog() {
                             <h3 className="text-xs font-black uppercase tracking-[0.3em] text-primary flex items-center gap-2 relative z-10"><Zap className="h-4 w-4" /> Smart Pricing Studio</h3>
                             <Separator className="bg-white/10 relative z-10" />
                             
-                            <div className="space-y-8 relative z-10 flex-1">
+                            <div className="space-y-8 relative z-10 flex-1 flex flex-col">
                                 <div className="grid grid-cols-2 gap-4">
-                                    <div className="space-y-1.5"><Label className="text-[9px] font-bold uppercase text-slate-400 px-1">Costo Fábrica (USD)</Label><Controller name="factoryCost" control={control} render={({ field }) => <Input type="number" step="0.01" {...field} value={isNaN(field.value) ? "" : field.value} className="h-11 bg-white/5 border-white/10 font-bold rounded-xl text-white" />} /></div>
-                                    <div className="space-y-1.5"><Label className="text-[9px] font-bold uppercase text-slate-400 px-1">Flete un. (USD)</Label><Controller name="chinaShipping" control={control} render={({ field }) => <Input type="number" step="0.01" {...field} value={isNaN(field.value) ? "" : field.value} className="h-11 bg-white/5 border-white/10 font-bold rounded-xl text-white" />} /></div>
+                                    <div className="space-y-1.5"><Label className="text-[9px] uppercase text-slate-400 px-1">Costo Fábrica (USD)</Label><Controller name="factoryCost" control={control} render={({ field }) => <Input type="number" step="0.01" {...field} value={isNaN(field.value) ? "" : field.value} className="h-11 bg-white/5 border-white/10 text-white font-bold rounded-xl" />} /></div>
+                                    <div className="space-y-1.5"><Label className="text-[9px] uppercase text-slate-400 px-1">Flete un. (USD)</Label><Controller name="chinaShipping" control={control} render={({ field }) => <Input type="number" step="0.01" {...field} value={isNaN(field.value) ? "" : field.value} className="h-11 bg-white/5 border-white/10 text-white font-bold rounded-xl" />} /></div>
                                 </div>
-                                <div className="space-y-3 pt-2">
-                                    <div className="flex justify-between items-center px-1">
-                                        <Label className="text-[9px] font-bold uppercase text-slate-400">Margen Neto Objetivo</Label>
-                                        <span className="text-primary font-black text-xl">{values.targetMarginPercent}%</span>
-                                    </div>
-                                    <Controller name="targetMarginPercent" control={control} render={({ field }) => <Input type="number" {...field} value={isNaN(field.value) ? "" : field.value} className="h-14 bg-white/10 border-none text-3xl font-black text-primary rounded-2xl text-center shadow-inner" />} />
-                                </div>
-                            </div>
 
-                            <div className="mt-auto space-y-8 pt-6 border-t border-white/10 relative z-10">
-                                <div className="flex justify-between items-center px-1">
-                                    <div className="space-y-0.5"><p className="text-[10px] font-black uppercase text-slate-500 tracking-widest">Landed Cost</p><p className="text-2xl font-black text-white tracking-tighter">${Number(results?.landedCost || 0).toFixed(2)}</p></div>
-                                    <div className="text-right space-y-0.5"><p className="text-[10px] font-black uppercase text-emerald-500 tracking-widest">Utilidad Est.</p><p className="text-2xl font-black text-emerald-400 tracking-tighter">+${Number(results?.netProfitUSD || 0).toFixed(2)}</p></div>
+                                <div className="space-y-6 p-6 bg-white/5 rounded-[2rem] border border-white/10 shadow-inner">
+                                    <div className="flex items-center justify-between">
+                                        <Label className="text-xs font-black uppercase text-primary">Protección PVP Manual</Label>
+                                        <Controller name="useManualPVP" control={control} render={({ field }) => <Switch checked={field.value} onCheckedChange={field.onChange} />} />
+                                    </div>
+                                    {values.useManualPVP ? (
+                                        <div className="space-y-4 animate-in slide-in-from-top-2">
+                                            <div className="flex justify-between items-center px-1">
+                                                <Label className="text-[10px] uppercase font-bold text-primary">Margen Neto Deseado</Label>
+                                                <span className="text-xl font-black text-primary">{Number(results?.netMarginPercent || 0).toFixed(1)}%</span>
+                                            </div>
+                                            <Controller name="manualPVP" control={control} render={({ field }) => <Input type="number" step="0.01" {...field} value={isNaN(field.value) ? "" : field.value} className="h-16 text-4xl font-black bg-white/10 border-primary/30 text-primary rounded-2xl text-center shadow-inner" />} />
+                                        </div>
+                                    ) : (
+                                        <div className="space-y-4 animate-in slide-in-from-bottom-2">
+                                            <div className="flex justify-between items-center px-1">
+                                                <Label className="text-[10px] uppercase font-bold text-primary">Margen Neto Deseado</Label>
+                                                <span className="text-xl font-black text-primary">{values.targetMarginPercent}%</span>
+                                            </div>
+                                            <Controller name="targetMarginPercent" control={control} render={({ field }) => <Input type="number" {...field} value={isNaN(field.value) ? "" : field.value} className="h-16 bg-white/10 border-primary/30 text-primary rounded-2xl text-center text-4xl font-black shadow-inner" />} />
+                                        </div>
+                                    )}
                                 </div>
-                                <div className="space-y-2">
-                                    <div className="bg-white p-6 rounded-[2.2rem] shadow-2xl text-center border-none transition-transform group-hover:scale-[1.03]">
-                                        <p className="text-[10px] font-black uppercase text-slate-400 tracking-[0.3em] mb-1">Sugerido Divisa (CASH)</p>
-                                        <p className="text-5xl sm:text-6xl font-black text-slate-900 tracking-tighter leading-none">${Number(results?.priceCashUSD || 0).toFixed(2)}</p>
+
+                                <div className="mt-auto space-y-8 pt-6 border-t border-white/10 relative z-10">
+                                    <div className="flex justify-between items-end">
+                                        <div className="space-y-0.5"><p className="text-[9px] uppercase text-slate-500 font-black tracking-widest">Landed Cost</p><p className="text-2xl font-black text-white tracking-tighter">${Number(results?.landedCost || 0).toFixed(2)}</p></div>
+                                        <div className="text-right space-y-0.5"><p className="text-[9px] uppercase text-emerald-500 font-black tracking-widest">Utilidad Neta</p><p className={cn("text-2xl font-black", (results?.netProfitUSD ?? 0) < 0 ? "text-rose-400" : "text-emerald-400")}>${Number(results?.netProfitUSD || 0).toFixed(2)}</p></div>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <div className="bg-white p-6 rounded-[2.2rem] shadow-2xl text-center border-none transition-transform group-hover:scale-[1.03]">
+                                            <p className="text-[10px] font-black uppercase text-slate-400 tracking-[0.3em] mb-1">Divisa CASH (Sugerido)</p>
+                                            <p className="text-5xl sm:text-6xl font-black text-slate-900 tracking-tighter leading-none">${Number(results?.priceCashUSD || 0).toFixed(2)}</p>
+                                        </div>
                                     </div>
                                 </div>
                             </div>

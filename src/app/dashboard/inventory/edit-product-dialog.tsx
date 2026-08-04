@@ -371,24 +371,26 @@ export function EditProductDialog({ product, useTriggerButton = false }: { produ
                                             <div className="space-y-1.5"><Label className="text-[9px] uppercase text-slate-400 px-1">Costo Fábrica (USD)</Label><Controller name="factoryCost" control={control} render={({ field }) => <Input type="number" step="0.01" {...field} value={isNaN(field.value) ? "" : field.value} className="h-11 bg-white/5 border-white/10 text-white font-bold rounded-xl" />} /></div>
                                             <div className="space-y-1.5"><Label className="text-[9px] uppercase text-slate-400 px-1">Flete un. (USD)</Label><Controller name="chinaShipping" control={control} render={({ field }) => <Input type="number" step="0.01" {...field} value={isNaN(field.value) ? "" : field.value} className="h-11 bg-white/5 border-white/10 text-white font-bold rounded-xl" />} /></div>
                                         </div>
-
                                         <div className="space-y-6 p-6 bg-white/5 rounded-[2rem] border border-white/10 shadow-inner">
                                             <div className="flex items-center justify-between">
-                                                <Label className="text-xs font-black uppercase text-emerald-400">Protección PVP Manual</Label>
+                                                <Label className="text-xs font-black uppercase text-primary">Protección PVP Manual</Label>
                                                 <Controller name="useManualPVP" control={control} render={({ field }) => <Switch checked={field.value} onCheckedChange={field.onChange} />} />
                                             </div>
                                             {values.useManualPVP ? (
-                                                <div className="space-y-3 animate-in slide-in-from-top-2">
-                                                    <Label className="text-[10px] font-black text-emerald-500 uppercase px-1 tracking-widest">PVP Lista (BCV) Manual</Label>
-                                                    <div className="relative">
-                                                        <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-6 w-6 text-emerald-600" />
-                                                        <Controller name="manualPVP" control={control} render={({ field }) => <Input type="number" step="0.01" {...field} value={isNaN(field.value) ? "" : field.value} className="h-16 pl-10 text-4xl font-black bg-white/10 border-emerald-500/30 text-emerald-400 rounded-2xl" />} />
+                                                <div className="space-y-4 animate-in slide-in-from-top-2">
+                                                    <div className="flex justify-between items-center px-1">
+                                                        <Label className="text-[10px] uppercase font-bold text-primary">Margen Neto Deseado</Label>
+                                                        <span className="text-xl font-black text-primary">{Number(results?.netMarginPercent || 0).toFixed(1)}%</span>
                                                     </div>
+                                                    <Controller name="manualPVP" control={control} render={({ field }) => <Input type="number" step="0.01" {...field} value={isNaN(field.value) ? "" : field.value} className="h-16 text-4xl font-black bg-white/10 border-primary/30 text-primary rounded-2xl text-center shadow-inner" />} />
                                                 </div>
                                             ) : (
-                                                <div className="space-y-4">
-                                                    <div className="flex justify-between items-center px-1"><Label className="text-[10px] uppercase font-bold text-primary">Margen Neto Deseado</Label><span className="text-xl font-black text-primary">{values.targetMarginPercent}%</span></div>
-                                                    <Controller name="targetMarginPercent" control={control} render={({ field }) => <Input type="number" {...field} value={isNaN(field.value) ? "" : field.value} className="h-12 bg-white/10 border-primary/30 text-primary rounded-xl text-center text-2xl font-black" />} />
+                                                <div className="space-y-4 animate-in slide-in-from-bottom-2">
+                                                    <div className="flex justify-between items-center px-1">
+                                                        <Label className="text-[10px] uppercase font-bold text-primary">Margen Neto Deseado</Label>
+                                                        <span className="text-xl font-black text-primary">{values.targetMarginPercent}%</span>
+                                                    </div>
+                                                    <Controller name="targetMarginPercent" control={control} render={({ field }) => <Input type="number" {...field} value={isNaN(field.value) ? "" : field.value} className="h-16 bg-white/10 border-primary/30 text-primary rounded-2xl text-center text-4xl font-black shadow-inner" />} />
                                                 </div>
                                             )}
                                         </div>

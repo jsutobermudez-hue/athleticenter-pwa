@@ -273,33 +273,26 @@ function PricingCalculatorContent() {
                             <div className="space-y-1.5"><Label className="text-[10px] font-black uppercase text-slate-400">China Shipping (USD/un.)</Label><Controller name="chinaShipping" control={control} render={({ field }) => <Input type="number" step="0.01" {...field} value={isNaN(field.value) ? "" : field.value} className="h-12 font-black text-xl rounded-xl bg-slate-50 border-none shadow-inner" />} /></div>
                         </div>
                         
-                        <div className="p-8 bg-emerald-50 rounded-[2.5rem] border border-emerald-100 space-y-8">
+                        <div className="space-y-6 p-6 bg-slate-50 rounded-[2rem] border border-slate-200 shadow-inner">
                             <div className="flex items-center justify-between">
-                                <div className="flex flex-col">
-                                    <Label className="text-base font-black uppercase text-emerald-700 flex items-center gap-2"><DollarSign className="h-5 w-5" /> Precio Final (PVP)</Label>
-                                    <span className="text-[9px] font-bold text-emerald-600/60 uppercase tracking-widest mt-1">FIJAR PRECIO MANUAL BLINDA EL PRODUCTO</span>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                    <Label className="text-[9px] font-black uppercase text-emerald-600">PRECIO FIJO</Label>
-                                    <Controller name="useManualPVP" control={control} render={({ field }) => <Switch checked={field.value} onCheckedChange={field.onChange} />} />
-                                </div>
+                                <Label className="text-xs font-black uppercase text-primary">Protección PVP Manual</Label>
+                                <Controller name="useManualPVP" control={control} render={({ field }) => <Switch checked={field.value} onCheckedChange={field.onChange} />} />
                             </div>
-
                             {values.useManualPVP ? (
-                                <div className="space-y-3 animate-in slide-in-from-top-2">
-                                    <Label className="text-[10px] font-black text-emerald-700 uppercase px-1">Precio Lista Final (BCV) Deseado</Label>
-                                    <div className="relative">
-                                        <DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 h-6 w-6 text-emerald-600" />
-                                        <Controller name="manualPVP" control={control} render={({ field }) => <Input type="number" step="0.01" {...field} value={isNaN(field.value) ? "" : field.value} className="h-16 pl-12 text-4xl font-black bg-white border-emerald-300 rounded-2xl shadow-2xl" />} />
+                                <div className="space-y-4 animate-in slide-in-from-top-2">
+                                    <div className="flex justify-between items-center px-1">
+                                        <Label className="text-[10px] uppercase font-bold text-primary">Margen Neto Deseado</Label>
+                                        <span className="text-xl font-black text-primary">{Number(results?.netMarginPercent || 0).toFixed(1)}%</span>
                                     </div>
+                                    <Controller name="manualPVP" control={control} render={({ field }) => <Input type="number" step="0.01" {...field} value={isNaN(field.value) ? "" : field.value} className="h-16 text-4xl font-black bg-white border-primary/30 text-primary rounded-2xl text-center shadow-inner" />} />
                                 </div>
                             ) : (
                                 <div className="space-y-4 animate-in slide-in-from-bottom-2">
                                     <div className="flex justify-between items-center px-1">
-                                        <Label className="text-sm font-black uppercase text-slate-700">Margen Neto Deseado (%)</Label>
-                                        <span className="text-2xl font-black text-emerald-600">{Number(values.targetMarginPercent || 0)}%</span>
+                                        <Label className="text-[10px] uppercase font-bold text-primary">Margen Neto Deseado</Label>
+                                        <span className="text-xl font-black text-primary">{values.targetMarginPercent}%</span>
                                     </div>
-                                    <Controller name="targetMarginPercent" control={control} render={({ field }) => <Input type="number" {...field} value={isNaN(field.value) ? "" : field.value} className="h-14 font-black text-3xl text-emerald-700 bg-white border-emerald-200 rounded-2xl shadow-inner text-center" />} />
+                                    <Controller name="targetMarginPercent" control={control} render={({ field }) => <Input type="number" {...field} value={isNaN(field.value) ? "" : field.value} className="h-16 bg-white border-primary/30 text-primary rounded-2xl text-center text-4xl font-black shadow-inner" />} />
                                 </div>
                             )}
                         </div>
