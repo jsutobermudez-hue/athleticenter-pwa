@@ -242,13 +242,26 @@ function NewOrderForm() {
             
             if (!isDraft) {
                 try {
+                    const clientUserIds: string[] = [selectedCustomerId];
+                    try {
+                        const usersRef = collection(firestore, 'users');
+                        const q = query(usersRef, where('associatedCustomerId', '==', selectedCustomerId));
+                        const snap = await getDocs(q);
+                        snap.forEach(doc => {
+                            clientUserIds.push(doc.id);
+                        });
+                    } catch (e) {
+                        console.warn("[Notifications] Error al buscar usuarios asociados al cliente:", e);
+                    }
+
                     await createAppNotifications(firestore, {
                         category: 'Pedidos',
                         title: '🛍️ Nuevo Pedido Registrado',
                         message: `El vendedor ${spName} ha registrado el pedido #${finalOrderId} para ${rawName} por un total de $${safeTotalAmount.toFixed(2)}.`,
                         link: `/dashboard/dispatch?orderId=${finalOrderId}`,
                         initiatorId: currentUser.id,
-                        roles: ['admin', 'gerencia', 'deposito']
+                        roles: ['admin', 'gerencia', 'deposito'],
+                        userIds: clientUserIds
                     });
                 } catch (e) {
                     console.warn("[Notifications] Error al enviar notificación de nuevo pedido:", e);

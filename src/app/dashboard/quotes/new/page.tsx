@@ -4,7 +4,7 @@
 import React, { useState, useMemo, useEffect, Suspense } from 'react';
 import { useRouter } from 'next/navigation';
 import { useCollection, useFirestore, useMemoFirebase, useUser, useDoc, errorEmitter, FirestorePermissionError } from '@/firebase';
-import { collection, query, where, doc, serverTimestamp, writeBatch, limit, Timestamp } from 'firebase/firestore';
+import { collection, query, where, doc, serverTimestamp, writeBatch, limit, Timestamp, getDocs } from 'firebase/firestore';
 import type { Product, Customer, QuoteItemClient, Offer, FinancialSettings } from '@/lib/definitions';
 
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
@@ -250,13 +250,26 @@ function NewQuoteForm() {
                 
                 if (!isCloudDraft) {
                     try {
+                        const clientUserIds: string[] = [selectedCustomerId];
+                        try {
+                            const usersRef = collection(firestore, 'users');
+                            const q = query(usersRef, where('associatedCustomerId', '==', selectedCustomerId));
+                            const snap = await getDocs(q);
+                            snap.forEach(doc => {
+                                clientUserIds.push(doc.id);
+                            });
+                        } catch (e) {
+                            console.warn("[Notifications] Error al buscar usuarios asociados al cliente:", e);
+                        }
+
                         await createAppNotifications(firestore, {
                             category: 'Cotizaciones',
                             title: '📝 Presupuesto Proforma Creado',
                             message: `El vendedor ${salespersonName} ha generado la cotización #${finalQuoteId} para ${selectedCustomer?.razonSocial || 'Cliente'} por un total de $${safeTotal.toFixed(2)}.`,
                             link: `/dashboard/quotes?quote=${finalQuoteId}`,
                             initiatorId: currentUser?.id || 'system',
-                            roles: ['admin', 'gerencia']
+                            roles: ['admin', 'gerencia'],
+                            userIds: clientUserIds
                         });
                     } catch (e) {
                         console.warn("[Notifications] Error al enviar notificación de nueva cotización:", e);
