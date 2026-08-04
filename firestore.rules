@@ -1,0 +1,67 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Reglas para perfiles de usuario y su comunicación
+    match /users/{userId} {
+      allow read: if request.auth != null; // Permitir buscar perfiles para redactar mensajes
+      allow write: if request.auth != null && request.auth.uid == userId; // Solo el propietario edita su perfil
+
+      match /directMessages/{messageId} {
+        allow read: if request.auth != null && request.auth.uid == userId; // Solo el receptor lee sus DMs
+        allow create: if request.auth != null && request.resource.data.senderId == request.auth.uid; // Cualquiera envía un DM validando su identidad
+        allow update, delete: if request.auth != null && request.auth.uid == userId; // Solo el receptor marca como leído o elimina
+      }
+
+      match /notifications/{notificationId} {
+        allow read: if request.auth != null && request.auth.uid == userId; // Solo el receptor lee sus notificaciones
+        allow create: if request.auth != null; // Cualquiera puede emitir notificaciones internas (ej. al aprobar pedidos)
+        allow update, delete: if request.auth != null && request.auth.uid == userId; // Solo el receptor gestiona sus notificaciones
+      }
+
+      match /sentMessages/{messageId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId; // Solo el remitente gestiona su bandeja de salida
+      }
+    }
+
+    // Reglas generales para la operativa comercial B2B
+    match /products/{productId} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+
+    match /orders/{orderId} {
+      allow read, write: if request.auth != null;
+    }
+
+    match /quotes/{quoteId} {
+      allow read, write: if request.auth != null;
+    }
+
+    match /customers/{customerId} {
+      allow read, write: if request.auth != null;
+    }
+
+    match /carriers/{carrierId} {
+      allow read, write: if request.auth != null;
+    }
+
+    match /commissions/{commissionId} {
+      allow read, write: if request.auth != null;
+    }
+
+    match /offers/{offerId} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+
+    match /auditLogs/{logId} {
+      allow read, write: if request.auth != null;
+    }
+
+    match /system/{docId} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+  }
+}
