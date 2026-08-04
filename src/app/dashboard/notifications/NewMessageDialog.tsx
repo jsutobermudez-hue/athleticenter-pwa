@@ -150,6 +150,19 @@ export function NewMessageDialog({ isOpen, onOpenChange, allUsers }: NewMessageD
     batch.commit()
         .then(() => {
             toast({ title: '¡Comunicación Distribuida!', description: `El mensaje ha sido notificado a la red de chats.` });
+            
+            // Disparar notificaciones Push en segundo plano a los destinatarios
+            const targetIds = targetUsers.map(u => u.id).filter(Boolean);
+            if (targetIds.length > 0) {
+                import('@/app/actions').then(({ triggerPushNotificationAction }) => {
+                    triggerPushNotificationAction(targetIds, {
+                        title: `💬 Mensaje de ${currentUser.name}`,
+                        body: data.subject,
+                        url: '/dashboard/notifications'
+                    }).catch(err => console.warn("[Push] Error al emitir notificación:", err));
+                });
+            }
+
             onOpenChange(false);
             reset();
         })
