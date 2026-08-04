@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import {
   DocumentReference,
   onSnapshot,
+  getDoc,
   DocumentData,
   FirestoreError,
   DocumentSnapshot,
@@ -20,8 +21,8 @@ export interface UseDocResult<T> {
 }
 
 /**
- * HOOK DE DOCUMENTO v2.4.0
- * Saneado: Estado inicial de carga optimizado para evitar parpadeos en componentes de identidad.
+ * HOOK DE DOCUMENTO v2.5.0
+ * Saneado: Implementa fallback automático a getDoc en caso de error de canal.
  */
 export function useDoc<T = any>(
   memoizedDocRef: DocumentReference<DocumentData> | null | undefined,
@@ -52,19 +53,32 @@ export function useDoc<T = any>(
         setError(null);
         setIsLoading(false);
       },
-      (err: FirestoreError) => {
-        if (err.code === 'permission-denied') {
-            const contextualError = new FirestorePermissionError({
-              operation: 'get',
-              path: memoizedDocRef.path,
-            })
-            setError(contextualError);
-            errorEmitter.emit('permission-error', contextualError);
-        } else {
-            setError(err);
+      async (err: FirestoreError) => {
+        console.warn(`[useDoc] onSnapshot failed (${err.code}). Trying fallback getDoc...`, err);
+        try {
+          const snapshot = await getDoc(memoizedDocRef);
+          if (snapshot.exists()) {
+            setData({ ...(snapshot.data() as T), id: snapshot.id });
+          } else {
+            setData(null);
+          }
+          setError(null);
+          setIsLoading(false);
+        } catch (fallbackErr: any) {
+          console.error("[useDoc] Fallback getDoc also failed:", fallbackErr);
+          if (err.code === 'permission-denied') {
+              const contextualError = new FirestorePermissionError({
+                operation: 'get',
+                path: memoizedDocRef.path,
+              });
+              setError(contextualError);
+              errorEmitter.emit('permission-error', contextualError);
+          } else {
+              setError(err);
+          }
+          setData(null);
+          setIsLoading(false);
         }
-        setData(null);
-        setIsLoading(false);
       }
     );
 

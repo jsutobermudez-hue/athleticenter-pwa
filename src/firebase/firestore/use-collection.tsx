@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import {
   Query,
   onSnapshot,
+  getDocs,
   DocumentData,
   FirestoreError,
   QuerySnapshot,
@@ -21,8 +22,8 @@ export interface UseCollectionResult<T> {
 }
 
 /**
- * HOOK DE COLECCIÓN v2.3.0
- * Saneado: Usa rutas relativas para evitar errores de resolución en el build de producción.
+ * HOOK DE COLECCIÓN v2.4.0
+ * Saneado: Implementa fallback automático a getDocs en caso de error de canal.
  */
 export function useCollection<T = any>(
     memoizedTargetRefOrQuery: ((CollectionReference<DocumentData> | Query<DocumentData>) & {__memo?: boolean})  | null | undefined,
@@ -56,27 +57,40 @@ export function useCollection<T = any>(
         setError(null);
         setIsLoading(false);
       },
-      (err: FirestoreError) => {
-        if (err.code === 'permission-denied') {
-            let path = "unknown/path";
-            try {
-                path = memoizedTargetRefOrQuery.type === 'collection'
-                    ? (memoizedTargetRefOrQuery as CollectionReference).path
-                    : (memoizedTargetRefOrQuery as any)._query?.path?.canonicalString() || "query/path";
-            } catch (e) {}
+      async (err: FirestoreError) => {
+        console.warn(`[useCollection] onSnapshot failed (${err.code}). Trying fallback getDocs...`, err);
+        try {
+          const snapshot = await getDocs(memoizedTargetRefOrQuery);
+          const results: ResultItemType[] = [];
+          for (const doc of snapshot.docs) {
+            results.push({ ...(doc.data() as T), id: doc.id });
+          }
+          setData(results);
+          setError(null);
+          setIsLoading(false);
+        } catch (fallbackErr: any) {
+          console.error("[useCollection] Fallback getDocs also failed:", fallbackErr);
+          if (err.code === 'permission-denied') {
+              let path = "unknown/path";
+              try {
+                  path = memoizedTargetRefOrQuery.type === 'collection'
+                      ? (memoizedTargetRefOrQuery as CollectionReference).path
+                      : (memoizedTargetRefOrQuery as any)._query?.path?.canonicalString() || "query/path";
+              } catch (e) {}
 
-            const contextualError = new FirestorePermissionError({
-              operation: 'list',
-              path,
-            })
+              const contextualError = new FirestorePermissionError({
+                operation: 'list',
+                path,
+              });
 
-            setError(contextualError)
-            errorEmitter.emit('permission-error', contextualError);
-        } else {
-            setError(err);
+              setError(contextualError);
+              errorEmitter.emit('permission-error', contextualError);
+          } else {
+              setError(err);
+          }
+          setData(null);
+          setIsLoading(false);
         }
-        setData(null);
-        setIsLoading(false);
       }
     );
 

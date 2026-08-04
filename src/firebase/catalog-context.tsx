@@ -1,7 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useEffect, useState, useMemo } from 'react';
-import { collection, onSnapshot, query, orderBy } from 'firebase/firestore';
+import { collection, onSnapshot, query, orderBy, getDocs } from 'firebase/firestore';
 import { useFirebase, useUser } from './context';
 import type { Product } from '../lib/definitions';
 
@@ -43,9 +43,21 @@ export function CatalogProvider({ children }: { children: React.ReactNode }) {
         setProducts(list);
         setIsLoading(false);
       },
-      (error) => {
-        console.error("Error subscribing to products collection:", error);
-        setIsLoading(false);
+      async (error) => {
+        console.warn("[CatalogProvider] onSnapshot failed. Trying fallback getDocs...", error);
+        try {
+          const snapshot = await getDocs(q);
+          const list: Product[] = [];
+          snapshot.forEach((doc) => {
+            list.push({ id: doc.id, ...doc.data() } as Product);
+          });
+          list.sort((a, b) => (a.sku || '').localeCompare(b.sku || ''));
+          setProducts(list);
+          setIsLoading(false);
+        } catch (fallbackError) {
+          console.error("Error in getDocs fallback for catalog:", fallbackError);
+          setIsLoading(false);
+        }
       }
     );
 
