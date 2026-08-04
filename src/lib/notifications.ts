@@ -31,7 +31,7 @@ export async function createAppNotifications(
     const userRef = collection(firestore, 'users');
     
     if (broadcast) {
-        const q = query(userRef, where('role', 'in', ['admin', 'gerencia', 'superadmin', 'ventas', 'deposito']), limit(100));
+        const q = query(userRef, where('role', 'in', ['admin', 'gerencia', 'superadmin', 'ventas', 'deposito', 'cliente']), limit(500));
         const snap = await getDocs(q);
         snap.forEach(d => targetUserIds.add(d.id));
     } else {
@@ -45,7 +45,7 @@ export async function createAppNotifications(
         }
 
         if (roles && roles.length > 0) {
-            const q = query(userRef, where('role', 'in', roles), limit(100));
+            const q = query(userRef, where('role', 'in', roles), limit(500));
             const snap = await getDocs(q);
             snap.forEach(d => targetUserIds.add(d.id));
         }

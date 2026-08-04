@@ -77,7 +77,7 @@ export function ProductDetailsSheet({ product, allOffers, isOpen, onOpenChange, 
   const { profile: currentUser } = useUser();
   const firestore = useFirestore();
   
-  const isStaff = currentUser && ['superadmin', 'admin', 'gerencia', 'deposito', 'ventas'].includes(currentUser.role);
+  const isStaff = currentUser && ['superadmin', 'admin', 'gerencia', 'deposito'].includes(currentUser.role);
   const canSeeCost = currentUser && ['admin', 'superadmin', 'gerencia'].includes(currentUser.role);
 
   const historyQuery = useMemoFirebase(() => (firestore && product && isOpen && isStaff) ? query(

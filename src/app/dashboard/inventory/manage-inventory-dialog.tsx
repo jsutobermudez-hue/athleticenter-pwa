@@ -211,7 +211,7 @@ export function NewProductDialog() {
                 message: `Se ha registrado el nuevo producto "${data.name}" (SKU: ${data.sku}) en el catálogo con un stock de ${stockVal} un.`,
                 link: `/dashboard/inventory?sku=${data.sku}`,
                 initiatorId: authUser.uid,
-                roles: ['admin', 'gerencia', 'ventas', 'deposito']
+                roles: ['admin', 'gerencia', 'ventas', 'deposito', 'cliente']
             });
         } catch (e) {
             console.warn("[Notifications] Error al notificar nuevo producto:", e);

@@ -261,7 +261,7 @@ export function EditProductDialog({ product, useTriggerButton = false }: { produ
                     message: `Se ha repuesto el inventario de "${data.name}" (SKU: ${product.sku}). Ingreso de +${diff} un. (Stock total actual: ${data.stockLevel} un.).`,
                     link: `/dashboard/inventory?sku=${product.sku}`,
                     initiatorId: currentUser.id,
-                    roles: ['admin', 'gerencia', 'ventas', 'deposito']
+                    roles: ['admin', 'gerencia', 'ventas', 'deposito', 'cliente']
                 });
             } catch (notifyErr) {
                 console.warn("[Notifications] Error al notificar reposición de stock:", notifyErr);
