@@ -20,8 +20,12 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { CatalogHighlights } from '@/components/dashboard/CatalogHighlights';
+import { ExpressStockAdjust } from '@/components/dashboard/ExpressStockAdjust';
 
 export default function WarehouseDashboard() {
+    const router = useRouter();
     const firestore = useFirestore();
 
     const ordersQuery = useMemoFirebase(() => (firestore ? query(collection(firestore, 'orders'), where('status', 'in', ['Aprobado', 'En Preparación', 'Completado', 'Despachado']), limit(100)) : null), [firestore]);
@@ -53,24 +57,28 @@ export default function WarehouseDashboard() {
                     value={stats.picking} 
                     subtitle="Esperando Selección" 
                     icon={Boxes} iconBg="bg-blue-50" iconColor="text-blue-500" 
+                    onClick={() => router.push('/dashboard/dispatch')}
                 />
                 <DashboardMetricCard 
                     title="En Embalaje" 
                     value={stats.packing} 
                     subtitle="Preparación de Bultos" 
                     icon={Package} iconBg="bg-indigo-50" iconColor="text-indigo-500" 
+                    onClick={() => router.push('/dashboard/dispatch')}
                 />
                 <DashboardMetricCard 
                     title="Listos para Salida" 
                     value={stats.ready} 
                     subtitle="Certificación Pendiente" 
                     icon={CheckCircle2} iconBg="bg-emerald-50" iconColor="text-emerald-500" 
+                    onClick={() => router.push('/dashboard/dispatch')}
                 />
                 <DashboardMetricCard 
                     title="En Ruta" 
                     value={stats.transit} 
                     subtitle="Seguimiento Activo" 
                     icon={Truck} iconBg="bg-slate-900" iconColor="text-white" 
+                    onClick={() => router.push('/dashboard/dispatch')}
                 />
             </div>
 
@@ -104,6 +112,8 @@ export default function WarehouseDashboard() {
                             ))}
                         </div>
                     </Card>
+
+                    <ExpressStockAdjust />
                 </div>
 
                 <div className="lg:col-span-5 space-y-8">
@@ -133,6 +143,16 @@ export default function WarehouseDashboard() {
                     </Card>
                 </div>
             </div>
+
+            <section className="space-y-4 pt-6 border-t border-slate-200/10">
+                <div className="flex items-center gap-2 px-1">
+                    <Zap className="h-4 w-4 text-primary" />
+                    <h3 className="text-xs font-black uppercase tracking-[0.3em] text-slate-400">
+                        Novedades y Movimientos de Catálogo
+                    </h3>
+                </div>
+                <CatalogHighlights />
+            </section>
         </div>
     );
 }

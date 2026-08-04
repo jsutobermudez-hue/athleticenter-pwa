@@ -19,10 +19,13 @@ import {
 import { DashboardMetricCard } from '@/components/dashboard/DashboardMetricCard';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { NewArrivals } from '@/components/dashboard/new-arrivals';
+import { CatalogHighlights } from '@/components/dashboard/CatalogHighlights';
+import { OrderTrackerTimeline } from '@/components/dashboard/OrderTrackerTimeline';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 
 export default function ClientDashboard() {
+    const router = useRouter();
     const firestore = useFirestore();
     const { user, profile, customerProfile } = useUser();
 
@@ -33,6 +36,15 @@ export default function ClientDashboard() {
     }, [user, profile, firestore]);
 
     const { data: myOrders } = useCollection<Order>(ordersQuery);
+
+    const latestOrder = useMemo(() => {
+        if (!myOrders || myOrders.length === 0) return null;
+        return [...myOrders].sort((a, b) => {
+            const dateA = a.createdAt ? (typeof a.createdAt.toDate === 'function' ? a.createdAt.toDate() : new Date(a.createdAt as any)) : new Date(0);
+            const dateB = b.createdAt ? (typeof b.createdAt.toDate === 'function' ? b.createdAt.toDate() : new Date(b.createdAt as any)) : new Date(0);
+            return dateB.getTime() - dateA.getTime();
+        })[0];
+    }, [myOrders]);
 
     const stats = useMemo(() => {
         if (!myOrders) return { balance: 0, inTransit: 0, totalOrders: 0 };
@@ -70,36 +82,42 @@ export default function ClientDashboard() {
                     value={`$${stats.balance.toLocaleString()}`} 
                     subtitle="Límite: $${(customerProfile?.creditLimit || 0).toLocaleString()}" 
                     icon={CreditCard} iconBg="bg-rose-50" iconColor="text-rose-500" 
+                    onClick={() => router.push('/dashboard/billing')}
                 />
                 <DashboardMetricCard 
                     title="En Tránsito" 
                     value={stats.inTransit} 
                     subtitle="Equipos hacia su sede" 
                     icon={Truck} iconBg="bg-blue-50" iconColor="text-blue-500" 
+                    onClick={() => router.push('/dashboard/orders')}
                 />
                 <DashboardMetricCard 
                     title="Mis Pedidos" 
                     value={stats.totalOrders} 
                     subtitle="Historial Acumulado" 
                     icon={ClipboardList} iconBg="bg-indigo-50" iconColor="text-indigo-500" 
+                    onClick={() => router.push('/dashboard/orders')}
                 />
                 <DashboardMetricCard 
                     title="Mi Asesor" 
                     value={customerProfile?.assignedSalespersonName?.split(' ')[0] || 'Personal'} 
                     subtitle="Soporte Directo Red" 
                     icon={Zap} iconBg="bg-slate-900" iconColor="text-white" 
+                    onClick={() => router.push('/dashboard/billing')}
                 />
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
                 <div className="lg:col-span-8 space-y-8">
+                    <OrderTrackerTimeline order={latestOrder} />
+
                     <section className="space-y-4">
                         <div className="flex items-center justify-between px-1">
                             <h3 className="text-xs font-black uppercase tracking-[0.3em] text-slate-400 flex items-center gap-2">
                                 <Zap className="h-4 w-4 text-primary" /> Nuevos Equipos en Red
                             </h3>
                         </div>
-                        <NewArrivals />
+                        <CatalogHighlights />
                     </section>
                 </div>
 

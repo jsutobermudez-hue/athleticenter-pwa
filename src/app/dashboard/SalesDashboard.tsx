@@ -16,11 +16,14 @@ import {
 } from 'lucide-react';
 import { DashboardMetricCard } from '@/components/dashboard/DashboardMetricCard';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { NewArrivals } from '@/components/dashboard/new-arrivals';
+import { CatalogHighlights } from '@/components/dashboard/CatalogHighlights';
+import { SalesGoalWidget } from '@/components/dashboard/SalesGoalWidget';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 
 export default function SalesDashboard({ user, profile }: { user: any, profile: User }) {
+    const router = useRouter();
     const firestore = useFirestore();
 
     const ordersQuery = useMemoFirebase(() => (firestore ? query(collection(firestore, 'orders'), where('salespersonId', '==', profile.id), limit(100)) : null), [firestore, profile.id]);
@@ -61,24 +64,28 @@ export default function SalesDashboard({ user, profile }: { user: any, profile: 
                     value={`$${stats.salesMonth.toLocaleString()}`} 
                     subtitle="Recaudación Mes" 
                     icon={TrendingUp} iconBg="bg-emerald-50" iconColor="text-emerald-500" 
+                    onClick={() => router.push('/dashboard/orders')}
                 />
                 <DashboardMetricCard 
                     title="Comisiones" 
                     value={`$${stats.wallet.toFixed(2)}`} 
                     subtitle="Pendiente por Cobrar" 
                     icon={Wallet} iconBg="bg-indigo-50" iconColor="text-indigo-500" 
+                    onClick={() => router.push('/dashboard/commissions')}
                 />
                 <DashboardMetricCard 
                     title="En Gestión" 
                     value={stats.pending} 
                     subtitle="Solicitudes Activas" 
                     icon={ShoppingCart} iconBg="bg-blue-50" iconColor="text-blue-500" 
+                    onClick={() => router.push('/dashboard/orders')}
                 />
                 <DashboardMetricCard 
                     title="Mi Cartera" 
                     value={stats.clients} 
                     subtitle="Clientes Vinculados" 
                     icon={Users} iconBg="bg-slate-900" iconColor="text-white" 
+                    onClick={() => router.push('/dashboard/clients')}
                 />
             </div>
 
@@ -90,11 +97,15 @@ export default function SalesDashboard({ user, profile }: { user: any, profile: 
                                 <Zap className="h-4 w-4 text-primary" /> Equipos Destacados
                             </h3>
                         </div>
-                        <NewArrivals />
+                        <CatalogHighlights />
                     </section>
                 </div>
 
-                <div className="lg:col-span-4">
+                <div className="lg:col-span-4 space-y-8">
+                    {/* Meta Comercial */}
+                    <SalesGoalWidget commissionValue={stats.wallet} />
+
+                    {/* Radar de Clientes */}
                     <Card className="terminal-card bg-slate-900 text-white p-8 space-y-8 relative overflow-hidden">
                         <div className="absolute top-0 right-0 p-4 opacity-5"><Star className="h-32 w-32" /></div>
                         <div className="space-y-2 relative z-10">
