@@ -21,14 +21,15 @@ export function SalesTrendChart({ orders, isLoading = false }: SalesTrendChartPr
     if (!orders) return [];
 
     const now = new Date();
+    const VALID_SALES_STATUSES = ['Entregado', 'Completado', 'Despachado', 'Pagado', 'Aprobado', 'En Preparación'];
     const getDate = (ts: any) => ts ? (typeof ts.toDate === 'function' ? ts.toDate() : new Date(ts)) : new Date(0);
 
     if (period === '7d') {
       const days = Array.from({ length: 7 }, (_, i) => startOfDay(subDays(now, 6 - i)));
       return days.map(day => {
         const dayOrders = orders.filter(order => {
-          if (order.status !== 'Pagado') return false;
-          const orderDate = getDate(order.createdAt || order.orderDate);
+          if (!VALID_SALES_STATUSES.includes(order.status)) return false;
+          const orderDate = getDate(order.receptionDate || order.approvalDate || order.createdAt || order.orderDate);
           return isSameDay(orderDate, day);
         });
 
@@ -43,8 +44,8 @@ export function SalesTrendChart({ orders, isLoading = false }: SalesTrendChartPr
       const days = Array.from({ length: 30 }, (_, i) => startOfDay(subDays(now, 29 - i)));
       return days.map(day => {
         const dayOrders = orders.filter(order => {
-          if (order.status !== 'Pagado') return false;
-          const orderDate = getDate(order.createdAt || order.orderDate);
+          if (!VALID_SALES_STATUSES.includes(order.status)) return false;
+          const orderDate = getDate(order.receptionDate || order.approvalDate || order.createdAt || order.orderDate);
           return isSameDay(orderDate, day);
         });
 
@@ -68,8 +69,8 @@ export function SalesTrendChart({ orders, isLoading = false }: SalesTrendChartPr
         const mEnd = new Date(m.getFullYear(), m.getMonth() + 1, 0, 23, 59, 59, 999);
 
         const monthOrders = orders.filter(order => {
-          if (order.status !== 'Pagado') return false;
-          const orderDate = getDate(order.createdAt || order.orderDate);
+          if (!VALID_SALES_STATUSES.includes(order.status)) return false;
+          const orderDate = getDate(order.receptionDate || order.approvalDate || order.createdAt || order.orderDate);
           return orderDate >= mStart && orderDate <= mEnd;
         });
 

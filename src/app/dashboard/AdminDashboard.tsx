@@ -26,6 +26,8 @@ import { CatalogHighlights } from '@/components/dashboard/CatalogHighlights';
 import { SalesTrendChart } from '@/components/dashboard/SalesTrendChart';
 import { OrderStatusChart } from '@/components/dashboard/OrderStatusChart';
 import { LiveActivityFeed } from '@/components/dashboard/LiveActivityFeed';
+import { SalespersonRankingCard } from '@/components/dashboard/SalespersonRankingCard';
+import { PaidInvoicesCard } from '@/components/dashboard/PaidInvoicesCard';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -34,7 +36,6 @@ import { Badge } from '@/components/ui/badge';
 import { OrderSheetController } from './orders/OrderSheetController';
 import { ProductDetailsSheet } from '@/app/dashboard/inventory/product-details-sheet';
 import { cn } from '@/lib/utils';
-import { SalespersonRankingCard } from '@/components/dashboard/SalespersonRankingCard';
 
 /**
  * TABLERO DE ADMINISTRACIÓN v2.2.0 - RANKINGS INTERACTIVOS Y MONITOREO EN TIEMPO REAL
@@ -170,6 +171,7 @@ export default function AdminDashboard() {
                 {/* Columna Izquierda: Rankings (Vendedores y Productos) */}
                 <div className="lg:col-span-7 space-y-8">
                     <SalespersonRankingCard orders={orders || []} />
+                    <PaidInvoicesCard orders={orders || []} />
 
                     {/* Productos Más Vendidos */}
                     <Card className="border border-white/10 shadow-2xl rounded-[2.5rem] bg-slate-900 text-white overflow-hidden">
