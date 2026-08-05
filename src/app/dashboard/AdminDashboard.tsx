@@ -34,6 +34,7 @@ import { Badge } from '@/components/ui/badge';
 import { OrderSheetController } from './orders/OrderSheetController';
 import { ProductDetailsSheet } from '@/app/dashboard/inventory/product-details-sheet';
 import { cn } from '@/lib/utils';
+import { SalespersonRankingCard } from '@/components/dashboard/SalespersonRankingCard';
 
 /**
  * TABLERO DE ADMINISTRACIÓN v2.2.0 - RANKINGS INTERACTIVOS Y MONITOREO EN TIEMPO REAL
@@ -46,7 +47,6 @@ export default function AdminDashboard() {
     // Estados de selección para vistas detalladas
     const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
     const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
-    const [selectedSalesperson, setSelectedSalesperson] = useState<any | null>(null);
 
     const ordersQuery = useMemoFirebase(() => (firestore ? query(collection(firestore, 'orders'), limit(100)) : null), [firestore]);
     const productsQuery = useMemoFirebase(() => (firestore ? query(collection(firestore, 'products'), limit(200)) : null), [firestore]);
@@ -83,31 +83,6 @@ export default function AdminDashboard() {
         return date.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit' }) + ' ' + 
                date.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', hour12: false });
     };
-
-    // Agregación de ventas por vendedor en memoria
-    const salespersonRanking = useMemo(() => {
-        if (!orders) return [];
-        const groups: { [id: string]: { id: string; name: string; totalSales: number; orderCount: number; orders: Order[] } } = {};
-        
-        orders.forEach(order => {
-            if (!order.salespersonId) return;
-            const spId = order.salespersonId;
-            if (!groups[spId]) {
-                groups[spId] = {
-                    id: spId,
-                    name: order.salespersonName || 'Vendedor',
-                    totalSales: 0,
-                    orderCount: 0,
-                    orders: []
-                };
-            }
-            groups[spId].totalSales += order.totalAmount || 0;
-            groups[spId].orderCount += 1;
-            groups[spId].orders.push(order);
-        });
-
-        return Object.values(groups).sort((a, b) => b.totalSales - a.totalSales);
-    }, [orders]);
 
     // Top productos más vendidos
     const topSellingProducts = useMemo(() => {
@@ -194,48 +169,7 @@ export default function AdminDashboard() {
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 px-1">
                 {/* Columna Izquierda: Rankings (Vendedores y Productos) */}
                 <div className="lg:col-span-7 space-y-8">
-                    {/* Ranking de Vendedores */}
-                    <Card className="border border-white/10 shadow-2xl rounded-[2.5rem] bg-slate-900 text-white overflow-hidden">
-                        <CardHeader className="p-8 border-b border-white/5">
-                            <CardTitle className="text-xs font-black uppercase tracking-[0.3em] text-primary flex items-center gap-3">
-                                <Medal className="h-5 w-5 text-primary" /> Rendimiento del Equipo B2B
-                            </CardTitle>
-                        </CardHeader>
-                        <CardContent className="p-8 space-y-4">
-                            {salespersonRanking.length > 0 ? (
-                                <div className="space-y-3">
-                                    {salespersonRanking.map((rank, index) => (
-                                        <div 
-                                            key={rank.id} 
-                                            onClick={() => setSelectedSalesperson(rank)}
-                                            className="p-5 rounded-[1.8rem] border border-white/5 bg-white/5 flex items-center justify-between group hover:bg-white/10 hover:border-primary/20 transition-all cursor-pointer active:scale-98"
-                                        >
-                                            <div className="flex items-center gap-4">
-                                                <div className="h-10 w-10 rounded-xl bg-primary/10 text-primary font-black text-xs flex items-center justify-center">
-                                                    #{index + 1}
-                                                </div>
-                                                <div>
-                                                    <p className="text-xs font-black uppercase text-white leading-none">{rank.name}</p>
-                                                    <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest mt-1.5">{rank.orderCount} Pedidos Realizados</p>
-                                                </div>
-                                            </div>
-                                            <div className="text-right flex items-center gap-3">
-                                                <div>
-                                                    <p className="text-sm font-black tracking-tighter text-emerald-400 leading-none">${rank.totalSales.toLocaleString()}</p>
-                                                    <span className="text-[7px] font-black text-slate-500 uppercase tracking-widest">Total Facturado</span>
-                                                </div>
-                                                <ArrowUpRight className="h-4 w-4 text-slate-500 group-hover:text-primary transition-colors" />
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-                            ) : (
-                                <div className="flex h-32 items-center justify-center text-slate-500 text-xs font-black uppercase border border-dashed border-white/10 rounded-3xl">
-                                    Sin Datos de Vendedores
-                                </div>
-                            )}
-                        </CardContent>
-                    </Card>
+                    <SalespersonRankingCard orders={orders || []} />
 
                     {/* Productos Más Vendidos */}
                     <Card className="border border-white/10 shadow-2xl rounded-[2.5rem] bg-slate-900 text-white overflow-hidden">
@@ -385,53 +319,7 @@ export default function AdminDashboard() {
                 </div>
             </div>
 
-            {/* Modal de Pedidos de Vendedor */}
-            <Dialog open={!!selectedSalesperson} onOpenChange={(open) => !open && setSelectedSalesperson(null)}>
-                <DialogContent className="max-w-[95vw] sm:max-w-3xl p-8 border-none bg-slate-900 text-white rounded-[2rem] shadow-2xl overflow-hidden">
-                    <DialogHeader className="border-b border-white/5 pb-4">
-                        <DialogTitle className="text-xl font-black uppercase tracking-tighter italic text-primary flex items-center gap-3">
-                            <Award className="h-6 w-6 text-primary" /> Pedidos de {selectedSalesperson?.name}
-                        </DialogTitle>
-                        <DialogDescription className="text-xs font-bold text-slate-500 uppercase tracking-widest mt-1">
-                            Historial de ventas y solicitudes del vendedor
-                        </DialogDescription>
-                    </DialogHeader>
-                    <div className="mt-6 max-h-[60vh] overflow-y-auto pr-2 space-y-3 scrollbar-thin scrollbar-thumb-slate-800">
-                        {selectedSalesperson?.orders && selectedSalesperson.orders.length > 0 ? (
-                            selectedSalesperson.orders.map((o: Order) => (
-                                <div 
-                                    key={o.id} 
-                                    onClick={() => {
-                                        setSelectedOrder(o);
-                                        setSelectedSalesperson(null);
-                                    }}
-                                    className="p-5 rounded-2xl border border-white/5 bg-white/5 flex items-center justify-between group hover:bg-white/10 hover:border-primary/20 transition-all cursor-pointer active:scale-98"
-                                >
-                                    <div>
-                                        <div className="flex items-center gap-3">
-                                            <span className="text-[10px] font-black text-primary uppercase">#{o.id.substring(0, 8).toUpperCase()}</span>
-                                            <Badge variant="outline" className={cn("text-[6px] font-black uppercase border-none px-2 h-4", STATUS_COLORS[o.status])}>
-                                                {o.status}
-                                            </Badge>
-                                        </div>
-                                        <p className="text-xs font-black uppercase text-white mt-2 leading-none">{o.customerName}</p>
-                                        <p className="text-[8px] font-mono text-slate-500 mt-1">Fecha: {formatOrderDate(o.createdAt || o.orderDate)}</p>
-                                    </div>
-                                    <div className="text-right flex items-center gap-3">
-                                        <div>
-                                            <p className="text-sm font-black tracking-tighter text-emerald-400 leading-none">${o.totalAmount.toLocaleString()}</p>
-                                            <span className="text-[7px] font-black text-slate-500 uppercase tracking-widest mt-1">Hacer clic para Auditar</span>
-                                        </div>
-                                        <ArrowUpRight className="h-5 w-5 text-slate-500 group-hover:text-primary transition-colors" />
-                                    </div>
-                                </div>
-                            ))
-                        ) : (
-                            <p className="text-center text-slate-500 text-xs font-black uppercase py-10">Sin Pedidos Vinculados</p>
-                        )}
-                    </div>
-                </DialogContent>
-            </Dialog>
+
 
             {/* Controladores de Detalle flotantes */}
             {selectedOrder && (

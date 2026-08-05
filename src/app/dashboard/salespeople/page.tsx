@@ -29,6 +29,7 @@ import type { Order, User, Customer } from '@/lib/definitions';
 import { startOfMonth } from 'date-fns';
 import { SalespersonDetailsSheet, type SalespersonWithStats } from './salesperson-details-sheet';
 import { cn } from '@/lib/utils';
+import { SalespersonRankingCard } from '@/components/dashboard/SalespersonRankingCard';
 
 export const dynamic = 'force-dynamic';
 
@@ -99,6 +100,11 @@ function SalespeoplePageContent() {
           <h1 className="text-4xl sm:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none italic">Gerencia de Ventas</h1>
           <p className="text-muted-foreground font-black italic text-[10px] sm:text-[11px] tracking-[0.4em] uppercase opacity-60">AUDITORÍA DE RENDIMIENTO Y LIQUIDACIÓN DE COMISIONES.</p>
         </header>
+
+        {/* Componente de Ranking de Vendedores con Filtros */}
+        <div className="px-2">
+          <SalespersonRankingCard orders={allOrders || []} />
+        </div>
 
         <div className="grid gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 px-2">
             {salespeopleWithStats.map(sp => {
