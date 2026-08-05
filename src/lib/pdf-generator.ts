@@ -280,6 +280,7 @@ export async function generateQuotePDF({
     quoteItems, 
     expiryDate, 
     companyProfile, 
+    globalSettings,
     bcvRate = 1 
 }: any) {
   const doc = new jsPDF();
@@ -293,81 +294,69 @@ export async function generateQuotePDF({
   let totalCashUSD = 0;
 
   const tableRows = quoteItems.map((item: any) => {
-    // El unitPrice guardado es el precio final con descuento aplicado
-    // El item.product.price es el precio de lista original
-    const listPrice = item.product?.price || item.unitPrice;
-    const finalPrice = item.unitPrice;
+    const pricing = calculatePricingTier({ 
+        costLanded: item.product?.cost || 0,
+        strategy: 'target_price', 
+        targetPriceUSD: item.unitPrice || item.product?.price || 0 
+    }, globalSettings);
+
+    const bcvPrice = pricing.priceListBCV;
+    const cashPrice = pricing.priceCashUSD;
     
-    totalBcvUSD += (item.quantity * listPrice);
-    totalCashUSD += (item.quantity * finalPrice);
+    totalBcvUSD += (item.quantity * bcvPrice);
+    totalCashUSD += (item.quantity * cashPrice);
     
     return [
       item.product?.sku || 'N/A', 
-      (item.product?.name || 'EQUIPO').toUpperCase(), 
+      (item.product?.name || 'EQUIPO').toUpperCase() + (item.size ? ` (${item.size})` : ''), 
       item.quantity, 
-      `$ ${listPrice.toFixed(2)}`, 
-      `$ ${finalPrice.toFixed(2)}`, 
-      `$ ${(item.quantity * listPrice).toFixed(2)}`,
-      `$ ${(item.quantity * finalPrice).toFixed(2)}`
+      `$ ${bcvPrice.toFixed(2)}`, 
+      `$ ${cashPrice.toFixed(2)}`, 
+      `$ ${(item.quantity * bcvPrice).toFixed(2)}`
     ];
   });
 
   (doc as any).autoTable({ 
-    head: [["SKU", "DESCRIPCIÓN DEL EQUIPO", "CANT", "P. LISTA\n(Ref. USD - Pago Bs. BCV)", "P. OFERTA (USD)", "T. LISTA (USD)", "T. OFERTA (USD)"]], 
+    head: [["SKU", "DESCRIPCIÓN DEL EQUIPO", "CANT", "P. BCV", "P. CASH", "TOTAL BCV"]], 
     body: tableRows, 
     startY: 80, 
     theme: 'grid', 
-    styles: { fontSize: 6.5 },
-    headStyles: { fillColor: [37, 99, 235], halign: 'center', fontSize: 6.5, fontStyle: 'bold' },
+    styles: { fontSize: 7 },
+    headStyles: { fillColor: [37, 99, 235], halign: 'center', fontSize: 7, fontStyle: 'bold' },
     columnStyles: { 
         2: { halign: 'center' },
         3: { halign: 'right' },
         4: { halign: 'right' },
-        5: { halign: 'right' },
-        6: { halign: 'right', fontStyle: 'bold' }
+        5: { halign: 'right', fontStyle: 'bold' }
     }
   });
 
   const finalY = (doc as any).lastAutoTable.finalY + 10;
-  const savings = totalBcvUSD - totalCashUSD;
-  // Bloque de Totales y Ahorro Rediseñado para Doble Total de Pago (Sin referencias de Bs)
-  const boxWidth = 85;
-  const boxHeight = 35;
-  const boxX = 210 - boxWidth - 14;
 
-  doc.setFillColor(248, 250, 252);
-  doc.rect(boxX, finalY, boxWidth, boxHeight, 'F');
-  doc.setDrawColor(226, 232, 240);
-  doc.rect(boxX, finalY, boxWidth, boxHeight, 'S');
-
-  doc.setFontSize(7.5); doc.setTextColor(100); doc.setFont("helvetica", "bold");
-  doc.text("RESUMEN DE INVERSIÓN:", boxX + 4, finalY + 5);
-  
-  doc.setFont("helvetica", "normal");
-  doc.text("TOTAL LISTA (PAGO BCV):", boxX + 4, finalY + 11);
-  doc.text(`$ ${totalBcvUSD.toFixed(2)}`, boxX + boxWidth - 4, finalY + 11, { align: 'right' });
-
-  doc.setTextColor(16, 185, 129);
-  doc.text("AHORRO EFECTIVO APLICADO:", boxX + 4, finalY + 17);
-  doc.text(`-$ ${savings.toFixed(2)}`, boxX + boxWidth - 4, finalY + 17, { align: 'right' });
-
+  doc.setFillColor(241, 245, 249);
+  doc.rect(14, finalY, 85, 30, 'F');
   doc.setDrawColor(203, 213, 225);
-  doc.line(boxX + 4, finalY + 21, boxX + boxWidth - 4, finalY + 21);
+  doc.rect(14, finalY, 85, 30, 'S');
 
-  doc.setFontSize(8.5); doc.setTextColor(30, 41, 59); doc.setFont("helvetica", "bold");
-  doc.text("TOTAL NETO (PAGO CASH):", boxX + 4, finalY + 28);
-  doc.text(`$ ${totalCashUSD.toFixed(2)}`, boxX + boxWidth - 4, finalY + 28, { align: 'right' });
+  doc.setFontSize(7); doc.setTextColor(100); doc.setFont("helvetica", "bold");
+  doc.text("PAGO EN BOLÍVARES (TASA BCV):", 18, finalY + 11);
+  doc.setFontSize(11); doc.setTextColor(37, 99, 235); doc.setFont("helvetica", "bold");
+  doc.text(`TOTAL USD: $ ${totalBcvUSD.toFixed(2)}`, 18, finalY + 21);
 
-
-  // Notas legales y vigencia
-  doc.setFontSize(8); doc.setTextColor(100); doc.setFont("helvetica", "normal");
-  doc.text(`VÁLIDO HASTA: ${expDate.toLocaleDateString('es-ES')}`, 14, finalY + 6);
+  doc.setFillColor(30, 41, 59);
+  doc.rect(111, finalY, 85, 30, 'F');
   
-  doc.setFontSize(6); doc.setTextColor(150);
-  doc.text("* PRECIOS REPRESENTAN LA BASE IMPONIBLE. EL IVA (16%) SE CALCULA AL MOMENTO DEL PAGO.", 14, finalY + 12, { maxWidth: 90 });
-  doc.text("* VALIDEZ SUJETA A DISPONIBILIDAD DE STOCK EN ALMACÉN.", 14, finalY + 20, { maxWidth: 90 });
+  doc.setFontSize(7); doc.setTextColor(148, 163, 184); doc.setFont("helvetica", "bold");
+  doc.text("PAGO EN DIVISAS (CASH/ZELLE):", 115, finalY + 11);
+  doc.setFontSize(11); doc.setTextColor(16, 185, 129); doc.setFont("helvetica", "bold");
+  doc.text(`TOTAL USD CASH: $ ${totalCashUSD.toFixed(2)}`, 115, finalY + 21);
 
-  doc.save(`Presupuesto_${quoteId.toUpperCase()}.pdf`);
+  const validUntilStr = expDate ? format(expDate, 'dd/MM/yyyy') : '20 días';
+
+  doc.setFontSize(6); doc.setTextColor(150); doc.setFont("helvetica", "normal");
+  doc.text(`* VÁLIDO HASTA: ${validUntilStr}. ESTE DOCUMENTO REPRESENTA LA BASE IMPONIBLE. EL IVA (16%) SE CALCULA AL MOMENTO DEL PAGO FISCAL.`, 14, finalY + 38);
+
+  doc.save(`Cotizacion_${quoteId.substring(0,8)}.pdf`);
 }
 
 export async function generatePickingListPDF({ orderId, customerName, orderItems, companyProfile }: any) {

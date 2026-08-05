@@ -119,6 +119,7 @@ export function QuoteSheetController({ quote, onOpenChange }: { quote: Quote, on
                 quoteItems: itemsWithProductData, 
                 expiryDate: quote.expiryDate, 
                 companyProfile,
+                globalSettings,
                 bcvRate: globalSettings?.bcvRate || 1
             });
 
