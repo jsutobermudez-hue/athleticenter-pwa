@@ -71,6 +71,7 @@ export interface Product extends Auditable {
   sizes?: { [key: string]: number } | null;
   warehouseLocation?: string; 
   lastSoldAt?: Timestamp; 
+  totalSold?: number;
 }
 
 export interface Order extends Auditable {

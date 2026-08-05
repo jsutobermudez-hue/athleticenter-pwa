@@ -132,15 +132,17 @@ export function CatalogHighlights() {
 
       {/* Grid de Productos con Ajuste Automático */}
       {currentList.length > 0 ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 animate-in fade-in duration-500">
-          {currentList.map((product) => (
-            <ProductCard
-              key={product.id}
-              product={product}
-              onSelect={setSelectedProduct}
-              bcvDiscount={bcvDiscount}
-            />
-          ))}
+        <div className="max-h-[740px] overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-slate-800 scrollbar-track-transparent">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 animate-in fade-in duration-500">
+            {currentList.map((product) => (
+              <ProductCard
+                key={product.id}
+                product={product}
+                onSelect={setSelectedProduct}
+                bcvDiscount={bcvDiscount}
+              />
+            ))}
+          </div>
         </div>
       ) : (
         <div className="flex flex-col items-center justify-center p-14 border-2 border-dashed border-slate-200/20 rounded-[2.5rem] bg-white/5 text-center gap-4">

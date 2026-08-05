@@ -6,6 +6,7 @@ import {
   serverTimestamp, 
   collection, 
   Firestore,
+  increment,
   type DocumentData
 } from 'firebase/firestore';
 import type { Product } from './definitions';
@@ -62,6 +63,14 @@ export const InventoryService = {
         ...pData.sizes,
         [size]: (pData.sizes[size] || 0) + change
       };
+    }
+
+    // Si el stock disminuye (venta), sumamos al total de unidades vendidas (totalSold)
+    if (change < 0) {
+      updatePayload.totalSold = increment(-change);
+    } else if (change > 0 && reason.toLowerCase().includes('cancel')) {
+      // Si se cancela y se reintegra el stock, restamos del total de vendidos
+      updatePayload.totalSold = increment(-change);
     }
 
     // 1. Actualizar Producto

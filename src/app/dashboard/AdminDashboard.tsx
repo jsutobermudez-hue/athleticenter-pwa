@@ -1,9 +1,9 @@
 'use client';
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useCollection, useFirestore, useMemoFirebase, useUser } from '@/firebase';
 import { collection, query, limit } from 'firebase/firestore';
-import type { Order, Product, Customer } from '@/lib/definitions';
+import type { Order, Product, Customer, Offer } from '@/lib/definitions';
 import { 
     TrendingUp, 
     ShoppingCart, 
@@ -14,7 +14,12 @@ import {
     Zap,
     ArrowUpRight,
     Target,
-    ShieldCheck
+    ShieldCheck,
+    Award,
+    Flame,
+    Clock,
+    Medal,
+    ClipboardList
 } from 'lucide-react';
 import { DashboardMetricCard } from '@/components/dashboard/DashboardMetricCard';
 import { CatalogHighlights } from '@/components/dashboard/CatalogHighlights';
@@ -24,22 +29,102 @@ import { LiveActivityFeed } from '@/components/dashboard/LiveActivityFeed';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import { Badge } from '@/components/ui/badge';
+import { OrderSheetController } from './orders/OrderSheetController';
+import { ProductDetailsSheet } from '@/app/dashboard/inventory/product-details-sheet';
+import { cn } from '@/lib/utils';
 
 /**
- * TABLERO DE ADMINISTRACIÓN v2.1.0 - REDISEÑO MASTER VISUAL Y MÁTRICAS CLICKEABLES
+ * TABLERO DE ADMINISTRACIÓN v2.2.0 - RANKINGS INTERACTIVOS Y MONITOREO EN TIEMPO REAL
  */
 export default function AdminDashboard() {
     const router = useRouter();
     const firestore = useFirestore();
     const { profile } = useUser();
 
+    // Estados de selección para vistas detalladas
+    const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+    const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+    const [selectedSalesperson, setSelectedSalesperson] = useState<any | null>(null);
+
     const ordersQuery = useMemoFirebase(() => (firestore ? query(collection(firestore, 'orders'), limit(100)) : null), [firestore]);
     const productsQuery = useMemoFirebase(() => (firestore ? query(collection(firestore, 'products'), limit(200)) : null), [firestore]);
     const customersQuery = useMemoFirebase(() => (firestore ? query(collection(firestore, 'customers'), limit(100)) : null), [firestore]);
+    const offersQuery = useMemoFirebase(() => (firestore ? query(collection(firestore, 'offers'), limit(100)) : null), [firestore]);
 
     const { data: orders } = useCollection<Order>(ordersQuery);
     const { data: products } = useCollection<Product>(productsQuery);
     const { data: customers } = useCollection<Customer>(customersQuery);
+    const { data: allOffers } = useCollection<Offer>(offersQuery);
+
+    const canManageInventory = profile && ['superadmin', 'admin', 'gerencia', 'deposito'].includes(profile.role);
+    const bcvDiscount = 30; // Descuento base
+
+    // Mapeo de colores para estados de órdenes
+    const STATUS_COLORS: { [key: string]: string } = {
+        'Borrador': 'bg-slate-500/10 text-slate-400 border-slate-500/20',
+        'Pendiente': 'bg-yellow-500/10 text-yellow-500 border-yellow-500/20',
+        'Aprobado': 'bg-blue-500/10 text-blue-500 border-blue-500/20',
+        'En Preparación': 'bg-indigo-500/10 text-indigo-500 border-indigo-500/20',
+        'Completado': 'bg-purple-500/10 text-purple-500 border-purple-500/20',
+        'Despachado': 'bg-orange-500/10 text-orange-500 border-orange-500/20',
+        'Entregado': 'bg-green-500/10 text-green-500 border-green-500/20',
+        'Cancelado': 'bg-rose-500/10 text-rose-500 border-rose-500/20',
+        'En Verificación': 'bg-cyan-500/10 text-cyan-500 border-cyan-500/20',
+        'Pagado': 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20',
+        'Rechazado': 'bg-red-500/10 text-red-500 border-red-500/20',
+    };
+
+    // Formateador de fechas para pedidos
+    const formatOrderDate = (ts: any) => {
+        if (!ts) return '';
+        const date = typeof ts.toDate === 'function' ? ts.toDate() : new Date(ts);
+        return date.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit' }) + ' ' + 
+               date.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', hour12: false });
+    };
+
+    // Agregación de ventas por vendedor en memoria
+    const salespersonRanking = useMemo(() => {
+        if (!orders) return [];
+        const groups: { [id: string]: { id: string; name: string; totalSales: number; orderCount: number; orders: Order[] } } = {};
+        
+        orders.forEach(order => {
+            if (!order.salespersonId) return;
+            const spId = order.salespersonId;
+            if (!groups[spId]) {
+                groups[spId] = {
+                    id: spId,
+                    name: order.salespersonName || 'Vendedor',
+                    totalSales: 0,
+                    orderCount: 0,
+                    orders: []
+                };
+            }
+            groups[spId].totalSales += order.totalAmount || 0;
+            groups[spId].orderCount += 1;
+            groups[spId].orders.push(order);
+        });
+
+        return Object.values(groups).sort((a, b) => b.totalSales - a.totalSales);
+    }, [orders]);
+
+    // Top productos más vendidos
+    const topSellingProducts = useMemo(() => {
+        if (!products) return [];
+        return [...products]
+            .sort((a, b) => (b.totalSold || 0) - (a.totalSold || 0))
+            .slice(0, 5);
+    }, [products]);
+
+    // Últimos 10 pedidos realizados
+    const recentOrders = useMemo(() => {
+        if (!orders) return [];
+        const getDate = (ts: any) => ts ? (typeof ts.toDate === 'function' ? ts.toDate() : new Date(ts)) : new Date(0);
+        return [...orders]
+            .sort((a, b) => getDate(b.createdAt).getTime() - getDate(a.createdAt).getTime())
+            .slice(0, 10);
+    }, [orders]);
 
     const stats = useMemo(() => {
         if (!orders || !products || !customers) return { revenue: 0, pending: 0, lowStock: 0, clients: 0 };
@@ -105,6 +190,150 @@ export default function AdminDashboard() {
                 <OrderStatusChart orders={orders} />
             </div>
 
+            {/* SECCIÓN INTERMEDIA: RANKINGS Y PEDIDOS RECIENTES */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 px-1">
+                {/* Columna Izquierda: Rankings (Vendedores y Productos) */}
+                <div className="lg:col-span-7 space-y-8">
+                    {/* Ranking de Vendedores */}
+                    <Card className="border border-white/10 shadow-2xl rounded-[2.5rem] bg-slate-900 text-white overflow-hidden">
+                        <CardHeader className="p-8 border-b border-white/5">
+                            <CardTitle className="text-xs font-black uppercase tracking-[0.3em] text-primary flex items-center gap-3">
+                                <Medal className="h-5 w-5 text-primary" /> Rendimiento del Equipo B2B
+                            </CardTitle>
+                        </CardHeader>
+                        <CardContent className="p-8 space-y-4">
+                            {salespersonRanking.length > 0 ? (
+                                <div className="space-y-3">
+                                    {salespersonRanking.map((rank, index) => (
+                                        <div 
+                                            key={rank.id} 
+                                            onClick={() => setSelectedSalesperson(rank)}
+                                            className="p-5 rounded-[1.8rem] border border-white/5 bg-white/5 flex items-center justify-between group hover:bg-white/10 hover:border-primary/20 transition-all cursor-pointer active:scale-98"
+                                        >
+                                            <div className="flex items-center gap-4">
+                                                <div className="h-10 w-10 rounded-xl bg-primary/10 text-primary font-black text-xs flex items-center justify-center">
+                                                    #{index + 1}
+                                                </div>
+                                                <div>
+                                                    <p className="text-xs font-black uppercase text-white leading-none">{rank.name}</p>
+                                                    <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest mt-1.5">{rank.orderCount} Pedidos Realizados</p>
+                                                </div>
+                                            </div>
+                                            <div className="text-right flex items-center gap-3">
+                                                <div>
+                                                    <p className="text-sm font-black tracking-tighter text-emerald-400 leading-none">${rank.totalSales.toLocaleString()}</p>
+                                                    <span className="text-[7px] font-black text-slate-500 uppercase tracking-widest">Total Facturado</span>
+                                                </div>
+                                                <ArrowUpRight className="h-4 w-4 text-slate-500 group-hover:text-primary transition-colors" />
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            ) : (
+                                <div className="flex h-32 items-center justify-center text-slate-500 text-xs font-black uppercase border border-dashed border-white/10 rounded-3xl">
+                                    Sin Datos de Vendedores
+                                </div>
+                            )}
+                        </CardContent>
+                    </Card>
+
+                    {/* Productos Más Vendidos */}
+                    <Card className="border border-white/10 shadow-2xl rounded-[2.5rem] bg-slate-900 text-white overflow-hidden">
+                        <CardHeader className="p-8 border-b border-white/5">
+                            <CardTitle className="text-xs font-black uppercase tracking-[0.3em] text-primary flex items-center gap-3">
+                                <Flame className="h-5 w-5 text-primary animate-pulse" /> Productos Más Vendidos
+                            </CardTitle>
+                        </CardHeader>
+                        <CardContent className="p-8 space-y-4">
+                            {topSellingProducts.length > 0 ? (
+                                <div className="space-y-3">
+                                    {topSellingProducts.map((p, index) => (
+                                        <div 
+                                            key={p.id} 
+                                            onClick={() => setSelectedProduct(p)}
+                                            className="p-4 rounded-2xl border border-white/5 bg-white/5 flex items-center justify-between group hover:bg-white/10 hover:border-primary/20 transition-all cursor-pointer active:scale-98"
+                                        >
+                                            <div className="flex items-center gap-4 min-w-0">
+                                                <div className="h-10 w-10 rounded-xl bg-white/10 flex items-center justify-center text-xs font-black text-slate-300">
+                                                    #{index + 1}
+                                                </div>
+                                                <div className="min-w-0">
+                                                    <p className="text-xs font-black uppercase text-white truncate leading-none">{p.name}</p>
+                                                    <p className="text-[8px] font-mono text-slate-500 mt-1">SKU: {p.sku} / Marca: {p.brand || 'N/A'}</p>
+                                                </div>
+                                            </div>
+                                            <div className="text-right shrink-0 flex items-center gap-3">
+                                                <div>
+                                                    <p className="text-xs font-black text-primary leading-none">{p.totalSold || 0} un.</p>
+                                                    <span className="text-[7px] font-black text-slate-500 uppercase tracking-widest">Vendidos (Stock: {p.stockLevel})</span>
+                                                </div>
+                                                <ArrowUpRight className="h-4 w-4 text-slate-500 group-hover:text-primary transition-colors" />
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            ) : (
+                                <div className="flex h-32 items-center justify-center text-slate-500 text-xs font-black uppercase border border-dashed border-white/10 rounded-3xl">
+                                    Esperando Nuevos Registros de Venta
+                                </div>
+                            )}
+                        </CardContent>
+                    </Card>
+                </div>
+
+                {/* Columna Derecha: Últimos 10 Pedidos Realizados */}
+                <div className="lg:col-span-5">
+                    <Card className="border border-white/10 shadow-2xl rounded-[2.5rem] bg-slate-900 text-white overflow-hidden h-full">
+                        <CardHeader className="p-8 border-b border-white/5">
+                            <CardTitle className="text-xs font-black uppercase tracking-[0.3em] text-primary flex items-center gap-3">
+                                <ClipboardList className="h-5 w-5 text-primary" /> Últimos 10 Pedidos
+                            </CardTitle>
+                        </CardHeader>
+                        <CardContent className="p-8">
+                            {recentOrders.length > 0 ? (
+                                <div className="space-y-4">
+                                    {recentOrders.map((o) => (
+                                        <div 
+                                            key={o.id} 
+                                            onClick={() => setSelectedOrder(o)}
+                                            className="p-4 rounded-2xl border border-white/5 bg-white/5 flex flex-col gap-2 group hover:bg-white/10 hover:border-primary/20 transition-all cursor-pointer active:scale-98"
+                                        >
+                                            <div className="flex items-center justify-between">
+                                                <span className="text-[10px] font-black text-primary uppercase">
+                                                    #{o.id.substring(0, 8).toUpperCase()}
+                                                </span>
+                                                <span className="text-[8px] font-mono text-slate-500">
+                                                    {formatOrderDate(o.createdAt || o.orderDate)}
+                                                </span>
+                                            </div>
+                                            <div className="flex justify-between items-end">
+                                                <div className="min-w-0">
+                                                    <p className="text-[11px] font-black uppercase text-white truncate leading-none">{o.customerName}</p>
+                                                    <p className="text-[8px] font-bold text-slate-500 uppercase tracking-widest mt-1.5">Vendedor: {o.salespersonName}</p>
+                                                </div>
+                                                <div className="text-right shrink-0 flex items-center gap-3">
+                                                    <div>
+                                                        <p className="text-xs font-black text-emerald-400 leading-none">${o.totalAmount.toLocaleString()}</p>
+                                                        <Badge variant="outline" className={cn("mt-1.5 text-[6px] font-black uppercase border-none px-2 h-4 flex items-center justify-center", STATUS_COLORS[o.status] || 'bg-slate-500/10 text-slate-400')}>
+                                                            {o.status}
+                                                        </Badge>
+                                                    </div>
+                                                    <ArrowUpRight className="h-4 w-4 text-slate-500 group-hover:text-primary transition-colors" />
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            ) : (
+                                <div className="flex h-64 items-center justify-center text-slate-500 text-xs font-black uppercase border border-dashed border-white/10 rounded-3xl">
+                                    Sin Pedidos Registrados
+                                </div>
+                            )}
+                        </CardContent>
+                    </Card>
+                </div>
+            </div>
+
             {/* Highlights de Catálogo y Barra Lateral */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start px-1">
                 <div className="lg:col-span-8 space-y-8">
@@ -155,6 +384,72 @@ export default function AdminDashboard() {
                     <LiveActivityFeed />
                 </div>
             </div>
+
+            {/* Modal de Pedidos de Vendedor */}
+            <Dialog open={!!selectedSalesperson} onOpenChange={(open) => !open && setSelectedSalesperson(null)}>
+                <DialogContent className="max-w-[95vw] sm:max-w-3xl p-8 border-none bg-slate-900 text-white rounded-[2rem] shadow-2xl overflow-hidden">
+                    <DialogHeader className="border-b border-white/5 pb-4">
+                        <DialogTitle className="text-xl font-black uppercase tracking-tighter italic text-primary flex items-center gap-3">
+                            <Award className="h-6 w-6 text-primary" /> Pedidos de {selectedSalesperson?.name}
+                        </DialogTitle>
+                        <DialogDescription className="text-xs font-bold text-slate-500 uppercase tracking-widest mt-1">
+                            Historial de ventas y solicitudes del vendedor
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="mt-6 max-h-[60vh] overflow-y-auto pr-2 space-y-3 scrollbar-thin scrollbar-thumb-slate-800">
+                        {selectedSalesperson?.orders && selectedSalesperson.orders.length > 0 ? (
+                            selectedSalesperson.orders.map((o: Order) => (
+                                <div 
+                                    key={o.id} 
+                                    onClick={() => {
+                                        setSelectedOrder(o);
+                                        setSelectedSalesperson(null);
+                                    }}
+                                    className="p-5 rounded-2xl border border-white/5 bg-white/5 flex items-center justify-between group hover:bg-white/10 hover:border-primary/20 transition-all cursor-pointer active:scale-98"
+                                >
+                                    <div>
+                                        <div className="flex items-center gap-3">
+                                            <span className="text-[10px] font-black text-primary uppercase">#{o.id.substring(0, 8).toUpperCase()}</span>
+                                            <Badge variant="outline" className={cn("text-[6px] font-black uppercase border-none px-2 h-4", STATUS_COLORS[o.status])}>
+                                                {o.status}
+                                            </Badge>
+                                        </div>
+                                        <p className="text-xs font-black uppercase text-white mt-2 leading-none">{o.customerName}</p>
+                                        <p className="text-[8px] font-mono text-slate-500 mt-1">Fecha: {formatOrderDate(o.createdAt || o.orderDate)}</p>
+                                    </div>
+                                    <div className="text-right flex items-center gap-3">
+                                        <div>
+                                            <p className="text-sm font-black tracking-tighter text-emerald-400 leading-none">${o.totalAmount.toLocaleString()}</p>
+                                            <span className="text-[7px] font-black text-slate-500 uppercase tracking-widest mt-1">Hacer clic para Auditar</span>
+                                        </div>
+                                        <ArrowUpRight className="h-5 w-5 text-slate-500 group-hover:text-primary transition-colors" />
+                                    </div>
+                                </div>
+                            ))
+                        ) : (
+                            <p className="text-center text-slate-500 text-xs font-black uppercase py-10">Sin Pedidos Vinculados</p>
+                        )}
+                    </div>
+                </DialogContent>
+            </Dialog>
+
+            {/* Controladores de Detalle flotantes */}
+            {selectedOrder && (
+                <OrderSheetController 
+                    order={selectedOrder} 
+                    onOpenChange={(open) => !open && setSelectedOrder(null)} 
+                />
+            )}
+
+            <ProductDetailsSheet
+                product={selectedProduct}
+                allOffers={allOffers || []}
+                isOpen={!!selectedProduct}
+                onOpenChange={(open) => !open && setSelectedProduct(null)}
+                canManageInventory={!!canManageInventory}
+                canDelete={false}
+                onDelete={() => {}}
+            />
         </div>
     );
 }
