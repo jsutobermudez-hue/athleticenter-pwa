@@ -28,6 +28,7 @@ import { OrderStatusChart } from '@/components/dashboard/OrderStatusChart';
 import { LiveActivityFeed } from '@/components/dashboard/LiveActivityFeed';
 import { SalespersonRankingCard } from '@/components/dashboard/SalespersonRankingCard';
 import { PaidInvoicesCard } from '@/components/dashboard/PaidInvoicesCard';
+import { ExecutiveMetricsSuite } from '@/components/dashboard/ExecutiveMetricsSuite';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -164,6 +165,11 @@ export default function AdminDashboard() {
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 px-1">
                 <SalesTrendChart orders={orders} />
                 <OrderStatusChart orders={orders} />
+            </div>
+
+            {/* SUITE DE ANALÍTICA EJECUTIVA Y MATRIZ GLOBAL DE MÉTRICAS */}
+            <div className="px-1">
+                <ExecutiveMetricsSuite orders={orders} />
             </div>
 
             {/* SECCIÓN INTERMEDIA: RANKINGS Y PEDIDOS RECIENTES */}
