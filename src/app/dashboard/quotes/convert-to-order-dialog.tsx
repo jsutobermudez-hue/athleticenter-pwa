@@ -101,14 +101,15 @@ export function ConvertToOrderDialog({ quote }: ConvertToOrderDialogProps) {
             
             const customerData = customerSnap.data() as Customer;
 
-            // 1. CREACIÓN DEL PEDIDO (FORZANDO ID DEL CLIENTE CORPORATIVO)
-            const targetCompanyId = currentUser.associatedCustomerId || currentUser.id;
+            // 1. CREACIÓN DEL PEDIDO (CONSERVANDO IDENTIDAD Y RIF DEL CLIENTE)
+            const targetCompanyId = quote.customerId || currentUser.associatedCustomerId || currentUser.id;
 
             const newOrderData = {
                 id: finalOrderId,
                 sourceQuoteId: quote.id,
-                customerId: targetCompanyId, // IDENTIDAD CORPORATIVA BLINDADA
+                customerId: targetCompanyId,
                 customerName: quote.customerName,
+                customerRif: customerData.rif || quote.customerRif || '',
                 customerPhone: customerData.phone || '',
                 salespersonId: quote.salespersonId,
                 salespersonName: quote.salespersonName,

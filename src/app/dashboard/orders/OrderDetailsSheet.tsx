@@ -16,8 +16,9 @@ import {
   useFirestore,
   useMemoFirebase,
   useDoc,
+  useCollection
 } from '@/firebase';
-import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, updateDoc, serverTimestamp, query, collection, where, limit } from 'firebase/firestore';
 import { useRouter } from 'next/navigation';
 import type { User, Order, OrderItemClient, CompanyProfile, FinancialSettings, Customer } from '@/lib/definitions';
 import {
@@ -108,6 +109,16 @@ export function OrderDetailsSheet({
   const customerRef = useMemoFirebase(() => (firestore && order) ? doc(firestore, 'customers', order.customerId) : null, [firestore, order?.customerId]);
   const { data: customerData } = useDoc<Customer>(customerRef);
 
+  const fallbackCustomerQuery = useMemoFirebase(() => {
+    if (!firestore || !order?.customerName) return null;
+    return query(collection(firestore, 'customers'), where('razonSocial', '==', order.customerName), limit(1));
+  }, [firestore, order?.customerName]);
+  const { data: fallbackCustomers } = useCollection<Customer>(fallbackCustomerQuery);
+  const fallbackCustomer = fallbackCustomers && fallbackCustomers.length > 0 ? fallbackCustomers[0] : null;
+
+  const finalCustomerRif = order.customerRif || customerData?.rif || fallbackCustomer?.rif || customerRif || '';
+  const finalCustomerAddress = customerData?.address || fallbackCustomer?.address || '';
+
   const sortedItemsForPicking = useMemo(() => {
     return [...itemsWithProductData].sort((a, b) => {
         const locA = a.product?.warehouseLocation || 'Z-ZZZ';
@@ -157,9 +168,9 @@ export function OrderDetailsSheet({
             roles: ['admin', 'gerencia', 'deposito'],
         });
 
-        toast({ title: "¡Picking Culminado!", description: "El pedido ha sido certificado y movido a fase de despacho." });
-        onOpenChange(false);
-    } catch (e: any) {
+        toast({ title: "Picking Finalizado", description: "Pedido completado exitosamente." });
+        setPickingMode(false);
+    } catch (e) {
         toast({ variant: 'destructive', title: 'Error de Red', description: 'No se pudo sincronizar el cierre de picking.' });
     } finally {
         setIsCompleting(false);
@@ -176,8 +187,8 @@ export function OrderDetailsSheet({
     try {
         await generateOrderPDF({ 
             customerName: order.customerName, 
-            customerRif: customerRif || order.customerRif || customerData?.rif,
-            customerAddress: customerData?.address || '',
+            customerRif: finalCustomerRif,
+            customerAddress: finalCustomerAddress,
             orderItems: itemsWithProductData, 
             salespersonName: order.salespersonName, 
             orderId: order.id, 
@@ -199,7 +210,7 @@ export function OrderDetailsSheet({
     if (isLoadingItems || itemsWithProductData.length === 0) return;
     setIsPrintingLabels(true);
     try {
-        await generatePackageLabelsPDF(order, itemsWithProductData, companyProfile || undefined, customerData?.address);
+        await generatePackageLabelsPDF(order, itemsWithProductData, companyProfile || undefined, finalCustomerAddress);
         toast({ title: "Etiquetas Generadas" });
     } catch (e) {
         toast({ variant: 'destructive', title: 'Error de Impresión' });
