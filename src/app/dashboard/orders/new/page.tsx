@@ -48,6 +48,7 @@ function NewOrderForm() {
     const [productForSizes, setProductForSizes] = useState<Product | null>(null);
     const [searchTerm, setSearchTerm] = useState('');
     const [isMoroso, setIsMoroso] = useState(false);
+    const [bypassReason, setBypassReason] = useState('');
 
     const { products: inventory, isLoading: isLoadingInventory } = useCatalog();
 
@@ -185,13 +186,22 @@ function NewOrderForm() {
             return;
         }
         
-        if (!isDraft && isMoroso && !isAdmin) {
-            toast({ 
-                variant: 'destructive', 
-                title: 'OPERACIÓN BLOQUEADA', 
-                description: `Cliente en mora crítica (+${globalSettings?.overdueBlockDays || 35} días). Contacte a Gerencia.` 
-            });
-            return;
+        if (!isDraft && isMoroso) {
+            if (!isAdmin) {
+                toast({ 
+                    variant: 'destructive', 
+                    title: 'OPERACIÓN BLOQUEADA', 
+                    description: `Cliente en mora crítica (+${globalSettings?.overdueBlockDays || 35} días). Contacte a Gerencia.` 
+                });
+                return;
+            } else if (!bypassReason.trim()) {
+                toast({ 
+                    variant: 'destructive', 
+                    title: 'JUSTIFICACIÓN REQUERIDA', 
+                    description: 'Debe ingresar una nota de justificación para autorizar este pedido con mora.' 
+                });
+                return;
+            }
         }
 
         if (isDraft) setIsSavingDraft(true); else setIsSubmitting(true);
@@ -207,7 +217,7 @@ function NewOrderForm() {
 
         runTransaction(firestore, async (transaction) => {
             const orderRef = doc(firestore, 'orders', finalOrderId);
-            const orderData = {
+            const orderData: any = {
                 id: finalOrderId, 
                 customerId: selectedCustomerId, 
                 customerName: rawName, 
@@ -222,6 +232,10 @@ function NewOrderForm() {
                 status: isDraft ? 'Borrador' : 'Pendiente',
                 updatedAt: serverTimestamp()
             };
+
+            if (isMoroso && isAdmin && !isDraft) {
+                orderData.bypassMoraReason = bypassReason;
+            }
 
             transaction.set(orderRef, orderData);
 
@@ -341,9 +355,31 @@ function NewOrderForm() {
 
             <div className="sticky top-0 z-30 px-2 space-y-4 bg-background/95 backdrop-blur-md pb-4 pt-2 shadow-sm">
                 {isMoroso && (
-                    <div className="p-4 bg-rose-600 text-white rounded-2xl flex items-center gap-3 animate-pulse shadow-xl shadow-rose-200">
-                        <Lock className="h-5 w-5" />
-                        <p className="text-[10px] font-black uppercase tracking-[0.2em]">Facturación Bloqueada: Cliente en mora crítica ({globalSettings?.overdueBlockDays || 35} días).</p>
+                    <div className="space-y-3">
+                        <div className={cn(
+                            "p-4 rounded-2xl flex items-center gap-3 shadow-xl",
+                            isAdmin ? "bg-amber-600 text-white shadow-amber-200" : "bg-rose-600 text-white shadow-rose-200 animate-pulse"
+                        )}>
+                            <Lock className="h-5 w-5" />
+                            <p className="text-[10px] font-black uppercase tracking-[0.2em]">
+                                {isAdmin 
+                                    ? `Atención: Cliente en mora crítica (+${globalSettings?.overdueBlockDays || 35} días). Ingrese justificación para proceder.` 
+                                    : `Facturación Bloqueada: Cliente en mora crítica (+${globalSettings?.overdueBlockDays || 35} días).`}
+                            </p>
+                        </div>
+                        {isAdmin && (
+                            <div className="p-4 bg-slate-900 border border-slate-800 rounded-2xl space-y-2 shadow-lg">
+                                <label className="text-[9px] font-black uppercase text-amber-500 tracking-[0.2em] block">
+                                    Justificación de Autorización (Mora Crítica) *
+                                </label>
+                                <textarea
+                                    placeholder="Escribe la razón para autorizar este pedido a pesar de la mora..."
+                                    value={bypassReason}
+                                    onChange={(e) => setBypassReason(e.target.value)}
+                                    className="w-full h-16 p-3 rounded-xl bg-white/5 border border-white/10 text-[11px] text-white placeholder-slate-500 focus:outline-none focus:border-amber-500 resize-none font-bold uppercase"
+                                />
+                            </div>
+                        )}
                     </div>
                 )}
 
@@ -382,7 +418,7 @@ function NewOrderForm() {
 
                                 <Button 
                                     className="w-full sm:w-auto h-12 px-10 font-black uppercase tracking-[0.25em] shadow-xl rounded-xl bg-slate-900 hover:bg-primary transition-all text-white text-[10px]" 
-                                    disabled={isSubmitting || isSavingDraft || orderItems.length === 0 || (isMoroso && !isAdmin)} 
+                                    disabled={isSubmitting || isSavingDraft || orderItems.length === 0 || (isMoroso && !isAdmin) || (isMoroso && isAdmin && !bypassReason.trim())} 
                                     onClick={() => processOrder(false)}
                                 >
                                     {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : "Enviar Solicitud"}

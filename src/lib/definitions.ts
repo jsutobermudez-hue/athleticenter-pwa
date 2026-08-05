@@ -105,6 +105,7 @@ export interface Order extends Auditable {
   stockRestored?: boolean; 
   cancellationRequested?: boolean;
   cancellationNotes?: string;
+  bypassMoraReason?: string;
 }
 
 export type OrderStatus = 'Borrador' | 'Pendiente' | 'Aprobado' | 'En Preparación' | 'Completado' | 'Despachado' | 'Entregado' | 'Cancelado' | 'En Verificación' | 'Pagado' | 'Rechazado';

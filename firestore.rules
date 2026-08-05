@@ -28,14 +28,26 @@ service cloud.firestore {
     match /products/{productId} {
       allow read: if true;
       allow write: if request.auth != null;
+
+      match /stockHistory/{logId} {
+        allow read, write: if request.auth != null;
+      }
     }
 
     match /orders/{orderId} {
       allow read, write: if request.auth != null;
+
+      match /orderItems/{itemId} {
+        allow read, write: if request.auth != null;
+      }
     }
 
     match /quotes/{quoteId} {
       allow read, write: if request.auth != null;
+
+      match /quoteItems/{itemId} {
+        allow read, write: if request.auth != null;
+      }
     }
 
     match /customers/{customerId} {

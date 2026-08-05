@@ -7,13 +7,20 @@ import type { Order, Invoice } from './definitions';
  * Centraliza el cálculo de vencimientos, descuentos y saldos para UI y Agentes IA.
  */
 export function getInvoiceFromOrder(order: Order): Invoice | null {
-    const creditStartDate = (order.receptionDate as Timestamp)?.toDate();
-
     if (!['Entregado', 'En Verificación', 'Pagado'].includes(order.status)) {
         return null;
     }
     
-    if (!creditStartDate) {
+    const rawDate = order.receptionDate || order.approvalDate || order.orderDate;
+    if (!rawDate) {
+        return null;
+    }
+
+    const creditStartDate = typeof (rawDate as any).toDate === 'function' 
+        ? (rawDate as Timestamp).toDate() 
+        : new Date(rawDate as any);
+
+    if (isNaN(creditStartDate.getTime()) || creditStartDate.getTime() === 0) {
         return null;
     }
     
