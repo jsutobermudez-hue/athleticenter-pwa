@@ -262,12 +262,34 @@ export function AIReportingHub() {
                 </ScrollArea>
             </div>
 
-            <div className="p-8 shrink-0 bg-gradient-to-t from-[#F8FAFC] via-[#F8FAFC]/95 to-transparent pt-12 sticky bottom-0 z-30">
+            <div className="p-8 shrink-0 bg-gradient-to-t from-[#F8FAFC] via-[#F8FAFC]/95 to-transparent pt-6 sticky bottom-0 z-30 space-y-3">
+                {/* Sugerencias Rápidas de Inteligencia de Negocios */}
+                <div className="max-w-5xl mx-auto flex items-center gap-2 overflow-x-auto custom-scrollbar pb-1">
+                    {[
+                        { label: '📊 Ventas Totales y Cobranzas', query: '¿Cuáles fueron las ventas totales y cuánto dinero hay en cobranzas?' },
+                        { label: '⚽ Balón Más Vendido & Stock', query: '¿Cuál es el balón más vendido y cuál es su nivel de stock?' },
+                        { label: '🏢 Clientes en Mora (>35 días)', query: '¿Cuáles clientes tienen mora de más de 35 días y cuál es su saldo?' },
+                        { label: '🔮 Predicción de Agotamiento', query: '¿Qué productos están por agotarse en inventario y qué compras sugieres?' },
+                        { label: '🎯 Estrategia & Copy WhatsApp', query: 'Analiza las ventas recientes y redacta una estrategia comercial con mensaje de WhatsApp para clientes' },
+                    ].map((chip, idx) => (
+                        <button
+                            key={idx}
+                            type="button"
+                            onClick={() => {
+                                setInput(chip.query);
+                            }}
+                            className="px-3.5 py-1.5 rounded-full bg-white border border-slate-200 shadow-sm text-[9px] font-black uppercase tracking-wider text-slate-700 hover:bg-slate-900 hover:text-white transition-all whitespace-nowrap shrink-0 flex items-center gap-1.5"
+                        >
+                            <span>{chip.label}</span>
+                        </button>
+                    ))}
+                </div>
+
                 <div className="max-w-5xl mx-auto relative group">
                     <div className="absolute -inset-1.5 bg-gradient-to-r from-blue-600/20 via-blue-400/40 to-blue-600/20 rounded-[2.8rem] blur-xl opacity-25 group-focus-within:opacity-100 transition-opacity duration-700" />
                     <div className="relative flex items-end gap-4 p-3 bg-white rounded-[2.5rem] shadow-2xl border border-slate-100 transition-all group-focus-within:ring-2 group-focus-within:ring-blue-100">
                         <Textarea 
-                            placeholder="Consulta stock, ventas o rendimiento del catálogo... (Ej: 'Nike' o 'Messi')"
+                            placeholder="Pregunta lo que quieras sobre ventas totales, balones más vendidos, morosidad o estrategias comercial..."
                             className="min-h-[70px] max-h-[250px] border-none shadow-none text-base font-bold p-5 pr-20 leading-relaxed focus-visible:ring-0 rounded-[2.2rem] resize-none placeholder:text-slate-300 placeholder:uppercase placeholder:text-[11px] placeholder:tracking-[0.2em]"
                             value={input}
                             onChange={(e) => setInput(e.target.value)}
