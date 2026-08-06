@@ -43,7 +43,9 @@ import {
     FileText,
     FileCheck,
     Coins,
-    DollarSign
+    DollarSign,
+    Clock,
+    Lock
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useFirestore, useUser, useDoc, useMemoFirebase, errorEmitter, FirestorePermissionError } from '@/firebase';
@@ -58,6 +60,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import { differenceInDays } from 'date-fns';
 
 const paymentReportSchema = z.object({
   amount: z.coerce.number().min(0.01, 'El monto debe ser mayor a cero.'),
@@ -67,9 +70,27 @@ const paymentReportSchema = z.object({
   notes: z.string().optional(),
   documentType: z.enum(['nota', 'factura']).default('nota'),
   accountingBase: z.enum(['bcv', 'cash']).default('bcv'),
+  earlyPaymentType: z.enum(['none', '7days', '15days']).default('none'),
 });
 
 type PaymentReportValues = z.infer<typeof paymentReportSchema>;
+
+function getElapsedDays(orderDate: any, paymentDateStr: string): number {
+  if (!orderDate) return 0;
+  try {
+    let oDate: Date;
+    if (typeof orderDate.toDate === 'function') oDate = orderDate.toDate();
+    else if (orderDate.seconds) oDate = new Date(orderDate.seconds * 1000);
+    else oDate = new Date(orderDate);
+
+    const pDate = paymentDateStr ? new Date(paymentDateStr) : new Date();
+    if (isNaN(oDate.getTime()) || isNaN(pDate.getTime())) return 0;
+    
+    return Math.max(0, differenceInDays(pDate, oDate));
+  } catch (e) {
+    return 0;
+  }
+}
 
 export function ReportPaymentDialog({ invoice, mode = 'partial' }: { invoice: Invoice, mode?: 'partial' | 'total' }) {
   const [isOpen, setIsOpen] = useState(false);
@@ -98,8 +119,10 @@ export function ReportPaymentDialog({ invoice, mode = 'partial' }: { invoice: In
         paymentDate: '', 
         method: '',
         referenceNumber: '',
+        notes: '',
         documentType: 'nota',
-        accountingBase: 'bcv'
+        accountingBase: 'bcv',
+        earlyPaymentType: 'none'
     },
   });
 
@@ -107,6 +130,8 @@ export function ReportPaymentDialog({ invoice, mode = 'partial' }: { invoice: In
   const inputAmount = watch('amount');
   const documentType = watch('documentType');
   const accountingBase = watch('accountingBase');
+  const paymentDateInput = watch('paymentDate');
+  const earlyPaymentType = watch('earlyPaymentType');
 
   const metodosNacionales = useMemo(() => [
     { 
@@ -168,45 +193,68 @@ export function ReportPaymentDialog({ invoice, mode = 'partial' }: { invoice: In
     }
   }, [isOpen, isMounted, isTotalMode, invoice.remainingBalance, setValue]);
 
-  // LÓGICA DE CÁLCULO DINÁMICO v7.0 (SINCERADA)
+  // DÍAS TRANSCURRIDOS Y ELEGIBILIDAD DE PRONTO PAGO
+  const elapsedDays = useMemo(() => {
+    return getElapsedDays(orderData?.orderDate || (invoice as any)?.createdAt, paymentDateInput);
+  }, [orderData?.orderDate, invoice, paymentDateInput]);
+
+  const is7DaysEligible = elapsedDays <= 7;
+  const is15DaysEligible = elapsedDays <= 15;
+
+  // Reseteo si la opción seleccionada ya no es elegible por fecha
+  useEffect(() => {
+    if (earlyPaymentType === '7days' && !is7DaysEligible) {
+      setValue('earlyPaymentType', is15DaysEligible ? '15days' : 'none');
+    } else if (earlyPaymentType === '15days' && !is15DaysEligible) {
+      setValue('earlyPaymentType', 'none');
+    }
+  }, [elapsedDays, is7DaysEligible, is15DaysEligible, earlyPaymentType, setValue]);
+
+  // LÓGICA DE CÁLCULO DINÁMICO v7.1
   const calculation = useMemo(() => {
     if (!orderData || !globalSettings) return null;
     
     const bcvDiscountFactor = (globalSettings.defaultBcvDiscount || 35) / 100;
     const ivaFactor = (globalSettings.ivaPercent || 16) / 100;
-    
-    // El monto que el usuario desea abonar al SALDO de su cuenta (que está en BCV)
+    const early7Factor = (globalSettings.earlyPayment7Days || 5) / 100;
+    const early15Factor = (globalSettings.earlyPayment15Days || 3) / 100;
+
     const currentBalance = invoice.remainingBalance;
     const baseAmountToPay = isTotalMode ? currentBalance : Math.min(Number(inputAmount || 0), currentBalance);
     
     let discountAmount = 0;
     let discountType: Payment['discountType'] = 'none';
     
-    // Si el usuario elige "Base CASH", aplicamos el ahorro de red
     if (accountingBase === 'cash') {
         discountAmount = Number((baseAmountToPay * bcvDiscountFactor).toFixed(2));
         discountType = 'cash';
     }
+
+    let earlyDiscountAmount = 0;
+    if (earlyPaymentType === '7days' && is7DaysEligible) {
+      earlyDiscountAmount = Number((baseAmountToPay * early7Factor).toFixed(2));
+      if (discountType === 'none') discountType = '7days';
+    } else if (earlyPaymentType === '15days' && is15DaysEligible) {
+      earlyDiscountAmount = Number((baseAmountToPay * early15Factor).toFixed(2));
+      if (discountType === 'none') discountType = '15days';
+    }
     
-    // El monto neto que debe transferir físicamente tras el descuento
-    const subtotalAfterIncentives = baseAmountToPay - discountAmount;
-    
-    // Impuestos si es factura (se calculan sobre lo pagado realmente)
+    const totalDiscountAmount = discountAmount + earlyDiscountAmount;
+    const subtotalAfterIncentives = Math.max(0, baseAmountToPay - totalDiscountAmount);
     const taxAmount = documentType === 'factura' ? Number((subtotalAfterIncentives * ivaFactor).toFixed(2)) : 0;
-    
-    // TOTAL FINAL QUE DEBE FIGURAR EN EL COMPROBANTE
     const finalAmount = subtotalAfterIncentives + taxAmount;
     
     return { 
         baseAmount: baseAmountToPay, 
-        discountAmount, 
+        discountAmount: totalDiscountAmount,
+        cashDiscountAmount: discountAmount,
+        earlyDiscountAmount,
         taxAmount,
         finalAmount, 
         discountType 
     };
-  }, [orderData, globalSettings, inputAmount, accountingBase, documentType, invoice.remainingBalance, isTotalMode]);
+  }, [orderData, globalSettings, inputAmount, accountingBase, documentType, earlyPaymentType, is7DaysEligible, is15DaysEligible, invoice.remainingBalance, isTotalMode]);
 
-  // Saneamiento: Resetear base a BCV si el método no es apto para incentivos
   useEffect(() => {
       if (selectedMethod && !['Zelle', 'Efectivo'].includes(selectedMethod)) {
           setValue('accountingBase', 'bcv');
@@ -214,19 +262,20 @@ export function ReportPaymentDialog({ invoice, mode = 'partial' }: { invoice: In
   }, [selectedMethod, setValue]);
 
   const onSubmit = (data: PaymentReportValues) => {
-    if (!firestore || !authUser || !currentUser || !calculation) return;
+    if (!firestore || !authUser || !calculation) return;
     
     const batch = writeBatch(firestore);
     const paymentRef = doc(collection(firestore, `orders/${invoice.id}/payments`));
     
+    const registeredByName = currentUser?.name || authUser.displayName || authUser.email || 'Cliente';
+
     const payload: Partial<Payment> = { 
-      ...data, 
       method: data.method as any,
       amount: calculation.finalAmount, 
       orderId: invoice.id, 
       status: 'pending_verification', 
       registeredBy: authUser.uid, 
-      registeredByName: currentUser.name, 
+      registeredByName: registeredByName, 
       imageUrl: uploadedImageUrl || '', 
       paymentDate: new Date(data.paymentDate), 
       createdAt: serverTimestamp() as any, 
@@ -236,7 +285,9 @@ export function ReportPaymentDialog({ invoice, mode = 'partial' }: { invoice: In
       discountType: calculation.discountType, 
       incentivesApplied: calculation.discountAmount > 0, 
       documentType: data.documentType, 
-      accountingBase: data.accountingBase
+      accountingBase: data.accountingBase,
+      referenceNumber: data.referenceNumber || '',
+      notes: data.notes || ''
     };
 
     batch.set(paymentRef, payload);
@@ -250,7 +301,13 @@ export function ReportPaymentDialog({ invoice, mode = 'partial' }: { invoice: In
         setIsOpen(false);
         reset();
         setUploadedImageUrl(null);
-    }).catch(async (serverError) => {
+    }).catch(async (serverError: any) => {
+        console.error("Error al reportar pago:", serverError);
+        toast({ 
+            variant: 'destructive', 
+            title: 'Error al Reportar Pago', 
+            description: serverError?.message || 'No se pudo registrar la transacción de pago.' 
+        });
         errorEmitter.emit('permission-error', new FirestorePermissionError({ 
             path: `orders/${invoice.id}/payments`, 
             operation: 'create', 
@@ -370,6 +427,64 @@ export function ReportPaymentDialog({ invoice, mode = 'partial' }: { invoice: In
                                 </RadioGroup>
                             </section>
 
+                            {/* SECCIÓN 3: SELECTOR MANUAL DE PRONTO PAGO CON BLOQUEO */}
+                            <section className="space-y-4">
+                                <div className="flex items-center gap-2 px-1">
+                                    <Clock className="h-4 w-4 text-primary" />
+                                    <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Descuento de Pronto Pago (Manual)</h3>
+                                </div>
+                                <div className="grid grid-cols-3 gap-3">
+                                    <div 
+                                        className={cn(
+                                            "p-3.5 rounded-2xl border-2 cursor-pointer text-center transition-all flex flex-col justify-between h-22",
+                                            earlyPaymentType === 'none' ? "border-primary bg-primary/5 shadow-sm" : "border-slate-100 hover:bg-slate-50"
+                                        )}
+                                        onClick={() => setValue('earlyPaymentType', 'none')}
+                                    >
+                                        <span className="text-[9px] font-black uppercase">Sin Pronto Pago</span>
+                                        <span className="text-[7px] font-bold text-slate-400 uppercase">0% Descuento</span>
+                                    </div>
+
+                                    <div 
+                                        className={cn(
+                                            "p-3.5 rounded-2xl border-2 text-center transition-all flex flex-col justify-between h-22",
+                                            earlyPaymentType === '7days' ? "border-emerald-500 bg-emerald-50 shadow-sm" : "border-slate-100",
+                                            is7DaysEligible ? "cursor-pointer hover:bg-slate-50" : "opacity-40 cursor-not-allowed bg-slate-100 grayscale"
+                                        )}
+                                        onClick={() => {
+                                            if (is7DaysEligible) setValue('earlyPaymentType', '7days');
+                                        }}
+                                    >
+                                        <div className="flex flex-col">
+                                            <span className="text-[9px] font-black uppercase">Pronto Pago 7 Días</span>
+                                            <span className="text-[7px] font-bold text-emerald-600 uppercase">{globalSettings?.earlyPayment7Days || 5}% OFF</span>
+                                        </div>
+                                        <span className="text-[7px] font-black uppercase flex items-center justify-center gap-1">
+                                            {is7DaysEligible ? '🟢 Disponible' : `🔒 Vencido (${elapsedDays}d)`}
+                                        </span>
+                                    </div>
+
+                                    <div 
+                                        className={cn(
+                                            "p-3.5 rounded-2xl border-2 text-center transition-all flex flex-col justify-between h-22",
+                                            earlyPaymentType === '15days' ? "border-emerald-500 bg-emerald-50 shadow-sm" : "border-slate-100",
+                                            is15DaysEligible ? "cursor-pointer hover:bg-slate-50" : "opacity-40 cursor-not-allowed bg-slate-100 grayscale"
+                                        )}
+                                        onClick={() => {
+                                            if (is15DaysEligible) setValue('earlyPaymentType', '15days');
+                                        }}
+                                    >
+                                        <div className="flex flex-col">
+                                            <span className="text-[9px] font-black uppercase">Pronto Pago 15 Días</span>
+                                            <span className="text-[7px] font-bold text-emerald-600 uppercase">{globalSettings?.earlyPayment15Days || 3}% OFF</span>
+                                        </div>
+                                        <span className="text-[7px] font-black uppercase flex items-center justify-center gap-1">
+                                            {is15DaysEligible ? '🟢 Disponible' : `🔒 Vencido (${elapsedDays}d)`}
+                                        </span>
+                                    </div>
+                                </div>
+                            </section>
+
                             <section className="space-y-6">
                                 <div className="flex items-center gap-2 px-1">
                                     <Landmark className="h-4 w-4 text-primary" />
@@ -462,10 +577,17 @@ export function ReportPaymentDialog({ invoice, mode = 'partial' }: { invoice: In
                                             <span className="text-sm font-bold text-white">${calculation?.baseAmount.toFixed(2)}</span>
                                         </div>
                                         
-                                        {calculation && calculation.discountAmount > 0 && (
+                                        {calculation && calculation.cashDiscountAmount > 0 && (
                                             <div className="flex justify-between items-center text-emerald-400 animate-in slide-in-from-left-2">
-                                                <span className="text-[9px] font-black uppercase flex items-center gap-1"><TrendingDown className="h-3 w-3" /> Incentivo Red ({Math.round((globalSettings?.defaultBcvDiscount || 35))}% OFF)</span>
-                                                <span className="text-sm font-black">-${calculation.discountAmount.toFixed(2)}</span>
+                                                <span className="text-[9px] font-black uppercase flex items-center gap-1"><TrendingDown className="h-3 w-3" /> Incentivo CASH (~35% OFF)</span>
+                                                <span className="text-sm font-black">-${calculation.cashDiscountAmount.toFixed(2)}</span>
+                                            </div>
+                                        )}
+
+                                        {calculation && calculation.earlyDiscountAmount > 0 && (
+                                            <div className="flex justify-between items-center text-emerald-400 animate-in slide-in-from-left-2">
+                                                <span className="text-[9px] font-black uppercase flex items-center gap-1"><Clock className="h-3 w-3" /> Pronto Pago ({earlyPaymentType === '7days' ? '7d' : '15d'})</span>
+                                                <span className="text-sm font-black">-${calculation.earlyDiscountAmount.toFixed(2)}</span>
                                             </div>
                                         )}
 

@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -140,6 +139,8 @@ export function ConfirmPaymentDialog({ order }: { order: Order }) {
             setIsOpen(false);
         })
         .catch(async (serverError) => {
+            console.error("Error rejecting payment:", serverError);
+            toast({ variant: 'destructive', title: 'Error al Rechazar Pago', description: serverError?.message || 'Error de permisos' });
             errorEmitter.emit('permission-error', new FirestorePermissionError({
                 path: `orders/${order.id}/payments/${reportedPayment.id}`,
                 operation: 'delete'
@@ -165,8 +166,6 @@ export function ConfirmPaymentDialog({ order }: { order: Order }) {
 
         const currentPaid = currentOrder.amountPaid || 0;
         
-        // baseAbono: El monto nominal que se resta de la deuda (Monto en BCV)
-        // actualCash: El monto físico recibido en banco (Monto tras incentivos)
         const baseAbono = reportedPayment?.baseAmount || data.amount;
         const actualCash = reportedPayment?.amount || data.amount; 
         
@@ -177,14 +176,16 @@ export function ConfirmPaymentDialog({ order }: { order: Order }) {
           ? doc(firestore, `orders/${order.id}/payments`, reportedPayment.id)
           : doc(collection(firestore, `orders/${order.id}/payments`));
 
-        // 1. Registrar pago verificado
-        transaction.set(paymentRef, {
+        const cleanPaymentPayload = {
           ...data,
+          referenceNumber: data.referenceNumber || '',
+          notes: data.notes || '',
           status: 'verified',
           updatedAt: serverTimestamp()
-        }, { merge: true });
+        };
 
-        // 2. Actualizar pedido y recaudación real
+        transaction.set(paymentRef, cleanPaymentPayload, { merge: true });
+
         transaction.update(orderRef, { 
             amountPaid: newTotalPaid,
             totalCashReceived: increment(actualCash),
@@ -192,15 +193,16 @@ export function ConfirmPaymentDialog({ order }: { order: Order }) {
             updatedAt: serverTimestamp()
         });
 
-        // 3. ACTUALIZAR SALDO EN FICHA DEL CLIENTE (REDUCCIÓN DE DEUDA NOMINAL)
         transaction.update(customerRef, {
             creditUsed: increment(-baseAbono),
             updatedAt: serverTimestamp()
         });
 
-        // 4. Generar comisión si aplica (Se calcula sobre el CASH real recibido)
         const rate = order.salespersonCommissionRate || 0.05;
         const commAmount = actualCash * rate;
+
+        const salespersonId = order.salespersonId || '';
+        const salespersonName = order.salespersonName || 'Venta Directa / Oficina Central';
 
         if (commAmount > 0) {
             const commRef = doc(collection(firestore, 'commissions'));
@@ -209,8 +211,8 @@ export function ConfirmPaymentDialog({ order }: { order: Order }) {
                 paymentId: paymentRef.id,
                 commissionDate: serverTimestamp(),
                 invoiceAmount: actualCash,
-                salespersonId: order.salespersonId,
-                salespersonName: order.salespersonName,
+                salespersonId,
+                salespersonName,
                 salespersonCommissionAmount: commAmount,
                 status: 'pendiente',
                 createdAt: serverTimestamp()
@@ -218,7 +220,6 @@ export function ConfirmPaymentDialog({ order }: { order: Order }) {
         }
     })
     .then(async () => {
-        // Post-procesamiento: Generación de PDF
         const itemsSnap = await getDocs(collection(firestore, `orders/${order.id}/orderItems`));
         const itemDocs = itemsSnap.docs.map(d => ({ id: d.id, ...d.data() } as OrderItem));
         
@@ -237,7 +238,7 @@ export function ConfirmPaymentDialog({ order }: { order: Order }) {
                 customerRif: order.customerRif || customerData?.rif,
                 customerAddress: customerData?.address || '',
                 orderItems: fullItems,
-                salespersonName: order.salespersonName,
+                salespersonName: order.salespersonName || 'Ventas Directas',
                 orderId: order.id,
                 createdAt: new Date(),
                 companyProfile: companyProfile || undefined,
@@ -249,8 +250,9 @@ export function ConfirmPaymentDialog({ order }: { order: Order }) {
         toast({ title: '¡Abono Conciliado!', description: `Deuda actualizada y documento generado.` });
         setIsOpen(false);
     })
-    .catch(async (serverError) => {
-        toast({ variant: 'destructive', title: 'Fallo de Conciliación', description: serverError.message });
+    .catch(async (serverError: any) => {
+        console.error("Error al conciliar abono:", serverError);
+        toast({ variant: 'destructive', title: 'Fallo de Conciliación', description: serverError?.message || 'Error al procesar abono.' });
     });
   };
 
