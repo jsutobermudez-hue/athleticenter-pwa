@@ -1,8 +1,7 @@
 'use server';
 /**
- * @fileOverview Agente IA Director Estratégico Nivel Supremo v6.2 para Athleticenter Pro.
- * Incluye: Búsqueda Inteligente de Clientes (sin importar & o C.A.) y la herramienta getCustomerPaymentHistory
- * para desglosar el historial de pagos de un cliente específico (Efectivo, Zelle, BCV y Saldo Pendiente).
+ * @fileOverview Agente IA Director Estratégico Nivel Supremo v6.3 para Athleticenter Pro.
+ * Incluye: Inspección profunda de ítems (orderItems) por cliente para listar los modelos exactos de balones comprados.
  */
 
 import { ai } from '@/ai/genkit';
@@ -22,7 +21,6 @@ const AIAnalystOutputSchema = z.object({
   isSimulated: z.boolean().optional().describe('Indica si la respuesta fue generada por el motor de fallback.'),
 });
 
-// Helper seguro para formatear fechas de Firestore
 function safeFormatDate(orderDate: any): string {
   if (!orderDate) return 'Reciente';
   try {
@@ -42,7 +40,6 @@ function safeFormatDate(orderDate: any): string {
   return 'Reciente';
 }
 
-// Normalizador y buscador inteligente por palabras clave sin importar &, puntos o C.A.
 function cleanStringForSearch(str: string): string {
   return (str || '')
     .toLowerCase()
@@ -62,7 +59,6 @@ function matchesSearchQuery(targetName: string, searchQuery: string): boolean {
   const queryWords = cleanQuery.split(' ').filter(w => w.length > 2);
   if (queryWords.length === 0) return true;
 
-  // Coincide si todas las palabras clave principales están presentes
   return queryWords.every(word => cleanTarget.includes(word));
 }
 
@@ -182,7 +178,7 @@ const getAutonomousClientRiskScoring = ai.defineTool(
   }
 );
 
-// 3. NUEVA HERRAMIENTA: HISTORIAL DE PAGOS E INGRESOS POR CLIENTE ESPECÍFICO
+// 3. HISTORIAL DE PAGOS E INGRESOS POR CLIENTE ESPECÍFICO
 const getCustomerPaymentHistory = ai.defineTool(
   {
     name: 'getCustomerPaymentHistory',
@@ -250,13 +246,13 @@ const getCustomerPaymentHistory = ai.defineTool(
   }
 );
 
-// 4. HISTORIAL Y PREFERENCIAS COMPLEMENTARIAS POR CLIENTE B2B
+// 4. HISTORIAL Y PREFERENCIAS DE COMPRA POR CLIENTE B2B (CON MODELOS DE BALONES DETALLADOS)
 const getCustomerPurchaseHistory = ai.defineTool(
   {
     name: 'getCustomerPurchaseHistory',
-    description: 'Inspecciona las compras históricas, pedidos y productos adquiridos por un cliente específico.',
+    description: 'Inspecciona las compras históricas, pedidos y productos/modelos exactos adquiridos por un cliente específico.',
     inputSchema: z.object({
-      customerName: z.string().describe('Nombre del cliente o razón social')
+      customerName: z.string().describe('Nombre del cliente o razón social (ej. MUSIC & SPORT DELICIAS)')
     }),
     outputSchema: z.any(),
   },
@@ -265,32 +261,63 @@ const getCustomerPurchaseHistory = ai.defineTool(
       const { firestore } = initializeFirebaseServer();
       const ordersSnap = await getDocs(query(collection(firestore, 'orders'), limit(150)));
 
-      const matchingOrders = ordersSnap.docs.map(d => d.data()).filter(o => {
+      const matchingDocSnaps = ordersSnap.docs.filter(d => {
+        const o = d.data();
         const name = o.customerName || o.clientName || o.razonSocial || '';
         return matchesSearchQuery(name, input.customerName);
       });
 
       let totalSpent = 0;
-      const ordersSummary = matchingOrders.map(o => {
+      const modelCountsMap: Record<string, number> = {};
+      const ordersSummary: any[] = [];
+
+      for (const docSnap of matchingDocSnaps) {
+        const o = docSnap.data();
         const amount = Number(o.totalAmount || 0);
         totalSpent += amount;
-        return {
-          pedidoId: o.orderId || 'N/A',
+
+        let items: any[] = o.items || [];
+        if (items.length === 0) {
+          try {
+            const itemsSnap = await getDocs(collection(firestore, `orders/${docSnap.id}/orderItems`));
+            items = itemsSnap.docs.map(i => i.data());
+          } catch (e) { items = []; }
+        }
+
+        const itemDescriptions: string[] = [];
+        items.forEach(item => {
+          const itemName = item.name || item.descripcion || item.productName || 'Producto';
+          const qty = Number(item.quantity || item.qty || 1);
+          itemDescriptions.push(`${itemName} (x${qty})`);
+
+          if (!modelCountsMap[itemName]) modelCountsMap[itemName] = 0;
+          modelCountsMap[itemName] += qty;
+        });
+
+        ordersSummary.push({
+          pedidoId: o.orderId || docSnap.id.substring(0, 8),
           fecha: safeFormatDate(o.orderDate),
           montoTotalUSD: `$${amount.toFixed(2)}`,
-          estado: o.status || 'Entregado'
-        };
-      });
+          estado: o.status || 'Entregado',
+          modelosComprados: itemDescriptions.join(', ') || 'Balones/Artículos en Catálogo'
+        });
+      }
+
+      const modelosTop = Object.entries(modelCountsMap)
+        .sort((a, b) => b[1] - a[1])
+        .map(([modelo, cantidad]) => `${modelo}: ${cantidad} unidades`)
+        .join('; ');
 
       return {
         cliente: input.customerName,
         totalComprasAcumuladasUSD: `$${totalSpent.toFixed(2)}`,
-        totalPedidosHistoricos: matchingOrders.length,
-        historialPedidos: ordersSummary.slice(0, 10)
+        totalPedidosHistoricos: matchingDocSnaps.length,
+        modelosYBalonesMasComprados: modelosTop || 'Consultar catálogo de ítems',
+        historialPedidosDetallado: ordersSummary.slice(0, 10)
       };
     } catch (e: any) {
       console.error("Error in getCustomerPurchaseHistory:", e);
-      return { cliente: input.customerName, totalComprasAcumuladasUSD: "$0.00", historialPedidos: [] };
+      return { cliente: input.customerName, totalComprasAcumuladasUSD: "$0.00", historialPedidosDetallado: [] };
     }
   }
 );
@@ -918,14 +945,14 @@ export const aiAnalystFlow = ai.defineFlow(
             predictStockOut,
             generateSalesOutreach
           ],
-          system: `Eres el Director Estratégico Omnisciente y Analista IA Senior Nivel Supremo v6.2 de Athleticenter Pro.
+          system: `Eres el Director Estratégico Omnisciente y Analista IA Senior Nivel Supremo v6.3 de Athleticenter Pro.
           Tu misión es analizar la totalidad de las operaciones del negocio y responder cualquier consulta con absoluta precisión empírica y recomendaciones ejecutivas de alto impacto.
           
           INSTRUCCIONES CLAVE DE HERRAMIENTAS:
           1. Si preguntan por alertas autónomas o salud crítica del negocio, usa 'getAutonomousExecutiveAlertsEngine'.
           2. Si preguntan por score de crédito (1-100) o riesgo crediticio de un cliente, usa 'getAutonomousClientRiskScoring'.
           3. Si preguntan por el historial de pagos o abonos recibidos de un cliente específico (ej. MUSIC & SPORT DELICIAS), usa 'getCustomerPaymentHistory'.
-          4. Si preguntan por el historial de compras o pedidos de un cliente específico, usa 'getCustomerPurchaseHistory'.
+          4. Si preguntan por el historial de compras, pedidos o modelos/productos comprados por un cliente específico, usa 'getCustomerPurchaseHistory'.
           5. Si preguntan por precios de lista BCV vs Cash vs WAC, usa 'getCompetitivePricingOptimizer'.
           6. Si piden simular escenarios hipotéticos de descuentos o metas, usa 'getExecutiveScenarioSimulator360'.
           7. Si preguntan por auditorías de bypass de mora (>35d) o seguridad superadmin, usa 'getSuperadminSecurityAuditLog'.
@@ -939,11 +966,11 @@ export const aiAnalystFlow = ai.defineFlow(
           15. Si preguntan por rendimiento o comisiones de vendedores, usa 'getSalespeoplePerformance'.
           16. Si preguntan por cartera de clientes y mora superior a 35 días, usa 'getClientPortfolioAudit'.
           17. Si preguntan por productos por agotarse o recompra, usa 'predictStockOut'.
-          17. Si piden redactar un mensaje de WhatsApp, usa 'generateSalesOutreach'.
-          18. SI EL USUARIO PIDE UN INFORME EN PDF (ej. 'puedes dármelo en PDF', 'genera un PDF', 'exportar PDF'), RESPONDE AFIRMATIVAMENTE confirmando que has preparado el informe ejecutivo, incluye en tu respuesta narrativa la marca '[GENERAR_PDF]' y extrae los datos tabulares correspondientes.
+          18. Si piden redactar un mensaje de WhatsApp, usa 'generateSalesOutreach'.
+          19. SI EL USUARIO PIDE UN INFORME EN PDF (ej. 'puedes dármelo en PDF', 'genera un PDF', 'exportar PDF'), RESPONDE AFIRMATIVAMENTE confirmando que has preparado el informe ejecutivo, incluye en tu respuesta narrativa la marca '[GENERAR_PDF]' y extrae los datos tabulares correspondientes.
           
-          NOTA DE BÚSQUEDA DE CLIENTES:
-          Usa 'getCustomerPaymentHistory' o 'getCustomerPurchaseHistory' para cualquier consulta sobre un cliente específico. Las herramientas están equipadas con un buscador flexible que ubica cuentas sin importar la presencia de símbolos como '&' o 'C.A.'.
+          NOTA DE BÚSQUEDA DE CLIENTES Y PRODUCTOS COMPRADOS:
+          Usa 'getCustomerPurchaseHistory' para obtener las compras, pedidos y LOS MODELOS EXACTOS DE BALONES ADQUIRIDOS por ese cliente. Usa 'getCustomerPaymentHistory' para desglosar sus pagos en Efectivo, Zelle y BCV. Ambas herramientas ubican cuentas sin importar el símbolo '&' o 'C.A.'.
           
           Responde siempre en ESPAÑOL profesional con análisis narrativo + datos tabulares si aplica.`,
           prompt: input.query,
