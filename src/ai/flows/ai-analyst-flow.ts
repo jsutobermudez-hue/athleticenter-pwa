@@ -1,7 +1,7 @@
 'use server';
 /**
- * @fileOverview Agente IA Director Estratégico Nivel Supremo v6.3 para Athleticenter Pro.
- * Incluye: Inspección profunda de ítems (orderItems) por cliente para listar los modelos exactos de balones comprados.
+ * @fileOverview Agente IA Director Estratégico Nivel Supremo v6.5 para Athleticenter Pro.
+ * Incluye: Extracción multicampo de vendedores reales y herramienta getSalespersonItemBreakdown para listar los 5 productos top por vendedor.
  */
 
 import { ai } from '@/ai/genkit';
@@ -60,6 +60,24 @@ function matchesSearchQuery(targetName: string, searchQuery: string): boolean {
   if (queryWords.length === 0) return true;
 
   return queryWords.every(word => cleanTarget.includes(word));
+}
+
+// Extractor rígido de alias de vendedores reales en Firestore
+function extractSalespersonName(orderData: any): string {
+  if (!orderData) return 'Venta Directa / Oficina Central';
+  const name = orderData.salespersonName || 
+               orderData.vendedor || 
+               orderData.createdByName || 
+               orderData.sellerName || 
+               orderData.vendorName || 
+               orderData.userName || 
+               orderData.userEmail || 
+               orderData.createdBy;
+  
+  if (!name || typeof name !== 'string' || name.trim() === '') {
+    return 'Venta Directa / Oficina Central';
+  }
+  return name.trim();
 }
 
 // 1. MOTOR DE ALERTAS AUTÓNOMAS EJECUTIVAS EN TIEMPO REAL
@@ -246,7 +264,7 @@ const getCustomerPaymentHistory = ai.defineTool(
   }
 );
 
-// 4. HISTORIAL Y PREFERENCIAS DE COMPRA POR CLIENTE B2B (CON MODELOS DE BALONES DETALLADOS)
+// 4. HISTORIAL Y PREFERENCIAS DE COMPRA POR CLIENTE B2B
 const getCustomerPurchaseHistory = ai.defineTool(
   {
     name: 'getCustomerPurchaseHistory',
@@ -322,7 +340,95 @@ const getCustomerPurchaseHistory = ai.defineTool(
   }
 );
 
-// 5. OPTIMIZADOR SUPREMO DE PRECIOS Y MÁRGENES WAC/BCV
+// 5. NUEVA HERRAMIENTA: DESGLOSE DE PRODUCTOS TOP POR VENDEDOR ESPECÍFICO
+const getSalespersonItemBreakdown = ai.defineTool(
+  {
+    name: 'getSalespersonItemBreakdown',
+    description: 'Consulta los 5 productos o balones más vendidos específicamente por un vendedor real de la empresa, indicando el total en USD y sus unidades.',
+    inputSchema: z.object({
+      salespersonName: z.string().optional().describe('Nombre o email del vendedor real. Si se omite, se analiza al vendedor líder en ventas.')
+    }),
+    outputSchema: z.any(),
+  },
+  async (input) => {
+    try {
+      const { firestore } = initializeFirebaseServer();
+      const ordersSnap = await getDocs(query(collection(firestore, 'orders'), limit(200)));
+
+      const sellerSalesMap: Record<string, number> = {};
+      ordersSnap.docs.forEach(d => {
+        const o = d.data();
+        const seller = extractSalespersonName(o);
+        const amount = Number(o.totalAmount || 0);
+        if (!sellerSalesMap[seller]) sellerSalesMap[seller] = 0;
+        sellerSalesMap[seller] += amount;
+      });
+
+      let targetSeller = input.salespersonName;
+      if (!targetSeller) {
+        const sortedSellers = Object.entries(sellerSalesMap).sort((a, b) => b[1] - a[1]);
+        targetSeller = sortedSellers.length > 0 ? sortedSellers[0][0] : 'Venta Directa / Oficina Central';
+      }
+
+      const sellerOrders = ordersSnap.docs.filter(d => {
+        const s = extractSalespersonName(d.data());
+        return matchesSearchQuery(s, targetSeller!);
+      });
+
+      let totalSalesUSD = 0;
+      const productSalesMap: Record<string, { producto: string; cantidadVendida: number; totalMontoUSD: number }> = {};
+
+      for (const docSnap of sellerOrders) {
+        const o = docSnap.data();
+        totalSalesUSD += Number(o.totalAmount || 0);
+
+        let items: any[] = o.items || [];
+        if (items.length === 0) {
+          try {
+            const itemsSnap = await getDocs(collection(firestore, `orders/${docSnap.id}/orderItems`));
+            items = itemsSnap.docs.map(i => i.data());
+          } catch (e) { items = []; }
+        }
+
+        items.forEach(item => {
+          const itemName = item.name || item.descripcion || item.productName || 'Producto en Catálogo';
+          const qty = Number(item.quantity || item.qty || 1);
+          const price = Number(item.unitPrice || item.price || 0);
+
+          if (!productSalesMap[itemName]) {
+            productSalesMap[itemName] = { producto: itemName, cantidadVendida: 0, totalMontoUSD: 0 };
+          }
+          productSalesMap[itemName].cantidadVendida += qty;
+          productSalesMap[itemName].totalMontoUSD += (qty * price);
+        });
+      }
+
+      const topProducts = Object.values(productSalesMap)
+        .sort((a, b) => b.cantidadVendida - a.cantidadVendida)
+        .slice(0, 5)
+        .map((p, idx) => ({
+          ranking: idx + 1,
+          producto: p.producto,
+          unidadesVendidasPorVendedor: p.cantidadVendida,
+          totalGeneradoUSD: `$${p.totalMontoUSD.toFixed(2)}`
+        }));
+
+      return {
+        vendedorConsultado: targetSeller,
+        totalVentasColocadasUSD: `$${totalSalesUSD.toFixed(2)}`,
+        totalPedidosProcesados: sellerOrders.length,
+        top5ProductosMasVendidosPorVendedor: topProducts.length > 0 ? topProducts : [
+          { ranking: 1, producto: 'Ventas consolidadas en catálogo general', unidadesVendidasPorVendedor: 0, totalGeneradoUSD: "$0.00" }
+        ]
+      };
+    } catch (e: any) {
+      console.error("Error in getSalespersonItemBreakdown:", e);
+      return { vendedorConsultado: input.salespersonName || 'Líder', top5ProductosMasVendidosPorVendedor: [] };
+    }
+  }
+);
+
+// 6. OPTIMIZADOR SUPREMO DE PRECIOS Y MÁRGENES WAC/BCV
 const getCompetitivePricingOptimizer = ai.defineTool(
   {
     name: 'getCompetitivePricingOptimizer',
@@ -370,7 +476,7 @@ const getCompetitivePricingOptimizer = ai.defineTool(
   }
 );
 
-// 6. SIMULADOR DE DECISIONES DE NEGOCIO 360°
+// 7. SIMULADOR DE DECISIONES DE NEGOCIO 360°
 const getExecutiveScenarioSimulator360 = ai.defineTool(
   {
     name: 'getExecutiveScenarioSimulator360',
@@ -405,7 +511,7 @@ const getExecutiveScenarioSimulator360 = ai.defineTool(
   }
 );
 
-// 7. AUDITORÍA DE SEGURIDAD Y BYPASS DE MORA (>35 DÍAS)
+// 8. AUDITORÍA DE SEGURIDAD Y BYPASS DE MORA (>35 DÍAS)
 const getSuperadminSecurityAuditLog = ai.defineTool(
   {
     name: 'getSuperadminSecurityAuditLog',
@@ -441,7 +547,7 @@ const getSuperadminSecurityAuditLog = ai.defineTool(
   }
 );
 
-// 8. DESGLOSE DE VENTAS POR MODELO Y MARCA (EJ. BALONES NIKE POR SKU)
+// 9. DESGLOSE DE VENTAS POR MODELO Y MARCA (EJ. BALONES NIKE POR SKU)
 const getItemizedSalesByBrandAndDate = ai.defineTool(
   {
     name: 'getItemizedSalesByBrandAndDate',
@@ -513,7 +619,7 @@ const getItemizedSalesByBrandAndDate = ai.defineTool(
   }
 );
 
-// 9. CLASIFICACIÓN ABC 80/20 DE INVENTARIO
+// 10. CLASIFICACIÓN ABC 80/20 DE INVENTARIO
 const getABCInventoryClassification = ai.defineTool(
   {
     name: 'getABCInventoryClassification',
@@ -571,7 +677,7 @@ const getABCInventoryClassification = ai.defineTool(
   }
 );
 
-// 10. ANÁLISIS GEOGRÁFICO DE DEMANDA Y TRANSPORTISTAS
+// 11. ANÁLISIS GEOGRÁFICO DE DEMANDA Y TRANSPORTISTAS
 const getGeographicAndRegionalDemand = ai.defineTool(
   {
     name: 'getGeographicAndRegionalDemand',
@@ -615,7 +721,7 @@ const getGeographicAndRegionalDemand = ai.defineTool(
   }
 );
 
-// 11. DESGLOSE DE FLUJO DE CAJA Y MÉTODOS DE PAGO
+// 12. DESGLOSE DE FLUJO DE CAJA Y MÉTODOS DE PAGO
 const getFinancialCashflowBreakdown = ai.defineTool(
   {
     name: 'getFinancialCashflowBreakdown',
@@ -662,7 +768,7 @@ const getFinancialCashflowBreakdown = ai.defineTool(
   }
 );
 
-// 12. TASA DE CONVERSIÓN DE COTIZACIONES A PEDIDOS
+// 13. TASA DE CONVERSIÓN DE COTIZACIONES A PEDIDOS
 const getQuoteToOrderConversion = ai.defineTool(
   {
     name: 'getQuoteToOrderConversion',
@@ -693,7 +799,7 @@ const getQuoteToOrderConversion = ai.defineTool(
   }
 );
 
-// 13. MÉTRICAS GLOBALES DE VENTAS
+// 14. MÉTRICAS GLOBALES DE VENTAS
 const getGlobalSalesMetrics = ai.defineTool(
   {
     name: 'getGlobalSalesMetrics',
@@ -744,7 +850,7 @@ const getGlobalSalesMetrics = ai.defineTool(
   }
 );
 
-// 14. RANKING DE PRODUCTOS Y BALONES
+// 15. RANKING DE PRODUCTOS Y BALONES
 const getTopProductsAndRankings = ai.defineTool(
   {
     name: 'getTopProductsAndRankings',
@@ -783,11 +889,11 @@ const getTopProductsAndRankings = ai.defineTool(
   }
 );
 
-// 15. DESEMPEÑO DEL EQUIPO DE VENDEDORES
+// 16. DESEMPEÑO DEL EQUIPO DE VENDEDORES REALES
 const getSalespeoplePerformance = ai.defineTool(
   {
     name: 'getSalespeoplePerformance',
-    description: 'Analiza el rendimiento del equipo de ventas, total colocado en USD por vendedor y comisiones.',
+    description: 'Analiza el rendimiento del equipo de ventas reales, total colocado en USD por vendedor real y comisiones.',
     inputSchema: z.object({}),
     outputSchema: z.any(),
   },
@@ -800,7 +906,7 @@ const getSalespeoplePerformance = ai.defineTool(
 
       ordersSnap.docs.forEach(d => {
         const data = d.data();
-        const name = data.salespersonName || 'Vendedor Desconocido';
+        const name = extractSalespersonName(data);
         const amount = Number(data.totalAmount || 0);
 
         if (!salesMap[name]) salesMap[name] = { vendedor: name, totalVentasUSD: 0, pedidosCount: 0 };
@@ -824,7 +930,7 @@ const getSalespeoplePerformance = ai.defineTool(
   }
 );
 
-// 16. AUDITORÍA DE CARTERA DE CLIENTES Y MORA
+// 17. AUDITORÍA DE CARTERA DE CLIENTES Y MORA
 const getClientPortfolioAudit = ai.defineTool(
   {
     name: 'getClientPortfolioAudit',
@@ -861,7 +967,7 @@ const getClientPortfolioAudit = ai.defineTool(
   }
 );
 
-// 17. PREDICCIÓN DE AGOTAMIENTO DE INVENTARIO
+// 18. PREDICCIÓN DE AGOTAMIENTO DE INVENTARIO
 const predictStockOut = ai.defineTool(
   {
     name: 'predictStockOut',
@@ -899,7 +1005,7 @@ const predictStockOut = ai.defineTool(
   }
 );
 
-// 18. GENERADOR DE MENSAJES COMERCIALES PARA WHATSAPP
+// 19. GENERADOR DE MENSAJES COMERCIALES PARA WHATSAPP
 const generateSalesOutreach = ai.defineTool(
   {
     name: 'generateSalesOutreach',
@@ -930,6 +1036,7 @@ export const aiAnalystFlow = ai.defineFlow(
             getAutonomousClientRiskScoring,
             getCustomerPaymentHistory,
             getCustomerPurchaseHistory,
+            getSalespersonItemBreakdown,
             getCompetitivePricingOptimizer,
             getExecutiveScenarioSimulator360,
             getSuperadminSecurityAuditLog,
@@ -945,7 +1052,7 @@ export const aiAnalystFlow = ai.defineFlow(
             predictStockOut,
             generateSalesOutreach
           ],
-          system: `Eres el Director Estratégico Omnisciente y Analista IA Senior Nivel Supremo v6.4 de Athleticenter Pro.
+          system: `Eres el Director Estratégico Omnisciente y Analista IA Senior Nivel Supremo v6.5 de Athleticenter Pro.
           Tu misión es analizar la totalidad de las operaciones del negocio y responder cualquier consulta con absoluta precisión empírica basada EXCLUSIVAMENTE en datos reales de Firestore.
           
           Regla FundamENtal DE VERACIDAD (CERO ALUCINACIONES):
@@ -958,24 +1065,25 @@ export const aiAnalystFlow = ai.defineFlow(
           2. Si preguntan por score de crédito (1-100) o riesgo crediticio de un cliente, usa 'getAutonomousClientRiskScoring'.
           3. Si preguntan por el historial de pagos o abonos recibidos de un cliente específico (ej. MUSIC & SPORT DELICIAS), usa 'getCustomerPaymentHistory'.
           4. Si preguntan por el historial de compras, pedidos o modelos/productos comprados por un cliente específico, usa 'getCustomerPurchaseHistory'.
-          5. Si preguntan por precios de lista BCV vs Cash vs WAC, usa 'getCompetitivePricingOptimizer'.
-          6. Si piden simular escenarios hipotéticos de descuentos o metas, usa 'getExecutiveScenarioSimulator360'.
-          7. Si preguntan por auditorías de bypass de mora (>35d) o seguridad superadmin, usa 'getSuperadminSecurityAuditLog'.
-          8. Si preguntan por ventas desglosadas por modelo, SKU o marca (ej. balones Nike por modelo), usa 'getItemizedSalesByBrandAndDate'.
-          9. Si preguntan por clasificación ABC 80/20 o inventario hueso, usa 'getABCInventoryClassification'.
-          10. Si preguntan por despachos por estado o transportistas (MRW, Tealca, Zoom, GAG), usa 'getGeographicAndRegionalDemand'.
-          11. Si preguntan por dinero en Zelle vs Efectivo o flujo de caja, usa 'getFinancialCashflowBreakdown'.
-          12. Si preguntan por conversión de cotizaciones a pedidos, usa 'getQuoteToOrderConversion'.
-          13. Si preguntan por métricas globales de ventas o cobranzas, usa 'getGlobalSalesMetrics'.
-          14. Si preguntan por ranking histórico de productos, usa 'getTopProductsAndRankings'.
-          15. Si preguntan por rendimiento o comisiones de vendedores, usa 'getSalespeoplePerformance'.
-          16. Si preguntan por cartera de clientes y mora superior a 35 días, usa 'getClientPortfolioAudit'.
-          17. Si preguntan por productos por agotarse o recompra, usa 'predictStockOut'.
-          18. Si piden redactar un mensaje de WhatsApp, usa 'generateSalesOutreach'.
-          19. SI EL USUARIO PIDE UN INFORME EN PDF (ej. 'puedes dármelo en PDF', 'genera un PDF', 'exportar PDF', 'dámelo en PDF'), DEBES EJECUTAR INMEDIATAMENTE UNA O VARIAS HERRAMIENTAS ANALÍTICAS (ej. getGlobalSalesMetrics, getCustomerPurchaseHistory si se mencionó a un cliente, o getABCInventoryClassification) para entregar un informe gerencial real con datos y tablas. NUNCA inventes nombres ni productos. RESPONDE SIEMPRE con el informe completo preparado usando los datos extraídos, incluye la marca '[GENERAR_PDF]' y devuelve 'tabularData'.
+          5. Si preguntan por el vendedor líder en ventas O por los 5 productos más vendidos por un vendedor específico, usa 'getSalespersonItemBreakdown' y 'getSalespeoplePerformance'.
+          6. Si preguntan por precios de lista BCV vs Cash vs WAC, usa 'getCompetitivePricingOptimizer'.
+          7. Si piden simular escenarios hipotéticos de descuentos o metas, usa 'getExecutiveScenarioSimulator360'.
+          8. Si preguntan por auditorías de bypass de mora (>35d) o seguridad superadmin, usa 'getSuperadminSecurityAuditLog'.
+          9. Si preguntan por ventas desglosadas por modelo, SKU o marca (ej. balones Nike por modelo), usa 'getItemizedSalesByBrandAndDate'.
+          10. Si preguntan por clasificación ABC 80/20 o inventario hueso, usa 'getABCInventoryClassification'.
+          11. Si preguntan por despachos por estado o transportistas (MRW, Tealca, Zoom, GAG), usa 'getGeographicAndRegionalDemand'.
+          12. Si preguntan por dinero en Zelle vs Efectivo o flujo de caja, usa 'getFinancialCashflowBreakdown'.
+          13. Si preguntan por conversión de cotizaciones a pedidos, usa 'getQuoteToOrderConversion'.
+          14. Si preguntan por métricas globales de ventas o cobranzas, usa 'getGlobalSalesMetrics'.
+          15. Si preguntan por ranking histórico de productos generales, usa 'getTopProductsAndRankings'.
+          16. Si preguntan por rendimiento o comisiones del equipo de vendedores, usa 'getSalespeoplePerformance'.
+          17. Si preguntan por cartera de clientes y mora superior a 35 días, usa 'getClientPortfolioAudit'.
+          18. Si preguntan por productos por agotarse o recompra, usa 'predictStockOut'.
+          19. Si piden redactar un mensaje de WhatsApp, usa 'generateSalesOutreach'.
+          20. SI EL USUARIO PIDE UN INFORME EN PDF (ej. 'puedes dármelo en PDF', 'genera un PDF', 'exportar PDF', 'dámelo en PDF'), DEBES EJECUTAR INMEDIATAMENTE UNA O VARIAS HERRAMIENTAS ANALÍTICAS (ej. getGlobalSalesMetrics, getSalespersonItemBreakdown, getCustomerPurchaseHistory o getABCInventoryClassification) para entregar un informe gerencial real con datos y tablas. NUNCA inventes nombres ni productos. RESPONDE SIEMPRE con el informe completo preparado usando los datos extraídos, incluye la marca '[GENERAR_PDF]' y devuelve 'tabularData'.
           
-          NOTA DE BÚSQUEDA DE CLIENTES Y PRODUCTOS COMPRADOS:
-          Usa 'getCustomerPurchaseHistory' para obtener las compras, pedidos y LOS MODELOS EXACTOS DE BALONES ADQUIRIDOS por ese cliente. Usa 'getCustomerPaymentHistory' para desglosar sus pagos en Efectivo, Zelle y BCV. Ambas herramientas ubican cuentas sin importar el símbolo '&' o 'C.A.'.
+          NOTA DE VENDEDORES Y PRODUCTOS:
+          Usa 'getSalespersonItemBreakdown' para responder qué vendedor vendió más y cuáles son sus 5 productos top. Usa 'getCustomerPurchaseHistory' para compras de clientes. Ambas herramientas operan con datos reales.
           
           Responde siempre en ESPAÑOL profesional con análisis narrativo + datos tabulares si aplica.`,
           prompt: input.query,
