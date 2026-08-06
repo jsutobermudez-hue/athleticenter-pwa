@@ -16,14 +16,15 @@ export default function GlobalError({
   reset: () => void;
 }) {
   useEffect(() => {
-    // Registro silencioso del error para auditoría
-    console.error('[Global Resilience] Fallo de sistema:', error.message);
+    console.error('[Global Resilience] Fallo de sistema capturado:', error.message);
     
-    // Auto-recuperación agresiva ante fallos de carga
-    const isLoadError = /chunkloaderror|loading chunk|failed to fetch/.test(error.message.toLowerCase());
-    if (isLoadError) {
-        window.location.reload();
-    }
+    // Auto-recuperación inmediata ante actualizaciones de recursos o reconexión de red
+    const isLoadError = true;
+    const timer = setTimeout(() => {
+      window.location.reload();
+    }, 1200);
+
+    return () => clearTimeout(timer);
   }, [error]);
 
   return (
