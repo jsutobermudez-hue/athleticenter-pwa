@@ -99,15 +99,15 @@ export function AIReportingHub() {
             const errorMsg: Message = {
                 id: (Date.now() + 3).toString(),
                 role: 'system',
-                content: "Fallo crítico de conexión: No se pudo contactar con el motor analítico.",
+                content: e?.message ? `Sistemas de Red IA: ${e.message}` : "Fallo de conexión: No se pudo establecer enlace con el motor neuronal.",
                 timestamp: new Date()
             };
             setMessages(prev => [...prev, errorMsg]);
             
             toast({
                 variant: 'destructive',
-                title: 'Fallo del Analista',
-                description: e.message
+                title: 'Respuesta del Servidor',
+                description: e?.message || "Detalle no disponible"
             });
         } finally {
             setIsProcessing(false);
