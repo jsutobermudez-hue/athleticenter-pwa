@@ -939,7 +939,8 @@ export const aiAnalystFlow = ai.defineFlow(
           15. Si preguntan por rendimiento o comisiones de vendedores, usa 'getSalespeoplePerformance'.
           16. Si preguntan por cartera de clientes y mora superior a 35 días, usa 'getClientPortfolioAudit'.
           17. Si preguntan por productos por agotarse o recompra, usa 'predictStockOut'.
-          18. Si piden redactar un mensaje de WhatsApp, usa 'generateSalesOutreach'.
+          17. Si piden redactar un mensaje de WhatsApp, usa 'generateSalesOutreach'.
+          18. SI EL USUARIO PIDE UN INFORME EN PDF (ej. 'puedes dármelo en PDF', 'genera un PDF', 'exportar PDF'), RESPONDE AFIRMATIVAMENTE confirmando que has preparado el informe ejecutivo, incluye en tu respuesta narrativa la marca '[GENERAR_PDF]' y extrae los datos tabulares correspondientes.
           
           NOTA DE BÚSQUEDA DE CLIENTES:
           Usa 'getCustomerPaymentHistory' o 'getCustomerPurchaseHistory' para cualquier consulta sobre un cliente específico. Las herramientas están equipadas con un buscador flexible que ubica cuentas sin importar la presencia de símbolos como '&' o 'C.A.'.

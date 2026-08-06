@@ -114,31 +114,66 @@ export function AIReportingHub() {
         }
     };
 
-    const exportToPDF = (data: any[], title: string) => {
+    const exportToPDF = (data: any[] | undefined, rawContent: string) => {
         const doc = new jsPDF();
-        doc.setFontSize(20);
-        doc.setTextColor(37, 99, 235);
-        doc.text("ATHLETICENTER PRO", 14, 20);
         
-        doc.setFontSize(10);
-        doc.setTextColor(100);
-        doc.text(`REPORTE IA: ${title.toUpperCase().substring(0, 50)}`, 14, 30);
-        doc.text(`FECHA: ${format(new Date(), 'dd/MM/yyyy HH:mm')}`, 14, 35);
+        // Membrete Institucional Encabezado
+        doc.setFillColor(30, 41, 59); // Slate-900
+        doc.rect(0, 0, 210, 28, 'F');
+        
+        doc.setFontSize(16);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(255, 255, 255);
+        doc.text("ATHLETICENTER PRO C.A.", 14, 17);
+        
+        doc.setFontSize(8);
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(200, 210, 225);
+        doc.text("INFORME EJECUTIVO DE INTELIGENCIA DE NEGOCIOS Y ANALÍTICA IA", 14, 23);
 
-        if (!data || data.length === 0) return;
+        doc.setFontSize(8);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(71, 85, 105);
+        doc.text(`FECHA DE EMISIÓN: ${format(new Date(), 'dd/MM/yyyy HH:mm')}`, 14, 35);
+        doc.text(`MOTOR: ANALISTA IA GEMINI 2.5 FLASH OMNISCIENTE`, 14, 40);
 
-        const headers = Object.keys(data[0]).map(h => h.toUpperCase());
-        const rows = data.map(obj => Object.values(obj));
+        let currentY = 48;
 
-        (doc as any).autoTable({
-            head: [headers],
-            body: rows,
-            startY: 45,
-            theme: 'grid',
-            headStyles: { fillColor: [30, 41, 59] }
-        });
+        const cleanContent = (rawContent || '').replace(/\[GENERAR_PDF\]/g, '').trim();
 
-        doc.save(`Reporte_IA_${Date.now()}.pdf`);
+        if (data && data.length > 0) {
+            const headers = Object.keys(data[0]).map(h => h.toUpperCase());
+            const rows = data.map(obj => Object.values(obj));
+
+            (doc as any).autoTable({
+                head: [headers],
+                body: rows,
+                startY: currentY,
+                theme: 'grid',
+                headStyles: { fillColor: [37, 99, 235], textColor: [255, 255, 255], fontStyle: 'bold' },
+                styles: { fontSize: 8, font: 'helvetica' }
+            });
+
+            currentY = (doc as any).lastAutoTable.finalY + 12;
+        }
+
+        if (cleanContent) {
+            doc.setFontSize(10);
+            doc.setFont("helvetica", "bold");
+            doc.setTextColor(30, 41, 59);
+            doc.text("ANÁLISIS Y DICTAMEN ESTRATÉGICO:", 14, currentY);
+            currentY += 6;
+
+            doc.setFontSize(8);
+            doc.setFont("helvetica", "normal");
+            doc.setTextColor(51, 65, 85);
+
+            const splitText = doc.splitTextToSize(cleanContent, 180);
+            doc.text(splitText, 14, currentY);
+        }
+
+        doc.save(`Informe_Ejecutivo_Athleticenter_${Date.now()}.pdf`);
+        toast({ title: 'PDF Descargado', description: 'El informe ejecutivo en PDF se ha generado correctamente.' });
     };
 
     return (
@@ -201,7 +236,19 @@ export function AIReportingHub() {
                                             ? "bg-white text-slate-700 border border-slate-100 rounded-tl-none"
                                             : "bg-rose-50 text-rose-700 border border-rose-100 rounded-tl-none"
                                     )}>
-                                        {msg.content}
+                                        {msg.content.replace(/\[GENERAR_PDF\]/g, '')}
+
+                                        {/* Botón Destacado de Descarga de PDF Directa */}
+                                        {msg.role === 'assistant' && (msg.content.includes('[GENERAR_PDF]') || msg.content.toLowerCase().includes('pdf')) && (
+                                            <div className="pt-4 mt-4 border-t border-slate-100 flex items-center justify-start">
+                                                <Button 
+                                                    onClick={() => exportToPDF(msg.data, msg.content)}
+                                                    className="bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs uppercase tracking-wider px-6 py-3.5 rounded-2xl shadow-xl transition-all active:scale-95 flex items-center gap-2"
+                                                >
+                                                    <Download className="h-4 w-4" /> 📄 DESCARGAR INFORME EJECUTIVO EN PDF
+                                                </Button>
+                                            </div>
+                                        )}
                                     </div>
 
                                     {msg.role === 'assistant' && msg.isSimulated && (
