@@ -359,32 +359,46 @@ export const aiAnalystFlow = ai.defineFlow(
           5. Si preguntan por productos por agotarse o reabastecimiento predictivo, usa 'predictStockOut'.
           6. Si piden redactar un mensaje para un cliente o WhatsApp, usa 'generateSalesOutreach'.
           7. Si el usuario pide estrategias para aumentar ventas de un producto o vendedor, primero extrae los datos empíricos de las herramientas y luego redacta un Plan Estratégico Ejecutivo claro con 3 a 5 acciones concretas fundamentadas en los números reales.
-          8. Responde siempre en ESPAÑOL profesional.
-          9. IMPORTANTE: Debes devolver una respuesta que sea ESTRICTAMENTE un objeto JSON válido con las siguientes propiedades:
-             - "answer": Tu análisis narrativo profundo y propuesta estratégica en español.
-             - "tabularData": Un arreglo de objetos con los datos empíricos relevantes si aplica, o un arreglo vacío si no hay datos estructurados.
-             No incluyas formateadores markdown tipo \`\`\`json en tu respuesta, solo el objeto JSON limpio.`,
+          8. Responde siempre en ESPAÑOL profesional.`,
           prompt: input.query,
         });
         
-        const text = response.text;
-        if (!text) throw new Error("El modelo no generó una respuesta válida.");
+        const rawText = response.text || '';
+        if (!rawText) throw new Error("El modelo no generó una respuesta de texto.");
         
-        const cleanedJsonText = text.replace(/^```json\s*/, '').replace(/```\s*$/, '').trim();
-        const parsed = JSON.parse(cleanedJsonText);
+        let answerText = rawText;
+        let tabularData: any[] = [];
+
+        // Trata de extraer un JSON estricto si el modelo lo generó
+        try {
+          const match = rawText.match(/```json\s*([\s\S]*?)\s*```/) || rawText.match(/\{[\s\S]*"answer"[\s\S]*\}/);
+          if (match) {
+            const jsonString = match[1] || match[0];
+            const parsed = JSON.parse(jsonString);
+            if (parsed.answer) answerText = parsed.answer;
+            if (Array.isArray(parsed.tabularData)) tabularData = parsed.tabularData;
+          }
+        } catch (jsonErr) {
+          // Si no es un JSON o no se pudo parsear, se usa la respuesta Markdown directamente sin fallar
+          answerText = rawText;
+        }
 
         return { 
-          answer: parsed.answer || "Consulta analítica procesada exitosamente.", 
-          tabularData: parsed.tabularData || [], 
+          answer: answerText, 
+          tabularData: tabularData, 
           isSimulated: false 
         };
     } catch (e: any) {
         console.error("Error in aiAnalystFlow:", e);
+        const hasApiKey = Boolean(process.env.GOOGLE_GENAI_API_KEY || process.env.GEMINI_API_KEY);
+        
         return {
-            answer: "Bienvenido al Mando Analítico Omnisciente. Para activar la inteligencia real de Gemini 2.5 Flash, debes configurar la variable GOOGLE_GENAI_API_KEY. Actualmente opero en modo estructural.",
+            answer: hasApiKey 
+              ? `Diagnostic Error: ${e?.message || 'Error al procesar la respuesta del modelo'}`
+              : "Bienvenido al Mando Analítico Omnisciente. Para activar la inteligencia real de Gemini 2.5 Flash, debes configurar la variable GOOGLE_GENAI_API_KEY. Actualmente opero en modo estructural.",
             tabularData: [
                 { KPI: "ESTADO RED", VALOR: "NOMINAL", STATUS: "READY" },
-                { KPI: "CONEXIÓN IA", VALOR: "OFFLINE", STATUS: "PENDING_KEY" }
+                { KPI: "DETALLE ERROR", VALOR: String(e?.message || 'N/A').substring(0, 40), STATUS: "DEBUG" }
             ],
             isSimulated: true
         };
