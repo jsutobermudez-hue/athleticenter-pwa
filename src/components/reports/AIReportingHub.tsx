@@ -139,11 +139,31 @@ export function AIReportingHub() {
 
         let currentY = 48;
 
-        const cleanContent = (rawContent || '').replace(/\[GENERAR_PDF\]/g, '').trim();
+        let exportData = data;
+        let exportNarrative = rawContent;
 
-        if (data && data.length > 0) {
-            const headers = Object.keys(data[0]).map(h => h.toUpperCase());
-            const rows = data.map(obj => Object.values(obj));
+        // Si data está vacía, recopilar tablas y análisis narrativos de los mensajes del asistente en el chat
+        if (!exportData || exportData.length === 0) {
+            for (let i = messages.length - 1; i >= 0; i--) {
+                const m = messages[i];
+                if (m.role === 'assistant') {
+                    if (m.data && m.data.length > 0 && (!exportData || exportData.length === 0)) {
+                        exportData = m.data;
+                    }
+                    if (m.content && !m.content.includes('Necesito que especifiques')) {
+                        exportNarrative = exportNarrative 
+                          ? `${m.content}\n\n${exportNarrative}` 
+                          : m.content;
+                    }
+                }
+            }
+        }
+
+        const cleanContent = (exportNarrative || '').replace(/\[GENERAR_PDF\]/g, '').trim();
+
+        if (exportData && exportData.length > 0) {
+            const headers = Object.keys(exportData[0]).map(h => h.toUpperCase());
+            const rows = exportData.map(obj => Object.values(obj));
 
             (doc as any).autoTable({
                 head: [headers],

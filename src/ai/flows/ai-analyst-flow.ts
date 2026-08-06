@@ -967,7 +967,7 @@ export const aiAnalystFlow = ai.defineFlow(
           16. Si preguntan por cartera de clientes y mora superior a 35 días, usa 'getClientPortfolioAudit'.
           17. Si preguntan por productos por agotarse o recompra, usa 'predictStockOut'.
           18. Si piden redactar un mensaje de WhatsApp, usa 'generateSalesOutreach'.
-          19. SI EL USUARIO PIDE UN INFORME EN PDF (ej. 'puedes dármelo en PDF', 'genera un PDF', 'exportar PDF'), RESPONDE AFIRMATIVAMENTE confirmando que has preparado el informe ejecutivo, incluye en tu respuesta narrativa la marca '[GENERAR_PDF]' y extrae los datos tabulares correspondientes.
+          19. SI EL USUARIO PIDE UN INFORME EN PDF (ej. 'puedes dármelo en PDF', 'genera un PDF', 'exportar PDF', 'dámelo en PDF'), DEBES EJECUTAR INMEDIATAMENTE UNA O VARIAS HERRAMIENTAS ANALÍTICAS (ej. getGlobalSalesMetrics, getCustomerPurchaseHistory si se mencionó a un cliente, o getABCInventoryClassification) para entregar un informe gerencial real con datos y tablas. NUNCA respondas pidiendo que el usuario especifique qué incluir. RESPONDE SIEMPRE con el informe completo preparado, incluye la marca '[GENERAR_PDF]' y devuelve 'tabularData'.
           
           NOTA DE BÚSQUEDA DE CLIENTES Y PRODUCTOS COMPRADOS:
           Usa 'getCustomerPurchaseHistory' para obtener las compras, pedidos y LOS MODELOS EXACTOS DE BALONES ADQUIRIDOS por ese cliente. Usa 'getCustomerPaymentHistory' para desglosar sus pagos en Efectivo, Zelle y BCV. Ambas herramientas ubican cuentas sin importar el símbolo '&' o 'C.A.'.
