@@ -263,15 +263,15 @@ export function AIReportingHub() {
             </div>
 
             <div className="p-8 shrink-0 bg-gradient-to-t from-[#F8FAFC] via-[#F8FAFC]/95 to-transparent pt-6 sticky bottom-0 z-30 space-y-3">
-                {/* Sugerencias Rápidas de Inteligencia de Negocios v5.0 */}
+                {/* Sugerencias Rápidas de Mando Superadmin v6.0 */}
                 <div className="max-w-5xl mx-auto flex items-center gap-2 overflow-x-auto custom-scrollbar pb-1">
                     {[
+                        { label: '👑 Alertas Autónomas Ejecutivas', query: '¿Cuáles son las alertas autónomas y riesgos críticos del negocio hoy?' },
+                        { label: '📈 Score de Crédito (1-100)', query: 'Calcula el score de crédito y riesgo de nuestros clientes principales' },
+                        { label: '🔄 Simulador 360° de Decisiones', query: 'Simula el impacto de un descuento de 10% con incremento del 15% en ventas' },
+                        { label: '🛡️ Auditoría de Bypass de Mora', query: 'Muéstrame la auditoría de pedidos aprobados con bypass de mora a más de 35 días' },
                         { label: '⚽ Balones Nike por Modelo', query: '¿Cuántos balones Nike se vendieron el último mes especifica por modelo?' },
                         { label: '📦 Clasificación ABC 80/20', query: 'Muéstrame la clasificación ABC de inventario y los productos con menor rotación' },
-                        { label: '🗺️ Envíos y Marcas x Región', query: '¿Cuáles son los estados con más despachos y qué transportista se utiliza más?' },
-                        { label: '💳 Zelle vs Efectivo USD', query: '¿Cuánto dinero ha ingresado por Zelle vs Efectivo USD este mes?' },
-                        { label: '📈 Conversión Cotizaciones', query: '¿Cuál es nuestra tasa de conversión de presupuestos proforma a pedidos?' },
-                        { label: '🔮 Predicción Agotamiento', query: '¿Qué productos están por agotarse en inventario y qué compras sugieres?' },
                     ].map((chip, idx) => (
                         <button
                             key={idx}
