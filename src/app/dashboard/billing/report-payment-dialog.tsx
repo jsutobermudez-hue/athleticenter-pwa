@@ -45,7 +45,8 @@ import {
     Coins,
     DollarSign,
     Clock,
-    Lock
+    ArrowRightLeft,
+    Sparkles
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useFirestore, useUser, useDoc, useMemoFirebase, errorEmitter, FirestorePermissionError } from '@/firebase';
@@ -71,6 +72,7 @@ const paymentReportSchema = z.object({
   documentType: z.enum(['nota', 'factura']).default('nota'),
   accountingBase: z.enum(['bcv', 'cash']).default('bcv'),
   earlyPaymentType: z.enum(['none', '7days', '15days']).default('none'),
+  inputMode: z.enum(['debt', 'receipt']).default('debt'),
 });
 
 type PaymentReportValues = z.infer<typeof paymentReportSchema>;
@@ -122,7 +124,8 @@ export function ReportPaymentDialog({ invoice, mode = 'partial' }: { invoice: In
         notes: '',
         documentType: 'nota',
         accountingBase: 'bcv',
-        earlyPaymentType: 'none'
+        earlyPaymentType: 'none',
+        inputMode: 'debt'
     },
   });
 
@@ -132,6 +135,7 @@ export function ReportPaymentDialog({ invoice, mode = 'partial' }: { invoice: In
   const accountingBase = watch('accountingBase');
   const paymentDateInput = watch('paymentDate');
   const earlyPaymentType = watch('earlyPaymentType');
+  const inputMode = watch('inputMode');
 
   const metodosNacionales = useMemo(() => [
     { 
@@ -201,7 +205,6 @@ export function ReportPaymentDialog({ invoice, mode = 'partial' }: { invoice: In
   const is7DaysEligible = elapsedDays <= 7;
   const is15DaysEligible = elapsedDays <= 15;
 
-  // Reseteo si la opción seleccionada ya no es elegible por fecha
   useEffect(() => {
     if (earlyPaymentType === '7days' && !is7DaysEligible) {
       setValue('earlyPaymentType', is15DaysEligible ? '15days' : 'none');
@@ -210,7 +213,7 @@ export function ReportPaymentDialog({ invoice, mode = 'partial' }: { invoice: In
     }
   }, [elapsedDays, is7DaysEligible, is15DaysEligible, earlyPaymentType, setValue]);
 
-  // LÓGICA DE CÁLCULO DINÁMICO v7.1
+  // LÓGICA DE CÁLCULO BI-DIRECCIONAL EN TIEMPO REAL v8.0
   const calculation = useMemo(() => {
     if (!orderData || !globalSettings) return null;
     
@@ -220,40 +223,59 @@ export function ReportPaymentDialog({ invoice, mode = 'partial' }: { invoice: In
     const early15Factor = (globalSettings.earlyPayment15Days || 3) / 100;
 
     const currentBalance = invoice.remainingBalance;
-    const baseAmountToPay = isTotalMode ? currentBalance : Math.min(Number(inputAmount || 0), currentBalance);
-    
-    let discountAmount = 0;
-    let discountType: Payment['discountType'] = 'none';
-    
-    if (accountingBase === 'cash') {
-        discountAmount = Number((baseAmountToPay * bcvDiscountFactor).toFixed(2));
-        discountType = 'cash';
-    }
+    const rawVal = Number(inputAmount || 0);
 
-    let earlyDiscountAmount = 0;
+    let cashDiscountPct = accountingBase === 'cash' ? bcvDiscountFactor : 0;
+    let earlyDiscountPct = 0;
+    let discountType: Payment['discountType'] = 'none';
+
+    if (accountingBase === 'cash') discountType = 'cash';
+
     if (earlyPaymentType === '7days' && is7DaysEligible) {
-      earlyDiscountAmount = Number((baseAmountToPay * early7Factor).toFixed(2));
+      earlyDiscountPct = early7Factor;
       if (discountType === 'none') discountType = '7days';
     } else if (earlyPaymentType === '15days' && is15DaysEligible) {
-      earlyDiscountAmount = Number((baseAmountToPay * early15Factor).toFixed(2));
+      earlyDiscountPct = early15Factor;
       if (discountType === 'none') discountType = '15days';
     }
-    
-    const totalDiscountAmount = discountAmount + earlyDiscountAmount;
-    const subtotalAfterIncentives = Math.max(0, baseAmountToPay - totalDiscountAmount);
-    const taxAmount = documentType === 'factura' ? Number((subtotalAfterIncentives * ivaFactor).toFixed(2)) : 0;
-    const finalAmount = subtotalAfterIncentives + taxAmount;
-    
+
+    const totalDiscountPct = cashDiscountPct + earlyDiscountPct;
+    const effectiveDiscountMultiplier = 1 - totalDiscountPct;
+
+    let baseAmountToPay = 0;
+    let finalAmountToTransfer = 0;
+
+    if (inputMode === 'debt') {
+        // ENTRADA POR ABONO DE DEUDA BCV
+        baseAmountToPay = isTotalMode ? currentBalance : Math.min(rawVal, currentBalance);
+        const subtotalAfterIncentives = Math.max(0, baseAmountToPay * effectiveDiscountMultiplier);
+        const taxAmount = documentType === 'factura' ? Number((subtotalAfterIncentives * ivaFactor).toFixed(2)) : 0;
+        finalAmountToTransfer = subtotalAfterIncentives + taxAmount;
+    } else {
+        // ENTRADA POR MONTO DEL COMPROBANTE BANCARIO
+        finalAmountToTransfer = rawVal;
+        const taxDivisor = documentType === 'factura' ? (1 + ivaFactor) : 1;
+        const subtotalAfterIncentives = finalAmountToTransfer / taxDivisor;
+        baseAmountToPay = effectiveDiscountMultiplier > 0 ? (subtotalAfterIncentives / effectiveDiscountMultiplier) : subtotalAfterIncentives;
+        baseAmountToPay = Math.min(baseAmountToPay, currentBalance);
+    }
+
+    const cashDiscountAmount = Number((baseAmountToPay * cashDiscountPct).toFixed(2));
+    const earlyDiscountAmount = Number((baseAmountToPay * earlyDiscountPct).toFixed(2));
+    const totalDiscountAmount = cashDiscountAmount + earlyDiscountAmount;
+    const subtotal = Math.max(0, baseAmountToPay - totalDiscountAmount);
+    const taxAmount = documentType === 'factura' ? Number((subtotal * ivaFactor).toFixed(2)) : 0;
+
     return { 
-        baseAmount: baseAmountToPay, 
-        discountAmount: totalDiscountAmount,
-        cashDiscountAmount: discountAmount,
+        baseAmount: Number(baseAmountToPay.toFixed(2)), 
+        discountAmount: Number(totalDiscountAmount.toFixed(2)),
+        cashDiscountAmount,
         earlyDiscountAmount,
         taxAmount,
-        finalAmount, 
+        finalAmount: Number(finalAmountToTransfer.toFixed(2)), 
         discountType 
     };
-  }, [orderData, globalSettings, inputAmount, accountingBase, documentType, earlyPaymentType, is7DaysEligible, is15DaysEligible, invoice.remainingBalance, isTotalMode]);
+  }, [orderData, globalSettings, inputAmount, accountingBase, documentType, earlyPaymentType, is7DaysEligible, is15DaysEligible, invoice.remainingBalance, isTotalMode, inputMode]);
 
   useEffect(() => {
       if (selectedMethod && !['Zelle', 'Efectivo'].includes(selectedMethod)) {
@@ -333,8 +355,8 @@ export function ReportPaymentDialog({ invoice, mode = 'partial' }: { invoice: In
                 {isTotalMode ? <CheckCircle className="h-6 w-6" /> : <Receipt className="h-6 w-6" />}
             </div>
             <div className="text-left min-w-0 flex-1">
-                <DialogTitle className="text-xl sm:text-2xl font-black uppercase tracking-tighter leading-none truncate">Terminal de Cobranza</DialogTitle>
-                <DialogDescription className="text-white/60 font-medium mt-1 uppercase text-[8px] sm:text-[10px] tracking-widest">#{invoice.id.substring(0,7)}</DialogDescription>
+                <DialogTitle className="text-xl sm:text-2xl font-black uppercase tracking-tighter leading-none truncate">Terminal de Cobranza Dinámica</DialogTitle>
+                <DialogDescription className="text-white/60 font-medium mt-1 uppercase text-[8px] sm:text-[10px] tracking-widest">#{invoice.id.substring(0,7)} | Saldo Pendiente: ${invoice.remainingBalance.toFixed(2)}</DialogDescription>
             </div>
             <button onClick={() => setIsOpen(false)} className="text-white/40 hover:text-white transition-colors"><X className="h-6 w-6" /></button>
           </div>
@@ -533,17 +555,43 @@ export function ReportPaymentDialog({ invoice, mode = 'partial' }: { invoice: In
                             </section>
 
                             <section className="space-y-6">
-                                <div className="flex items-center gap-2 px-1 text-primary">
-                                    <ShieldCheck className="h-4 w-4" />
-                                    <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Datos del Reporte</h3>
+                                <div className="flex items-center justify-between px-1">
+                                    <div className="flex items-center gap-2 text-primary">
+                                        <ShieldCheck className="h-4 w-4" />
+                                        <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Datos del Reporte</h3>
+                                    </div>
+                                    <div className="flex items-center bg-slate-100 p-1 rounded-xl gap-1">
+                                        <button 
+                                            type="button" 
+                                            onClick={() => setValue('inputMode', 'debt')} 
+                                            className={cn("px-2.5 py-1 text-[8px] font-black uppercase rounded-lg transition-all", inputMode === 'debt' ? "bg-white text-slate-900 shadow-sm" : "text-slate-400 hover:text-slate-600")}
+                                        >
+                                            Por Deuda
+                                        </button>
+                                        <button 
+                                            type="button" 
+                                            onClick={() => setValue('inputMode', 'receipt')} 
+                                            className={cn("px-2.5 py-1 text-[8px] font-black uppercase rounded-lg transition-all", inputMode === 'receipt' ? "bg-white text-slate-900 shadow-sm" : "text-slate-400 hover:text-slate-600")}
+                                        >
+                                            Por Banco
+                                        </button>
+                                    </div>
                                 </div>
+
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                     <div className="space-y-1.5">
-                                        <Label className="text-[9px] font-black uppercase text-slate-500 px-1">Monto a Abonar a Deuda ($)</Label>
+                                        <Label className="text-[9px] font-black uppercase text-slate-500 px-1 flex items-center justify-between">
+                                            <span>{inputMode === 'debt' ? "Monto a Abonar a Deuda ($)" : "Monto Transferido en Comprobante ($)"}</span>
+                                            <span className="text-primary text-[7px]">{inputMode === 'debt' ? "Saldar Deuda" : "Cifra de Banco"}</span>
+                                        </Label>
                                         <Controller name="amount" control={control} render={({ field }) => (
-                                            <Input {...field} type="number" step="0.01" readOnly={isTotalMode} className="h-12 font-black text-xl rounded-xl bg-slate-50 border-none shadow-inner" />
+                                            <Input {...field} type="number" step="0.01" readOnly={isTotalMode && inputMode === 'debt'} className="h-12 font-black text-xl rounded-xl bg-slate-50 border-none shadow-inner" />
                                         )} />
-                                        <p className="text-[7px] font-bold text-slate-400 uppercase px-1">VALOR NOMINAL QUE SE DESCONTARÁ DE SU SALDO.</p>
+                                        <p className="text-[7px] font-bold text-slate-400 uppercase px-1">
+                                            {inputMode === 'debt' 
+                                                ? "VALOR NOMINAL QUE SE DESCONTARÁ DE SU SALDO DEUDA." 
+                                                : "MONTO EXACTO QUE DICE SU COMPROBANTE DE PAGO BANCARIO."}
+                                        </p>
                                     </div>
                                     <div className="space-y-1.5">
                                         <Label className="text-[9px] font-black uppercase text-slate-500 px-1">Referencia</Label>
@@ -566,14 +614,15 @@ export function ReportPaymentDialog({ invoice, mode = 'partial' }: { invoice: In
                                 isTotalMode ? "bg-emerald-900" : "bg-slate-900"
                             )}>
                                 <CardHeader className="border-b border-white/10 pb-4">
-                                    <CardTitle className="text-[10px] font-black uppercase tracking-widest text-primary flex items-center gap-2">
-                                        <Calculator className="h-3.5 w-3.5" /> Monitor de Liquidación
+                                    <CardTitle className="text-[10px] font-black uppercase tracking-widest text-primary flex items-center justify-between">
+                                        <span className="flex items-center gap-2"><Calculator className="h-3.5 w-3.5" /> Monitor de Liquidación</span>
+                                        <Badge variant="outline" className="text-[7px] text-white/60 border-white/20 uppercase font-mono">v8.0 Dinámica</Badge>
                                     </CardTitle>
                                 </CardHeader>
                                 <CardContent className="p-8 space-y-8">
                                     <div className="space-y-4">
                                         <div className="flex justify-between items-center text-white/60">
-                                            <span className="text-[9px] font-black uppercase">Abono al Saldo (Bruto)</span>
+                                            <span className="text-[9px] font-black uppercase">Abono al Saldo (Deuda BCV)</span>
                                             <span className="text-sm font-bold text-white">${calculation?.baseAmount.toFixed(2)}</span>
                                         </div>
                                         
@@ -601,7 +650,7 @@ export function ReportPaymentDialog({ invoice, mode = 'partial' }: { invoice: In
                                         <Separator className="bg-white/10" />
                                         
                                         <div className="text-center pt-4">
-                                            <p className="text-[10px] font-black uppercase text-primary tracking-[0.3em] mb-2">Total a Transferir</p>
+                                            <p className="text-[10px] font-black uppercase text-primary tracking-[0.3em] mb-2">Total a Transferir (Banco)</p>
                                             <p className={cn(
                                                 "text-5xl sm:text-6xl font-black tracking-tighter leading-none transition-all",
                                                 calculation?.discountAmount! > 0 ? "text-emerald-400" : "text-white"
