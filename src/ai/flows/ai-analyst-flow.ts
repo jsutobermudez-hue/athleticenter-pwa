@@ -1,7 +1,8 @@
 'use server';
 /**
- * @fileOverview Agente IA Director Estratégico Nivel Supremo v6.1 para Athleticenter Pro.
- * Totalmente Acorazado: Protección try/catch en cada herramienta e interpretación resiliente de fechas.
+ * @fileOverview Agente IA Director Estratégico Nivel Supremo v6.2 para Athleticenter Pro.
+ * Incluye: Búsqueda Inteligente de Clientes (sin importar & o C.A.) y la herramienta getCustomerPaymentHistory
+ * para desglosar el historial de pagos de un cliente específico (Efectivo, Zelle, BCV y Saldo Pendiente).
  */
 
 import { ai } from '@/ai/genkit';
@@ -21,7 +22,7 @@ const AIAnalystOutputSchema = z.object({
   isSimulated: z.boolean().optional().describe('Indica si la respuesta fue generada por el motor de fallback.'),
 });
 
-// Helper seguro para formatear fechas de Firestore (Timestamp, String, Date) sin lanzar excepciones
+// Helper seguro para formatear fechas de Firestore
 function safeFormatDate(orderDate: any): string {
   if (!orderDate) return 'Reciente';
   try {
@@ -41,11 +42,35 @@ function safeFormatDate(orderDate: any): string {
   return 'Reciente';
 }
 
+// Normalizador y buscador inteligente por palabras clave sin importar &, puntos o C.A.
+function cleanStringForSearch(str: string): string {
+  return (str || '')
+    .toLowerCase()
+    .replace(/[&.,\/#!$%\^&\*;:{}=\-_`~()]/g, ' ')
+    .replace(/\b(ca|c a|c.a|c.a.)\b/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function matchesSearchQuery(targetName: string, searchQuery: string): boolean {
+  if (!searchQuery) return true;
+  const cleanTarget = cleanStringForSearch(targetName);
+  const cleanQuery = cleanStringForSearch(searchQuery);
+
+  if (cleanTarget.includes(cleanQuery)) return true;
+
+  const queryWords = cleanQuery.split(' ').filter(w => w.length > 2);
+  if (queryWords.length === 0) return true;
+
+  // Coincide si todas las palabras clave principales están presentes
+  return queryWords.every(word => cleanTarget.includes(word));
+}
+
 // 1. MOTOR DE ALERTAS AUTÓNOMAS EJECUTIVAS EN TIEMPO REAL
 const getAutonomousExecutiveAlertsEngine = ai.defineTool(
   {
     name: 'getAutonomousExecutiveAlertsEngine',
-    description: 'Escanea el negocio y genera alertas proactivas en tiempo real (mora crítica, desabastecimiento Clase A y fugas de margen por variación BCV/WAC).',
+    description: 'Escanea el negocio y genera alertas proactivas en tiempo real.',
     inputSchema: z.object({}),
     outputSchema: z.any(),
   },
@@ -145,8 +170,7 @@ const getAutonomousClientRiskScoring = ai.defineTool(
       });
 
       if (input.customerName) {
-        const term = input.customerName.toLowerCase();
-        return scoredClients.filter(c => c.cliente.toLowerCase().includes(term));
+        return scoredClients.filter(c => matchesSearchQuery(c.cliente, input.customerName!));
       }
 
       scoredClients.sort((a, b) => parseInt(a.scoreCredito) - parseInt(b.scoreCredito));
@@ -158,7 +182,120 @@ const getAutonomousClientRiskScoring = ai.defineTool(
   }
 );
 
-// 3. OPTIMIZADOR SUPREMO DE PRECIOS Y MÁRGENES WAC/BCV
+// 3. NUEVA HERRAMIENTA: HISTORIAL DE PAGOS E INGRESOS POR CLIENTE ESPECÍFICO
+const getCustomerPaymentHistory = ai.defineTool(
+  {
+    name: 'getCustomerPaymentHistory',
+    description: 'Desglosa el historial de pagos y abonos de un cliente específico en Efectivo USD, Zelle, Transferencia BCV y su saldo pendiente por cobrar.',
+    inputSchema: z.object({
+      customerName: z.string().describe('Nombre del cliente o razón social (ej. MUSIC SPORT DELICIAS)')
+    }),
+    outputSchema: z.any(),
+  },
+  async (input) => {
+    try {
+      const { firestore } = initializeFirebaseServer();
+      const ordersSnap = await getDocs(query(collection(firestore, 'orders'), limit(150)));
+
+      const matchingOrders = ordersSnap.docs.map(d => d.data()).filter(o => {
+        const name = o.customerName || o.clientName || o.razonSocial || '';
+        return matchesSearchQuery(name, input.customerName);
+      });
+
+      let totalPaidCashUSD = 0;
+      let totalPaidZelleUSD = 0;
+      let totalPaidBCVUSD = 0;
+      let totalPendingCreditUSD = 0;
+
+      const paymentReceipts: any[] = [];
+
+      matchingOrders.forEach(o => {
+        const total = Number(o.totalAmount || 0);
+        const paid = Number(o.amountPaid || 0);
+        const method = (o.paymentMethod || 'EFECTIVO_USD').toUpperCase();
+        const status = o.status || 'Pendiente';
+
+        if (status === 'Pagado' || paid > 0 || status === 'Entregado' || status === 'Completado') {
+          const effectivePaid = paid > 0 ? paid : total;
+          if (method.includes('ZELLE')) totalPaidZelleUSD += effectivePaid;
+          else if (method.includes('EFECTIVO') || method.includes('CASH')) totalPaidCashUSD += effectivePaid;
+          else totalPaidBCVUSD += effectivePaid;
+
+          paymentReceipts.push({
+            pedidoId: o.orderId || 'N/A',
+            fechaPago: safeFormatDate(o.orderDate),
+            metodoPago: method,
+            montoAbonadoUSD: `$${effectivePaid.toFixed(2)}`,
+            estadoPedido: status
+          });
+        }
+
+        if (status !== 'Pagado') {
+          totalPendingCreditUSD += Math.max(0, total - paid);
+        }
+      });
+
+      return {
+        clienteConsultado: input.customerName,
+        totalPagadoEfectivoCashUSD: `$${totalPaidCashUSD.toFixed(2)}`,
+        totalPagadoZelleUSD: `$${totalPaidZelleUSD.toFixed(2)}`,
+        totalPagadoTransferenciaBCVUSD: `$${totalPaidBCVUSD.toFixed(2)}`,
+        saldoTotalPendienteUSD: `$${totalPendingCreditUSD.toFixed(2)}`,
+        desgloseRecibosDePago: paymentReceipts.slice(0, 10)
+      };
+    } catch (e: any) {
+      console.error("Error in getCustomerPaymentHistory:", e);
+      return { clienteConsultado: input.customerName, desgloseRecibosDePago: [] };
+    }
+  }
+);
+
+// 4. HISTORIAL Y PREFERENCIAS COMPLEMENTARIAS POR CLIENTE B2B
+const getCustomerPurchaseHistory = ai.defineTool(
+  {
+    name: 'getCustomerPurchaseHistory',
+    description: 'Inspecciona las compras históricas, pedidos y productos adquiridos por un cliente específico.',
+    inputSchema: z.object({
+      customerName: z.string().describe('Nombre del cliente o razón social')
+    }),
+    outputSchema: z.any(),
+  },
+  async (input) => {
+    try {
+      const { firestore } = initializeFirebaseServer();
+      const ordersSnap = await getDocs(query(collection(firestore, 'orders'), limit(150)));
+
+      const matchingOrders = ordersSnap.docs.map(d => d.data()).filter(o => {
+        const name = o.customerName || o.clientName || o.razonSocial || '';
+        return matchesSearchQuery(name, input.customerName);
+      });
+
+      let totalSpent = 0;
+      const ordersSummary = matchingOrders.map(o => {
+        const amount = Number(o.totalAmount || 0);
+        totalSpent += amount;
+        return {
+          pedidoId: o.orderId || 'N/A',
+          fecha: safeFormatDate(o.orderDate),
+          montoTotalUSD: `$${amount.toFixed(2)}`,
+          estado: o.status || 'Entregado'
+        };
+      });
+
+      return {
+        cliente: input.customerName,
+        totalComprasAcumuladasUSD: `$${totalSpent.toFixed(2)}`,
+        totalPedidosHistoricos: matchingOrders.length,
+        historialPedidos: ordersSummary.slice(0, 10)
+      };
+    } catch (e: any) {
+      console.error("Error in getCustomerPurchaseHistory:", e);
+      return { cliente: input.customerName, totalComprasAcumuladasUSD: "$0.00", historialPedidos: [] };
+    }
+  }
+);
+
+// 5. OPTIMIZADOR SUPREMO DE PRECIOS Y MÁRGENES WAC/BCV
 const getCompetitivePricingOptimizer = ai.defineTool(
   {
     name: 'getCompetitivePricingOptimizer',
@@ -206,7 +343,7 @@ const getCompetitivePricingOptimizer = ai.defineTool(
   }
 );
 
-// 4. SIMULADOR DE DECISIONES DE NEGOCIO 360°
+// 6. SIMULADOR DE DECISIONES DE NEGOCIO 360°
 const getExecutiveScenarioSimulator360 = ai.defineTool(
   {
     name: 'getExecutiveScenarioSimulator360',
@@ -241,7 +378,7 @@ const getExecutiveScenarioSimulator360 = ai.defineTool(
   }
 );
 
-// 5. AUDITORÍA DE SEGURIDAD Y BYPASS DE MORA (>35 DÍAS)
+// 7. AUDITORÍA DE SEGURIDAD Y BYPASS DE MORA (>35 DÍAS)
 const getSuperadminSecurityAuditLog = ai.defineTool(
   {
     name: 'getSuperadminSecurityAuditLog',
@@ -277,7 +414,7 @@ const getSuperadminSecurityAuditLog = ai.defineTool(
   }
 );
 
-// 6. DESGLOSE DE VENTAS POR MODELO Y MARCA (EJ. BALONES NIKE POR SKU)
+// 8. DESGLOSE DE VENTAS POR MODELO Y MARCA (EJ. BALONES NIKE POR SKU)
 const getItemizedSalesByBrandAndDate = ai.defineTool(
   {
     name: 'getItemizedSalesByBrandAndDate',
@@ -349,7 +486,7 @@ const getItemizedSalesByBrandAndDate = ai.defineTool(
   }
 );
 
-// 7. CLASIFICACIÓN ABC 80/20 DE INVENTARIO
+// 9. CLASIFICACIÓN ABC 80/20 DE INVENTARIO
 const getABCInventoryClassification = ai.defineTool(
   {
     name: 'getABCInventoryClassification',
@@ -407,7 +544,7 @@ const getABCInventoryClassification = ai.defineTool(
   }
 );
 
-// 8. ANÁLISIS GEOGRÁFICO DE DEMANDA Y TRANSPORTISTAS
+// 10. ANÁLISIS GEOGRÁFICO DE DEMANDA Y TRANSPORTISTAS
 const getGeographicAndRegionalDemand = ai.defineTool(
   {
     name: 'getGeographicAndRegionalDemand',
@@ -451,53 +588,7 @@ const getGeographicAndRegionalDemand = ai.defineTool(
   }
 );
 
-// 9. HISTORIAL Y PREFERENCIAS POR CLIENTE B2B
-const getCustomerPurchaseHistory = ai.defineTool(
-  {
-    name: 'getCustomerPurchaseHistory',
-    description: 'Inspecciona las compras históricas y productos preferidos de un cliente específico.',
-    inputSchema: z.object({
-      customerName: z.string().describe('Nombre del cliente o razón social')
-    }),
-    outputSchema: z.any(),
-  },
-  async (input) => {
-    try {
-      const { firestore } = initializeFirebaseServer();
-      const ordersSnap = await getDocs(query(collection(firestore, 'orders'), limit(150)));
-
-      const term = (input.customerName || '').toLowerCase();
-      const matchingOrders = ordersSnap.docs.map(d => d.data()).filter(o => {
-        const name = (o.customerName || o.clientName || o.razonSocial || '').toLowerCase();
-        return term === '' || name.includes(term);
-      });
-
-      let totalSpent = 0;
-      const ordersSummary = matchingOrders.map(o => {
-        const amount = Number(o.totalAmount || 0);
-        totalSpent += amount;
-        return {
-          pedidoId: o.orderId || 'N/A',
-          fecha: safeFormatDate(o.orderDate),
-          montoTotalUSD: `$${amount.toFixed(2)}`,
-          estado: o.status || 'Entregado'
-        };
-      });
-
-      return {
-        cliente: input.customerName || 'Cliente Solicitado',
-        totalComprasAcumuladasUSD: `$${totalSpent.toFixed(2)}`,
-        totalPedidosHistoricos: matchingOrders.length,
-        historialPedidos: ordersSummary.slice(0, 10)
-      };
-    } catch (e: any) {
-      console.error("Error in getCustomerPurchaseHistory:", e);
-      return { cliente: input.customerName, totalComprasAcumuladasUSD: "$0.00", totalPedidosHistoricos: 0, historialPedidos: [] };
-    }
-  }
-);
-
-// 10. DESGLOSE DE FLUJO DE CAJA Y MÉTODOS DE PAGO
+// 11. DESGLOSE DE FLUJO DE CAJA Y MÉTODOS DE PAGO
 const getFinancialCashflowBreakdown = ai.defineTool(
   {
     name: 'getFinancialCashflowBreakdown',
@@ -544,7 +635,7 @@ const getFinancialCashflowBreakdown = ai.defineTool(
   }
 );
 
-// 11. TASA DE CONVERSIÓN DE COTIZACIONES A PEDIDOS
+// 12. TASA DE CONVERSIÓN DE COTIZACIONES A PEDIDOS
 const getQuoteToOrderConversion = ai.defineTool(
   {
     name: 'getQuoteToOrderConversion',
@@ -571,42 +662,6 @@ const getQuoteToOrderConversion = ai.defineTool(
     } catch (e: any) {
       console.error("Error in getQuoteToOrderConversion:", e);
       return { tasaConversionPct: "75.0%" };
-    }
-  }
-);
-
-// 12. OPTIMIZACIÓN DE MÁRGENES WAC Y TASA BCV
-const getMarginAndPricingOptimization = ai.defineTool(
-  {
-    name: 'getMarginAndPricingOptimization',
-    description: 'Evalúa la rentabilidad por producto considerando el Costo Promedio Ponderado (WAC) y la Tasa Oficial BCV del día.',
-    inputSchema: z.object({}),
-    outputSchema: z.any(),
-  },
-  async () => {
-    try {
-      const { firestore } = initializeFirebaseServer();
-      const productsSnap = await getDocs(query(collection(firestore, 'products'), limit(50)));
-
-      return productsSnap.docs.map(d => {
-        const data = d.data();
-        const price = Number(data.price || 0);
-        const wac = Number(data.wacCost || (price * 0.55));
-        const marginUSD = price - wac;
-        const marginPct = price > 0 ? (marginUSD / price) * 100 : 0;
-
-        return {
-          sku: data.sku || 'N/A',
-          producto: data.name || 'Sin Nombre',
-          precioListaBCV: `$${price.toFixed(2)}`,
-          precioCashUSD: `$${(price * 0.65).toFixed(2)}`,
-          costoWAC: `$${wac.toFixed(2)}`,
-          margenGananciaPct: `${marginPct.toFixed(1)}%`
-        };
-      }).slice(0, 15);
-    } catch (e: any) {
-      console.error("Error in getMarginAndPricingOptimization:", e);
-      return [];
     }
   }
 );
@@ -846,16 +901,16 @@ export const aiAnalystFlow = ai.defineFlow(
           tools: [
             getAutonomousExecutiveAlertsEngine,
             getAutonomousClientRiskScoring,
+            getCustomerPaymentHistory,
+            getCustomerPurchaseHistory,
             getCompetitivePricingOptimizer,
             getExecutiveScenarioSimulator360,
             getSuperadminSecurityAuditLog,
             getItemizedSalesByBrandAndDate,
             getABCInventoryClassification,
             getGeographicAndRegionalDemand,
-            getCustomerPurchaseHistory,
             getFinancialCashflowBreakdown,
             getQuoteToOrderConversion,
-            getMarginAndPricingOptimization,
             getGlobalSalesMetrics,
             getTopProductsAndRankings,
             getSalespeoplePerformance,
@@ -863,27 +918,31 @@ export const aiAnalystFlow = ai.defineFlow(
             predictStockOut,
             generateSalesOutreach
           ],
-          system: `Eres el Director Estratégico Omnisciente y Analista IA Senior Nivel Supremo v6.1 de Athleticenter Pro.
+          system: `Eres el Director Estratégico Omnisciente y Analista IA Senior Nivel Supremo v6.2 de Athleticenter Pro.
           Tu misión es analizar la totalidad de las operaciones del negocio y responder cualquier consulta con absoluta precisión empírica y recomendaciones ejecutivas de alto impacto.
           
           INSTRUCCIONES CLAVE DE HERRAMIENTAS:
           1. Si preguntan por alertas autónomas o salud crítica del negocio, usa 'getAutonomousExecutiveAlertsEngine'.
           2. Si preguntan por score de crédito (1-100) o riesgo crediticio de un cliente, usa 'getAutonomousClientRiskScoring'.
-          3. Si preguntan por precios de lista BCV vs Cash vs WAC, usa 'getCompetitivePricingOptimizer'.
-          4. Si piden simular escenarios hipotéticos de descuentos o metas, usa 'getExecutiveScenarioSimulator360'.
-          5. Si preguntan por auditorías de bypass de mora (>35d) o seguridad superadmin, usa 'getSuperadminSecurityAuditLog'.
-          6. Si preguntan por ventas desglosadas por modelo, SKU o marca (ej. balones Nike por modelo), usa 'getItemizedSalesByBrandAndDate'.
-          7. Si preguntan por clasificación ABC 80/20 o inventario hueso, usa 'getABCInventoryClassification'.
-          8. Si preguntan por despachos por estado o transportistas (MRW, Tealca, Zoom, GAG), usa 'getGeographicAndRegionalDemand'.
-          9. Si preguntan por compras o preferencias de un cliente específico (ej. MUSIC & SPORT), usa 'getCustomerPurchaseHistory'.
-          10. Si preguntan por dinero en Zelle vs Efectivo o flujo de caja, usa 'getFinancialCashflowBreakdown'.
-          11. Si preguntan por conversión de cotizaciones a pedidos, usa 'getQuoteToOrderConversion'.
-          12. Si preguntan por métricas globales de ventas o cobranzas, usa 'getGlobalSalesMetrics'.
-          13. Si preguntan por ranking histórico de productos, usa 'getTopProductsAndRankings'.
-          14. Si preguntan por rendimiento o comisiones de vendedores, usa 'getSalespeoplePerformance'.
-          15. Si preguntan por cartera de clientes y mora superior a 35 días, usa 'getClientPortfolioAudit'.
-          16. Si preguntan por productos por agotarse o recompra, usa 'predictStockOut'.
-          17. Si piden redactar un mensaje de WhatsApp, usa 'generateSalesOutreach'.
+          3. Si preguntan por el historial de pagos o abonos recibidos de un cliente específico (ej. MUSIC & SPORT DELICIAS), usa 'getCustomerPaymentHistory'.
+          4. Si preguntan por el historial de compras o pedidos de un cliente específico, usa 'getCustomerPurchaseHistory'.
+          5. Si preguntan por precios de lista BCV vs Cash vs WAC, usa 'getCompetitivePricingOptimizer'.
+          6. Si piden simular escenarios hipotéticos de descuentos o metas, usa 'getExecutiveScenarioSimulator360'.
+          7. Si preguntan por auditorías de bypass de mora (>35d) o seguridad superadmin, usa 'getSuperadminSecurityAuditLog'.
+          8. Si preguntan por ventas desglosadas por modelo, SKU o marca (ej. balones Nike por modelo), usa 'getItemizedSalesByBrandAndDate'.
+          9. Si preguntan por clasificación ABC 80/20 o inventario hueso, usa 'getABCInventoryClassification'.
+          10. Si preguntan por despachos por estado o transportistas (MRW, Tealca, Zoom, GAG), usa 'getGeographicAndRegionalDemand'.
+          11. Si preguntan por dinero en Zelle vs Efectivo o flujo de caja, usa 'getFinancialCashflowBreakdown'.
+          12. Si preguntan por conversión de cotizaciones a pedidos, usa 'getQuoteToOrderConversion'.
+          13. Si preguntan por métricas globales de ventas o cobranzas, usa 'getGlobalSalesMetrics'.
+          14. Si preguntan por ranking histórico de productos, usa 'getTopProductsAndRankings'.
+          15. Si preguntan por rendimiento o comisiones de vendedores, usa 'getSalespeoplePerformance'.
+          16. Si preguntan por cartera de clientes y mora superior a 35 días, usa 'getClientPortfolioAudit'.
+          17. Si preguntan por productos por agotarse o recompra, usa 'predictStockOut'.
+          18. Si piden redactar un mensaje de WhatsApp, usa 'generateSalesOutreach'.
+          
+          NOTA DE BÚSQUEDA DE CLIENTES:
+          Usa 'getCustomerPaymentHistory' o 'getCustomerPurchaseHistory' para cualquier consulta sobre un cliente específico. Las herramientas están equipadas con un buscador flexible que ubica cuentas sin importar la presencia de símbolos como '&' o 'C.A.'.
           
           Responde siempre en ESPAÑOL profesional con análisis narrativo + datos tabulares si aplica.`,
           prompt: input.query,
