@@ -66,8 +66,8 @@ import { differenceInDays } from 'date-fns';
 const paymentReportSchema = z.object({
   amount: z.coerce.number().min(0.01, 'El monto debe ser mayor a cero.'),
   paymentDate: z.string().min(1, 'La fecha es requerida.'),
-  method: z.string().min(1, 'Selecciona un método.'),
-  referenceNumber: z.string().min(1, 'Referencia obligatoria.'),
+  method: z.string().min(1, 'Selecciona un método de pago.'),
+  referenceNumber: z.string().min(1, 'El número de referencia es obligatorio.'),
   notes: z.string().optional(),
   documentType: z.enum(['nota', 'factura']).default('nota'),
   accountingBase: z.enum(['bcv', 'cash']).default('bcv'),
@@ -85,7 +85,7 @@ function getElapsedDays(orderDate: any, paymentDateStr: string): number {
     else if (orderDate.seconds) oDate = new Date(orderDate.seconds * 1000);
     else oDate = new Date(orderDate);
 
-    const pDate = paymentDateStr ? new Date(paymentDateStr) : new Date();
+    const pDate = paymentDateStr ? new Date(paymentDateStr + 'T12:00:00') : new Date();
     if (isNaN(oDate.getTime()) || isNaN(pDate.getTime())) return 0;
     
     return Math.max(0, differenceInDays(pDate, oDate));
@@ -109,12 +109,22 @@ export function ReportPaymentDialog({ invoice, mode = 'partial' }: { invoice: In
   const isTotalMode = mode === 'total';
 
   const financialRef = useMemoFirebase(() => firestore ? doc(firestore, 'system', 'financials') : null, [firestore]);
-  const { data: globalSettings } = useDoc<FinancialSettings>(financialRef);
+  const { data: globalSettingsRaw } = useDoc<FinancialSettings>(financialRef);
+
+  const globalSettings = useMemo(() => {
+    return globalSettingsRaw || {
+        bcvRate: 1,
+        ivaPercent: 16,
+        defaultBcvDiscount: 35,
+        earlyPayment7Days: 5,
+        earlyPayment15Days: 3
+    } as FinancialSettings;
+  }, [globalSettingsRaw]);
 
   const orderRef = useMemoFirebase(() => (firestore && invoice) ? doc(firestore, 'orders', invoice.id) : null, [firestore, invoice?.id]);
   const { data: orderData } = useDoc<Order>(orderRef);
 
-  const { control, handleSubmit, formState: { isSubmitting }, reset, setValue, watch } = useForm<PaymentReportValues>({
+  const { control, handleSubmit, formState: { isSubmitting, errors }, reset, setValue, watch } = useForm<PaymentReportValues>({
     resolver: zodResolver(paymentReportSchema),
     defaultValues: { 
         amount: 0, 
@@ -197,7 +207,6 @@ export function ReportPaymentDialog({ invoice, mode = 'partial' }: { invoice: In
     }
   }, [isOpen, isMounted, isTotalMode, invoice.remainingBalance, setValue]);
 
-  // DÍAS TRANSCURRIDOS Y ELEGIBILIDAD DE PRONTO PAGO
   const elapsedDays = useMemo(() => {
     return getElapsedDays(orderData?.orderDate || (invoice as any)?.createdAt, paymentDateInput);
   }, [orderData?.orderDate, invoice, paymentDateInput]);
@@ -213,16 +222,14 @@ export function ReportPaymentDialog({ invoice, mode = 'partial' }: { invoice: In
     }
   }, [elapsedDays, is7DaysEligible, is15DaysEligible, earlyPaymentType, setValue]);
 
-  // LÓGICA DE CÁLCULO BI-DIRECCIONAL EN TIEMPO REAL v8.0
+  // LÓGICA DE CÁLCULO BI-DIRECCIONAL EN TIEMPO REAL v8.1 (RESILIENTE)
   const calculation = useMemo(() => {
-    if (!orderData || !globalSettings) return null;
-    
     const bcvDiscountFactor = (globalSettings.defaultBcvDiscount || 35) / 100;
     const ivaFactor = (globalSettings.ivaPercent || 16) / 100;
     const early7Factor = (globalSettings.earlyPayment7Days || 5) / 100;
     const early15Factor = (globalSettings.earlyPayment15Days || 3) / 100;
 
-    const currentBalance = invoice.remainingBalance;
+    const currentBalance = invoice.remainingBalance || 0;
     const rawVal = Number(inputAmount || 0);
 
     let cashDiscountPct = accountingBase === 'cash' ? bcvDiscountFactor : 0;
@@ -246,13 +253,11 @@ export function ReportPaymentDialog({ invoice, mode = 'partial' }: { invoice: In
     let finalAmountToTransfer = 0;
 
     if (inputMode === 'debt') {
-        // ENTRADA POR ABONO DE DEUDA BCV
         baseAmountToPay = isTotalMode ? currentBalance : Math.min(rawVal, currentBalance);
         const subtotalAfterIncentives = Math.max(0, baseAmountToPay * effectiveDiscountMultiplier);
         const taxAmount = documentType === 'factura' ? Number((subtotalAfterIncentives * ivaFactor).toFixed(2)) : 0;
         finalAmountToTransfer = subtotalAfterIncentives + taxAmount;
     } else {
-        // ENTRADA POR MONTO DEL COMPROBANTE BANCARIO
         finalAmountToTransfer = rawVal;
         const taxDivisor = documentType === 'factura' ? (1 + ivaFactor) : 1;
         const subtotalAfterIncentives = finalAmountToTransfer / taxDivisor;
@@ -275,7 +280,7 @@ export function ReportPaymentDialog({ invoice, mode = 'partial' }: { invoice: In
         finalAmount: Number(finalAmountToTransfer.toFixed(2)), 
         discountType 
     };
-  }, [orderData, globalSettings, inputAmount, accountingBase, documentType, earlyPaymentType, is7DaysEligible, is15DaysEligible, invoice.remainingBalance, isTotalMode, inputMode]);
+  }, [globalSettings, inputAmount, accountingBase, documentType, earlyPaymentType, is7DaysEligible, is15DaysEligible, invoice.remainingBalance, isTotalMode, inputMode]);
 
   useEffect(() => {
       if (selectedMethod && !['Zelle', 'Efectivo'].includes(selectedMethod)) {
@@ -284,7 +289,27 @@ export function ReportPaymentDialog({ invoice, mode = 'partial' }: { invoice: In
   }, [selectedMethod, setValue]);
 
   const onSubmit = (data: PaymentReportValues) => {
-    if (!firestore || !authUser || !calculation) return;
+    if (!firestore || !authUser) {
+      toast({ variant: 'destructive', title: 'Error de Autenticación', description: 'Por favor inicie sesión nuevamente.' });
+      return;
+    }
+
+    if (!selectedMethod) {
+      toast({ variant: 'destructive', title: 'Método Requerido', description: 'Por favor seleccione un método de pago.' });
+      return;
+    }
+
+    if (!data.referenceNumber) {
+      toast({ variant: 'destructive', title: 'Referencia Requerida', description: 'Por favor ingrese el número de referencia.' });
+      return;
+    }
+
+    // Parseo Ultra Seguro de Fecha
+    let safePaymentDate: Date = new Date();
+    if (data.paymentDate) {
+      const parsed = new Date(data.paymentDate + 'T12:00:00');
+      if (!isNaN(parsed.getTime())) safePaymentDate = parsed;
+    }
     
     const batch = writeBatch(firestore);
     const paymentRef = doc(collection(firestore, `orders/${invoice.id}/payments`));
@@ -299,7 +324,7 @@ export function ReportPaymentDialog({ invoice, mode = 'partial' }: { invoice: In
       registeredBy: authUser.uid, 
       registeredByName: registeredByName, 
       imageUrl: uploadedImageUrl || '', 
-      paymentDate: new Date(data.paymentDate), 
+      paymentDate: safePaymentDate, 
       createdAt: serverTimestamp() as any, 
       baseAmount: calculation.baseAmount, 
       discountAmount: calculation.discountAmount, 
@@ -327,8 +352,8 @@ export function ReportPaymentDialog({ invoice, mode = 'partial' }: { invoice: In
         console.error("Error al reportar pago:", serverError);
         toast({ 
             variant: 'destructive', 
-            title: 'Error al Reportar Pago', 
-            description: serverError?.message || 'No se pudo registrar la transacción de pago.' 
+            title: 'Fallo al Guardar Reporte', 
+            description: serverError?.message || 'Verifique sus permisos o la conexión de red.' 
         });
         errorEmitter.emit('permission-error', new FirestorePermissionError({ 
             path: `orders/${invoice.id}/payments`, 
@@ -522,7 +547,7 @@ export function ReportPaymentDialog({ invoice, mode = 'partial' }: { invoice: In
                                                     "flex items-center gap-4 p-4 rounded-2xl border-2 transition-all cursor-pointer group shadow-sm", 
                                                     selectedMethod === m.id ? "border-primary bg-primary/5 shadow-md" : "border-slate-100 hover:border-slate-200 hover:bg-slate-50"
                                                 )} 
-                                                onClick={() => setValue('method', m.id)}
+                                                onClick={() => setValue('method', m.id, { shouldValidate: true })}
                                             >
                                                 <div className={cn(
                                                     "p-2.5 rounded-xl transition-transform group-hover:scale-110", 
@@ -598,6 +623,7 @@ export function ReportPaymentDialog({ invoice, mode = 'partial' }: { invoice: In
                                         <Controller name="referenceNumber" control={control} render={({ field }) => (
                                             <Input {...field} placeholder="Nro de Confirmación..." className="h-12 font-mono font-bold rounded-xl bg-slate-50 border-none shadow-inner" />
                                         )} />
+                                        {errors.referenceNumber && <p className="text-[9px] font-bold text-rose-500">{errors.referenceNumber.message}</p>}
                                     </div>
                                 </div>
                                 <ImageUploader 
@@ -616,31 +642,31 @@ export function ReportPaymentDialog({ invoice, mode = 'partial' }: { invoice: In
                                 <CardHeader className="border-b border-white/10 pb-4">
                                     <CardTitle className="text-[10px] font-black uppercase tracking-widest text-primary flex items-center justify-between">
                                         <span className="flex items-center gap-2"><Calculator className="h-3.5 w-3.5" /> Monitor de Liquidación</span>
-                                        <Badge variant="outline" className="text-[7px] text-white/60 border-white/20 uppercase font-mono">v8.0 Dinámica</Badge>
+                                        <Badge variant="outline" className="text-[7px] text-white/60 border-white/20 uppercase font-mono">v8.1 Resiliente</Badge>
                                     </CardTitle>
                                 </CardHeader>
                                 <CardContent className="p-8 space-y-8">
                                     <div className="space-y-4">
                                         <div className="flex justify-between items-center text-white/60">
                                             <span className="text-[9px] font-black uppercase">Abono al Saldo (Deuda BCV)</span>
-                                            <span className="text-sm font-bold text-white">${calculation?.baseAmount.toFixed(2)}</span>
+                                            <span className="text-sm font-bold text-white">${calculation.baseAmount.toFixed(2)}</span>
                                         </div>
                                         
-                                        {calculation && calculation.cashDiscountAmount > 0 && (
+                                        {calculation.cashDiscountAmount > 0 && (
                                             <div className="flex justify-between items-center text-emerald-400 animate-in slide-in-from-left-2">
                                                 <span className="text-[9px] font-black uppercase flex items-center gap-1"><TrendingDown className="h-3 w-3" /> Incentivo CASH (~35% OFF)</span>
                                                 <span className="text-sm font-black">-${calculation.cashDiscountAmount.toFixed(2)}</span>
                                             </div>
                                         )}
 
-                                        {calculation && calculation.earlyDiscountAmount > 0 && (
+                                        {calculation.earlyDiscountAmount > 0 && (
                                             <div className="flex justify-between items-center text-emerald-400 animate-in slide-in-from-left-2">
                                                 <span className="text-[9px] font-black uppercase flex items-center gap-1"><Clock className="h-3 w-3" /> Pronto Pago ({earlyPaymentType === '7days' ? '7d' : '15d'})</span>
                                                 <span className="text-sm font-black">-${calculation.earlyDiscountAmount.toFixed(2)}</span>
                                             </div>
                                         )}
 
-                                        {calculation && calculation.taxAmount > 0 && (
+                                        {calculation.taxAmount > 0 && (
                                             <div className="flex justify-between items-center text-amber-400 animate-in slide-in-from-right-2">
                                                 <span className="text-[9px] font-black uppercase flex items-center gap-1">IVA Percibido (16%)</span>
                                                 <span className="text-sm font-black">+${calculation.taxAmount.toFixed(2)}</span>
@@ -653,8 +679,8 @@ export function ReportPaymentDialog({ invoice, mode = 'partial' }: { invoice: In
                                             <p className="text-[10px] font-black uppercase text-primary tracking-[0.3em] mb-2">Total a Transferir (Banco)</p>
                                             <p className={cn(
                                                 "text-5xl sm:text-6xl font-black tracking-tighter leading-none transition-all",
-                                                calculation?.discountAmount! > 0 ? "text-emerald-400" : "text-white"
-                                            )}>${calculation?.finalAmount.toFixed(2)}</p>
+                                                calculation.discountAmount > 0 ? "text-emerald-400" : "text-white"
+                                            )}>${calculation.finalAmount.toFixed(2)}</p>
                                             <p className="text-[8px] font-bold text-white/40 uppercase mt-4">ESTE ES EL MONTO EXACTO QUE DEBE FIGURAR EN SU COMPROBANTE.</p>
                                         </div>
                                     </div>
@@ -662,7 +688,7 @@ export function ReportPaymentDialog({ invoice, mode = 'partial' }: { invoice: In
                                 <CardFooter className="p-8 bg-white/5">
                                     <Button 
                                         type="submit" 
-                                        disabled={isSubmitting || !selectedMethod || !watch('referenceNumber')} 
+                                        disabled={isSubmitting} 
                                         className="w-full h-14 rounded-2xl font-black uppercase tracking-[0.2em] shadow-xl bg-primary hover:bg-primary/90 text-[11px] transition-all active:scale-95"
                                     >
                                         {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <LucideSend className="mr-2 h-4 w-4" />} NOTIFICAR AL MANDO
