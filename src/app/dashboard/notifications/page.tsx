@@ -23,6 +23,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { NewMessageDialog } from './NewMessageDialog';
 import { DirectMessageItem } from './DirectMessageItem';
+import { DirectMessageThreadDialog, type ChatContact } from './DirectMessageThreadDialog';
 import { Card } from '@/components/ui/card';
 
 export default function NotificationsPage() {
@@ -34,6 +35,10 @@ export default function NotificationsPage() {
   const [isMarking, setIsMarking] = useState(false);
   const [isClearing, setIsClearing] = useState(false);
   const [isNewMessageOpen, setIsNewMessageOpen] = useState(false);
+
+  const [activeThreadContact, setActiveThreadContact] = useState<ChatContact | null>(null);
+  const [activeThreadSubject, setActiveThreadSubject] = useState<string>('Conversación de Soporte');
+  const [isThreadOpen, setIsThreadOpen] = useState(false);
 
   const notificationsQuery = useMemoFirebase(
     () =>
@@ -87,6 +92,19 @@ export default function NotificationsPage() {
   const { data: allUsers } = useCollection<AppUser>(allUsersQuery);
 
   const unreadCount = useMemo(() => (allNotifications?.filter(n => !n.isRead).length || 0) + (directMessages?.filter(n => !n.isRead).length || 0), [allNotifications, directMessages]);
+
+  const handleOpenThread = (dm: DirectMessage) => {
+    const contactUser = allUsers?.find(u => u.id === dm.senderId);
+    setActiveThreadContact({
+      id: dm.senderId || 'unknown',
+      name: dm.senderName || contactUser?.name || 'Contacto',
+      avatarUrl: dm.senderAvatarUrl || contactUser?.avatarUrl || '',
+      role: contactUser?.role || '',
+      email: contactUser?.email || ''
+    });
+    setActiveThreadSubject(dm.subject || 'Conversación de Soporte');
+    setIsThreadOpen(true);
+  };
 
   const filteredNotifications = useMemo(() => {
     if (!allNotifications) return [];
@@ -220,7 +238,13 @@ export default function NotificationsPage() {
             {isLoadingDMs ? (
                 Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-24 w-full rounded-[2rem]" />)
             ) : directMessages && directMessages.length > 0 ? (
-                directMessages.map((dm) => <DirectMessageItem key={dm.id} message={dm} />)
+                directMessages.map((dm) => (
+                    <DirectMessageItem 
+                        key={dm.id} 
+                        message={dm} 
+                        onOpenThread={(message) => handleOpenThread(message)}
+                    />
+                ))
             ) : (
                 <div className="p-24 text-center opacity-30 flex flex-col items-center gap-6 border-2 border-dashed rounded-[3rem] bg-slate-50/50">
                     <MessageSquare className="h-16 w-16 text-slate-300" />
@@ -250,6 +274,12 @@ export default function NotificationsPage() {
         isOpen={isNewMessageOpen}
         onOpenChange={setIsNewMessageOpen}
         allUsers={allUsers || []}
+    />
+    <DirectMessageThreadDialog
+        isOpen={isThreadOpen}
+        onOpenChange={setIsThreadOpen}
+        contact={activeThreadContact}
+        initialSubject={activeThreadSubject}
     />
     </>
   );
