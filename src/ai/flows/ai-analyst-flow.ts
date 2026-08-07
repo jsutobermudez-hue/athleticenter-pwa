@@ -1021,14 +1021,15 @@ const generateSalesOutreach = ai.defineTool(
   }
 );
 
-// 20. AUDITORÍA DE CLIENTES INACTIVOS POR VENDEDOR Y DÍAS SIN COMPRAR
-const getInactiveClientsBySalesperson = ai.defineTool(
+// 20. AUDITORÍA DE CLIENTES ACTIVOS E INACTIVOS POR VENDEDOR Y DÍAS DE COMPRA
+const getClientsBySalespersonAndActivity = ai.defineTool(
   {
-    name: 'getInactiveClientsBySalesperson',
-    description: 'Filtra clientes inactivos sin comprar por más de N días (ej. 15, 30, 60 días), opcionalmente filtrados por el nombre de un vendedor específico (ej. Luis Giménez).',
+    name: 'getClientsBySalespersonAndActivity',
+    description: 'Filtra clientes ACTIVOS (que han comprado recientemente en los últimos N días) o INACTIVOS (sin comprar en los últimos N días), opcionalmente filtrados por el nombre de un vendedor específico (ej. Luis Giménez).',
     inputSchema: z.object({
       salespersonName: z.string().optional().describe('Nombre o apellido del vendedor (ej. Luis Giménez). Si se omite, analiza todos los vendedores.'),
-      minDaysInactive: z.number().optional().default(30).describe('Mínimo número de días sin comprar (por defecto 30 días).')
+      activityStatus: z.enum(['todos', 'activos', 'inactivos']).optional().default('todos').describe('Filtro de actividad: "activos" (compraron en los últimos N días), "inactivos" (sin comprar) o "todos".'),
+      daysThreshold: z.number().optional().default(30).describe('Umbral de días de actividad o inactividad (por defecto 30 días).')
     }),
     outputSchema: z.any(),
   },
@@ -1077,8 +1078,9 @@ const getInactiveClientsBySalesperson = ai.defineTool(
       });
 
       const now = new Date();
-      const minInactive = input.minDaysInactive || 30;
-      const inactiveClients: any[] = [];
+      const threshold = input.daysThreshold || 30;
+      const filterMode = input.activityStatus || 'todos';
+      const resultClients: any[] = [];
 
       customersSnap.docs.forEach(docSnap => {
         const c = docSnap.data();
@@ -1111,32 +1113,44 @@ const getInactiveClientsBySalesperson = ai.defineTool(
           lastOrderFormatted = lastDate.toLocaleDateString();
         }
 
-        if (daysInactive >= minInactive) {
-          inactiveClients.push({
+        const isRecentlyActive = daysInactive <= threshold;
+        const isInactive = daysInactive > threshold;
+
+        let shouldInclude = false;
+        if (filterMode === 'todos') shouldInclude = true;
+        else if (filterMode === 'activos' && isRecentlyActive) shouldInclude = true;
+        else if (filterMode === 'inactivos' && isInactive) shouldInclude = true;
+
+        if (shouldInclude) {
+          resultClients.push({
             vendedor: spName,
             cliente: c.razonSocial || c.name || 'Cliente B2B',
             rif: c.rif || 'N/A',
             ultimaCompra: lastOrderFormatted,
-            diasInactivo: daysInactive === 999 ? 'Sin Compras' : `${daysInactive} días`,
+            diasDesdeUltimaCompra: daysInactive === 999 ? 'Sin Compras' : `${daysInactive} días`,
+            estadoActividad: isRecentlyActive ? '🟢 Activo Reciente' : '🔴 Inactivo',
             estadoCuenta: c.status || 'Activo',
             limiteCreditoUSD: `$${Number(c.creditLimit || 0).toFixed(2)}`
           });
         }
       });
 
-      inactiveClients.sort((a, b) => {
-        const daysA = a.diasInactivo === 'Sin Compras' ? 9999 : parseInt(a.diasInactivo);
-        const daysB = b.diasInactivo === 'Sin Compras' ? 9999 : parseInt(a.diasInactivo);
-        return daysB - daysA;
+      resultClients.sort((a, b) => {
+        const daysA = a.diasDesdeUltimaCompra === 'Sin Compras' ? 9999 : parseInt(a.diasDesdeUltimaCompra);
+        const daysB = b.diasDesdeUltimaCompra === 'Sin Compras' ? 9999 : parseInt(a.diasDesdeUltimaCompra);
+        return daysA - daysB;
       });
 
-      return inactiveClients.slice(0, 50);
+      return resultClients.slice(0, 50);
     } catch (e: any) {
-      console.error("Error in getInactiveClientsBySalesperson:", e);
+      console.error("Error in getClientsBySalespersonAndActivity:", e);
       return [];
     }
   }
 );
+
+// 21. ALIAS DE SEGURIDAD PARA CLIENTES INACTIVOS POR VENDEDOR
+const getInactiveClientsBySalesperson = getClientsBySalespersonAndActivity;
 
 export const aiAnalystFlow = ai.defineFlow(
   {
@@ -1166,6 +1180,7 @@ export const aiAnalystFlow = ai.defineFlow(
             getTopProductsAndRankings,
             getSalespeoplePerformance,
             getClientPortfolioAudit,
+            getClientsBySalespersonAndActivity,
             getInactiveClientsBySalesperson,
             predictStockOut,
             generateSalesOutreach
