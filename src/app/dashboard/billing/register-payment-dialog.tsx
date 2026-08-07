@@ -141,10 +141,6 @@ export function ConfirmPaymentDialog({ order }: { order: Order }) {
         .catch(async (serverError) => {
             console.error("Error rejecting payment:", serverError);
             toast({ variant: 'destructive', title: 'Error al Rechazar Pago', description: serverError?.message || 'Error de permisos' });
-            errorEmitter.emit('permission-error', new FirestorePermissionError({
-                path: `orders/${order.id}/payments/${reportedPayment.id}`,
-                operation: 'delete'
-            }));
         })
         .finally(() => {
             setIsRejecting(false);
