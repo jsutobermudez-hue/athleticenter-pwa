@@ -315,33 +315,32 @@ export function ReportPaymentDialog({ invoice, mode = 'partial' }: { invoice: In
       if (!isNaN(parsed.getTime())) safePaymentDate = parsed;
     }
     
-    const paymentRef = doc(collection(firestore, `orders/${invoice.id}/payments`));
+    const paymentRef = doc(collection(firestore, 'orders', invoice.id, 'payments'));
     const registeredByName = currentUser?.name || authUser.displayName || authUser.email || 'Cliente';
 
-    const payload: Partial<Payment> = { 
-      method: data.method as any,
-      amount: calculation.finalAmount, 
-      orderId: invoice.id, 
+    const cleanPayload = { 
+      method: data.method || 'Transferencia Bancaria',
+      amount: isNaN(Number(calculation.finalAmount)) ? 0 : Number(calculation.finalAmount), 
+      orderId: invoice.id || '', 
       status: 'pending_verification', 
-      registeredBy: authUser.uid, 
-      registeredByName: registeredByName, 
+      registeredBy: authUser.uid || '', 
+      registeredByName: registeredByName || 'Cliente', 
       imageUrl: uploadedImageUrl || '', 
       paymentDate: safePaymentDate, 
-      createdAt: serverTimestamp() as any, 
-      baseAmount: calculation.baseAmount, 
-      discountAmount: calculation.discountAmount, 
-      taxAmount: calculation.taxAmount,
-      discountType: calculation.discountType, 
-      incentivesApplied: calculation.discountAmount > 0, 
-      documentType: data.documentType, 
-      accountingBase: data.accountingBase,
+      createdAt: serverTimestamp(), 
+      baseAmount: isNaN(Number(calculation.baseAmount)) ? 0 : Number(calculation.baseAmount), 
+      discountAmount: isNaN(Number(calculation.discountAmount)) ? 0 : Number(calculation.discountAmount), 
+      taxAmount: isNaN(Number(calculation.taxAmount)) ? 0 : Number(calculation.taxAmount),
+      discountType: calculation.discountType || 'none', 
+      incentivesApplied: Boolean(calculation.discountAmount && calculation.discountAmount > 0), 
+      documentType: data.documentType || 'nota', 
+      accountingBase: data.accountingBase || 'bcv',
       referenceNumber: data.referenceNumber || '',
       notes: data.notes || ''
     };
 
     try {
-      // 1. Escritura directa del reporte de pago (Siempre exitosa)
-      await setDoc(paymentRef, payload);
+      await setDoc(paymentRef, cleanPayload);
       
       // 2. Actualización de estatus del pedido a "En Verificación"
       try {
