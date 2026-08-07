@@ -52,6 +52,7 @@ function cleanStringForSearch(str: string): string {
     .replace(/z/g, 's')
     .replace(/c([ei])/g, 's$1')
     .replace(/v/g, 'b')
+    .replace(/\b(vendedor|vendedro|asesor|comercial|cliente|clientes|del|de|el|la|los|las)\b/gi, '')
     .replace(/[&.,\/#!$%\^&\*;:{}=\-_`~()]/g, ' ')
     .replace(/\b(ca|c a|c.a|c.a.)\b/g, '')
     .replace(/\s+/g, ' ')
@@ -63,12 +64,13 @@ function matchesSearchQuery(targetName: string, searchQuery: string): boolean {
   const cleanTarget = cleanStringForSearch(targetName);
   const cleanQuery = cleanStringForSearch(searchQuery);
 
+  if (!cleanQuery) return true;
   if (cleanTarget.includes(cleanQuery) || cleanQuery.includes(cleanTarget)) return true;
 
-  const queryWords = cleanQuery.split(' ').filter(w => w.length >= 2);
+  const queryWords = cleanQuery.split(' ').filter(w => w.length >= 3);
   if (queryWords.length === 0) return true;
 
-  return queryWords.some(word => cleanTarget.includes(word));
+  return queryWords.every(word => cleanTarget.includes(word)) || queryWords.some(word => word.length >= 4 && cleanTarget.includes(word));
 }
 
 // Extractor rígido de alias de vendedores reales en Firestore
