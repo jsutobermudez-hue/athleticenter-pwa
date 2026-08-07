@@ -47,6 +47,11 @@ function safeFormatDate(orderDate: any): string {
 function cleanStringForSearch(str: string): string {
   return (str || '')
     .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/z/g, 's')
+    .replace(/c([ei])/g, 's$1')
+    .replace(/v/g, 'b')
     .replace(/[&.,\/#!$%\^&\*;:{}=\-_`~()]/g, ' ')
     .replace(/\b(ca|c a|c.a|c.a.)\b/g, '')
     .replace(/\s+/g, ' ')
@@ -58,12 +63,12 @@ function matchesSearchQuery(targetName: string, searchQuery: string): boolean {
   const cleanTarget = cleanStringForSearch(targetName);
   const cleanQuery = cleanStringForSearch(searchQuery);
 
-  if (cleanTarget.includes(cleanQuery)) return true;
+  if (cleanTarget.includes(cleanQuery) || cleanQuery.includes(cleanTarget)) return true;
 
-  const queryWords = cleanQuery.split(' ').filter(w => w.length > 2);
+  const queryWords = cleanQuery.split(' ').filter(w => w.length >= 2);
   if (queryWords.length === 0) return true;
 
-  return queryWords.every(word => cleanTarget.includes(word));
+  return queryWords.some(word => cleanTarget.includes(word));
 }
 
 // Extractor rígido de alias de vendedores reales en Firestore
@@ -1138,6 +1143,53 @@ const getClientsBySalespersonAndActivity = ai.defineTool(
           });
         }
       });
+
+      if (filterMode === 'inactivos' && resultClients.length === 0) {
+        customersSnap.docs.forEach(docSnap => {
+          const c = docSnap.data();
+          const customerId = docSnap.id;
+          const spName = c.assignedSalespersonName || 'Sin Asesor Asignado';
+
+          if (input.salespersonName && input.salespersonName.trim()) {
+            if (!matchesSearchQuery(spName, input.salespersonName)) {
+              return;
+            }
+          }
+
+          let lastDate: Date | null = null;
+          if (c.lastOrderDate) {
+            if (typeof c.lastOrderDate.toDate === 'function') lastDate = c.lastOrderDate.toDate();
+            else if (c.lastOrderDate.seconds) lastDate = new Date(c.lastOrderDate.seconds * 1000);
+            else lastDate = new Date(c.lastOrderDate);
+          }
+
+          if (!lastDate) lastDate = lastOrderDateByCustomer[customerId] || null;
+          if (!lastDate && c.email) lastDate = lastOrderDateByEmail[String(c.email).toLowerCase().trim()] || null;
+          if (!lastDate && c.rif) lastDate = lastOrderDateByRif[String(c.rif).toLowerCase().trim()] || null;
+
+          let daysInactive = 999;
+          let lastOrderFormatted = 'Sin Compras Previas';
+
+          if (lastDate && !isNaN(lastDate.getTime())) {
+            const diffMs = now.getTime() - lastDate.getTime();
+            daysInactive = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+            lastOrderFormatted = lastDate.toLocaleDateString();
+          }
+
+          const isRecentlyActive = daysInactive <= threshold;
+
+          resultClients.push({
+            vendedor: spName,
+            cliente: c.razonSocial || c.name || 'Cliente B2B',
+            rif: c.rif || 'N/A',
+            ultimaCompra: lastOrderFormatted,
+            diasDesdeUltimaCompra: daysInactive === 999 ? 'Sin Compras' : `${daysInactive} días`,
+            estadoActividad: isRecentlyActive ? '🟢 Activo Reciente' : '🔴 Inactivo',
+            estadoCuenta: c.status || 'Activo',
+            limiteCreditoUSD: `$${Number(c.creditLimit || 0).toFixed(2)}`
+          });
+        });
+      }
 
       resultClients.sort((a, b) => {
         const daysA = a.diasDesdeUltimaCompra === 'Sin Compras' ? 9999 : parseInt(a.diasDesdeUltimaCompra);
