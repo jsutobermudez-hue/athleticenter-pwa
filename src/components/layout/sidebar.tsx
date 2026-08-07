@@ -45,7 +45,8 @@ import {
 } from 'lucide-react';
 import { DynamicAppLogo } from '../icons/dynamic-app-logo';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
-import { useUser } from '@/firebase';
+import { useUser, useFirestore, useCollection, useMemoFirebase } from '@/firebase';
+import { collection, query, where, limit } from 'firebase/firestore';
 import type { User } from '@/lib/definitions';
 import { Skeleton } from '../ui/skeleton';
 import { SupportDialog } from './support-dialog';
@@ -108,8 +109,37 @@ const administracionItems: MenuItem[] = [
 
 export function AppSidebar() {
   const pathname = usePathname();
-  const { profile, isUserLoading } = useUser();
+  const { user, profile, isUserLoading } = useUser();
+  const firestore = useFirestore();
   const { setOpenMobile, isMobile } = useSidebar();
+
+  const notificationsQuery = useMemoFirebase(
+    () =>
+      user && firestore
+        ? query(
+            collection(firestore, `users/${user.uid}/notifications`),
+            where('isRead', '==', false),
+            limit(50)
+          )
+        : null,
+    [user, firestore]
+  );
+  const { data: unreadNotifications } = useCollection(notificationsQuery);
+
+  const dmsQuery = useMemoFirebase(
+    () =>
+      user && firestore
+        ? query(
+            collection(firestore, `users/${user.uid}/directMessages`),
+            where('isRead', '==', false),
+            limit(50)
+          )
+        : null,
+    [user, firestore]
+  );
+  const { data: unreadDMs } = useCollection(dmsQuery);
+
+  const totalUnreadCount = (unreadNotifications?.length || 0) + (unreadDMs?.length || 0);
 
   const handleLinkClick = () => {
     if (isMobile) {
@@ -128,6 +158,8 @@ export function AppSidebar() {
         }
 
         const isActive = pathname === item.href || (item.href !== '/dashboard' && pathname.startsWith(item.href));
+        const isNotificationsItem = item.href === '/dashboard/notifications';
+        const hasUnread = isNotificationsItem && totalUnreadCount > 0;
 
         return (
           <SidebarMenuItem key={item.href}>
@@ -135,13 +167,25 @@ export function AppSidebar() {
               <SidebarMenuButton
                 isActive={isActive}
                 className={cn(
-                  "font-bold text-[14px] h-11 px-4 transition-all hover:bg-white/10 active:scale-95 text-white/90 relative",
+                  "font-bold text-[14px] h-11 px-4 transition-all hover:bg-white/10 active:scale-95 text-white/90 relative flex items-center justify-between",
                   isActive && "bg-white/15 text-white shadow-sm"
                 )}
                 tooltip={{ children: label }}
               >
-                <item.icon className="h-5 w-5 shrink-0" />
-                <span className="truncate">{label}</span>
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="relative shrink-0">
+                    <item.icon className="h-5 w-5 shrink-0" />
+                    {hasUnread && (
+                      <span className="absolute -top-1 -right-1 h-2.5 w-2.5 rounded-full bg-rose-500 ring-2 ring-slate-900 animate-pulse group-data-[collapsible=icon]:block hidden" />
+                    )}
+                  </div>
+                  <span className="truncate">{label}</span>
+                </div>
+                {hasUnread && (
+                  <span className="ml-auto shrink-0 flex h-5 min-w-[20px] items-center justify-center rounded-full bg-rose-600 px-1.5 text-[10px] font-black text-white shadow-lg animate-pulse group-data-[collapsible=icon]:hidden">
+                    {totalUnreadCount > 99 ? '99+' : totalUnreadCount}
+                  </span>
+                )}
               </SidebarMenuButton>
             </Link>
           </SidebarMenuItem>

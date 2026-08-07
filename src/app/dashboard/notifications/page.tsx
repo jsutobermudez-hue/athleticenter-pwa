@@ -24,7 +24,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { NewMessageDialog } from './NewMessageDialog';
 import { DirectMessageItem } from './DirectMessageItem';
 import { DirectMessageThreadDialog, type ChatContact } from './DirectMessageThreadDialog';
+import { NotificationDetailDialog } from '@/components/notifications/NotificationDetailDialog';
 import { Card } from '@/components/ui/card';
+import { cn } from '@/lib/utils';
 
 export default function NotificationsPage() {
   const { user, profile: currentUser } = useUser();
@@ -32,6 +34,7 @@ export default function NotificationsPage() {
   const { toast } = useToast();
 
   const [categoryFilter, setCategoryFilter] = useState<string>('todos');
+  const [onlyUnread, setOnlyUnread] = useState<boolean>(false);
   const [isMarking, setIsMarking] = useState(false);
   const [isClearing, setIsClearing] = useState(false);
   const [isNewMessageOpen, setIsNewMessageOpen] = useState(false);
@@ -39,6 +42,9 @@ export default function NotificationsPage() {
   const [activeThreadContact, setActiveThreadContact] = useState<ChatContact | null>(null);
   const [activeThreadSubject, setActiveThreadSubject] = useState<string>('Conversación de Soporte');
   const [isThreadOpen, setIsThreadOpen] = useState(false);
+
+  const [activeNotificationDetail, setActiveNotificationDetail] = useState<Notification | null>(null);
+  const [isDetailOpen, setIsDetailOpen] = useState(false);
 
   const notificationsQuery = useMemoFirebase(
     () =>
@@ -106,14 +112,44 @@ export default function NotificationsPage() {
     setIsThreadOpen(true);
   };
 
+  const handleOpenNotificationDetail = (n: Notification) => {
+    setActiveNotificationDetail(n);
+    setIsDetailOpen(true);
+  };
+
+  const handleReplyFromNotification = (n: Notification) => {
+    const matchedUser = allUsers?.find(u => 
+      u.name.toLowerCase().includes(n.title.toLowerCase()) || 
+      n.message.toLowerCase().includes(u.name.toLowerCase()) ||
+      u.role === 'admin' || u.role === 'superadmin' || u.role === 'ventas'
+    ) || allUsers?.[0];
+
+    if (matchedUser) {
+      setActiveThreadContact({
+        id: matchedUser.id,
+        name: matchedUser.name,
+        avatarUrl: matchedUser.avatarUrl || '',
+        role: matchedUser.role,
+        email: matchedUser.email
+      });
+      setActiveThreadSubject(`Consulta sobre: ${n.title}`);
+      setIsThreadOpen(true);
+    } else {
+      setIsNewMessageOpen(true);
+    }
+  };
+
   const filteredNotifications = useMemo(() => {
     if (!allNotifications) return [];
     let items = allNotifications;
     if (categoryFilter !== 'todos') {
       items = items.filter(n => n.category === categoryFilter);
     }
+    if (onlyUnread) {
+      items = items.filter(n => !n.isRead);
+    }
     return items;
-  }, [allNotifications, categoryFilter]);
+  }, [allNotifications, categoryFilter, onlyUnread]);
 
   const handleMarkAllAsRead = () => {
     if (!user || !firestore || unreadCount === 0) return;
@@ -206,6 +242,17 @@ export default function NotificationsPage() {
             </TabsList>
 
             <div className="flex flex-wrap items-center gap-3">
+                <Button
+                  variant={onlyUnread ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setOnlyUnread(!onlyUnread)}
+                  className={cn(
+                    "h-10 rounded-xl font-black uppercase text-[9px] tracking-widest transition-all",
+                    onlyUnread ? "bg-slate-900 text-white" : "bg-white border-none text-slate-600 shadow-sm"
+                  )}
+                >
+                  {onlyUnread ? "● No Leídos" : "Todas las Alertas"}
+                </Button>
                 <Select value={categoryFilter} onValueChange={setCategoryFilter}>
                     <SelectTrigger className="h-10 w-full sm:w-44 rounded-xl bg-white border-none shadow-sm font-black uppercase text-[9px]">
                         <SelectValue placeholder="Filtrar Alertas" />
@@ -225,7 +272,13 @@ export default function NotificationsPage() {
             {isLoadingInbox ? (
                 Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-24 w-full rounded-[2rem]" />)
             ) : filteredNotifications.length > 0 ? (
-                filteredNotifications.map((n) => <NotificationItem key={n.id} notification={n} />)
+                filteredNotifications.map((n) => (
+                    <NotificationItem 
+                        key={n.id} 
+                        notification={n} 
+                        onOpenDetail={(notif) => handleOpenNotificationDetail(notif)}
+                    />
+                ))
             ) : (
                 <div className="p-24 text-center opacity-30 flex flex-col items-center gap-6 border-2 border-dashed rounded-[3rem] bg-slate-50/50">
                     <Bell className="h-16 w-16 text-slate-300" />
@@ -280,6 +333,12 @@ export default function NotificationsPage() {
         onOpenChange={setIsThreadOpen}
         contact={activeThreadContact}
         initialSubject={activeThreadSubject}
+    />
+    <NotificationDetailDialog
+        isOpen={isDetailOpen}
+        onOpenChange={setIsDetailOpen}
+        notification={activeNotificationDetail}
+        onReplyClick={(notif) => handleReplyFromNotification(notif)}
     />
     </>
   );

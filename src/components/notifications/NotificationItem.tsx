@@ -33,16 +33,26 @@ const categoryConfig: Record<NotificationCategory, { icon: React.ElementType, co
     'Soporte': { icon: LifeBuoy, color: 'text-slate-500 bg-slate-50 border-slate-100', priority: 'low' },
 };
 
-export function NotificationItem({ notification }: { notification: Notification }) {
+import { Button } from '@/components/ui/button';
+import { Eye, MessageSquare } from 'lucide-react';
+
+export function NotificationItem({ 
+  notification,
+  onOpenDetail
+}: { 
+  notification: Notification;
+  onOpenDetail?: (notification: Notification) => void;
+}) {
   const firestore = useFirestore();
   const router = useRouter();
 
   const handleNotificationClick = () => {
-    if (!firestore || !notification.userId || !notification.id) return;
-    if (!notification.isRead) {
-        updateDoc(doc(firestore, `users/${notification.userId}/notifications`, notification.id), { isRead: true });
+    if (firestore && notification.userId && notification.id && !notification.isRead) {
+        updateDoc(doc(firestore, `users/${notification.userId}/notifications`, notification.id), { isRead: true }).catch(() => {});
     }
-    if (notification.link && notification.link !== '#') {
+    if (onOpenDetail) {
+      onOpenDetail(notification);
+    } else if (notification.link && notification.link !== '#') {
       router.push(notification.link);
     }
   };
@@ -58,33 +68,35 @@ export function NotificationItem({ notification }: { notification: Notification 
     <div
       onClick={handleNotificationClick}
       className={cn(
-        'group flex cursor-pointer items-start gap-5 p-6 transition-all duration-300 rounded-[2rem] border border-white shadow-sm hover:shadow-xl hover:-translate-y-0.5 active:scale-[0.99] relative overflow-hidden',
+        'group flex flex-col sm:flex-row sm:items-start gap-5 p-6 transition-all duration-300 rounded-[2rem] border border-white shadow-sm hover:shadow-xl hover:-translate-y-0.5 active:scale-[0.99] relative overflow-hidden',
         !notification.isRead ? 'bg-white ring-1 ring-primary/5' : 'bg-slate-50/50 opacity-80',
         config.priority === 'high' ? 'border-l-[6px] border-l-rose-500' : config.priority === 'medium' ? 'border-l-[6px] border-l-blue-500' : 'border-l-[6px] border-l-slate-300'
       )}
     >
-      <div className={cn('h-12 w-12 shrink-0 rounded-2xl border flex items-center justify-center shadow-inner group-hover:scale-110 transition-transform duration-500', config.color)}>
-        <Icon className="h-6 w-6" />
-      </div>
-
-      <div className='flex-1 min-w-0 space-y-1'>
-        <div className="flex items-center justify-between gap-4">
-            <span className={cn('text-[10px] font-black uppercase tracking-[0.2em]', config.color.split(' ')[0])}>
-                {notification.category}
-            </span>
-            <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest shrink-0">
-                {timeAgo.toUpperCase()}
-            </span>
+      <div className="flex items-start gap-4 flex-1 min-w-0">
+        <div className={cn('h-12 w-12 shrink-0 rounded-2xl border flex items-center justify-center shadow-inner group-hover:scale-110 transition-transform duration-500', config.color)}>
+          <Icon className="h-6 w-6" />
         </div>
-        <h3 className={cn(
-            "text-[15px] font-black uppercase tracking-tight leading-tight group-hover:text-primary transition-colors",
-            !notification.isRead ? "text-slate-900" : "text-slate-600"
-        )}>
-            {notification.title}
-        </h3>
-        <p className="text-[13px] text-slate-500 font-medium line-clamp-2 leading-relaxed">
-          {notification.message}
-        </p>
+
+        <div className='flex-1 min-w-0 space-y-1'>
+          <div className="flex items-center justify-between gap-4">
+              <span className={cn('text-[10px] font-black uppercase tracking-[0.2em]', config.color.split(' ')[0])}>
+                  {notification.category}
+              </span>
+              <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest shrink-0">
+                  {timeAgo.toUpperCase()}
+              </span>
+          </div>
+          <h3 className={cn(
+              "text-[15px] font-black uppercase tracking-tight leading-tight group-hover:text-primary transition-colors",
+              !notification.isRead ? "text-slate-900" : "text-slate-600"
+          )}>
+              {notification.title}
+          </h3>
+          <p className="text-[13px] text-slate-500 font-medium line-clamp-2 leading-relaxed">
+            {notification.message}
+          </p>
+        </div>
       </div>
       
       {!notification.isRead && (
@@ -94,8 +106,17 @@ export function NotificationItem({ notification }: { notification: Notification 
           )} />
       )}
 
-      <div className="absolute right-6 bottom-6 opacity-0 group-hover:opacity-100 transition-all translate-x-4 group-hover:translate-x-0">
-          <ArrowRight className="h-5 w-5 text-primary" />
+      <div className="flex items-center justify-end sm:justify-center shrink-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-100">
+        <Button
+          size="sm"
+          className="h-10 px-5 rounded-xl font-black text-[9px] uppercase tracking-widest bg-slate-100 text-slate-700 hover:bg-primary hover:text-white transition-all shadow-sm flex items-center gap-2"
+          onClick={(e) => {
+            e.stopPropagation();
+            handleNotificationClick();
+          }}
+        >
+          <Eye className="h-3.5 w-3.5" /> Ver Alerta
+        </Button>
       </div>
     </div>
   );
