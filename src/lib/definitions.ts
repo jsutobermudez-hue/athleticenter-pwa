@@ -345,6 +345,7 @@ export interface SentMessage extends Auditable {
     subject: string;
     body: string;
     recipientSummary?: string;
+    isRead?: boolean;
 }
 
 export interface DirectMessage extends Auditable {

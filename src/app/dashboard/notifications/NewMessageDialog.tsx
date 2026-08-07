@@ -77,9 +77,10 @@ interface NewMessageDialogProps {
     isOpen: boolean;
     onOpenChange: (open: boolean) => void;
     allUsers: User[];
+    onMessageSent?: (contactUser: User, subject: string) => void;
 }
 
-export function NewMessageDialog({ isOpen, onOpenChange, allUsers }: NewMessageDialogProps) {
+export function NewMessageDialog({ isOpen, onOpenChange, allUsers, onMessageSent }: NewMessageDialogProps) {
   const { toast } = useToast();
   const { profile: currentUser } = useUser();
   const firestore = useFirestore();
@@ -164,6 +165,10 @@ export function NewMessageDialog({ isOpen, onOpenChange, allUsers }: NewMessageD
             }
 
             onOpenChange(false);
+            if (onMessageSent && targetUsers.length > 0) {
+                const recipientUser = allUsers.find(u => u.id === targetUsers[0].id) || (targetUsers[0] as User);
+                onMessageSent(recipientUser, data.subject);
+            }
             reset();
         })
         .catch(async (serverError) => {

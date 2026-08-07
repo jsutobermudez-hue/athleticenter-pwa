@@ -33,6 +33,7 @@ export default function NotificationsPage() {
   const firestore = useFirestore();
   const { toast } = useToast();
 
+  const [activeTab, setActiveTab] = useState<string>('inbox');
   const [categoryFilter, setCategoryFilter] = useState<string>('todos');
   const [onlyUnread, setOnlyUnread] = useState<boolean>(false);
   const [isMarking, setIsMarking] = useState(false);
@@ -113,8 +114,13 @@ export default function NotificationsPage() {
   };
 
   const handleOpenNotificationDetail = (n: Notification) => {
-    setActiveNotificationDetail(n);
-    setIsDetailOpen(true);
+    // Si la alerta es de tipo usuario/soporte o incluye nombre de usuario, abrir directamente el chat 2-way
+    if (n.category === 'Usuarios' || n.category === 'Soporte' || n.title.toLowerCase().includes('mensaje') || n.title.toLowerCase().includes('chat')) {
+      handleReplyFromNotification(n);
+    } else {
+      setActiveNotificationDetail(n);
+      setIsDetailOpen(true);
+    }
   };
 
   const handleReplyFromNotification = (n: Notification) => {
@@ -137,6 +143,19 @@ export default function NotificationsPage() {
     } else {
       setIsNewMessageOpen(true);
     }
+  };
+
+  const handleMessageSentSuccess = (contactUser: AppUser, subject: string) => {
+    setActiveTab('dms');
+    setActiveThreadContact({
+      id: contactUser.id,
+      name: contactUser.name,
+      avatarUrl: contactUser.avatarUrl || '',
+      role: contactUser.role,
+      email: contactUser.email
+    });
+    setActiveThreadSubject(subject || 'Conversación de Soporte');
+    setIsThreadOpen(true);
   };
 
   const filteredNotifications = useMemo(() => {
@@ -227,7 +246,7 @@ export default function NotificationsPage() {
         </div>
       </header>
 
-      <Tabs defaultValue="inbox" className="w-full space-y-10">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full space-y-10">
         <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-6 bg-white/40 backdrop-blur-md p-4 rounded-[2.5rem] ring-1 ring-primary/5 shadow-sm">
             <TabsList className="h-12 bg-slate-100/50 p-1.5 rounded-2xl border-none shadow-inner">
                 <TabsTrigger value="inbox" className="px-6 rounded-xl font-black uppercase text-[9px] tracking-widest data-[state=active]:bg-white data-[state=active]:shadow-lg data-[state=active]:text-primary">
@@ -327,6 +346,7 @@ export default function NotificationsPage() {
         isOpen={isNewMessageOpen}
         onOpenChange={setIsNewMessageOpen}
         allUsers={allUsers || []}
+        onMessageSent={(contactUser, subject) => handleMessageSentSuccess(contactUser, subject)}
     />
     <DirectMessageThreadDialog
         isOpen={isThreadOpen}

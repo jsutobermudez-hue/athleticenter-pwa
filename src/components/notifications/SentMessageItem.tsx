@@ -7,7 +7,7 @@ import { es } from 'date-fns/locale';
 import {
   Send,
   Users,
-  ArrowRight
+  CheckCheck
 } from 'lucide-react';
 import React from 'react';
 import { cn } from '@/lib/utils';
@@ -30,7 +30,10 @@ export function SentMessageItem({ message }: { message: SentMessage }) {
 
       <div className='flex-1 min-w-0 space-y-1'>
         <div className="flex items-center justify-between gap-4">
-            <p className="text-[10px] font-black uppercase text-slate-400 tracking-[0.2em]">Registro de Salida</p>
+            <p className="text-[10px] font-black uppercase text-slate-400 tracking-[0.2em] flex items-center gap-1.5">
+              <span>Registro de Salida</span>
+              <CheckCheck className={cn("h-3.5 w-3.5", message.isRead ? "text-sky-500 font-bold" : "text-slate-400")} />
+            </p>
             <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest shrink-0">{timeAgo.toUpperCase()}</p>
         </div>
         <h3 className="text-[15px] font-black uppercase tracking-tighter text-slate-900 leading-tight">

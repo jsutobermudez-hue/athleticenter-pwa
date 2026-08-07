@@ -139,7 +139,23 @@ export function AppSidebar() {
   );
   const { data: unreadDMs } = useCollection(dmsQuery);
 
+  const pendingOrdersQuery = useMemoFirebase(
+    () => {
+      if (!user || !firestore || !profile) return null;
+      const ordersRef = collection(firestore, 'orders');
+      if (['superadmin', 'gerencia', 'admin'].includes(profile.role)) {
+        return query(ordersRef, where('status', 'in', ['Pendiente', 'En Verificación']), limit(50));
+      } else if (profile.role === 'ventas') {
+        return query(ordersRef, where('salespersonId', '==', user.uid), where('status', 'in', ['Pendiente', 'En Verificación']), limit(50));
+      }
+      return null;
+    },
+    [user, firestore, profile]
+  );
+  const { data: pendingOrders } = useCollection(pendingOrdersQuery);
+
   const totalUnreadCount = (unreadNotifications?.length || 0) + (unreadDMs?.length || 0);
+  const pendingOrdersCount = pendingOrders?.length || 0;
 
   const handleLinkClick = () => {
     if (isMobile) {
@@ -159,7 +175,13 @@ export function AppSidebar() {
 
         const isActive = pathname === item.href || (item.href !== '/dashboard' && pathname.startsWith(item.href));
         const isNotificationsItem = item.href === '/dashboard/notifications';
+        const isOrdersItem = item.href === '/dashboard/orders';
+        
         const hasUnread = isNotificationsItem && totalUnreadCount > 0;
+        const hasPendingOrders = isOrdersItem && pendingOrdersCount > 0;
+
+        const showBadge = hasUnread || hasPendingOrders;
+        const badgeCount = hasUnread ? totalUnreadCount : pendingOrdersCount;
 
         return (
           <SidebarMenuItem key={item.href}>
@@ -175,15 +197,15 @@ export function AppSidebar() {
                 <div className="flex items-center gap-3 min-w-0">
                   <div className="relative shrink-0">
                     <item.icon className="h-5 w-5 shrink-0" />
-                    {hasUnread && (
+                    {showBadge && (
                       <span className="absolute -top-1 -right-1 h-2.5 w-2.5 rounded-full bg-rose-500 ring-2 ring-slate-900 animate-pulse group-data-[collapsible=icon]:block hidden" />
                     )}
                   </div>
                   <span className="truncate">{label}</span>
                 </div>
-                {hasUnread && (
+                {showBadge && (
                   <span className="ml-auto shrink-0 flex h-5 min-w-[20px] items-center justify-center rounded-full bg-rose-600 px-1.5 text-[10px] font-black text-white shadow-lg animate-pulse group-data-[collapsible=icon]:hidden">
-                    {totalUnreadCount > 99 ? '99+' : totalUnreadCount}
+                    {badgeCount > 99 ? '99+' : badgeCount}
                   </span>
                 )}
               </SidebarMenuButton>

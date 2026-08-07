@@ -325,7 +325,12 @@ export function DirectMessageThreadDialog({
                           {formattedTime}
                         </span>
                         {msg.isMine && (
-                          <CheckCheck className="h-3 w-3 text-primary opacity-80" />
+                          <CheckCheck 
+                            className={cn(
+                              "h-3.5 w-3.5 transition-all duration-300", 
+                              msg.isRead ? "text-sky-400 font-bold drop-shadow-sm scale-110" : "text-slate-400 opacity-70"
+                            )} 
+                          />
                         )}
                       </div>
                     </div>
