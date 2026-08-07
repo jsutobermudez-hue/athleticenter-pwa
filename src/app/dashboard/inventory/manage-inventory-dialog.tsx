@@ -138,7 +138,7 @@ export function NewProductDialog() {
   };
 
   const onSubmit = async (data: ProductFormValues) => {
-    if (!authUser || !firestore || !currentUser || !results) {
+    if (!authUser || !firestore || !results) {
         toast({ variant: 'destructive', title: 'Error Crítico', description: 'Fallo de motor financiero.' });
         return;
     }
