@@ -1021,6 +1021,123 @@ const generateSalesOutreach = ai.defineTool(
   }
 );
 
+// 20. AUDITORÍA DE CLIENTES INACTIVOS POR VENDEDOR Y DÍAS SIN COMPRAR
+const getInactiveClientsBySalesperson = ai.defineTool(
+  {
+    name: 'getInactiveClientsBySalesperson',
+    description: 'Filtra clientes inactivos sin comprar por más de N días (ej. 15, 30, 60 días), opcionalmente filtrados por el nombre de un vendedor específico (ej. Luis Giménez).',
+    inputSchema: z.object({
+      salespersonName: z.string().optional().describe('Nombre o apellido del vendedor (ej. Luis Giménez). Si se omite, analiza todos los vendedores.'),
+      minDaysInactive: z.number().optional().default(30).describe('Mínimo número de días sin comprar (por defecto 30 días).')
+    }),
+    outputSchema: z.any(),
+  },
+  async (input) => {
+    try {
+      const { firestore } = initializeFirebaseServer();
+      const customersSnap = await getDocs(query(collection(firestore, 'customers'), limit(300)));
+      const ordersSnap = await getDocs(query(collection(firestore, 'orders'), limit(1000)));
+
+      const lastOrderDateByCustomer: { [customerId: string]: Date } = {};
+      const lastOrderDateByEmail: { [email: string]: Date } = {};
+      const lastOrderDateByRif: { [rif: string]: Date } = {};
+
+      ordersSnap.docs.forEach(docSnap => {
+        const o = docSnap.data();
+        let date: Date | null = null;
+        if (o.orderDate) {
+          if (typeof o.orderDate.toDate === 'function') date = o.orderDate.toDate();
+          else if (o.orderDate.seconds) date = new Date(o.orderDate.seconds * 1000);
+          else date = new Date(o.orderDate);
+        } else if (o.createdAt) {
+          if (typeof o.createdAt.toDate === 'function') date = o.createdAt.toDate();
+          else if (o.createdAt.seconds) date = new Date(o.createdAt.seconds * 1000);
+          else date = new Date(o.createdAt);
+        }
+
+        if (date && !isNaN(date.getTime())) {
+          if (o.customerId) {
+            if (!lastOrderDateByCustomer[o.customerId] || date > lastOrderDateByCustomer[o.customerId]) {
+              lastOrderDateByCustomer[o.customerId] = date;
+            }
+          }
+          if (o.customerEmail) {
+            const emailKey = String(o.customerEmail).toLowerCase().trim();
+            if (!lastOrderDateByEmail[emailKey] || date > lastOrderDateByEmail[emailKey]) {
+              lastOrderDateByEmail[emailKey] = date;
+            }
+          }
+          if (o.customerRif) {
+            const rifKey = String(o.customerRif).toLowerCase().trim();
+            if (!lastOrderDateByRif[rifKey] || date > lastOrderDateByRif[rifKey]) {
+              lastOrderDateByRif[rifKey] = date;
+            }
+          }
+        }
+      });
+
+      const now = new Date();
+      const minInactive = input.minDaysInactive || 30;
+      const inactiveClients: any[] = [];
+
+      customersSnap.docs.forEach(docSnap => {
+        const c = docSnap.data();
+        const customerId = docSnap.id;
+        const spName = c.assignedSalespersonName || 'Sin Asesor Asignado';
+
+        if (input.salespersonName && input.salespersonName.trim()) {
+          if (!matchesSearchQuery(spName, input.salespersonName)) {
+            return;
+          }
+        }
+
+        let lastDate: Date | null = null;
+        if (c.lastOrderDate) {
+          if (typeof c.lastOrderDate.toDate === 'function') lastDate = c.lastOrderDate.toDate();
+          else if (c.lastOrderDate.seconds) lastDate = new Date(c.lastOrderDate.seconds * 1000);
+          else lastDate = new Date(c.lastOrderDate);
+        }
+
+        if (!lastDate) lastDate = lastOrderDateByCustomer[customerId] || null;
+        if (!lastDate && c.email) lastDate = lastOrderDateByEmail[String(c.email).toLowerCase().trim()] || null;
+        if (!lastDate && c.rif) lastDate = lastOrderDateByRif[String(c.rif).toLowerCase().trim()] || null;
+
+        let daysInactive = 999;
+        let lastOrderFormatted = 'Sin Compras Previas';
+
+        if (lastDate && !isNaN(lastDate.getTime())) {
+          const diffMs = now.getTime() - lastDate.getTime();
+          daysInactive = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+          lastOrderFormatted = lastDate.toLocaleDateString();
+        }
+
+        if (daysInactive >= minInactive) {
+          inactiveClients.push({
+            vendedor: spName,
+            cliente: c.razonSocial || c.name || 'Cliente B2B',
+            rif: c.rif || 'N/A',
+            ultimaCompra: lastOrderFormatted,
+            diasInactivo: daysInactive === 999 ? 'Sin Compras' : `${daysInactive} días`,
+            estadoCuenta: c.status || 'Activo',
+            limiteCreditoUSD: `$${Number(c.creditLimit || 0).toFixed(2)}`
+          });
+        }
+      });
+
+      inactiveClients.sort((a, b) => {
+        const daysA = a.diasInactivo === 'Sin Compras' ? 9999 : parseInt(a.diasInactivo);
+        const daysB = b.diasInactivo === 'Sin Compras' ? 9999 : parseInt(a.diasInactivo);
+        return daysB - daysA;
+      });
+
+      return inactiveClients.slice(0, 50);
+    } catch (e: any) {
+      console.error("Error in getInactiveClientsBySalesperson:", e);
+      return [];
+    }
+  }
+);
+
 export const aiAnalystFlow = ai.defineFlow(
   {
     name: 'aiAnalystFlow',
@@ -1049,6 +1166,7 @@ export const aiAnalystFlow = ai.defineFlow(
             getTopProductsAndRankings,
             getSalespeoplePerformance,
             getClientPortfolioAudit,
+            getInactiveClientsBySalesperson,
             predictStockOut,
             generateSalesOutreach
           ],
@@ -1080,7 +1198,8 @@ export const aiAnalystFlow = ai.defineFlow(
           17. Si preguntan por cartera de clientes y mora superior a 35 días, usa 'getClientPortfolioAudit'.
           18. Si preguntan por productos por agotarse o recompra, usa 'predictStockOut'.
           19. Si piden redactar un mensaje de WhatsApp, usa 'generateSalesOutreach'.
-          20. SI EL USUARIO PIDE UN INFORME EN PDF (ej. 'puedes dármelo en PDF', 'genera un PDF', 'exportar PDF', 'dámelo en PDF'), DEBES EJECUTAR INMEDIATAMENTE UNA O VARIAS HERRAMIENTAS ANALÍTICAS (ej. getGlobalSalesMetrics, getSalespersonItemBreakdown, getCustomerPurchaseHistory o getABCInventoryClassification) para entregar un informe gerencial real con datos y tablas. NUNCA inventes nombres ni productos. RESPONDE SIEMPRE con el informe completo preparado usando los datos extraídos, incluye la marca '[GENERAR_PDF]' y devuelve 'tabularData'.
+          20. Si preguntan por clientes inactivos (ej. más de 15, 30 o 60 días sin comprar) o inactividad asignada a un vendedor específico (ej. Luis Giménez), USA SIEMPRE la herramienta 'getInactiveClientsBySalesperson'.
+          21. SI EL USUARIO PIDE UN INFORME EN PDF (ej. 'puedes dármelo en PDF', 'genera un PDF', 'exportar PDF', 'dámelo en PDF'), DEBES EJECUTAR INMEDIATAMENTE UNA O VARIAS HERRAMIENTAS ANALÍTICAS (ej. getGlobalSalesMetrics, getSalespersonItemBreakdown, getCustomerPurchaseHistory o getABCInventoryClassification) para entregar un informe gerencial real con datos y tablas. NUNCA inventes nombres ni productos. RESPONDE SIEMPRE con el informe completo preparado usando los datos extraídos, incluye la marca '[GENERAR_PDF]' y devuelve 'tabularData'.
           
           NOTA DE VENDEDORES Y PRODUCTOS:
           Usa 'getSalespersonItemBreakdown' para responder qué vendedor vendió más y cuáles son sus 5 productos top. Usa 'getCustomerPurchaseHistory' para compras de clientes. Ambas herramientas operan con datos reales.
