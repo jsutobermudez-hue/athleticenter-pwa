@@ -160,6 +160,11 @@ export function NewProductDialog() {
 
         const stockVal = data.hasSizes ? totalStockFromSizes : Math.floor(cleanNumber(data.stockLevel));
 
+        const safeNum = (val: any) => {
+          const n = parseFloat(val);
+          return isNaN(n) || !isFinite(n) ? 0 : n;
+        };
+
         await runTransaction(firestore, async (transaction) => {
             const productRef = doc(firestore, 'products', data.sku);
             const pricingRef = doc(firestore, `products/${data.sku}/private/pricing`);
@@ -183,11 +188,11 @@ export function NewProductDialog() {
                 minStockThreshold: Math.floor(cleanNumber(data.minStockThreshold)) || 5, 
                 hasSizes: !!data.hasSizes, 
                 sizes: data.hasSizes ? sizesMap : null,
-                price: results.priceListBCV, 
-                priceCashUSD: results.priceCashUSD, 
-                priceEarly7d: results.priceEarly7d, 
-                priceEarly15d: results.priceEarly15d, 
-                cost: results.landedCost, 
+                price: safeNum(results.priceListBCV), 
+                priceCashUSD: safeNum(results.priceCashUSD), 
+                priceEarly7d: safeNum(results.priceEarly7d), 
+                priceEarly15d: safeNum(results.priceEarly15d), 
+                cost: safeNum(results.landedCost), 
                 userId: authUser.uid, 
                 createdAt: serverTimestamp(), 
                 updatedAt: serverTimestamp() 
@@ -195,8 +200,8 @@ export function NewProductDialog() {
             
             transaction.set(productRef, productPayload);
             transaction.set(pricingRef, { 
-                landedCost: results.landedCost, 
-                netProfit: results.netProfitUSD, 
+                landedCost: safeNum(results.landedCost), 
+                netProfit: safeNum(results.netProfitUSD), 
                 strategyDetails: {
                     ...data,
                     sku: data.sku,
