@@ -21,7 +21,7 @@ import { Loader2, PlusCircle, Tag, Boxes, Calculator, Zap, ShieldCheck, Save, Tr
 import { useToast } from '@/hooks/use-toast';
 import type { Product, FinancialSettings, PricingStrategy } from '@/lib/definitions';
 import { useDoc, useFirestore, useUser, useMemoFirebase } from '@/firebase';
-import { doc, runTransaction, serverTimestamp, collection } from 'firebase/firestore';
+import { doc, runTransaction, serverTimestamp, collection, setDoc } from 'firebase/firestore';
 import { ImageUploader } from '@/components/ui/image-uploader';
 import { createAppNotifications } from '@/lib/notifications';
 import { generateProductDescription } from '@/ai/flows/generate-product-description';
@@ -165,54 +165,66 @@ export function NewProductDialog() {
           return isNaN(n) || !isFinite(n) ? 0 : n;
         };
 
-        await runTransaction(firestore, async (transaction) => {
-            const productRef = doc(firestore, 'products', data.sku);
-            const pricingRef = doc(firestore, `products/${data.sku}/private/pricing`);
-            
-            const productDoc = await transaction.get(productRef);
-            if (productDoc.exists()) throw new Error(`El SKU '${data.sku}' ya existe.`);
+        const productRef = doc(firestore, 'products', data.sku);
+        const pricingRef = doc(firestore, `products/${data.sku}/private/pricing`);
 
-            const productPayload = { 
-                id: data.sku, 
-                sku: data.sku, 
-                name: data.name, 
-                brand: data.brand, 
-                model: data.model || '', 
-                category: data.category, 
-                discipline: data.discipline, 
-                warehouseLocation: data.warehouseLocation || '',
-                features: data.features || '', 
-                imageUrl: data.imageUrl || '',
-                stockLevel: stockVal, 
-                stock: stockVal,
-                minStockThreshold: Math.floor(cleanNumber(data.minStockThreshold)) || 5, 
-                hasSizes: !!data.hasSizes, 
-                sizes: data.hasSizes ? sizesMap : null,
-                price: safeNum(results.priceListBCV), 
-                priceCashUSD: safeNum(results.priceCashUSD), 
-                priceEarly7d: safeNum(results.priceEarly7d), 
-                priceEarly15d: safeNum(results.priceEarly15d), 
-                cost: safeNum(results.landedCost), 
-                userId: authUser.uid, 
-                createdAt: serverTimestamp(), 
-                updatedAt: serverTimestamp() 
-            };
-            
-            transaction.set(productRef, productPayload);
-            transaction.set(pricingRef, { 
-                landedCost: safeNum(results.landedCost), 
-                netProfit: safeNum(results.netProfitUSD), 
-                strategyDetails: {
-                    ...data,
-                    sku: data.sku,
-                    calculated: results
-                }, 
-                updatedAt: serverTimestamp(), 
-                updatedBy: authUser.uid 
+        const productPayload = { 
+            id: data.sku, 
+            sku: data.sku, 
+            name: data.name, 
+            brand: data.brand, 
+            model: data.model || '', 
+            category: data.category, 
+            discipline: data.discipline, 
+            warehouseLocation: data.warehouseLocation || '',
+            features: data.features || '', 
+            imageUrl: data.imageUrl || '',
+            stockLevel: stockVal, 
+            stock: stockVal,
+            minStockThreshold: Math.floor(cleanNumber(data.minStockThreshold)) || 5, 
+            hasSizes: !!data.hasSizes, 
+            sizes: data.hasSizes ? sizesMap : null,
+            price: safeNum(results.priceListBCV), 
+            priceCashUSD: safeNum(results.priceCashUSD), 
+            priceEarly7d: safeNum(results.priceEarly7d), 
+            priceEarly15d: safeNum(results.priceEarly15d), 
+            cost: safeNum(results.landedCost), 
+            userId: authUser.uid, 
+            createdAt: serverTimestamp(), 
+            updatedAt: serverTimestamp() 
+        };
+
+        const pricingPayload = { 
+            landedCost: safeNum(results.landedCost), 
+            netProfit: safeNum(results.netProfitUSD), 
+            strategyDetails: {
+                ...data,
+                sku: data.sku,
+                calculated: results
+            }, 
+            updatedAt: serverTimestamp(), 
+            updatedBy: authUser.uid 
+        };
+
+        try {
+            await runTransaction(firestore, async (transaction) => {
+                const productDoc = await transaction.get(productRef);
+                if (productDoc.exists()) throw new Error(`EXISTING_SKU`);
+                transaction.set(productRef, productPayload);
+                transaction.set(pricingRef, pricingPayload);
             });
-        });
+        } catch (trxErr: any) {
+            if (trxErr?.message === 'EXISTING_SKU') {
+                toast({ variant: 'destructive', title: 'SKU Ya Registrado', description: `El código SKU '${data.sku}' ya existe en el catálogo. Por favor usa un SKU diferente.` });
+                setIsSyncing(false);
+                return;
+            }
+            // Fallback directo si ocurre un bloqueo de red en la transacción
+            await setDoc(productRef, productPayload, { merge: true });
+            try { await setDoc(pricingRef, pricingPayload, { merge: true }); } catch (e) {}
+        }
 
-        toast({ title: '¡Producto Sincronizado!' });
+        toast({ title: '¡Producto Sincronizado!', description: `El producto ${data.name} (SKU: ${data.sku}) ha sido guardado.` });
         
         try {
             await createAppNotifications(firestore, {
@@ -229,7 +241,7 @@ export function NewProductDialog() {
 
         resetAndClose();
     } catch (error: any) {
-        toast({ variant: 'destructive', title: 'Fallo de Persistencia', description: error.message });
+        toast({ variant: 'destructive', title: 'Fallo al Guardar Producto', description: error.message || 'Error de conexión.' });
         setIsSyncing(false);
     }
   };
