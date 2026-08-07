@@ -68,7 +68,7 @@ import { Switch } from '@/components/ui/switch';
 const roles: User['role'][] = ['superadmin', 'admin', 'gerencia', 'deposito', 'ventas', 'cliente'];
 
 const newUserSchema = z.object({
-  name: z.string().min(1, 'El nombre es requerido.'),
+  name: z.string().optional().default(''),
   email: z.string().email('Email inválido.'),
   password: z.string().min(6, 'Mínimo 6 caracteres.'),
   role: z.enum(roles as any),
@@ -107,6 +107,14 @@ const newUserSchema = z.object({
                 });
             }
         }
+    } else {
+        if (!data.name) {
+            ctx.addIssue({
+                code: 'custom',
+                message: 'El nombre es requerido para usuarios del sistema.',
+                path: ['name']
+            });
+        }
     }
 });
 
@@ -118,7 +126,7 @@ export function NewUserDialog({ buttonLabel = "Crear Usuario", defaultRole = 've
   const [isCustomerPopoverOpen, setIsCustomerPopoverOpen] = useState(false);
   const { toast } = useToast();
   const firestore = useFirestore();
-  const { user: authUser } = useUser();
+  const { user: authUser, profile: currentUser } = useUser();
 
   const usersQuery = useMemoFirebase(() => (firestore && authUser) ? query(collection(firestore, 'users'), limit(500)) : null, [firestore, authUser]);
   const { data: allUsers } = useCollection<User>(usersQuery);
@@ -177,7 +185,6 @@ export function NewUserDialog({ buttonLabel = "Crear Usuario", defaultRole = 've
             const userCredential = await createUserWithEmailAndPassword(tempAuth, emailClean, data.password);
             targetUid = userCredential.user.uid;
         } catch (authErr: any) {
-            // Manejo inteligente total para emails ya existentes
             if (authErr?.code === 'auth/email-already-in-use' || authErr?.message?.includes('email-already-in-use')) {
                 const userSnap = await getDocs(query(collection(firestore, 'users'), where('email', '==', emailClean), limit(1)));
                 if (!userSnap.empty) {
@@ -196,14 +203,18 @@ export function NewUserDialog({ buttonLabel = "Crear Usuario", defaultRole = 've
         }
 
         if (targetUid) {
-            const sp = staffMembers.find(s => s.id === data.assignedSalespersonId);
+            const assignedSpId = data.assignedSalespersonId || authUser.uid;
+            const sp = staffMembers.find(s => s.id === assignedSpId) || (currentUser ? { id: currentUser.id, name: currentUser.name } : null);
+            
             const finalCustomerId = data.role === 'cliente' 
                 ? (data.isLinkingToExisting ? data.associatedCustomerId : targetUid)
                 : null;
 
+            const clientName = data.name || data.razonSocial || 'Cliente B2B';
+
             await setDoc(doc(firestore, "users", targetUid), { 
                 id: targetUid,
-                name: data.name || data.razonSocial || 'Cliente B2B', 
+                name: clientName, 
                 email: emailClean, 
                 role: data.role || 'cliente', 
                 status: 'Activo', 
@@ -217,22 +228,22 @@ export function NewUserDialog({ buttonLabel = "Crear Usuario", defaultRole = 've
             if (data.role === 'cliente' && !data.isLinkingToExisting) {
                 await setDoc(doc(firestore, 'customers', targetUid), { 
                     id: targetUid,
-                    razonSocial: data.razonSocial || data.name || 'Cliente B2B', 
+                    razonSocial: data.razonSocial || clientName, 
                     rif: data.rif || '', 
                     address: data.address || '', 
                     email: emailClean, 
                     phone: data.phone || '', 
                     creditLimit: Number(data.creditLimit || 0), 
                     creditUsed: 0,
-                    assignedSalespersonId: data.assignedSalespersonId || '', 
-                    assignedSalespersonName: sp?.name || 'Personal Staff', 
+                    assignedSalespersonId: assignedSpId, 
+                    assignedSalespersonName: sp?.name || currentUser?.name || 'Personal Staff', 
                     status: 'Activo', 
                     updatedAt: serverTimestamp(), 
                     createdBy: authUser.uid 
                 }, { merge: true });
             }
 
-            toast({ title: '¡Registro Exitoso!', description: 'Ficha comercial y cuenta del cliente sincronizadas correctamente.' });
+            toast({ title: '¡Registro Exitoso!', description: 'Ficha comercial y cuenta del cliente asignadas correctamente.' });
             resetAndClose();
             return;
         }
