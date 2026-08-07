@@ -1153,9 +1153,6 @@ const getClientsBySalespersonAndActivity = ai.defineTool(
   }
 );
 
-// 21. ALIAS DE SEGURIDAD PARA CLIENTES INACTIVOS POR VENDEDOR
-const getInactiveClientsBySalesperson = getClientsBySalespersonAndActivity;
-
 export const aiAnalystFlow = ai.defineFlow(
   {
     name: 'aiAnalystFlow',

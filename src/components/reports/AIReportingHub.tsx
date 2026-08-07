@@ -70,10 +70,13 @@ export function AIReportingHub() {
         setInput('');
         setIsProcessing(true);
 
-        const historyPayload = newMessages.slice(-10).map(m => ({
-            role: m.role,
-            content: m.content
-        }));
+        const historyPayload = newMessages
+            .filter(m => m.role !== 'system' && !m.content.includes('DIAGNOSTIC ERROR') && !m.content.includes('Error de conexión'))
+            .slice(-8)
+            .map(m => ({
+                role: m.role,
+                content: m.content
+            }));
 
         try {
             const result = await runAIAnalyst({
