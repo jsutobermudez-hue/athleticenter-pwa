@@ -1195,7 +1195,6 @@ export const aiAnalystFlow = ai.defineFlow(
             getSalespeoplePerformance,
             getClientPortfolioAudit,
             getClientsBySalespersonAndActivity,
-            getInactiveClientsBySalesperson,
             predictStockOut,
             generateSalesOutreach
           ],
@@ -1227,7 +1226,7 @@ export const aiAnalystFlow = ai.defineFlow(
           17. Si preguntan por cartera de clientes y mora superior a 35 días, usa 'getClientPortfolioAudit'.
           18. Si preguntan por productos por agotarse o recompra, usa 'predictStockOut'.
           19. Si piden redactar un mensaje de WhatsApp, usa 'generateSalesOutreach'.
-          20. Si preguntan por clientes inactivos o activos (ej. más de 15, 30 o 60 días sin comprar o comprando) o por un vendedor específico (ej. Luis Giménez), USA SIEMPRE 'getClientsBySalespersonAndActivity' o 'getInactiveClientsBySalesperson'.
+          20. Si preguntan por clientes inactivos o activos (ej. más de 15, 30 o 60 días sin comprar o comprando) o por un vendedor específico (ej. Luis Giménez), USA SIEMPRE 'getClientsBySalespersonAndActivity'.
           21. SI EL USUARIO PIDE UN INFORME EN PDF (ej. 'puedes dármelo en PDF', 'genera un PDF', 'exportar PDF', 'dámelo en PDF'), DEBES EJECUTAR INMEDIATAMENTE UNA O VARIAS HERRAMIENTAS ANALÍTICAS (ej. getGlobalSalesMetrics, getSalespersonItemBreakdown, getCustomerPurchaseHistory o getABCInventoryClassification) para entregar un informe gerencial real con datos y tablas. NUNCA inventes nombres ni productos. RESPONDE SIEMPRE con el informe completo preparado usando los datos extraídos, incluye la marca '[GENERAR_PDF]' y devuelve 'tabularData'.
           
           NOTA DE VENDEDORES Y PRODUCTOS:
