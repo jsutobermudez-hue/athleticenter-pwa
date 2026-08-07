@@ -58,7 +58,7 @@ import { useFirestore, useUser, useCollection, useMemoFirebase } from '@/firebas
 import { getAuth, createUserWithEmailAndPassword } from 'firebase/auth';
 import { initializeApp, deleteApp } from 'firebase/app';
 import { firebaseConfig } from '@/firebase/config';
-import { doc, collection, query, serverTimestamp, runTransaction, limit } from 'firebase/firestore';
+import { doc, collection, query, where, getDocs, setDoc, serverTimestamp, runTransaction, limit } from 'firebase/firestore';
 import { ImageUploader } from '@/components/ui/image-uploader';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn } from '@/lib/utils';
@@ -166,61 +166,125 @@ export function NewUserDialog({ buttonLabel = "Crear Usuario", defaultRole = 've
   const onSubmit = async (data: NewUserFormValues) => {
     if (!firestore || !authUser) return;
     
+    const emailClean = data.email.toLowerCase().trim();
     const tempApp = initializeApp(firebaseConfig, `creation-${Date.now()}`);
+
     try {
-        const tempAuth = getAuth(tempApp);
-        const userCredential = await createUserWithEmailAndPassword(tempAuth, data.email, data.password);
-        const newUserUid = userCredential.user.uid;
+        let newUserUid: string | null = null;
 
-        await runTransaction(firestore, async (transaction) => {
-            const finalCustomerId = data.role === 'cliente' 
-                ? (data.isLinkingToExisting ? data.associatedCustomerId : newUserUid)
-                : null;
+        try {
+            const tempAuth = getAuth(tempApp);
+            const userCredential = await createUserWithEmailAndPassword(tempAuth, emailClean, data.password);
+            newUserUid = userCredential.user.uid;
+        } catch (authErr: any) {
+            if (authErr?.code === 'auth/email-already-in-use' || authErr?.message?.includes('email-already-in-use')) {
+                const userSnap = await getDocs(query(collection(firestore, 'users'), where('email', '==', emailClean), limit(1)));
+                let existingUid: string | null = null;
 
-            transaction.set(doc(firestore, "users", newUserUid), { 
-                id: newUserUid,
-                name: data.name, 
-                email: data.email, 
-                role: data.role, 
-                status: 'Activo', 
-                associatedCustomerId: finalCustomerId,
-                avatarUrl: data.avatarUrl || '', 
-                phone: data.phone || '', 
-                address: data.address || '',
-                createdAt: serverTimestamp(), 
-                updatedAt: serverTimestamp()
+                if (!userSnap.empty) {
+                    existingUid = userSnap.docs[0].id;
+                } else {
+                    const custSnap = await getDocs(query(collection(firestore, 'customers'), where('email', '==', emailClean), limit(1)));
+                    if (!custSnap.empty) existingUid = custSnap.docs[0].id;
+                }
+
+                if (existingUid) {
+                    const sp = staffMembers.find(s => s.id === data.assignedSalespersonId);
+                    await setDoc(doc(firestore, 'customers', existingUid), {
+                        id: existingUid,
+                        razonSocial: data.razonSocial || data.name || 'Cliente B2B',
+                        rif: data.rif || '',
+                        address: data.address || '',
+                        email: emailClean,
+                        phone: data.phone || '',
+                        creditLimit: data.creditLimit || 0,
+                        creditUsed: 0,
+                        assignedSalespersonId: data.assignedSalespersonId || '',
+                        assignedSalespersonName: sp?.name || 'Personal Staff',
+                        status: 'Activo',
+                        updatedAt: serverTimestamp(),
+                        createdBy: authUser.uid
+                    }, { merge: true });
+
+                    await setDoc(doc(firestore, 'users', existingUid), {
+                        role: data.role || 'cliente',
+                        associatedCustomerId: existingUid,
+                        phone: data.phone || '',
+                        address: data.address || '',
+                        updatedAt: serverTimestamp()
+                    }, { merge: true });
+
+                    toast({ 
+                        title: '¡Ficha de Cliente Vinculada!', 
+                        description: `El correo ${emailClean} ya posee cuenta de acceso. Se actualizó su ficha comercial exitosamente.` 
+                    });
+                    resetAndClose();
+                    return;
+                }
+            }
+            throw authErr;
+        }
+
+        if (newUserUid) {
+            await runTransaction(firestore, async (transaction) => {
+                const finalCustomerId = data.role === 'cliente' 
+                    ? (data.isLinkingToExisting ? data.associatedCustomerId : newUserUid)
+                    : null;
+
+                transaction.set(doc(firestore, "users", newUserUid), { 
+                    id: newUserUid,
+                    name: data.name, 
+                    email: emailClean, 
+                    role: data.role, 
+                    status: 'Activo', 
+                    associatedCustomerId: finalCustomerId,
+                    avatarUrl: data.avatarUrl || '', 
+                    phone: data.phone || '', 
+                    address: data.address || '',
+                    createdAt: serverTimestamp(), 
+                    updatedAt: serverTimestamp()
+                });
+
+                if (data.role === 'cliente' && !data.isLinkingToExisting) {
+                    const sp = staffMembers.find(s => s.id === data.assignedSalespersonId);
+                    transaction.set(doc(firestore, 'customers', newUserUid), { 
+                        id: newUserUid,
+                        razonSocial: data.razonSocial || '', 
+                        rif: data.rif || '', 
+                        address: data.address || '', 
+                        email: emailClean, 
+                        phone: data.phone || '', 
+                        creditLimit: data.creditLimit || 0, 
+                        creditUsed: 0,
+                        assignedSalespersonId: data.assignedSalespersonId || '', 
+                        assignedSalespersonName: sp?.name || 'Personal Staff', 
+                        status: 'Activo', 
+                        createdAt: serverTimestamp(), 
+                        createdBy: authUser.uid 
+                    });
+                }
             });
 
-            if (data.role === 'cliente' && !data.isLinkingToExisting) {
-                const sp = staffMembers.find(s => s.id === data.assignedSalespersonId);
-                transaction.set(doc(firestore, 'customers', newUserUid), { 
-                    id: newUserUid,
-                    razonSocial: data.razonSocial || '', 
-                    rif: data.rif || '', 
-                    address: data.address || '', 
-                    email: data.email, 
-                    phone: data.phone || '', 
-                    creditLimit: data.creditLimit || 0, 
-                    creditUsed: 0,
-                    assignedSalespersonId: data.assignedSalespersonId || '', 
-                    assignedSalespersonName: sp?.name || 'Personal Staff', 
-                    status: 'Activo', 
-                    createdAt: serverTimestamp(), 
-                    createdBy: authUser.uid 
-                });
-            }
-        });
-
-        toast({ title: '¡Registro Exitoso!', description: 'El acceso de red y el expediente han sido sincronizados.' });
-        resetAndClose();
+            toast({ title: '¡Registro Exitoso!', description: 'El acceso de red y el expediente han sido sincronizados.' });
+            resetAndClose();
+        }
     } catch (error: any) {
+        let msg = error?.message || 'Error inesperado al procesar registro.';
+        if (error?.code === 'auth/email-already-in-use') {
+            msg = 'Este correo ya tiene un usuario registrado. Se intentó vincular la ficha automáticamente.';
+        } else if (error?.code === 'auth/invalid-email') {
+            msg = 'El formato del correo electrónico no es válido.';
+        } else if (error?.code === 'auth/weak-password') {
+            msg = 'La contraseña debe tener al menos 6 caracteres.';
+        }
+
         toast({ 
             variant: 'destructive', 
             title: 'Fallo de Registro', 
-            description: error.message || 'Error inesperado.' 
+            description: msg 
         });
     } finally {
-        await deleteApp(tempApp);
+        try { await deleteApp(tempApp); } catch (e) {}
     }
   };
 
