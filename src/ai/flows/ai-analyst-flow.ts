@@ -12,7 +12,11 @@ import { initializeFirebaseServer } from '@/firebase/server-init';
 const AIAnalystInputSchema = z.object({
   query: z.string().describe('Consulta o pregunta del usuario sobre el negocio.'),
   userId: z.string().describe('ID del usuario que realiza la consulta.'),
-  userRole: z.string().optional().default('superadmin').describe('Rol del usuario autenticado')
+  userRole: z.string().optional().default('superadmin').describe('Rol del usuario autenticado'),
+  history: z.array(z.object({
+    role: z.string(),
+    content: z.string()
+  })).optional().describe('Historial reciente de la conversación para mantener memoria contextual')
 });
 
 const AIAnalystOutputSchema = z.object({
@@ -1160,6 +1164,16 @@ export const aiAnalystFlow = ai.defineFlow(
   },
   async (input) => {
     try {
+        let userPromptWithHistory = input.query;
+        if (Array.isArray(input.history) && input.history.length > 0) {
+            const formattedHistory = input.history
+                .slice(-8)
+                .map(h => `${h.role === 'user' ? 'USUARIO' : 'ANALISTA_IA'}: ${h.content}`)
+                .join('\n');
+
+            userPromptWithHistory = `HISTORIAL DE LA CONVERSACIÓN PREVIA CON EL USUARIO:\n${formattedHistory}\n\nNUEVO MENSAJE O SEGUIMIENTO DEL USUARIO:\n${input.query}\n\nINSTRUCCIÓN DE MEMORIA CONTINUA:\nAnaliza el nuevo mensaje manteniendo el contexto completo de la conversación previa. Si el usuario utiliza pronombres o frases cortas de seguimiento (ej. "pero si me los acabas de dar", "y los activos?", "dámelos en PDF", "filtra sólo por Banesco", "y los de este mes?"), deduce el tema y la intención original y ejecuta la herramienta correspondiente para dar una respuesta completa con datos reales.`;
+        }
+
         const response = await ai.generate({
           model: 'googleai/gemini-2.5-flash',
           tools: [
@@ -1213,14 +1227,14 @@ export const aiAnalystFlow = ai.defineFlow(
           17. Si preguntan por cartera de clientes y mora superior a 35 días, usa 'getClientPortfolioAudit'.
           18. Si preguntan por productos por agotarse o recompra, usa 'predictStockOut'.
           19. Si piden redactar un mensaje de WhatsApp, usa 'generateSalesOutreach'.
-          20. Si preguntan por clientes inactivos (ej. más de 15, 30 o 60 días sin comprar) o inactividad asignada a un vendedor específico (ej. Luis Giménez), USA SIEMPRE la herramienta 'getInactiveClientsBySalesperson'.
+          20. Si preguntan por clientes inactivos o activos (ej. más de 15, 30 o 60 días sin comprar o comprando) o por un vendedor específico (ej. Luis Giménez), USA SIEMPRE 'getClientsBySalespersonAndActivity' o 'getInactiveClientsBySalesperson'.
           21. SI EL USUARIO PIDE UN INFORME EN PDF (ej. 'puedes dármelo en PDF', 'genera un PDF', 'exportar PDF', 'dámelo en PDF'), DEBES EJECUTAR INMEDIATAMENTE UNA O VARIAS HERRAMIENTAS ANALÍTICAS (ej. getGlobalSalesMetrics, getSalespersonItemBreakdown, getCustomerPurchaseHistory o getABCInventoryClassification) para entregar un informe gerencial real con datos y tablas. NUNCA inventes nombres ni productos. RESPONDE SIEMPRE con el informe completo preparado usando los datos extraídos, incluye la marca '[GENERAR_PDF]' y devuelve 'tabularData'.
           
           NOTA DE VENDEDORES Y PRODUCTOS:
           Usa 'getSalespersonItemBreakdown' para responder qué vendedor vendió más y cuáles son sus 5 productos top. Usa 'getCustomerPurchaseHistory' para compras de clientes. Ambas herramientas operan con datos reales.
           
           Responde siempre en ESPAÑOL profesional con análisis narrativo + datos tabulares si aplica.`,
-          prompt: input.query,
+          prompt: userPromptWithHistory,
         });
         
         const rawText = response.text || '';

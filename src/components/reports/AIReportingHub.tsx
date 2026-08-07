@@ -64,15 +64,22 @@ export function AIReportingHub() {
             timestamp: new Date()
         };
 
-        setMessages(prev => [...prev, userMsg]);
+        const newMessages = [...messages, userMsg];
+        setMessages(newMessages);
         const currentQuery = input;
         setInput('');
         setIsProcessing(true);
 
+        const historyPayload = newMessages.slice(-10).map(m => ({
+            role: m.role,
+            content: m.content
+        }));
+
         try {
             const result = await runAIAnalyst({
                 query: currentQuery,
-                userId: profile.id
+                userId: profile.id,
+                history: historyPayload
             });
 
             if (result.success && result.data) {
