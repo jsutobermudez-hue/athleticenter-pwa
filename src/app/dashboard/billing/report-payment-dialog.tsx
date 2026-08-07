@@ -50,7 +50,7 @@ import {
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useFirestore, useUser, useDoc, useMemoFirebase, errorEmitter, FirestorePermissionError } from '@/firebase';
-import { doc, writeBatch, collection, serverTimestamp } from 'firebase/firestore';
+import { doc, writeBatch, collection, serverTimestamp, setDoc, updateDoc } from 'firebase/firestore';
 import { ImageUploader } from '@/components/ui/image-uploader';
 import { cn } from '@/lib/utils';
 import type { Invoice, Order, FinancialSettings, Payment } from '@/lib/definitions';
@@ -121,7 +121,7 @@ export function ReportPaymentDialog({ invoice, mode = 'partial' }: { invoice: In
     } as FinancialSettings;
   }, [globalSettingsRaw]);
 
-  const orderRef = useMemoFirebase(() => (firestore && invoice) ? doc(firestore, 'orders', invoice.id) : null, [firestore, invoice?.id]);
+  const orderRef = useMemoFirebase(() => (firestore && invoice?.id) ? doc(firestore, 'orders', invoice.id) : null, [firestore, invoice?.id]);
   const { data: orderData } = useDoc<Order>(orderRef);
 
   const { control, handleSubmit, formState: { isSubmitting, errors }, reset, setValue, watch } = useForm<PaymentReportValues>({
@@ -200,12 +200,12 @@ export function ReportPaymentDialog({ invoice, mode = 'partial' }: { invoice: In
   }, [selectedMethod, metodosNacionales]);
 
   useEffect(() => {
-    if (isOpen && isMounted) {
+    if (isOpen && isMounted && invoice) {
         setValue('paymentDate', new Date().toISOString().split('T')[0]);
-        if (isTotalMode) setValue('amount', Number(invoice.remainingBalance.toFixed(2)));
+        if (isTotalMode) setValue('amount', Number((invoice.remainingBalance || 0).toFixed(2)));
         else setValue('amount', 0);
     }
-  }, [isOpen, isMounted, isTotalMode, invoice.remainingBalance, setValue]);
+  }, [isOpen, isMounted, isTotalMode, invoice?.remainingBalance, setValue]);
 
   const elapsedDays = useMemo(() => {
     return getElapsedDays(orderData?.orderDate || (invoice as any)?.createdAt, paymentDateInput);
@@ -222,14 +222,14 @@ export function ReportPaymentDialog({ invoice, mode = 'partial' }: { invoice: In
     }
   }, [elapsedDays, is7DaysEligible, is15DaysEligible, earlyPaymentType, setValue]);
 
-  // LÓGICA DE CÁLCULO BI-DIRECCIONAL EN TIEMPO REAL v8.1 (RESILIENTE)
+  // LÓGICA DE CÁLCULO BI-DIRECCIONAL EN TIEMPO REAL v8.2 (RESILIENTE)
   const calculation = useMemo(() => {
     const bcvDiscountFactor = (globalSettings.defaultBcvDiscount || 35) / 100;
     const ivaFactor = (globalSettings.ivaPercent || 16) / 100;
     const early7Factor = (globalSettings.earlyPayment7Days || 5) / 100;
     const early15Factor = (globalSettings.earlyPayment15Days || 3) / 100;
 
-    const currentBalance = invoice.remainingBalance || 0;
+    const currentBalance = invoice?.remainingBalance || 0;
     const rawVal = Number(inputAmount || 0);
 
     let cashDiscountPct = accountingBase === 'cash' ? bcvDiscountFactor : 0;
@@ -280,7 +280,7 @@ export function ReportPaymentDialog({ invoice, mode = 'partial' }: { invoice: In
         finalAmount: Number(finalAmountToTransfer.toFixed(2)), 
         discountType 
     };
-  }, [globalSettings, inputAmount, accountingBase, documentType, earlyPaymentType, is7DaysEligible, is15DaysEligible, invoice.remainingBalance, isTotalMode, inputMode]);
+  }, [globalSettings, inputAmount, accountingBase, documentType, earlyPaymentType, is7DaysEligible, is15DaysEligible, invoice?.remainingBalance, isTotalMode, inputMode]);
 
   useEffect(() => {
       if (selectedMethod && !['Zelle', 'Efectivo'].includes(selectedMethod)) {
@@ -288,7 +288,12 @@ export function ReportPaymentDialog({ invoice, mode = 'partial' }: { invoice: In
       }
   }, [selectedMethod, setValue]);
 
-  const onSubmit = (data: PaymentReportValues) => {
+  const onSubmit = async (data: PaymentReportValues) => {
+    if (!invoice?.id) {
+      toast({ variant: 'destructive', title: 'Error de Orden', description: 'No se encontró la factura asociada.' });
+      return;
+    }
+
     if (!firestore || !authUser) {
       toast({ variant: 'destructive', title: 'Error de Autenticación', description: 'Por favor inicie sesión nuevamente.' });
       return;
@@ -304,16 +309,13 @@ export function ReportPaymentDialog({ invoice, mode = 'partial' }: { invoice: In
       return;
     }
 
-    // Parseo Ultra Seguro de Fecha
     let safePaymentDate: Date = new Date();
     if (data.paymentDate) {
       const parsed = new Date(data.paymentDate + 'T12:00:00');
       if (!isNaN(parsed.getTime())) safePaymentDate = parsed;
     }
     
-    const batch = writeBatch(firestore);
     const paymentRef = doc(collection(firestore, `orders/${invoice.id}/payments`));
-    
     const registeredByName = currentUser?.name || authUser.displayName || authUser.email || 'Cliente';
 
     const payload: Partial<Payment> = { 
@@ -337,33 +339,49 @@ export function ReportPaymentDialog({ invoice, mode = 'partial' }: { invoice: In
       notes: data.notes || ''
     };
 
-    batch.set(paymentRef, payload);
-    batch.update(doc(firestore, 'orders', invoice.id), { 
-        status: 'En Verificación', 
-        updatedAt: serverTimestamp() 
-    });
+    // Intentar primero vía Batch Atómico; si falla por algún motivo de red, usar fallback directo setDoc
+    try {
+      const batch = writeBatch(firestore);
+      batch.set(paymentRef, payload);
+      batch.update(doc(firestore, 'orders', invoice.id), { 
+          status: 'En Verificación', 
+          updatedAt: serverTimestamp() 
+      });
+      await batch.commit();
 
-    batch.commit().then(() => {
+      toast({ title: '¡Abono Reportado!', description: 'Administración verificará su reporte pronto.' });
+      setIsOpen(false);
+      reset();
+      setUploadedImageUrl(null);
+    } catch (batchError: any) {
+      console.warn("Lote atómico falló, aplicando escritura directa...", batchError);
+      try {
+        await setDoc(paymentRef, payload);
+        await updateDoc(doc(firestore, 'orders', invoice.id), {
+          status: 'En Verificación',
+          updatedAt: serverTimestamp()
+        });
         toast({ title: '¡Abono Reportado!', description: 'Administración verificará su reporte pronto.' });
         setIsOpen(false);
         reset();
         setUploadedImageUrl(null);
-    }).catch(async (serverError: any) => {
-        console.error("Error al reportar pago:", serverError);
+      } catch (directError: any) {
+        console.error("Error definitivo al guardar reporte de pago:", directError);
         toast({ 
             variant: 'destructive', 
             title: 'Fallo al Guardar Reporte', 
-            description: serverError?.message || 'Verifique sus permisos o la conexión de red.' 
+            description: directError?.message || 'Error al conectar con la base de datos.' 
         });
         errorEmitter.emit('permission-error', new FirestorePermissionError({ 
             path: `orders/${invoice.id}/payments`, 
             operation: 'create', 
             requestResourceData: payload 
         }));
-    });
+      }
+    }
   };
 
-  if (!isMounted) return null;
+  if (!isMounted || !invoice) return null;
 
   return (
     <Dialog open={isOpen} onOpenChange={setIsOpen}>
@@ -381,7 +399,7 @@ export function ReportPaymentDialog({ invoice, mode = 'partial' }: { invoice: In
             </div>
             <div className="text-left min-w-0 flex-1">
                 <DialogTitle className="text-xl sm:text-2xl font-black uppercase tracking-tighter leading-none truncate">Terminal de Cobranza Dinámica</DialogTitle>
-                <DialogDescription className="text-white/60 font-medium mt-1 uppercase text-[8px] sm:text-[10px] tracking-widest">#{invoice.id.substring(0,7)} | Saldo Pendiente: ${invoice.remainingBalance.toFixed(2)}</DialogDescription>
+                <DialogDescription className="text-white/60 font-medium mt-1 uppercase text-[8px] sm:text-[10px] tracking-widest">#{invoice.id.substring(0,7)} | Saldo Pendiente: ${(invoice.remainingBalance || 0).toFixed(2)}</DialogDescription>
             </div>
             <button onClick={() => setIsOpen(false)} className="text-white/40 hover:text-white transition-colors"><X className="h-6 w-6" /></button>
           </div>
@@ -642,7 +660,7 @@ export function ReportPaymentDialog({ invoice, mode = 'partial' }: { invoice: In
                                 <CardHeader className="border-b border-white/10 pb-4">
                                     <CardTitle className="text-[10px] font-black uppercase tracking-widest text-primary flex items-center justify-between">
                                         <span className="flex items-center gap-2"><Calculator className="h-3.5 w-3.5" /> Monitor de Liquidación</span>
-                                        <Badge variant="outline" className="text-[7px] text-white/60 border-white/20 uppercase font-mono">v8.1 Resiliente</Badge>
+                                        <Badge variant="outline" className="text-[7px] text-white/60 border-white/20 uppercase font-mono">v8.2 Alta Disponibilidad</Badge>
                                     </CardTitle>
                                 </CardHeader>
                                 <CardContent className="p-8 space-y-8">
