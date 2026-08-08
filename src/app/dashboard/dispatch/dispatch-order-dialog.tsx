@@ -118,7 +118,8 @@ export function DispatchOrderDialog({ order, isOpen, onOpenChange }: DispatchOrd
             message: `Guía Interna Única: ${internalTracking}. Transportista: ${carrier}.`,
             link: `/dashboard/dispatch?orderId=${order.id}`,
             initiatorId: authUser.uid,
-            userIds: [order.salespersonId, order.customerId],
+            salespersonId: order.salespersonId,
+            customerId: order.customerId,
             roles: ['admin', 'gerencia', 'deposito'],
         });
         

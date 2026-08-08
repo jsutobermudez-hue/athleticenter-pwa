@@ -64,7 +64,8 @@ export function ConfirmDeliveryDialog({ order, isOpen, onOpenChange }: { order: 
                 message: `El pedido de ${order.customerName} ha sido entregado exitosamente.`,
                 link: `/dashboard/billing?orderId=${order.id}`,
                 initiatorId: authUser.uid,
-                userIds: [order.salespersonId, order.customerId],
+                salespersonId: order.salespersonId,
+                customerId: order.customerId,
                 roles: ['admin', 'gerencia'],
             });
 

@@ -243,6 +243,17 @@ export function ConfirmPaymentDialog({ order }: { order: Order }) {
             });
         }
 
+        await createAppNotifications(firestore, {
+            category: 'Facturación',
+            title: `¡Abono Conciliado! #${order.id.substring(0, 6)}`,
+            message: `Se ha verificado un abono por $${(reportedPayment?.baseAmount || data.amount).toFixed(2)} para ${order.customerName}.`,
+            link: `/dashboard/billing?orderId=${order.id}`,
+            initiatorId: currentUser.id,
+            salespersonId: order.salespersonId,
+            customerId: order.customerId,
+            roles: ['admin', 'gerencia'],
+        });
+
         toast({ title: '¡Abono Conciliado!', description: `Deuda actualizada y documento generado.` });
         setIsOpen(false);
     })

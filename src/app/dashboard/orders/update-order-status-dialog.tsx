@@ -111,7 +111,8 @@ export function UpdateOrderStatusDialog({ order, isOpen, onOpenChange }: UpdateO
                 message: `Nuevo estado: ${status}. Por: ${updaterName}.`,
                 link: `/dashboard/orders?order=${order.id}`,
                 initiatorId: currentUser.id,
-                userIds: [order.salespersonId, order.customerId],
+                salespersonId: order.salespersonId,
+                customerId: order.customerId,
                 roles: ['admin', 'gerencia', 'deposito'],
             });
             

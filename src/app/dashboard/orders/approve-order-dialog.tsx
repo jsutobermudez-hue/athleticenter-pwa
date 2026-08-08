@@ -204,7 +204,8 @@ export function ApproveOrderDialog({ order, currentUser, isOpen, onOpenChange, o
             message: `El pedido de ${order.customerName} ha sido movido a fase de preparación.`,
             link: `/dashboard/dispatch?orderId=${order.id}`,
             initiatorId: currentUser.id,
-            userIds: [order.salespersonId, order.customerId],
+            salespersonId: order.salespersonId,
+            customerId: order.customerId,
             roles: ['admin', 'gerencia', 'deposito'],
         });
 

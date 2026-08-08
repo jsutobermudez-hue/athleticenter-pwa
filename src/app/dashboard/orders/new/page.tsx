@@ -274,6 +274,8 @@ function NewOrderForm() {
                         message: `El vendedor ${spName} ha registrado el pedido #${finalOrderId} para ${rawName} por un total de $${safeTotalAmount.toFixed(2)}.`,
                         link: `/dashboard/dispatch?orderId=${finalOrderId}`,
                         initiatorId: currentUser.id,
+                        salespersonId: spId,
+                        customerId: selectedCustomerId,
                         roles: ['admin', 'gerencia', 'deposito'],
                         userIds: clientUserIds
                     });
