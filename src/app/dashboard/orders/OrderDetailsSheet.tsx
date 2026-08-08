@@ -5,7 +5,6 @@ import {
     Dialog, 
     DialogContent, 
     DialogDescription, 
-    DialogFooter, 
     DialogHeader, 
     DialogTitle 
 } from '@/components/ui/dialog';
@@ -29,18 +28,21 @@ import {
   Check,
   ShieldCheck,
   MapPin,
-  ImageIcon,
   Maximize2,
   X,
   Truck,
   ClipboardList,
   XCircle,
   Clock,
-  Info,
   Camera,
   QrCode,
   CheckCircle2,
-  MessageSquare
+  MessageSquare,
+  FileText,
+  DollarSign,
+  Send,
+  AlertTriangle,
+  Package
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { generateOrderPDF, generatePickingListPDF, generatePackageLabelsPDF } from '@/lib/pdf-generator';
@@ -71,10 +73,14 @@ interface OrderDetailsSheetProps {
     isLoadingItems: boolean;
 }
 
-/**
- * TERMINAL DE DETALLES v7.2 - PROTOCOLO DE PICKING Y ETIQUETADO
- * Sincronizado: Sistema de etiquetas QR con Dirección de Cliente y Manifiesto Detallado.
- */
+const ORDER_STAGES = [
+  { id: 'Pendiente', label: 'Emitido', icon: Clock },
+  { id: 'Aprobado', label: 'Aprobado', icon: ShieldCheck },
+  { id: 'En Preparación', label: 'En Almacén', icon: Package },
+  { id: 'Despachado', label: 'En Ruta', icon: Truck },
+  { id: 'Entregado', label: 'Entregado', icon: CheckCircle2 }
+];
+
 export function OrderDetailsSheet({ 
     order, 
     currentUser, 
@@ -125,6 +131,27 @@ export function OrderDetailsSheet({
 
   const finalCustomerRif = order.customerRif || customerData?.rif || fallbackCustomer?.rif || customerRif || '';
   const finalCustomerAddress = customerData?.address || fallbackCustomer?.address || '';
+
+  const paidAmount = order.amountPaid || 0;
+  const totalAmount = order.totalAmount || 0;
+  const pendingDebt = Math.max(0, totalAmount - paidAmount);
+  const paymentPct = totalAmount > 0 ? Math.min(100, (paidAmount / totalAmount) * 100) : 0;
+
+  // CÁLCULO DE ETAPA EN STEPPER
+  const currentStageIndex = useMemo(() => {
+    switch (order.status) {
+      case 'Borrador':
+      case 'Pendiente': return 0;
+      case 'Aprobado': return 1;
+      case 'En Preparación':
+      case 'Completado': return 2;
+      case 'Despachado': return 3;
+      case 'Entregado':
+      case 'En Verificación':
+      case 'Pagado': return 4;
+      default: return 0;
+    }
+  }, [order.status]);
 
   const sortedItemsForPicking = useMemo(() => {
     return [...itemsWithProductData].sort((a, b) => {
@@ -193,19 +220,27 @@ export function OrderDetailsSheet({
       .map(i => `• ${i.product.name} ${i.size ? `[Talla ${i.size}]` : ''} x${i.quantity} ($${(i.unitPrice * i.quantity).toFixed(2)})`)
       .join('\n');
     
-    const text = `*ATHLETICENTER - PEDIDO #${order.id.substring(0, 7).toUpperCase()}*\n\n` +
+    const text = `*ATHLETICENTER C.A. - ESTATUS DE EXPEDIENTE N° #${order.id.substring(0, 8).toUpperCase()}*\n\n` +
       `👤 *Cliente:* ${order.customerName}\n` +
-      `📦 *Estatus:* ${order.status}\n` +
-      `💰 *Total:* $${(order.totalAmount || 0).toFixed(2)} USD\n\n` +
-      `*Resumen de Ítems:*\n${itemsSummary}` +
+      `📍 *RIF / Identificación:* ${finalCustomerRif || 'S/D'}\n` +
+      `📦 *Estatus Logístico:* ${order.status.toUpperCase()}\n` +
+      (order.trackingNumber ? `🚚 *Guía / Tracking:* ${order.trackingNumber}\n` : '') +
+      `💰 *Total Facturado:* $${totalAmount.toFixed(2)} USD\n` +
+      (pendingDebt > 0.05 ? `⚠️ *Saldo Pendiente:* $${pendingDebt.toFixed(2)} USD\n` : `✅ *Estado Financiero:* Totalmente Solvente\n`) +
+      `📍 *Asesor Asignado:* ${order.salespersonName || 'Atención General'}\n\n` +
+      `*Resumen de Productos:*\n${itemsSummary}` +
       (itemsWithProductData.length > 5 ? `\n...y ${itemsWithProductData.length - 5} más.` : '') +
-      `\n\n¡Gracias por elegir Athleticenter!`;
+      `\n\nQuedamos atentos a cualquier solicitud. ¡Gracias por confiar en Athleticenter!`;
 
     const url = cleanPhone 
       ? `https://wa.me/${cleanPhone}?text=${encodeURIComponent(text)}` 
       : `https://wa.me/?text=${encodeURIComponent(text)}`;
 
     window.open(url, '_blank');
+  };
+
+  const handleGoToBilling = () => {
+    router.push(`/dashboard/billing?orderId=${order.id}`);
   };
 
   const handleExportNote = async () => {
@@ -263,18 +298,59 @@ export function OrderDetailsSheet({
     <>
     <Dialog open={isOpen} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-[95vw] lg:max-w-6xl p-0 flex flex-col h-[90vh] border-none rounded-[2rem] sm:rounded-[2.5rem] shadow-2xl overflow-hidden z-[100]">
-        <DialogHeader className="p-6 sm:p-10 pb-6 bg-slate-50 border-b shrink-0 relative">
+        
+        {/* HEADER DE EXPEDIENTE */}
+        <DialogHeader className="p-6 sm:p-8 pb-4 bg-slate-50 border-b shrink-0 relative">
           <div className="flex justify-between items-start">
             <div className="space-y-1 text-left flex-1 min-w-0">
-                <DialogTitle className="text-2xl sm:text-4xl font-black uppercase tracking-tighter text-slate-900 leading-none truncate">EXPEDIENTE #{order.id.substring(0,8)}</DialogTitle>
-                <DialogDescription className="font-black text-[10px] sm:text-[12px] uppercase tracking-[0.3em] text-primary truncate mt-1">{order.customerName}</DialogDescription>
+                <div className="flex items-center gap-2">
+                  <DialogTitle className="text-2xl sm:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none truncate">EXPEDIENTE #{order.id.substring(0,8)}</DialogTitle>
+                  {finalCustomerRif && (
+                    <Badge variant="outline" className="font-mono text-[9px] font-bold uppercase px-2 h-5 bg-white border-slate-200 text-slate-600">
+                      RIF: {finalCustomerRif}
+                    </Badge>
+                  )}
+                </div>
+                <DialogDescription className="font-black text-[10px] sm:text-[12px] uppercase tracking-[0.2em] text-primary truncate mt-1">{order.customerName}</DialogDescription>
             </div>
             <div className="flex flex-col items-end gap-2 shrink-0 mr-8">
                 <Badge className={cn(statusConfig[order.status]?.color, "font-black uppercase text-[9px] sm:text-[11px] px-3 sm:px-4 h-6 sm:h-8 border-none shadow-md")}>{order.status}</Badge>
                 {isCancellationPending && <Badge variant="destructive" className="animate-pulse text-[8px] font-black uppercase h-5 px-2">Anulación Pendiente</Badge>}
             </div>
           </div>
-          <button onClick={() => onOpenChange(false)} className="absolute top-8 right-8 text-slate-300 hover:text-slate-900 transition-colors">
+
+          {/* LÍNEA DE TIEMPO STEPPER EN CABECERA */}
+          {order.status !== 'Cancelado' && (
+            <div className="mt-6 pt-4 border-t border-slate-200/60">
+              <div className="grid grid-cols-5 gap-1.5 sm:gap-2">
+                {ORDER_STAGES.map((stage, idx) => {
+                  const isPassed = idx <= currentStageIndex;
+                  const isCurrent = idx === currentStageIndex;
+                  const StageIcon = stage.icon;
+
+                  return (
+                    <div key={stage.id} className="flex flex-col items-center gap-1.5 text-center">
+                      <div className={cn(
+                        "h-8 w-8 sm:h-9 sm:w-9 rounded-xl flex items-center justify-center transition-all shadow-sm",
+                        isCurrent ? "bg-primary text-white ring-4 ring-primary/20 scale-105" :
+                        isPassed ? "bg-slate-900 text-white" : "bg-slate-200 text-slate-400"
+                      )}>
+                        <StageIcon className="h-4 w-4" />
+                      </div>
+                      <span className={cn(
+                        "text-[7px] sm:text-[8px] font-black uppercase tracking-wider truncate max-w-full",
+                        isCurrent ? "text-primary font-extrabold" : isPassed ? "text-slate-900" : "text-slate-400"
+                      )}>
+                        {stage.label}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          <button onClick={() => onOpenChange(false)} className="absolute top-6 right-6 text-slate-300 hover:text-slate-900 transition-colors">
             <X className="h-6 w-6" />
           </button>
         </DialogHeader>
@@ -336,7 +412,7 @@ export function OrderDetailsSheet({
                                         <div className="flex-1 min-w-0">
                                             <div className="flex items-center gap-3 mb-2 min-w-0">
                                                 <Badge variant="outline" className="bg-primary/5 text-primary border-primary/20 text-[8px] font-black h-5 uppercase px-2 shrink-0">
-                                                    {item.product?.warehouseLocation || 'S/U'}
+                                                    UBICACIÓN: {item.product?.warehouseLocation || 'S/U'}
                                                 </Badge>
                                                 <p className="text-sm sm:text-base font-black uppercase truncate text-slate-900 leading-tight">{item.product?.name || '---'}</p>
                                             </div>
@@ -436,14 +512,27 @@ export function OrderDetailsSheet({
 
                     {/* TARJETA DE COMPROBANTES Y RECIBOS DE PAGO */}
                     <div className="p-8 rounded-[2.5rem] bg-white border border-slate-100 shadow-xl space-y-6">
-                        <div className="flex items-center justify-between">
-                            <div className="space-y-0.5">
-                                <p className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400">Recibos y Comprobantes</p>
-                                <h4 className="text-sm font-black uppercase text-slate-900">Historial de Abonos ({orderPayments?.length || 0})</h4>
+                        <div className="space-y-3">
+                            <div className="flex items-center justify-between">
+                                <div className="space-y-0.5">
+                                    <p className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400">Auditoría Financiera</p>
+                                    <h4 className="text-sm font-black uppercase text-slate-900">Estado de Abonos ({orderPayments?.length || 0})</h4>
+                                </div>
+                                <Badge variant="outline" className="bg-emerald-50 border-emerald-200 text-emerald-700 font-black text-[9px] px-2 py-0.5">
+                                    ${paidAmount.toFixed(2)} / ${totalAmount.toFixed(2)}
+                                </Badge>
                             </div>
-                            <Badge variant="outline" className="bg-emerald-50 border-emerald-200 text-emerald-700 font-black text-[9px] px-2 py-0.5">
-                                ${(order.amountPaid || 0).toFixed(2)} / ${(order.totalAmount || 0).toFixed(2)}
-                            </Badge>
+
+                            {/* BARRA DE PROGRESO DE PAGO */}
+                            <div className="space-y-1.5">
+                              <Progress value={paymentPct} className="h-2 bg-slate-100" />
+                              <div className="flex justify-between text-[8px] font-black uppercase text-slate-400">
+                                <span>Abonado ({paymentPct.toFixed(0)}%)</span>
+                                <span className={pendingDebt > 0.05 ? "text-rose-600 font-bold" : "text-emerald-600 font-bold"}>
+                                  {pendingDebt > 0.05 ? `Saldo: $${pendingDebt.toFixed(2)}` : 'Solvente'}
+                                </span>
+                              </div>
+                            </div>
                         </div>
 
                         {isLoadingPayments ? (
@@ -539,6 +628,17 @@ export function OrderDetailsSheet({
                                     <MessageSquare className="mr-2 h-5 w-5 text-emerald-600" /> WHATSAPP
                                 </Button>
                             </div>
+
+                            {/* BOTÓN ATAJO A FACTURACIÓN EN 1 CLIC PARA GERENCIA */}
+                            {isAdmin && (
+                              <Button 
+                                  variant="outline"
+                                  onClick={handleGoToBilling} 
+                                  className="w-full h-12 border-blue-200 bg-blue-50 hover:bg-blue-100 text-blue-700 font-black uppercase text-[10px] tracking-widest rounded-2xl shadow-sm"
+                              >
+                                  <FileText className="mr-2 h-4 w-4 text-blue-600" /> GESTIONAR EN FACTURACIÓN (1-CLIC)
+                              </Button>
+                            )}
 
                             {(order.status === 'Pendiente' || order.status === 'Borrador') && isAdmin && (
                                 <Button 
