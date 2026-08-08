@@ -38,7 +38,14 @@ import {
     AlertCircle,
     CheckCircle2,
     Filter,
-    Building
+    Building,
+    Package,
+    Receipt,
+    ExternalLink,
+    Maximize2,
+    Calendar,
+    DollarSign,
+    Eye
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { User, Customer, Order } from '@/lib/definitions';
@@ -64,10 +71,22 @@ import {
   SheetTitle,
   SheetDescription,
 } from '@/components/ui/sheet';
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from '@/components/ui/tabs';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import Link from 'next/link';
-import { differenceInDays } from 'date-fns';
+import { differenceInDays, format } from 'date-fns';
 
 function DashboardMetricCard({
   title,
@@ -123,36 +142,138 @@ function CustomerDetailsSheet({
     onOpenChange: (open: boolean) => void;
     onEdit: (user: User) => void;
 }) {
+    const firestore = useFirestore();
+    const [selectedProofUrl, setSelectedProofUrl] = useState<string | null>(null);
+
     const daysInactive = customer?.lastOrderDate ? differenceInDays(new Date(), customer.lastOrderDate.toDate()) : null;
+
+    // CONSULTA EN TIEMPO REAL DE TODOS LOS PEDIDOS DEL CLIENTE SELECCIONADO
+    const customerOrdersQuery = useMemoFirebase(() => {
+        if (!firestore || !customer?.id) return null;
+        return query(
+            collection(firestore, 'orders'),
+            where('customerId', '==', customer.id)
+        );
+    }, [firestore, customer?.id]);
+
+    const { data: customerOrders, isLoading: isLoadingOrders } = useCollection<Order>(customerOrdersQuery);
+
+    // CÁLCULO DE INTELIGENCIA COMERCIAL 360°
+    const analytics = useMemo(() => {
+        if (!customerOrders) return {
+            totalSpent: 0,
+            totalPaid: 0,
+            orderCount: 0,
+            avgTicket: 0,
+            topProducts: [],
+            paymentRecords: [],
+            orderList: []
+        };
+
+        const validOrders = customerOrders.filter(o => o.status !== 'Cancelado');
+        const orderCount = validOrders.length;
+        let totalSpent = 0;
+        let totalPaid = 0;
+
+        const productMap = new Map<string, { id: string; name: string; quantity: number; total: number; price: number }>();
+        const paymentRecords: Array<{ orderId: string; dateDisplay: string; method: string; ref: string; amount: number; proofUrl?: string }> = [];
+
+        validOrders.forEach(o => {
+            const amount = o.totalAmount || 0;
+            const paid = o.amountPaid || 0;
+            totalSpent += amount;
+            totalPaid += paid;
+
+            ((o as any).items || []).forEach((item: any) => {
+                const key = item.productId || item.name || 'Producto';
+                const name = item.name || item.product?.name || 'Artículo Comercial';
+                const qty = item.quantity || 1;
+                const price = item.unitPrice || item.price || 0;
+                const total = item.total || (price * qty);
+
+                const existing = productMap.get(key) || { id: key, name, quantity: 0, total: 0, price };
+                existing.quantity += qty;
+                existing.total += total;
+                productMap.set(key, existing);
+            });
+
+            const paymentRef = (o as any).paymentReference;
+            const paymentProof = (o as any).paymentProofUrl;
+            const paymentMethodStr = (o as any).paymentMethod || 'Transferencia / Depósito';
+
+            if (paid > 0 || paymentRef || paymentProof) {
+                const orderDateRaw = o.updatedAt || o.orderDate || o.createdAt;
+                let dateDisplay = 'Reciente';
+                if (orderDateRaw && (orderDateRaw as any).toDate) {
+                    dateDisplay = format((orderDateRaw as any).toDate(), 'dd/MM/yyyy');
+                } else if (orderDateRaw instanceof Date) {
+                    dateDisplay = format(orderDateRaw, 'dd/MM/yyyy');
+                }
+
+                paymentRecords.push({
+                    orderId: o.id || '',
+                    dateDisplay,
+                    method: paymentMethodStr,
+                    ref: paymentRef || 'Sin Ref.',
+                    amount: paid,
+                    proofUrl: paymentProof
+                });
+            }
+        });
+
+        const avgTicket = orderCount > 0 ? totalSpent / orderCount : 0;
+        const topProducts = Array.from(productMap.values()).sort((a, b) => b.total - a.total);
+        const orderList = [...validOrders].sort((a, b) => {
+            const dateA = (a.orderDate as any)?.seconds || (a.createdAt as any)?.seconds || 0;
+            const dateB = (b.orderDate as any)?.seconds || (b.createdAt as any)?.seconds || 0;
+            return dateB - dateA;
+        });
+
+        return {
+            totalSpent,
+            totalPaid,
+            orderCount,
+            avgTicket,
+            topProducts,
+            paymentRecords,
+            orderList
+        };
+    }, [customerOrders]);
 
     if (!customer) return null;
 
     const handleWhatsAppClick = () => {
         const rawPhone = (customer.phone || '').replace(/\D/g, '');
         const cleanPhone = rawPhone.length === 10 ? `58${rawPhone}` : rawPhone;
-        const text = `*ATHLETICENTER C.A. - SEGUIMIENTO DE CUENTA B2B*\n\n` +
+        const text = `*ATHLETICENTER C.A. - EXPEDIENTE Y ESTADO DE CUENTA B2B*\n\n` +
           `Estimado(a) *${customer.razonSocial}*,\n\n` +
-          `Le saludamos del Departamento Comercial. Le informamos sobre el estado consolidado de su cuenta corporativa:\n\n` +
+          `Le saludamos del Departamento Comercial. Le enviamos el resumen de su cuenta corporativa:\n\n` +
           `📄 *RIF Fiscal:* ${customer.rif}\n` +
-          (pendingBalance > 0 ? `💰 *Saldo Pendiente:* $${pendingBalance.toFixed(2)} USD\n` : `✅ *Estado de Cuenta:* Al Día\n`) +
+          `📊 *Total Comprado:* $${analytics.totalSpent.toFixed(2)} USD\n` +
+          (pendingBalance > 0.05 ? `💰 *Saldo Pendiente:* $${pendingBalance.toFixed(2)} USD\n` : `✅ *Estado de Cuenta:* Al Día\n`) +
           `📍 *Asesor Asignado:* ${customer.assignedSalespersonName || 'Atención General'}\n\n` +
-          `¿Desea realizar alguna consulta o requerir reposición de catálogo?\n\n` +
-          `¡Quedamos atentos a sus órdenes!`;
+          `¿Desea realizar algún requerimiento de reposición de mercancía?\n\n` +
+          `¡Quedamos a sus enteras órdenes!`;
 
         const url = cleanPhone ? `https://wa.me/${cleanPhone}?text=${encodeURIComponent(text)}` : `https://wa.me/?text=${encodeURIComponent(text)}`;
         window.open(url, '_blank');
     };
 
     return (
+        <>
         <Sheet open={isOpen} onOpenChange={onOpenChange}>
-            <SheetContent className="w-full sm:max-w-xl p-0 border-none rounded-l-[2.5rem] shadow-2xl overflow-hidden flex flex-col h-full">
+            <SheetContent className="w-full sm:max-w-2xl p-0 border-none rounded-l-[2.5rem] shadow-2xl overflow-hidden flex flex-col h-full bg-slate-50">
+                {/* ENCABEZADO ESPECTACULAR */}
                 <SheetHeader className="p-8 pb-6 bg-slate-900 text-white shrink-0">
                     <div className="flex items-center gap-5">
-                        <div className="h-16 w-16 rounded-[1.5rem] bg-primary/20 text-primary flex items-center justify-center shadow-xl border border-primary/10">
-                            <Briefcase className="h-8 w-8" />
+                        <div className="h-16 w-16 rounded-[1.5rem] bg-primary/20 text-primary flex items-center justify-center shadow-xl border border-primary/10 font-black text-2xl">
+                            {customer.razonSocial.charAt(0)}
                         </div>
                         <div className="flex-1 text-left space-y-1">
-                            <SheetTitle className="text-2xl font-black uppercase tracking-tighter text-white leading-none">Ficha del Cliente</SheetTitle>
+                            <div className="flex items-center gap-2">
+                                <SheetTitle className="text-2xl font-black uppercase tracking-tighter text-white leading-none">Expediente 360°</SheetTitle>
+                                <Badge className="bg-emerald-500 text-white text-[8px] font-black uppercase px-2 py-0.5 border-none">B2B Verificado</Badge>
+                            </div>
                             <SheetDescription className="text-primary font-bold text-[10px] uppercase tracking-[0.2em]">{customer.razonSocial}</SheetDescription>
                         </div>
                         <Button 
@@ -167,108 +288,284 @@ function CustomerDetailsSheet({
                 </SheetHeader>
 
                 <ScrollArea className="flex-1">
-                    <div className="p-8 space-y-8">
-                        {/* RESUMEN DE SALDO Y ACTIVIDAD */}
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            <div className={cn("p-6 rounded-[2rem] border grid gap-2", pendingBalance > 0.05 ? "bg-rose-50 border-rose-100" : "bg-emerald-50 border-emerald-100")}>
-                                <p className="text-[8px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-1">
-                                    <Wallet className="h-3.5 w-3.5 text-slate-500" /> Saldo Pendiente (Deuda)
-                                </p>
-                                <span className={cn("text-2xl font-black uppercase tracking-tight", pendingBalance > 0.05 ? "text-rose-600" : "text-emerald-600")}>
-                                    ${pendingBalance.toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                                </span>
-                                <Badge className={cn("w-fit text-[8px] font-black uppercase border-none px-2.5 py-0.5", pendingBalance > 0.05 ? "bg-rose-600 text-white" : "bg-emerald-600 text-white")}>
-                                    {pendingBalance > 0.05 ? 'CUENTA CON SALDO DEUDOR' : 'AL DÍA / SIN DEUDA'}
-                                </Badge>
-                            </div>
+                    <div className="p-6 sm:p-8 space-y-6">
+                        {/* PESTAÑAS 360° DE NAVEGACIÓN */}
+                        <Tabs defaultValue="resumen" className="w-full">
+                            <TabsList className="w-full grid grid-cols-4 bg-slate-200/60 p-1 rounded-2xl mb-6">
+                                <TabsTrigger value="resumen" className="rounded-xl text-[9px] font-black uppercase tracking-wider py-2.5 data-[state=active]:bg-slate-900 data-[state=active]:text-white transition-all">Resumen 360°</TabsTrigger>
+                                <TabsTrigger value="productos" className="rounded-xl text-[9px] font-black uppercase tracking-wider py-2.5 data-[state=active]:bg-slate-900 data-[state=active]:text-white transition-all">Top Artículos</TabsTrigger>
+                                <TabsTrigger value="pedidos" className="rounded-xl text-[9px] font-black uppercase tracking-wider py-2.5 data-[state=active]:bg-slate-900 data-[state=active]:text-white transition-all">Pedidos ({analytics.orderCount})</TabsTrigger>
+                                <TabsTrigger value="pagos" className="rounded-xl text-[9px] font-black uppercase tracking-wider py-2.5 data-[state=active]:bg-slate-900 data-[state=active]:text-white transition-all">Pagos ({analytics.paymentRecords.length})</TabsTrigger>
+                            </TabsList>
 
-                            <div className="p-6 rounded-[2rem] bg-slate-50 border border-slate-100 grid gap-2">
-                                <p className="text-[8px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-1">
-                                    <Clock className="h-3.5 w-3.5 text-slate-500" /> Actividad Comercial
-                                </p>
-                                {daysInactive !== null ? (
-                                    <span className={cn("text-2xl font-black uppercase tracking-tight", daysInactive >= 30 ? "text-rose-600" : daysInactive >= 15 ? "text-amber-600" : "text-emerald-600")}>
-                                        {daysInactive === 0 ? "Activo Hoy" : `Hace ${daysInactive} días`}
-                                    </span>
-                                ) : (
-                                    <span className="text-xl font-black uppercase text-slate-400 italic">Sin Compras</span>
-                                )}
-                                <Badge variant="outline" className="w-fit text-[8px] font-black uppercase border-slate-200">
-                                    {daysInactive !== null && daysInactive >= 30 ? 'REMARKETING REQUERIDO' : 'CUENTA REGULAR'}
-                                </Badge>
-                            </div>
-                        </div>
-
-                        {/* BOTÓN RÁPIDO DE WHATSAPP */}
-                        <Button 
-                            onClick={handleWhatsAppClick} 
-                            className="w-full h-12 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs uppercase tracking-wider shadow-md flex items-center justify-center gap-2"
-                        >
-                            <MessageCircle className="h-4 w-4" /> Contactar al Cliente por WhatsApp
-                        </Button>
-
-                        {/* DATOS DE LA ENTIDAD */}
-                        <div className="space-y-4">
-                            <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400 flex items-center gap-2 px-1">
-                                <Zap className="h-4 w-4 text-primary" /> Datos de la Entidad Comercial
-                            </h3>
-                            <div className="grid grid-cols-1 gap-4">
-                                <div className="p-5 rounded-[1.8rem] border border-slate-100 bg-white shadow-sm space-y-1">
-                                    <Label className="text-[8px] font-black uppercase text-slate-400 tracking-widest">Razón Social Completa</Label>
-                                    <p className="text-sm font-black uppercase text-slate-900">{customer.razonSocial}</p>
-                                </div>
+                            {/* PESTAÑA 1: RESUMEN 360° */}
+                            <TabsContent value="resumen" className="space-y-6 animate-in fade-in-50 duration-300">
+                                {/* METRICAS FINANCIERAS DE LA CUENTA */}
                                 <div className="grid grid-cols-2 gap-4">
-                                    <div className="p-5 rounded-[1.8rem] border border-slate-100 bg-white shadow-sm space-y-1">
-                                        <Label className="text-[8px] font-black uppercase text-slate-400 tracking-widest">RIF Fiscal</Label>
-                                        <p className="text-sm font-black uppercase font-mono text-primary">{customer.rif}</p>
+                                    <div className="p-5 rounded-[1.8rem] bg-white border border-slate-100 shadow-sm space-y-1">
+                                        <p className="text-[8px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-1">
+                                            <TrendingUp className="h-3.5 w-3.5 text-primary" /> Total Comprado
+                                        </p>
+                                        <span className="text-xl font-black uppercase tracking-tight text-slate-900">
+                                            ${analytics.totalSpent.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                                        </span>
+                                        <p className="text-[8px] font-bold text-slate-500 uppercase">{analytics.orderCount} Pedidos Procesados</p>
                                     </div>
-                                    <div className="p-5 rounded-[1.8rem] border border-slate-100 bg-white shadow-sm space-y-1">
-                                        <Label className="text-[8px] font-black uppercase text-slate-400 tracking-widest">Estatus de Cuenta</Label>
-                                        <div className="pt-1">
-                                            <Badge className={cn("text-[8px] font-black uppercase border-none px-2 h-5", customer.status === 'Activo' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700')}>
-                                                {customer.status}
-                                            </Badge>
+
+                                    <div className="p-5 rounded-[1.8rem] bg-white border border-slate-100 shadow-sm space-y-1">
+                                        <p className="text-[8px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-1">
+                                            <ShoppingCart className="h-3.5 w-3.5 text-blue-500" /> Ticket Promedio
+                                        </p>
+                                        <span className="text-xl font-black uppercase tracking-tight text-slate-900">
+                                            ${analytics.avgTicket.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                                        </span>
+                                        <p className="text-[8px] font-bold text-slate-500 uppercase">Promedio por Pedido</p>
+                                    </div>
+
+                                    <div className={cn("p-5 rounded-[1.8rem] border shadow-sm space-y-1", pendingBalance > 0.05 ? "bg-rose-50 border-rose-100" : "bg-emerald-50 border-emerald-100")}>
+                                        <p className="text-[8px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-1">
+                                            <Wallet className="h-3.5 w-3.5 text-slate-500" /> Saldo Pendiente
+                                        </p>
+                                        <span className={cn("text-xl font-black uppercase tracking-tight", pendingBalance > 0.05 ? "text-rose-600" : "text-emerald-600")}>
+                                            ${pendingBalance.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                                        </span>
+                                        <Badge className={cn("w-fit text-[8px] font-black uppercase border-none px-2 py-0.5", pendingBalance > 0.05 ? "bg-rose-600 text-white" : "bg-emerald-600 text-white")}>
+                                            {pendingBalance > 0.05 ? 'CON SALDO DEUDOR' : 'AL DÍA / SOLVENTE'}
+                                        </Badge>
+                                    </div>
+
+                                    <div className="p-5 rounded-[1.8rem] bg-white border border-slate-100 shadow-sm space-y-1">
+                                        <p className="text-[8px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-1">
+                                            <Clock className="h-3.5 w-3.5 text-slate-500" /> Actividad Comercial
+                                        </p>
+                                        {daysInactive !== null ? (
+                                            <span className={cn("text-xl font-black uppercase tracking-tight", daysInactive >= 30 ? "text-rose-600" : daysInactive >= 15 ? "text-amber-600" : "text-emerald-600")}>
+                                                {daysInactive === 0 ? "Activo Hoy" : `Hace ${daysInactive} d`}
+                                            </span>
+                                        ) : (
+                                            <span className="text-lg font-black uppercase text-slate-400 italic">Sin Compras</span>
+                                        )}
+                                        <p className="text-[8px] font-bold text-slate-500 uppercase">Último Pedido</p>
+                                    </div>
+                                </div>
+
+                                {/* DATOS DE LA ENTIDAD COMERCIAL */}
+                                <div className="p-6 rounded-[2rem] bg-white border border-slate-100 shadow-sm space-y-4">
+                                    <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400 flex items-center gap-2">
+                                        <Zap className="h-4 w-4 text-primary" /> Ficha Fiscal de la Entidad
+                                    </h3>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                        <div className="space-y-1">
+                                            <Label className="text-[8px] font-black uppercase text-slate-400 tracking-widest">Razón Social</Label>
+                                            <p className="text-xs font-black uppercase text-slate-900">{customer.razonSocial}</p>
+                                        </div>
+                                        <div className="space-y-1">
+                                            <Label className="text-[8px] font-black uppercase text-slate-400 tracking-widest">RIF Fiscal</Label>
+                                            <p className="text-xs font-black uppercase font-mono text-primary">{customer.rif}</p>
+                                        </div>
+                                        <div className="space-y-1">
+                                            <Label className="text-[8px] font-black uppercase text-slate-400 tracking-widest">Correo Electrónico</Label>
+                                            <p className="text-xs font-medium text-slate-600 truncate">{customer.email}</p>
+                                        </div>
+                                        <div className="space-y-1">
+                                            <Label className="text-[8px] font-black uppercase text-slate-400 tracking-widest">Asesor Comercial</Label>
+                                            <p className="text-xs font-black uppercase text-slate-800">{customer.assignedSalespersonName || 'Atención General'}</p>
+                                        </div>
+                                        <div className="sm:col-span-2 space-y-1">
+                                            <Label className="text-[8px] font-black uppercase text-slate-400 tracking-widest">Dirección Fiscal</Label>
+                                            <p className="text-xs font-medium text-slate-600">{customer.address || 'Sin dirección registrada.'}</p>
                                         </div>
                                     </div>
                                 </div>
-                                <div className="p-5 rounded-[1.8rem] border border-slate-100 bg-white shadow-sm space-y-1">
-                                    <Label className="text-[8px] font-black uppercase text-slate-400 tracking-widest flex items-center gap-1.5"><Mail className="h-3 w-3" /> Correo Electrónico</Label>
-                                    <p className="text-xs font-medium text-slate-600 truncate">{customer.email}</p>
+
+                                {/* ACCIONES DIRECTAS */}
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                    <Button 
+                                        onClick={handleWhatsAppClick} 
+                                        className="h-12 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs uppercase tracking-wider shadow-md flex items-center justify-center gap-2"
+                                    >
+                                        <MessageCircle className="h-4 w-4" /> WhatsApp Directo
+                                    </Button>
+                                    <Button 
+                                        asChild 
+                                        className="h-12 rounded-2xl bg-slate-900 hover:bg-primary text-white font-black text-xs uppercase tracking-wider shadow-md flex items-center justify-center gap-2"
+                                    >
+                                        <Link href={`/dashboard/orders/new?customer=${customer.id}`}>
+                                            Crear Pedido Rápido <ArrowRight className="h-4 w-4" />
+                                        </Link>
+                                    </Button>
                                 </div>
-                                {customer.phone && (
-                                    <div className="p-5 rounded-[1.8rem] border border-slate-100 bg-white shadow-sm space-y-1">
-                                        <Label className="text-[8px] font-black uppercase text-slate-400 tracking-widest flex items-center gap-1.5"><Phone className="h-3 w-3" /> Teléfono Master</Label>
-                                        <p className="text-xs font-bold text-slate-900">{customer.phone}</p>
+                            </TabsContent>
+
+                            {/* PESTAÑA 2: PRODUCTOS FRECUENTES */}
+                            <TabsContent value="productos" className="space-y-4 animate-in fade-in-50 duration-300">
+                                <div className="flex justify-between items-center px-1">
+                                    <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400 flex items-center gap-2">
+                                        <Package className="h-4 w-4 text-primary" /> Productos Preferidos del Cliente
+                                    </h3>
+                                    <span className="text-[9px] font-bold uppercase text-slate-400">{analytics.topProducts.length} Artículos Distintos</span>
+                                </div>
+
+                                {analytics.topProducts.length > 0 ? (
+                                    <div className="space-y-3">
+                                        {analytics.topProducts.map((prod, idx) => (
+                                            <div key={prod.id} className="p-4 rounded-2xl bg-white border border-slate-100 shadow-sm flex items-center justify-between gap-4">
+                                                <div className="flex items-center gap-3.5">
+                                                    <div className="h-9 w-9 rounded-xl bg-slate-900 text-white flex items-center justify-center font-black text-xs shrink-0 shadow-inner">
+                                                        #{idx + 1}
+                                                    </div>
+                                                    <div className="space-y-0.5">
+                                                        <p className="text-xs font-black uppercase text-slate-900 leading-tight">{prod.name}</p>
+                                                        <p className="text-[9px] font-bold uppercase text-slate-500">{prod.quantity} Unidades Compradas</p>
+                                                    </div>
+                                                </div>
+                                                <div className="text-right shrink-0">
+                                                    <p className="text-xs font-black uppercase text-emerald-600 font-mono">
+                                                        ${prod.total.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                                                    </p>
+                                                    <p className="text-[8px] font-bold uppercase text-slate-400">Total Invertido</p>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <div className="p-12 text-center bg-white rounded-3xl border border-slate-100 space-y-2">
+                                        <Package className="h-10 w-10 text-slate-300 mx-auto" />
+                                        <p className="text-xs font-black uppercase text-slate-400 tracking-wider">Sin productos registrados aún</p>
                                     </div>
                                 )}
-                                <div className="p-5 rounded-[1.8rem] border border-slate-100 bg-white shadow-sm space-y-1">
-                                    <Label className="text-[8px] font-black uppercase text-slate-400 tracking-widest flex items-center gap-1.5"><MapPin className="h-3 w-3" /> Dirección Fiscal</Label>
-                                    <p className="text-xs font-medium text-slate-600 leading-relaxed">{customer.address || 'Sin dirección registrada.'}</p>
-                                </div>
-                            </div>
-                        </div>
+                            </TabsContent>
 
-                        <Separator className="opacity-50" />
-
-                        {/* ACCIÓN COMERCIAL DE PEDIDO RÁPIDO */}
-                        <div className="p-6 rounded-[2.5rem] bg-primary/5 border border-primary/10 space-y-4">
-                            <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-primary flex items-center gap-2">
-                                <ShoppingCart className="h-4 w-4" /> Gestión Comercial
-                            </h3>
-                            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                                <div className="space-y-0.5">
-                                    <p className="text-[8px] font-black uppercase text-slate-400">Asesor de Ventas Asignado</p>
-                                    <p className="text-xs font-black uppercase text-slate-800">{customer.assignedSalespersonName || 'Sin Asignar'}</p>
+                            {/* PESTAÑA 3: HISTORIAL DE PEDIDOS */}
+                            <TabsContent value="pedidos" className="space-y-4 animate-in fade-in-50 duration-300">
+                                <div className="flex justify-between items-center px-1">
+                                    <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400 flex items-center gap-2">
+                                        <Receipt className="h-4 w-4 text-primary" /> Historial de Expedientes
+                                    </h3>
+                                    <span className="text-[9px] font-bold uppercase text-slate-400">{analytics.orderList.length} Pedidos Registrados</span>
                                 </div>
-                                <Button size="sm" asChild className="h-10 px-6 rounded-xl font-black uppercase text-[10px] tracking-widest bg-slate-900 hover:bg-primary shadow-lg transition-all w-full sm:w-auto">
-                                    <Link href={`/dashboard/orders/new?customer=${customer.id}`}>Crear Pedido Rápido <ArrowRight className="ml-2 h-4 w-4" /></Link>
-                                </Button>
-                            </div>
-                        </div>
+
+                                {isLoadingOrders ? (
+                                    <div className="flex h-32 items-center justify-center"><Loader2 className="animate-spin text-primary" /></div>
+                                ) : analytics.orderList.length > 0 ? (
+                                    <div className="space-y-3">
+                                        {analytics.orderList.map((order) => {
+                                            const paid = order.amountPaid || 0;
+                                            const pending = Math.max(0, order.totalAmount - paid);
+
+                                            return (
+                                                <div key={order.id} className="p-4 rounded-2xl bg-white border border-slate-100 shadow-sm flex items-center justify-between gap-4">
+                                                    <div className="space-y-1">
+                                                        <div className="flex items-center gap-2">
+                                                            <span className="text-xs font-black uppercase text-slate-900 font-mono">#{order.id.substring(0, 8)}</span>
+                                                            <Badge className="bg-slate-900 text-white text-[8px] font-black uppercase px-2 py-0.5 border-none">
+                                                                {order.status}
+                                                            </Badge>
+                                                        </div>
+                                                        <p className="text-[9px] font-bold uppercase text-slate-500">
+                                                            Items: {((order as any).items || []).length} productos
+                                                        </p>
+                                                    </div>
+
+                                                    <div className="text-right shrink-0 space-y-0.5">
+                                                        <p className="text-xs font-black uppercase text-slate-900 font-mono">
+                                                            ${order.totalAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                                                        </p>
+                                                        {pending > 0.05 ? (
+                                                            <span className="text-[8px] font-black uppercase text-rose-600 block">Deuda: ${pending.toFixed(2)}</span>
+                                                        ) : (
+                                                            <span className="text-[8px] font-black uppercase text-emerald-600 block">Totalmente Pagado</span>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                ) : (
+                                    <div className="p-12 text-center bg-white rounded-3xl border border-slate-100 space-y-2">
+                                        <ShoppingCart className="h-10 w-10 text-slate-300 mx-auto" />
+                                        <p className="text-xs font-black uppercase text-slate-400 tracking-wider">No posee expedientes de compra registrados</p>
+                                    </div>
+                                )}
+                            </TabsContent>
+
+                            {/* PESTAÑA 4: HISTORIAL DE PAGOS Y RECIBOS */}
+                            <TabsContent value="pagos" className="space-y-4 animate-in fade-in-50 duration-300">
+                                <div className="flex justify-between items-center px-1">
+                                    <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400 flex items-center gap-2">
+                                        <Wallet className="h-4 w-4 text-primary" /> Historial de Abonos y Comprobantes
+                                    </h3>
+                                    <span className="text-[9px] font-bold uppercase text-slate-400">{analytics.paymentRecords.length} Registros de Pago</span>
+                                </div>
+
+                                {analytics.paymentRecords.length > 0 ? (
+                                    <div className="space-y-3">
+                                        {analytics.paymentRecords.map((pay, idx) => (
+                                            <div key={idx} className="p-4 rounded-2xl bg-white border border-slate-100 shadow-sm flex items-center justify-between gap-4">
+                                                <div className="flex items-center gap-3.5">
+                                                    {pay.proofUrl ? (
+                                                        <div 
+                                                            onClick={() => setSelectedProofUrl(pay.proofUrl || null)} 
+                                                            className="h-12 w-12 rounded-xl bg-slate-100 border border-slate-200 overflow-hidden cursor-pointer relative group shrink-0"
+                                                        >
+                                                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                                                            <img src={pay.proofUrl} alt="Comprobante" className="h-full w-full object-cover group-hover:scale-110 transition-transform" />
+                                                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white">
+                                                                <Maximize2 className="h-4 w-4" />
+                                                            </div>
+                                                        </div>
+                                                    ) : (
+                                                        <div className="h-12 w-12 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center font-black shrink-0">
+                                                            <Receipt className="h-5 w-5" />
+                                                        </div>
+                                                    )}
+
+                                                    <div className="space-y-0.5">
+                                                        <div className="flex items-center gap-2">
+                                                            <span className="text-xs font-black uppercase text-slate-900">{pay.method}</span>
+                                                            <Badge variant="outline" className="text-[8px] font-mono font-bold uppercase text-slate-500">Ref: {pay.ref}</Badge>
+                                                        </div>
+                                                        <p className="text-[9px] font-bold uppercase text-slate-400">Fecha: {pay.dateDisplay}</p>
+                                                    </div>
+                                                </div>
+
+                                                <div className="text-right shrink-0">
+                                                    <p className="text-sm font-black uppercase text-emerald-600 font-mono">
+                                                        ${pay.amount.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                                                    </p>
+                                                    <span className="text-[8px] font-black uppercase text-slate-400">Abono Confirmado</span>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <div className="p-12 text-center bg-white rounded-3xl border border-slate-100 space-y-2">
+                                        <Wallet className="h-10 w-10 text-slate-300 mx-auto" />
+                                        <p className="text-xs font-black uppercase text-slate-400 tracking-wider">Sin historial de abonos o comprobantes</p>
+                                    </div>
+                                )}
+                            </TabsContent>
+                        </Tabs>
                     </div>
                 </ScrollArea>
             </SheetContent>
         </Sheet>
+
+        {/* DIALOG PARA ZOOM DEL COMPROBANTE */}
+        <Dialog open={!!selectedProofUrl} onOpenChange={(open) => !open && setSelectedProofUrl(null)}>
+            <DialogContent className="max-w-2xl p-4 bg-slate-900 border-none rounded-3xl overflow-hidden text-white">
+                <DialogHeader className="p-2">
+                    <DialogTitle className="text-sm font-black uppercase tracking-wider text-slate-300">Comprobante de Pago Adjunto</DialogTitle>
+                </DialogHeader>
+                {selectedProofUrl && (
+                    <div className="max-h-[80vh] overflow-auto rounded-2xl flex items-center justify-center bg-black/50 p-2">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={selectedProofUrl} alt="Comprobante Zoom" className="w-full h-auto object-contain rounded-xl shadow-2xl" />
+                    </div>
+                )}
+            </DialogContent>
+        </Dialog>
+        </>
     );
 }
 
@@ -586,7 +883,7 @@ export default function ClientsPageContent() {
       {/* TABLA PRINCIPAL DE CLIENTES */}
       <div className="space-y-6 mx-2">
         <ScrollArea className="w-full whitespace-nowrap rounded-[2.5rem] border border-slate-100 shadow-xl bg-white">
-            <div className="min-w-[1050px]">
+            <div className="min-w-[1100px]">
                 <Table>
                     <TableHeader className="bg-slate-900 text-white">
                         <TableRow className="hover:bg-transparent border-none">
@@ -595,7 +892,7 @@ export default function ClientsPageContent() {
                             <TableHead className="text-center text-[10px] font-black uppercase tracking-widest text-white">Saldo Deudor</TableHead>
                             <TableHead className="text-center text-[10px] font-black uppercase tracking-widest text-white">Actividad</TableHead>
                             {isAdmin && <TableHead className="text-[10px] font-black uppercase tracking-widest text-white">Asesor Asignado</TableHead>}
-                            <TableHead className="text-right text-[10px] font-black uppercase tracking-widest pr-8 text-white">Acción Directa</TableHead>
+                            <TableHead className="text-right text-[10px] font-black uppercase tracking-widest pr-8 text-white">Acciones 360°</TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -646,12 +943,12 @@ export default function ClientsPageContent() {
                                             <MessageCircle className="h-3.5 w-3.5" /> WhatsApp
                                         </Button>
                                         <Button 
-                                            variant="ghost" 
-                                            size="icon" 
+                                            variant="outline"
+                                            size="sm" 
                                             onClick={() => setSelectedCustomer(customer)}
-                                            className="h-8 w-8 rounded-xl text-slate-400 group-hover:text-primary transition-colors"
+                                            className="h-8 px-3 rounded-xl border-slate-200 hover:bg-slate-900 hover:text-white font-black text-[9px] uppercase tracking-wider flex items-center gap-1 transition-all"
                                         >
-                                            <ChevronRight className="h-5 w-5" />
+                                            <Eye className="h-3.5 w-3.5" /> Expediente 360°
                                         </Button>
                                     </div>
                                 </TableCell>
