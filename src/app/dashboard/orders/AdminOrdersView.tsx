@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useMemo, useState } from 'react';
@@ -9,7 +8,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { OrderCard } from './OrderCard';
 import { OrderSheetController } from './OrderSheetController';
 import { Card, CardContent } from '@/components/ui/card';
-import { Search, Clock, Package, Truck, History, CreditCard, SortAsc, SortDesc, Save, AlertTriangle, MessageCircle, ShieldCheck, Loader2, Plus } from 'lucide-react';
+import { Search, Clock, Package, Truck, History, CreditCard, SortAsc, SortDesc, Save, AlertTriangle, MessageCircle, ShieldCheck, Loader2, Plus, DollarSign, Wallet, ArrowUpRight } from 'lucide-react';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -20,18 +19,57 @@ import { Badge } from '@/components/ui/badge';
 
 const ALL_STATUSES: OrderStatus[] = ['Borrador', 'Pendiente', 'Aprobado', 'En Preparación', 'Completado', 'Despachado', 'Entregado', 'En Verificación', 'Pagado', 'Cancelado'];
 
+function DashboardMetricCard({
+  title,
+  value,
+  subtitle,
+  icon: Icon,
+  iconBg,
+  iconColor,
+  onClick,
+  isActive
+}: {
+  title: string;
+  value: string | number;
+  subtitle: string;
+  icon: React.ElementType;
+  iconBg: string;
+  iconColor: string;
+  onClick?: () => void;
+  isActive?: boolean;
+}) {
+  return (
+    <Card 
+      onClick={onClick}
+      className={cn(
+        "border-none shadow-sm rounded-2xl bg-white p-5 flex items-center justify-between transition-all cursor-pointer hover:shadow-md hover:-translate-y-0.5",
+        isActive && "ring-2 ring-primary bg-primary/5"
+      )}
+    >
+      <div className="space-y-1">
+        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">{title}</p>
+        <h3 className="text-2xl font-black uppercase tracking-tight text-slate-900">{value}</h3>
+        <p className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">{subtitle}</p>
+      </div>
+      <div className={cn("p-3 rounded-2xl shrink-0 shadow-sm", iconBg, iconColor)}>
+        <Icon className="h-6 w-6" />
+      </div>
+    </Card>
+  );
+}
+
 export default function AdminOrdersView() {
     const firestore = useFirestore();
     const { profile: currentUser } = useUser();
     const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
     const [searchTerm, setSearchTerm] = useState('');
     const [statusFilter, setStatusFilter] = useState<OrderStatus | 'todos'>('todos');
+    const [salespersonFilter, setSalespersonFilter] = useState('todos');
     const [sortBy, setSortBy] = useState<'orderDate' | 'totalAmount'>('orderDate');
     const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
     const [openSections, setOpenSections] = useState<string[]>([]);
     
-    // OPTIMIZACIÓN: Carga dinámica e inmediata de órdenes
-    const [queryLimit, setQueryLimit] = useState(50);
+    const [queryLimit, setQueryLimit] = useState(100);
     const [activeTab, setActiveTab] = useState<'todos' | 'comercial' | 'operativo' | 'logistica' | 'cobranzas' | 'archivo'>('todos');
 
     const canListAll = useMemo(() => 
@@ -45,6 +83,44 @@ export default function AdminOrdersView() {
     }, [firestore, canListAll, sortBy, sortOrder, queryLimit]);
 
     const { data: allOrders, isLoading } = useCollection<Order>(ordersQuery);
+
+    // VENDEDORES ÚNICOS PARA FILTRO DE GERENCIA
+    const uniqueSalespeople = useMemo(() => {
+        if (!allOrders) return [];
+        return Array.from(new Set(allOrders.map(o => o.salespersonName))).filter((sp): sp is string => Boolean(sp)).sort();
+    }, [allOrders]);
+
+    // MÉTRICAS EJECUTIVAS DE PEDIDOS
+    const metrics = useMemo(() => {
+        if (!allOrders) return { totalVolume: 0, totalCount: 0, prepCount: 0, prepTotal: 0, routeCount: 0, routeTotal: 0, pendingDebt: 0 };
+
+        let totalVolume = 0;
+        let totalCount = 0;
+        let prepCount = 0;
+        let prepTotal = 0;
+        let routeCount = 0;
+        let routeTotal = 0;
+        let pendingDebt = 0;
+
+        allOrders.forEach(o => {
+            if (o.status !== 'Cancelado') {
+                totalVolume += o.totalAmount || 0;
+                totalCount++;
+                const debt = Math.max(0, (o.totalAmount || 0) - (o.amountPaid || 0));
+                pendingDebt += debt;
+            }
+
+            if (['Aprobado', 'En Preparación', 'Completado'].includes(o.status)) {
+                prepCount++;
+                prepTotal += o.totalAmount || 0;
+            } else if (o.status === 'Despachado') {
+                routeCount++;
+                routeTotal += o.totalAmount || 0;
+            }
+        });
+
+        return { totalVolume, totalCount, prepCount, prepTotal, routeCount, routeTotal, pendingDebt };
+    }, [allOrders]);
 
     const groups = useMemo(() => {
         const initial = { 
@@ -61,9 +137,10 @@ export default function AdminOrdersView() {
         
         const term = searchTerm.toLowerCase().trim();
         const filtered = allOrders.filter(o => {
-            const matchesSearch = o.id.toLowerCase().includes(term) || o.customerName.toLowerCase().includes(term);
+            const matchesSearch = o.id.toLowerCase().includes(term) || o.customerName.toLowerCase().includes(term) || (o.customerRif || '').toLowerCase().includes(term) || (o.trackingNumber || '').toLowerCase().includes(term);
             const matchesStatus = statusFilter === 'todos' || o.status === statusFilter;
-            return matchesSearch && matchesStatus;
+            const matchesSalesperson = salespersonFilter === 'todos' || o.salespersonName === salespersonFilter;
+            return matchesSearch && matchesStatus && matchesSalesperson;
         });
 
         filtered.forEach(order => {
@@ -86,18 +163,18 @@ export default function AdminOrdersView() {
             }
         });
         return initial;
-    }, [allOrders, searchTerm, statusFilter]);
+    }, [allOrders, searchTerm, statusFilter, salespersonFilter]);
 
-    if (!canListAll) return <div className="p-12 text-center opacity-40 italic font-black uppercase tracking-widest text-[10px]">Acceso restringido.</div>;
+    if (!canListAll) return <div className="p-12 text-center opacity-40 italic font-black uppercase tracking-widest text-[10px]">Acceso restringido a Gerencia y Logística.</div>;
 
     const allSections = [
         { key: 'solicitudes', label: 'Anulaciones en Trámite', icon: MessageCircle, color: 'amber', orders: groups.solicitudes, alert: true, tab: 'comercial' },
         { key: 'revisiones', label: 'Control de Stock', icon: AlertTriangle, color: 'rose', orders: groups.revisiones, alert: true, tab: 'operativo' },
         { key: 'borradores', label: 'Borradores', icon: Save, color: 'slate', orders: groups.borradores, tab: 'comercial' },
         { key: 'comercial', label: 'Gestión Comercial', icon: Clock, color: 'amber', orders: groups.comercial, tab: 'comercial' },
-        { key: 'operativo', label: 'Logística Interna', icon: Package, color: 'indigo', orders: groups.operativo, tab: 'operativo' },
-        { key: 'logistica', label: 'En Ruta', icon: Truck, color: 'sky', orders: groups.logistica, tab: 'logistica' },
-        { key: 'cobranzas', label: 'Ciclo Financiero', icon: CreditCard, color: 'emerald', orders: groups.cobranzas, tab: 'cobranzas' },
+        { key: 'operativo', label: 'Logística Interna / Almacén', icon: Package, color: 'indigo', orders: groups.operativo, tab: 'operativo' },
+        { key: 'logistica', label: 'Despachados / En Ruta', icon: Truck, color: 'sky', orders: groups.logistica, tab: 'logistica' },
+        { key: 'cobranzas', label: 'Ciclo Financiero / Entregados', icon: CreditCard, color: 'emerald', orders: groups.cobranzas, tab: 'cobranzas' },
         { key: 'archivo', label: 'Historial', icon: History, color: 'slate', orders: groups.archivo, tab: 'archivo' }
     ];
 
@@ -106,9 +183,53 @@ export default function AdminOrdersView() {
         : allSections.filter(s => s.tab === activeTab || (activeTab === 'comercial' && ['solicitudes', 'borradores', 'comercial'].includes(s.key)) || (activeTab === 'operativo' && ['revisiones', 'operativo'].includes(s.key)));
 
     return (
-        <div className="flex flex-col gap-4 animate-in fade-in duration-500">
+        <div className="flex flex-col gap-6 animate-in fade-in duration-500">
+            {/* TARJETAS KPI DE PEDIDOS */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mx-1 sm:mx-2">
+                <DashboardMetricCard 
+                    title="Volumen Facturado ($)" 
+                    value={`$${metrics.totalVolume.toLocaleString('en-US', { maximumFractionDigits: 0 })}`} 
+                    subtitle={`${metrics.totalCount} Pedidos Procesados`} 
+                    icon={DollarSign} 
+                    iconBg="bg-blue-50" 
+                    iconColor="text-blue-500" 
+                    onClick={() => { setActiveTab('todos'); setStatusFilter('todos'); setSalespersonFilter('todos'); }}
+                    isActive={activeTab === 'todos' && statusFilter === 'todos'}
+                />
+                <DashboardMetricCard 
+                    title="En Almacén / Empaque" 
+                    value={metrics.prepCount} 
+                    subtitle={`$${metrics.prepTotal.toLocaleString('en-US', { maximumFractionDigits: 0 })} En Preparación`} 
+                    icon={Package} 
+                    iconBg="bg-indigo-50" 
+                    iconColor="text-indigo-600" 
+                    onClick={() => setActiveTab('operativo')}
+                    isActive={activeTab === 'operativo'}
+                />
+                <DashboardMetricCard 
+                    title="Despachados en Ruta" 
+                    value={metrics.routeCount} 
+                    subtitle={`$${metrics.routeTotal.toLocaleString('en-US', { maximumFractionDigits: 0 })} En Tránsito`} 
+                    icon={Truck} 
+                    iconBg="bg-sky-50" 
+                    iconColor="text-sky-600" 
+                    onClick={() => setActiveTab('logistica')}
+                    isActive={activeTab === 'logistica'}
+                />
+                <DashboardMetricCard 
+                    title="Por Cobrar ($)" 
+                    value={`$${metrics.pendingDebt.toLocaleString('en-US', { maximumFractionDigits: 0 })}`} 
+                    subtitle="Saldo Pendiente de Cobro" 
+                    icon={Wallet} 
+                    iconBg="bg-rose-50" 
+                    iconColor="text-rose-600" 
+                    onClick={() => setActiveTab('cobranzas')}
+                    isActive={activeTab === 'cobranzas'}
+                />
+            </div>
+
             {/* Pestañas de filtrado rápido por fase operativa */}
-            <div className="flex bg-slate-100/80 p-1.5 rounded-2xl gap-1.5 overflow-x-auto custom-scrollbar border border-slate-200/60 shadow-sm">
+            <div className="flex bg-slate-100/80 p-1.5 rounded-2xl gap-1.5 overflow-x-auto custom-scrollbar border border-slate-200/60 shadow-sm mx-1 sm:mx-2">
                 {[
                     { id: 'todos', label: 'Todos los Pedidos', count: allOrders?.length || 0 },
                     { id: 'comercial', label: 'Comercial / Pendientes', count: groups.comercial.length + groups.solicitudes.length + groups.borradores.length },
@@ -140,47 +261,67 @@ export default function AdminOrdersView() {
             </div>
 
             {/* Barra de Filtros y Ordenamiento */}
-            <Card className="border-none shadow-sm rounded-2xl overflow-hidden bg-white">
-                <CardContent className="p-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            <Card className="border-none shadow-sm rounded-2xl overflow-hidden bg-white mx-1 sm:mx-2">
+                <CardContent className="p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 items-end">
                     <div className="space-y-1">
-                        <Label className="text-[7px] font-black uppercase tracking-widest text-slate-400">Búsqueda Táctica</Label>
+                        <Label className="text-[8px] font-black uppercase tracking-widest text-slate-400">Búsqueda Táctica</Label>
                         <div className="relative">
-                            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
-                            <Input placeholder="REF / CLIENTE..." className="pl-8 h-8 text-[9px] font-bold uppercase rounded-lg border-none bg-slate-50 shadow-inner" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}/>
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                            <Input placeholder="REF / CLIENTE / RIF / GUÍA..." className="pl-9 h-10 text-[10px] font-bold uppercase rounded-xl border-none bg-slate-50 shadow-inner" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}/>
                         </div>
                     </div>
+
+                    {uniqueSalespeople.length > 0 && (
+                        <div className="space-y-1">
+                            <Label className="text-[8px] font-black uppercase tracking-widest text-slate-400">Asesor Comercial</Label>
+                            <Select value={salespersonFilter} onValueChange={setSalespersonFilter}>
+                                <SelectTrigger className="h-10 text-[10px] font-bold uppercase rounded-xl border-none bg-slate-50 shadow-inner">
+                                    <SelectValue placeholder="Todos" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="todos" className="text-[10px] font-bold uppercase">ASESOR: TODOS</SelectItem>
+                                    {uniqueSalespeople.map(sp => (
+                                        <SelectItem key={sp} value={sp} className="text-[10px] font-bold uppercase">{sp.toUpperCase()}</SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+                    )}
+
                     <div className="space-y-1">
-                        <Label className="text-[7px] font-black uppercase tracking-widest text-slate-400">Fase Operativa</Label>
+                        <Label className="text-[8px] font-black uppercase tracking-widest text-slate-400">Estatus Exacto</Label>
                         <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as any)}>
-                            <SelectTrigger className="h-8 text-[9px] font-bold uppercase rounded-lg border-none bg-slate-50 shadow-inner">
+                            <SelectTrigger className="h-10 text-[10px] font-bold uppercase rounded-xl border-none bg-slate-50 shadow-inner">
                                 <SelectValue placeholder="Todos" />
                             </SelectTrigger>
                             <SelectContent>
-                                <SelectItem value="todos" className="text-[9px] font-bold uppercase">Todos</SelectItem>
-                                {ALL_STATUSES.map(s => <SelectItem key={s} value={s} className="text-[9px] font-bold uppercase">{s}</SelectItem>)}
+                                <SelectItem value="todos" className="text-[10px] font-bold uppercase">TODOS LOS ESTADOS</SelectItem>
+                                {ALL_STATUSES.map(s => <SelectItem key={s} value={s} className="text-[10px] font-bold uppercase">{s.toUpperCase()}</SelectItem>)}
                             </SelectContent>
                         </Select>
                     </div>
+
                     <div className="space-y-1">
-                        <Label className="text-[7px] font-black uppercase tracking-widest text-slate-400">Ordenar por</Label>
+                        <Label className="text-[8px] font-black uppercase tracking-widest text-slate-400">Ordenar por</Label>
                         <Select value={sortBy} onValueChange={(v) => setSortBy(v as any)}>
-                            <SelectTrigger className="h-8 text-[9px] font-bold uppercase rounded-lg border-none bg-slate-50 shadow-inner">
+                            <SelectTrigger className="h-10 text-[10px] font-bold uppercase rounded-xl border-none bg-slate-50 shadow-inner">
                                 <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
-                                <SelectItem value="orderDate" className="text-[9px] font-bold uppercase">Emisión</SelectItem>
-                                <SelectItem value="totalAmount" className="text-[9px] font-bold uppercase">Inversión</SelectItem>
+                                <SelectItem value="orderDate" className="text-[10px] font-bold uppercase">Fecha Emisión</SelectItem>
+                                <SelectItem value="totalAmount" className="text-[10px] font-bold uppercase">Monto Inversión</SelectItem>
                             </SelectContent>
                         </Select>
                     </div>
-                    <div className="space-y-1 flex flex-col justify-end">
-                        <Label className="text-[7px] font-black uppercase tracking-widest text-slate-400 mb-1">Orden Sentido</Label>
+
+                    <div className="space-y-1">
+                        <Label className="text-[8px] font-black uppercase tracking-widest text-slate-400">Orden Sentido</Label>
                         <div className="flex gap-1.5 w-full">
-                            <Button variant={sortOrder === 'desc' ? 'default' : 'outline'} size="sm" className="h-8 flex-1 rounded-lg border-none font-bold text-[9px]" onClick={() => setSortOrder('desc')}>
-                                <SortDesc className="h-3 w-3 mr-1" /> Descendente
+                            <Button variant={sortOrder === 'desc' ? 'default' : 'outline'} size="sm" className="h-10 flex-1 rounded-xl border-slate-100 font-bold text-[9px] uppercase tracking-wider" onClick={() => setSortOrder('desc')}>
+                                <SortDesc className="h-3.5 w-3.5 mr-1" /> DESC
                             </Button>
-                            <Button variant={sortOrder === 'asc' ? 'default' : 'outline'} size="sm" className="h-8 flex-1 rounded-lg border-none font-bold text-[9px]" onClick={() => setSortOrder('asc')}>
-                                <SortAsc className="h-3 w-3 mr-1" /> Ascendente
+                            <Button variant={sortOrder === 'asc' ? 'default' : 'outline'} size="sm" className="h-10 flex-1 rounded-xl border-slate-100 font-bold text-[9px] uppercase tracking-wider" onClick={() => setSortOrder('asc')}>
+                                <SortAsc className="h-3.5 w-3.5 mr-1" /> ASC
                             </Button>
                         </div>
                     </div>
@@ -191,20 +332,20 @@ export default function AdminOrdersView() {
             {isLoading && !allOrders ? (
                 <div className="space-y-3 p-2">{[1, 2, 3, 4].map(i => <Skeleton key={i} className="h-20 w-full rounded-2xl bg-white" />)}</div>
             ) : (
-                <div className="space-y-4 pb-20">
+                <div className="space-y-4 pb-20 mx-1 sm:mx-2">
                     <Accordion type="multiple" value={openSections} onValueChange={setOpenSections} className="space-y-3">
                         {visibleSections.map(section => (
                             <AccordionItem key={section.key} value={section.key} className={cn(
                                 "border-none rounded-2xl bg-white ring-1 ring-slate-100 shadow-sm overflow-hidden transition-all", 
                                 section.orders.length > 0 && section.alert && "ring-2 ring-rose-500/40 bg-rose-50/10"
                             )}>
-                                <AccordionTrigger className="px-5 py-3 hover:no-underline">
+                                <AccordionTrigger className="px-5 py-4 hover:no-underline">
                                     <div className="flex items-center gap-3 text-left w-full mr-2">
-                                        <div className={cn("p-2 rounded-xl", section.alert && section.orders.length > 0 ? "bg-rose-100 text-rose-600" : `bg-${section.color}-50 text-${section.color}-500`)}>
-                                            <section.icon className="h-4 w-4" />
+                                        <div className={cn("p-2 rounded-xl shadow-sm", section.alert && section.orders.length > 0 ? "bg-rose-100 text-rose-600" : `bg-${section.color}-50 text-${section.color}-600`)}>
+                                            <section.icon className="h-4.5 w-4.5" />
                                         </div>
                                         <div className="space-y-0.5">
-                                            <h3 className="text-[11px] font-black uppercase tracking-tight text-slate-900">{section.label}</h3>
+                                            <h3 className="text-xs font-black uppercase tracking-tight text-slate-900">{section.label}</h3>
                                             <p className="text-[8px] text-muted-foreground font-black uppercase tracking-[0.2em]">{section.orders.length} EXPEDIENTES EN COLA</p>
                                         </div>
                                         {section.orders.length > 0 && section.alert && (
@@ -214,12 +355,12 @@ export default function AdminOrdersView() {
                                         )}
                                     </div>
                                 </AccordionTrigger>
-                                <AccordionContent className="px-5 pb-4">
+                                <AccordionContent className="px-5 pb-5">
                                     {section.orders.length > 0 ? (
-                                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                                             {section.orders.map(order => <OrderCard key={order.id} order={order} onSelect={setSelectedOrder} />)}
                                         </div>
-                                    ) : <div className="h-12 flex items-center justify-center border-2 border-dashed rounded-xl opacity-30"><p className="text-[8px] font-black uppercase tracking-widest text-slate-400">Sin expedientación activa en esta fase</p></div>}
+                                    ) : <div className="h-14 flex items-center justify-center border-2 border-dashed rounded-2xl opacity-30"><p className="text-[8px] font-black uppercase tracking-widest text-slate-400">Sin expedientación activa en esta fase</p></div>}
                                 </AccordionContent>
                             </AccordionItem>
                         ))}
