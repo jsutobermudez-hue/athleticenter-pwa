@@ -129,6 +129,7 @@ export interface Invoice extends Auditable {
     statusText: string;
     customerPhone?: string;
     customerRif?: string;
+    creditStartDate?: Date;
 }
 
 export interface Payment extends Auditable {

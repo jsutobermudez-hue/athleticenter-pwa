@@ -138,8 +138,14 @@ export function AdminBillingView() {
     if (agingFilter !== 'todos') {
       const now = Date.now();
       items = items.filter(i => {
-        const createdDate = i.createdAt instanceof Date ? i.createdAt.getTime() : (i.createdAt as any)?.seconds ? (i.createdAt as any).seconds * 1000 : now;
-        const daysOld = Math.floor((now - createdDate) / (1000 * 60 * 60 * 24));
+        const startDate = i.creditStartDate instanceof Date 
+          ? i.creditStartDate 
+          : i.createdAt instanceof Date 
+            ? i.createdAt 
+            : (i.createdAt as any)?.seconds 
+              ? new Date((i.createdAt as any).seconds * 1000) 
+              : new Date();
+        const daysOld = Math.max(0, Math.floor((now - startDate.getTime()) / (1000 * 60 * 60 * 24)));
         if (agingFilter === 'al_dia') return daysOld <= 7;
         if (agingFilter === 'vencimiento') return daysOld > 7 && daysOld <= 15;
         if (agingFilter === 'mora') return daysOld > 15 && daysOld <= 30;

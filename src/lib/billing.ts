@@ -69,5 +69,7 @@ export function getInvoiceFromOrder(order: Order): Invoice | null {
         remainingCreditDays: remainingDays,
         discountPercentage: discount,
         currency: 'USD',
+        createdAt: (order.createdAt || rawDate) as Timestamp,
+        creditStartDate: creditStartDate,
     }
 }
