@@ -12,7 +12,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
-import { Loader2, Box, Scale, PackageCheck, X } from 'lucide-react';
+import { Loader2, Box, Scale, PackageCheck, X, Camera } from 'lucide-react';
 import type { Order } from '@/lib/definitions';
 import { useToast } from '@/hooks/use-toast';
 import { useFirestore, useUser, errorEmitter, FirestorePermissionError } from '@/firebase';
@@ -34,12 +34,18 @@ export function CompletePackingDialog({ order, isOpen, onOpenChange }: CompleteP
   const [packageCount, setPackageCount] = useState(1);
   const [totalWeight, setTotalWeight] = useState(0);
 
+  const [packingImageUrl, setPackingImageUrl] = useState('');
+
   useEffect(() => {
     if (isOpen) {
       setPackageCount(order.packageCount || 1);
       setTotalWeight(order.totalWeight || 0);
+      setPackingImageUrl((order as any).packingImageUrl || '');
     }
   }, [isOpen, order]);
+
+  // Estimación rápida de volumen CBM
+  const estimatedCBM = (packageCount * 0.045).toFixed(3);
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -51,6 +57,8 @@ export function CompletePackingDialog({ order, isOpen, onOpenChange }: CompleteP
       status: 'Completado' as const,
       packageCount: Number(packageCount),
       totalWeight: Number(totalWeight),
+      packingImageUrl: packingImageUrl || null,
+      totalCBM: Number(estimatedCBM),
       updatedAt: serverTimestamp(),
       updatedBy: currentUser.id
     };
@@ -62,9 +70,11 @@ export function CompletePackingDialog({ order, isOpen, onOpenChange }: CompleteP
       await createAppNotifications(firestore, {
         category: 'Despacho',
         title: `Embalaje Certificado #${order.id.substring(0, 6)}`,
-        message: `Listo para despacho. Contenido: ${packageCount} bultos (${totalWeight}kg).`,
+        message: `Listo para despacho. Contenido: ${packageCount} bultos (${totalWeight}kg, ~${estimatedCBM} m³).`,
         link: `/dashboard/dispatch?orderId=${order.id}`,
         initiatorId: currentUser.id,
+        salespersonId: order.salespersonId,
+        customerId: order.customerId,
         roles: ['admin', 'gerencia', 'deposito'],
       });
 
@@ -142,9 +152,26 @@ export function CompletePackingDialog({ order, isOpen, onOpenChange }: CompleteP
                         </div>
                     </div>
 
-                    <div className="p-4 rounded-2xl bg-blue-50 border border-blue-100 flex items-start gap-3 mt-4">
-                        <p className="text-[9px] font-bold text-blue-800 uppercase leading-relaxed">
-                            Al certificar, el sistema generará automáticamente la numeración correlativa para las etiquetas QR.
+                    <div className="space-y-1.5 pt-2">
+                        <Label className="text-[9px] font-black uppercase text-slate-500 px-1 flex items-center justify-between">
+                            <span>Foto Evidencia de Empaque (URL / Foto)</span>
+                            <span className="text-[8px] font-black text-indigo-600 uppercase">CBM Est: {estimatedCBM} m³</span>
+                        </Label>
+                        <div className="relative">
+                            <Camera className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                            <Input 
+                                type="url" 
+                                placeholder="https://... (Foto del contenido empacado)" 
+                                value={packingImageUrl} 
+                                onChange={(e) => setPackingImageUrl(e.target.value)} 
+                                className="h-12 pl-10 text-xs font-bold rounded-xl bg-slate-50 border-none shadow-inner" 
+                            />
+                        </div>
+                    </div>
+
+                    <div className="p-4 rounded-2xl bg-indigo-50 border border-indigo-100 flex items-start gap-3 mt-4">
+                        <p className="text-[9px] font-bold text-indigo-800 uppercase leading-relaxed">
+                            Al certificar, el sistema respaldará la evidencia fotográfica y generará las etiquetas de bultos correlativas.
                         </p>
                     </div>
                 </div>
