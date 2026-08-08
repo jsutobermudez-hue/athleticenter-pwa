@@ -12,7 +12,7 @@ import {
 } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { MoreHorizontal, Loader2, AlertTriangle, Search } from 'lucide-react';
+import { MoreHorizontal, Loader2, AlertTriangle, Search, ShieldAlert } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -87,6 +87,17 @@ function UsersPageContent() {
     return items;
   }, [allUsers, statusFilter, searchTerm]);
   
+  const userStats = useMemo(() => {
+    if (!allUsers) return { total: 0, staff: 0, clients: 0, active: 0, inactive: 0 };
+    return {
+      total: allUsers.length,
+      staff: allUsers.filter(u => u.role !== 'cliente').length,
+      clients: allUsers.filter(u => u.role === 'cliente').length,
+      active: allUsers.filter(u => u.status === 'Activo').length,
+      inactive: allUsers.filter(u => u.status === 'Inactivo').length,
+    };
+  }, [allUsers]);
+
   if (isUserLoading || !currentUser) return <div className="flex h-screen items-center justify-center"><Loader2 className="animate-spin" /></div>;
 
   return (
@@ -94,8 +105,35 @@ function UsersPageContent() {
       <TooltipProvider>
         <div className="flex flex-col gap-6 w-full pb-20 animate-in fade-in-50 duration-500 px-2 sm:px-4">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between px-2">
-            <h1 className="text-3xl font-black uppercase tracking-tighter text-slate-900">Gestión de Usuarios</h1>
-            <NewUserDialog />
+            <div>
+              <h1 className="text-3xl font-black uppercase tracking-tighter text-slate-900">Gestión de Usuarios y Seguridad</h1>
+              <p className="text-[10px] text-muted-foreground font-black italic uppercase tracking-[0.3em] opacity-60">Control de Roles, Facultades y Auditoría de Identidad</p>
+            </div>
+            <div className="flex items-center gap-3">
+              <Button variant="outline" size="sm" onClick={() => router.push('/dashboard/audit')} className="h-11 px-4 rounded-xl font-black uppercase text-[10px] tracking-wider border-slate-200 shadow-sm">
+                <ShieldAlert className="mr-2 h-4 w-4 text-amber-500" /> Bitácora de Auditoría
+              </Button>
+              <NewUserDialog />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mx-2">
+            <Card className="border-none shadow-md rounded-2xl p-4 bg-slate-900 text-white">
+              <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Total Usuarios</p>
+              <p className="text-2xl sm:text-3xl font-black tracking-tighter mt-1">{userStats.total}</p>
+            </Card>
+            <Card className="border-none shadow-md rounded-2xl p-4 bg-indigo-600 text-white">
+              <p className="text-[9px] font-black uppercase tracking-widest text-indigo-200">Personal Staff</p>
+              <p className="text-2xl sm:text-3xl font-black tracking-tighter mt-1">{userStats.staff}</p>
+            </Card>
+            <Card className="border-none shadow-md rounded-2xl p-4 bg-emerald-600 text-white">
+              <p className="text-[9px] font-black uppercase tracking-widest text-emerald-200">Clientes Red B2B</p>
+              <p className="text-2xl sm:text-3xl font-black tracking-tighter mt-1">{userStats.clients}</p>
+            </Card>
+            <Card className="border-none shadow-md rounded-2xl p-4 bg-white border border-slate-100 shadow-sm">
+              <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Activos / Inactivos</p>
+              <p className="text-2xl sm:text-3xl font-black tracking-tighter mt-1 text-slate-900">{userStats.active} <span className="text-sm font-bold text-rose-500">/ {userStats.inactive}</span></p>
+            </Card>
           </div>
           
           <Card className="border-none shadow-sm rounded-2xl overflow-hidden bg-white mx-2">

@@ -32,6 +32,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { ImageUploader } from '@/components/ui/image-uploader';
+import { logActivity } from '@/lib/audit';
+import { createAppNotifications } from '@/lib/notifications';
 
 const roles: User['role'][] = ['superadmin', 'admin', 'gerencia', 'deposito', 'ventas', 'cliente'];
 
@@ -147,6 +149,34 @@ export function EditUserDialog({ user, isOpen, onOpenChange, title, description 
           }, { merge: true });
         }
       });
+
+      // Auditoría y Notificaciones en Segundo Plano
+      const changes: string[] = [];
+      if (user.role !== data.role) changes.push(`Rol: ${user.role} -> ${data.role}`);
+      if (user.status !== data.status) changes.push(`Estado: ${user.status} -> ${data.status}`);
+
+      if (changes.length > 0) {
+        logActivity(firestore, {
+          userId: authUser.uid,
+          userName: authUser.displayName || 'Superadmin',
+          action: 'Edición de Perfil y Facultades',
+          resource: 'users',
+          resourceId: user.id,
+          details: `Modificación de expediente de ${user.name} (${user.email}). Cambios: ${changes.join(', ')}`,
+          severity: 'warning'
+        });
+
+        createAppNotifications(firestore, {
+          category: 'Usuarios',
+          title: `Perfil Actualizado: ${user.name}`,
+          message: `Cambios de permisos por Superadministrador: ${changes.join(', ')}`,
+          link: `/dashboard/users?userId=${user.id}`,
+          initiatorId: authUser.uid,
+          userIds: [user.id],
+          roles: ['superadmin', 'admin', 'gerencia']
+        });
+      }
+
       toast({ title: '¡Expediente Actualizado!' });
       onOpenChange(false);
     } catch (error: any) {
