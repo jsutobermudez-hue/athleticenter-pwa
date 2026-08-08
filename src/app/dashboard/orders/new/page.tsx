@@ -15,7 +15,7 @@ import { Label } from '@/components/ui/label';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
-import { Loader2, Search, Trash2, ArrowLeft, ShoppingCart, Check, ChevronsUpDown, Plus, X, Boxes, ShieldAlert, User as UserIcon, Info, ChevronDown, ChevronUp, Save, AlertTriangle, ShieldCheck, Wallet, RefreshCw, Lock, Box } from 'lucide-react';
+import { Loader2, Search, Trash2, ArrowLeft, ShoppingCart, Check, ChevronsUpDown, Plus, X, Boxes, ShieldAlert, User as UserIcon, Info, ChevronDown, ChevronUp, Save, AlertTriangle, ShieldCheck, Wallet, RefreshCw, Lock, Box, CheckCircle2 } from 'lucide-react';
 import { ProductDetailsSheet } from '../../inventory/product-details-sheet';
 import { ProductCard } from '@/components/dashboard/ProductCard';
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -502,27 +502,70 @@ function NewOrderForm() {
             <ProductDetailsSheet product={productForDetails} allOffers={allOffers || []} isOpen={!!productForDetails} onOpenChange={(open) => !open && setProductForDetails(null)} canManageInventory={isAdmin} canDelete={false} onDelete={() => {}} />
 
             <Dialog open={!!productForSizes} onOpenChange={(open) => !open && setProductForSizes(null)}>
-                <DialogContent className="sm:max-w-md rounded-[2.5rem] p-0 overflow-hidden text-left">
-                    <DialogHeader className="p-8 bg-slate-900 text-white text-left">
-                        <DialogTitle className="text-2xl font-black uppercase text-left">Variantes por Talla</DialogTitle>
+                <DialogContent className="sm:max-w-xl rounded-[2.5rem] p-0 overflow-hidden text-left border-none shadow-2xl">
+                    <DialogHeader className="p-6 sm:p-8 bg-slate-900 text-white text-left relative">
+                        <div className="flex items-center gap-4">
+                            <Avatar className="h-14 w-14 rounded-2xl border-2 border-primary/40 shadow-md shrink-0">
+                                <AvatarImage src={productForSizes?.imageUrl} className="object-cover" />
+                                <AvatarFallback className="bg-primary/20 text-primary font-black"><Box className="h-6 w-6" /></AvatarFallback>
+                            </Avatar>
+                            <div className="space-y-1 min-w-0 flex-1">
+                                <DialogTitle className="text-xl sm:text-2xl font-black uppercase tracking-tight text-white leading-none truncate">
+                                    {productForSizes?.name}
+                                </DialogTitle>
+                                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">
+                                    SKU: {productForSizes?.sku} | Matriz de Matrícula por Tallas
+                                </p>
+                            </div>
+                        </div>
                     </DialogHeader>
-                    <div className="p-8 max-h-[60vh] overflow-y-auto bg-white">
-                        <div className="grid grid-cols-2 gap-4">
+
+                    <div className="p-6 sm:p-8 max-h-[60vh] overflow-y-auto bg-slate-50/50 space-y-6">
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                             {productForSizes?.sizes && Object.entries(productForSizes.sizes).map(([size, stock]) => {
                                 const currentQty = orderItems.find(i => i.productId === productForSizes.id && i.size === size)?.quantity || 0;
+                                const isLowStock = stock <= 5 && stock > 0;
+                                const isOutOfStock = stock <= 0;
+
                                 return (
-                                    <div key={size} className="p-4 rounded-2xl bg-slate-50 border flex flex-col gap-2">
-                                        <div className="flex justify-between">
-                                            <span className="text-[11px] font-black uppercase">Talla: {size}</span>
-                                            <span className="text-[9px] text-slate-400 font-bold uppercase">Disp: {stock}</span>
+                                    <div key={size} className={cn(
+                                        "p-3 rounded-2xl border transition-all space-y-2 relative group",
+                                        isOutOfStock ? "bg-slate-100 opacity-60 border-slate-200" : "bg-white border-slate-200 hover:border-primary shadow-sm"
+                                    )}>
+                                        <div className="flex items-center justify-between">
+                                            <span className="text-xs font-black uppercase text-slate-900">Talla {size}</span>
+                                            <Badge variant={isOutOfStock ? "outline" : isLowStock ? "destructive" : "secondary"} className="text-[8px] font-black uppercase px-1.5 h-4">
+                                                {isOutOfStock ? "Agotado" : `${stock} disp.`}
+                                            </Badge>
                                         </div>
-                                        <Input type="number" min="0" max={stock} value={isNaN(currentQty) ? "" : (currentQty || 0)} onChange={(e) => handleQuickQuantityChange(productForSizes!, e.target.value === "" ? 0 : Number(e.target.value), size)} className="h-10 text-center font-black rounded-xl" />
+                                        <Input 
+                                            type="number" 
+                                            min="0" 
+                                            max={stock} 
+                                            disabled={isOutOfStock}
+                                            value={isNaN(currentQty) ? "" : (currentQty || 0)} 
+                                            onChange={(e) => handleQuickQuantityChange(productForSizes!, e.target.value === "" ? 0 : Number(e.target.value), size)} 
+                                            className="h-11 text-center font-black text-lg rounded-xl bg-slate-50 border-none shadow-inner" 
+                                        />
                                     </div>
                                 );
                             })}
                         </div>
                     </div>
-                    <DialogFooter className="p-8 bg-slate-50 border-t"><Button className="w-full h-12 bg-primary font-black uppercase rounded-xl" onClick={() => setProductForSizes(null)}>Confirmar Selección</Button></DialogFooter>
+
+                    <DialogFooter className="p-6 sm:p-8 bg-white border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-4">
+                        <div className="flex items-center gap-4 text-left">
+                            <div>
+                                <p className="text-[9px] font-black uppercase text-slate-400 tracking-widest">Matrícula Seleccionada</p>
+                                <p className="text-lg font-black text-slate-900 tracking-tighter">
+                                    {orderItems.filter(i => i.productId === productForSizes?.id).reduce((s, i) => s + i.quantity, 0)} Pares
+                                </p>
+                            </div>
+                        </div>
+                        <Button className="w-full sm:w-auto h-12 px-8 bg-primary hover:bg-primary/90 text-white font-black uppercase text-[10px] tracking-widest rounded-xl shadow-lg" onClick={() => setProductForSizes(null)}>
+                            <CheckCircle2 className="mr-2 h-4 w-4" /> Confirmar Matrícula
+                        </Button>
+                    </DialogFooter>
                 </DialogContent>
             </Dialog>
         </div>
