@@ -255,6 +255,9 @@ export interface PricingStrategy {
         unitsPerBox: number;
         freightRatePerCBM: number;
         otherExpenses: number;
+        customsTariffPercent?: number;
+        portFeesPerUnit?: number;
+        customsAgentFeesPerUnit?: number;
     };
     calculated: {
         priceListBCV: number;
@@ -300,6 +303,18 @@ export interface PurchaseOrder extends Auditable {
     estimatedArrival?: Timestamp | null;
     receptionDate?: Timestamp | null;
     trackingNumber?: string;
+    blNumber?: string;
+    containerType?: '20HQ' | '40HQ' | '45HQ' | 'LCL (Carga Suelta)';
+    totalCBM?: number;
+    customsTariffsAmount?: number;
+    importIvaAmount?: number;
+    portFeesAmount?: number;
+    customsAgentFeesAmount?: number;
+    otherCustomsExpenses?: number;
+    downPaymentAmount?: number;
+    downPaymentStatus?: 'Pendiente' | 'Pagado';
+    balancePaymentAmount?: number;
+    balancePaymentStatus?: 'Pendiente' | 'Pagado';
 }
 
 export interface PurchaseOrderItem {

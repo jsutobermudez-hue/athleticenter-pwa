@@ -31,7 +31,22 @@ export function calculatePricingTier(
   };
 
   const safePricing = pricing || {};
-  const cost = Math.max(0, safeNum(safePricing.costLanded));
+  let cost = Math.max(0, safeNum(safePricing.costLanded));
+
+  // Si se incluye desglose detallado de importación, calcular el costo en destino incorporando aranceles y gastos aduanales
+  if (safePricing.importDetails) {
+    const factory = safeNum(safePricing.importDetails.factoryCost);
+    const freight = safeNum(safePricing.importDetails.chinaShipping);
+    const tariffPercent = safeNum(safePricing.importDetails.customsTariffPercent) / 100;
+    const portFees = safeNum(safePricing.importDetails.portFeesPerUnit);
+    const agentFees = safeNum(safePricing.importDetails.customsAgentFeesPerUnit);
+    const tariffAmount = factory * tariffPercent;
+    const calculatedLanded = factory + freight + tariffAmount + portFees + agentFees;
+    if (calculatedLanded > 0) {
+      cost = calculatedLanded;
+    }
+  }
+
   const useGlobal = safePricing.useGlobalSettings ?? true;
   
   const salespersonComm = safeNum(useGlobal ? safeSettings.defaultCommission : (safePricing.customCommission ?? 5)) / 100;
