@@ -60,14 +60,14 @@ export function AdminBillingView() {
   const ordersCollection = useMemoFirebase(() => {
     if (!currentUser || !firestore) return null;
     const base = collection(firestore, 'orders');
-    if (isGlobalStaff) return query(base, orderBy('updatedAt', 'desc'), limit(150));
+    if (isGlobalStaff) return query(base, orderBy('updatedAt', 'desc'), limit(500));
     
     const filterField = currentUser.role === 'ventas' ? 'salespersonId' : 'customerId';
     const filterValue = currentUser.role === 'cliente' 
         ? (currentUser.associatedCustomerId || currentUser.id) 
         : currentUser.id;
 
-    return query(base, where(filterField, '==', filterValue), limit(150));
+    return query(base, where(filterField, '==', filterValue), limit(500));
   }, [firestore, currentUser, isGlobalStaff]);
   
   const { data: rawOrders, isLoading: isLoadingOrders } = useCollection<Order>(ordersCollection);
@@ -107,7 +107,7 @@ export function AdminBillingView() {
   const metrics = useMemo(() => {
     if (!rawOrders) return { vencido: 0, porVencer: 0, enVerificacion: 0, totalPorCobrar: 0, recaudado: 0 };
     return rawOrders.reduce((acc, order) => {
-      const realCash = order.totalCashReceived ?? ((order.amountPaid || 0) * 0.65);
+      const realCash = order.totalCashReceived ?? order.amountPaid ?? 0;
       acc.recaudado += realCash;
       const inv = getInvoiceFromOrder(order);
       if (!inv) return acc;
