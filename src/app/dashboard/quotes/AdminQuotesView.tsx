@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useMemo, useState } from 'react';
@@ -8,25 +7,64 @@ import type { Quote, QuoteStatus } from '@/lib/definitions';
 import { Skeleton } from '@/components/ui/skeleton';
 import { QuoteSheetController } from './QuoteSheetController';
 import { Card, CardContent } from '@/components/ui/card';
-import { Search, Send, History, Calendar, Filter, SortAsc, SortDesc, Save, Eye, ClipboardList, AlertTriangle } from 'lucide-react';
+import { Search, Send, History, Calendar, Filter, SortAsc, SortDesc, Save, Eye, ClipboardList, AlertTriangle, MessageCircle, DollarSign, Award, CheckCircle2, FilterX } from 'lucide-react';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
-import { format } from 'date-fns';
+import { format, differenceInDays } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 
 const ALL_STATUSES: QuoteStatus[] = ['Borrador', 'Enviada', 'Aceptada', 'Convertida', 'Vencida', 'Cancelada'];
 
+function DashboardMetricCard({
+  title,
+  value,
+  subtitle,
+  icon: Icon,
+  iconBg,
+  iconColor,
+  onClick,
+  isActive
+}: {
+  title: string;
+  value: string | number;
+  subtitle: string;
+  icon: React.ElementType;
+  iconBg: string;
+  iconColor: string;
+  onClick?: () => void;
+  isActive?: boolean;
+}) {
+  return (
+    <Card 
+      onClick={onClick}
+      className={cn(
+        "border-none shadow-sm rounded-2xl bg-white p-5 flex items-center justify-between transition-all cursor-pointer hover:shadow-md hover:-translate-y-0.5",
+        isActive && "ring-2 ring-primary bg-primary/5"
+      )}
+    >
+      <div className="space-y-1">
+        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">{title}</p>
+        <h3 className="text-2xl font-black uppercase tracking-tight text-slate-900">{value}</h3>
+        <p className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">{subtitle}</p>
+      </div>
+      <div className={cn("p-3 rounded-2xl shrink-0 shadow-sm", iconBg, iconColor)}>
+        <Icon className="h-6 w-6" />
+      </div>
+    </Card>
+  );
+}
+
 function QuoteCard({ quote, onSelect }: { quote: Quote; onSelect: (q: Quote) => void }) {
     const getStatusColor = (status: QuoteStatus) => {
         switch (status) {
             case 'Borrador': return 'bg-slate-400';
-            case 'Enviada': return 'bg-blue-400';
-            case 'Aceptada': return 'bg-emerald-400';
-            case 'Convertida': return 'bg-purple-500';
+            case 'Enviada': return 'bg-blue-500';
+            case 'Aceptada': return 'bg-emerald-500';
+            case 'Convertida': return 'bg-purple-600';
             case 'Vencida': return 'bg-amber-500';
             case 'Cancelada': return 'bg-rose-500';
             default: return 'bg-muted';
@@ -34,31 +72,78 @@ function QuoteCard({ quote, onSelect }: { quote: Quote; onSelect: (q: Quote) => 
     };
     const color = getStatusColor(quote.status);
 
+    const validUntilDate = (quote as any).validUntil;
+    const daysToExpire = validUntilDate && typeof validUntilDate.toDate === 'function' ? differenceInDays(validUntilDate.toDate(), new Date()) : null;
+    const isAboutToExpire = daysToExpire !== null && daysToExpire >= 0 && daysToExpire <= 2 && ['Enviada', 'Borrador'].includes(quote.status);
+
+    const handleSendWhatsAppQuote = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        const rawPhone = (quote.customerPhone || '').replace(/\D/g, '');
+        const cleanPhone = rawPhone.length === 10 ? `58${rawPhone}` : rawPhone;
+        const itemsCount = ((quote as any).items || []).length;
+        
+        const text = `*ATHLETICENTER C.A. - PROPUESTA COMERCIAL B2B*\n\n` +
+          `Estimado(a) *${quote.customerName}*,\n\n` +
+          `Le hacemos llegar la propuesta comercial N° *#${quote.id.substring(0, 8).toUpperCase()}*:\n\n` +
+          `📦 *Items Incluidos:* ${itemsCount} productos\n` +
+          `💰 *Inversión Total:* $${quote.totalAmount.toFixed(2)} USD\n` +
+          (validUntilDate && typeof validUntilDate.toDate === 'function' ? `📅 *Validez de Oferta:* Hasta el ${format(validUntilDate.toDate(), 'dd/MM/yyyy')}\n` : '') +
+          `📍 *Asesor Comercial:* ${quote.salespersonName || 'Atención General'}\n\n` +
+          `Quedamos atentos para formalizar su pedido de mercancía. ¡Muchas gracias por su preferencia!`;
+
+        const url = cleanPhone ? `https://wa.me/${cleanPhone}?text=${encodeURIComponent(text)}` : `https://wa.me/?text=${encodeURIComponent(text)}`;
+        window.open(url, '_blank');
+    };
+
     return (
         <Card 
-            className="group cursor-pointer transition-all hover:border-primary/20 border-primary/5 bg-white p-4 flex flex-col gap-4 rounded-xl sm:rounded-2xl shadow-none ring-1 ring-primary/5 hover:shadow-md hover:-translate-y-0.5" 
+            className="group cursor-pointer transition-all hover:border-primary/20 border-primary/5 bg-white p-4 flex flex-col gap-4 rounded-2xl shadow-sm ring-1 ring-primary/5 hover:shadow-md hover:-translate-y-0.5" 
             onClick={() => onSelect(quote)}
         >
             <div className="flex justify-between items-start">
                 <div className="space-y-0.5">
-                    <p className="text-[7px] font-black text-slate-400 uppercase tracking-widest">COTIZACIÓN</p>
-                    <p className="text-[10px] font-mono font-bold text-slate-600">#{quote.id.substring(0, 8)}</p>
+                    <p className="text-[7px] font-black text-slate-400 uppercase tracking-widest">EXPEDIENTE COTIZACIÓN</p>
+                    <p className="text-[10px] font-mono font-bold text-slate-700">#{quote.id.substring(0, 8)}</p>
                 </div>
-                <Badge className={cn("text-[7px] font-black uppercase border-none text-white px-2 h-4.5 rounded-md shadow-sm", color)}>{quote.status}</Badge>
+                <div className="flex flex-col items-end gap-1">
+                    <Badge className={cn("text-[7px] font-black uppercase border-none text-white px-2 h-4.5 rounded-md shadow-sm", color)}>{quote.status}</Badge>
+                    {isAboutToExpire && (
+                        <Badge variant="destructive" className="text-[7px] font-black uppercase h-4 px-1.5 animate-pulse">
+                            ¡Por Vencer!
+                        </Badge>
+                    )}
+                </div>
             </div>
+
             <div className="space-y-1.5">
                 <p className="text-[11px] font-black uppercase truncate leading-tight text-slate-900">{quote.customerName}</p>
-                <p className="text-[8px] text-slate-400 font-bold uppercase flex items-center gap-1.5">
-                    <Calendar className="h-3 w-3" /> {quote.quoteDate ? format(quote.quoteDate.toDate(), 'dd/MM/yy') : '...'}
-                </p>
-            </div>
-            <div className="pt-2 border-t border-dashed border-slate-100 flex justify-between items-end mt-auto">
-                <div className="space-y-0.5">
-                    <p className="text-[7px] font-black text-slate-400 uppercase tracking-widest">TOTAL REF</p>
-                    <p className="text-sm font-black text-primary leading-none">${quote.totalAmount.toFixed(2)}</p>
+                <div className="flex items-center justify-between text-[8px] text-slate-400 font-bold uppercase">
+                    <span className="flex items-center gap-1"><Calendar className="h-3 w-3 text-slate-400" /> {quote.quoteDate ? format(quote.quoteDate.toDate(), 'dd/MM/yy') : '...'}</span>
+                    {quote.salespersonName && <span className="truncate max-w-[100px]">{quote.salespersonName}</span>}
                 </div>
-                <div className="h-7 w-7 rounded-lg bg-blue-50 text-blue-500 flex items-center justify-center group-hover:bg-primary group-hover:text-white transition-colors">
-                    <Eye className="h-3.5 w-3.5" />
+            </div>
+
+            <div className="pt-2 border-t border-dashed border-slate-100 flex justify-between items-center mt-auto gap-2">
+                <div className="space-y-0.5">
+                    <p className="text-[7px] font-black text-slate-400 uppercase tracking-widest">INVERSIÓN TOTAL</p>
+                    <p className="text-sm font-black text-slate-900 leading-none">${quote.totalAmount.toFixed(2)}</p>
+                </div>
+                <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                    <Button 
+                        size="sm" 
+                        onClick={handleSendWhatsAppQuote}
+                        className="h-8 px-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-[9px] uppercase tracking-wider flex items-center gap-1 shadow-sm"
+                    >
+                        <MessageCircle className="h-3.5 w-3.5" /> WhatsApp
+                    </Button>
+                    <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        onClick={() => onSelect(quote)}
+                        className="h-8 w-8 rounded-xl text-slate-400 group-hover:text-primary transition-colors"
+                    >
+                        <Eye className="h-4 w-4" />
+                    </Button>
                 </div>
             </div>
         </Card>
@@ -75,14 +160,56 @@ export default function AdminQuotesView() {
     const [selectedQuote, setSelectedQuote] = useState<Quote | null>(null);
     const [searchTerm, setSearchTerm] = useState('');
     const [statusFilter, setStatusFilter] = useState<QuoteStatus | 'todos'>('todos');
+    const [salespersonFilter, setSalespersonFilter] = useState('todos');
     const [sortBy, setSortBy] = useState<'quoteDate' | 'totalAmount'>('quoteDate');
     const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
     const [openSections, setOpenSections] = useState<string[]>([]);
 
     const canListAll = useMemo(() => profile && ['superadmin', 'admin', 'gerencia'].includes(profile.role), [profile]);
     
-    const quotesQuery = useMemoFirebase(() => (firestore && canListAll ? query(collection(firestore, 'quotes'), orderBy(sortBy, sortOrder), limit(100)) : null), [firestore, canListAll, sortBy, sortOrder]);
+    const quotesQuery = useMemoFirebase(() => (firestore && canListAll ? query(collection(firestore, 'quotes'), orderBy(sortBy, sortOrder), limit(200)) : null), [firestore, canListAll, sortBy, sortOrder]);
     const { data: allQuotes, isLoading } = useCollection<Quote>(quotesQuery);
+
+    // VENDEDORES ÚNICOS PARA FILTRO DE GERENCIA
+    const uniqueSalespeople = useMemo(() => {
+        if (!allQuotes) return [];
+        return Array.from(new Set(allQuotes.map(q => q.salespersonName))).filter((sp): sp is string => Boolean(sp)).sort();
+    }, [allQuotes]);
+
+    // METRICAS PIPELINE EJECUTIVAS
+    const metrics = useMemo(() => {
+        if (!allQuotes) return { totalPipeline: 0, totalCount: 0, draftsCount: 0, draftsTotal: 0, activeCount: 0, activeTotal: 0, convertedCount: 0, convertedTotal: 0, conversionRate: 0 };
+        
+        let totalPipeline = 0;
+        let totalCount = 0;
+        let draftsCount = 0;
+        let draftsTotal = 0;
+        let activeCount = 0;
+        let activeTotal = 0;
+        let convertedCount = 0;
+        let convertedTotal = 0;
+
+        allQuotes.forEach(q => {
+            if (q.status !== 'Cancelada') {
+                totalPipeline += q.totalAmount || 0;
+                totalCount++;
+            }
+            if (q.status === 'Borrador') {
+                draftsCount++;
+                draftsTotal += q.totalAmount || 0;
+            } else if (['Enviada', 'Aceptada'].includes(q.status)) {
+                activeCount++;
+                activeTotal += q.totalAmount || 0;
+            } else if (q.status === 'Convertida') {
+                convertedCount++;
+                convertedTotal += q.totalAmount || 0;
+            }
+        });
+
+        const conversionRate = totalCount > 0 ? (convertedCount / totalCount) * 100 : 0;
+
+        return { totalPipeline, totalCount, draftsCount, draftsTotal, activeCount, activeTotal, convertedCount, convertedTotal, conversionRate };
+    }, [allQuotes]);
 
     const groups = useMemo(() => {
         const initial = { borradores: [] as Quote[], active: [] as Quote[], history: [] as Quote[] };
@@ -90,9 +217,10 @@ export default function AdminQuotesView() {
         
         const term = searchTerm.toLowerCase().trim();
         const filtered = allQuotes.filter(q => {
-            const matchesSearch = q.id.toLowerCase().includes(term) || q.customerName.toLowerCase().includes(term);
+            const matchesSearch = q.id.toLowerCase().includes(term) || q.customerName.toLowerCase().includes(term) || (q.customerRif || '').toLowerCase().includes(term);
             const matchesStatus = statusFilter === 'todos' || q.status === statusFilter;
-            return matchesSearch && matchesStatus;
+            const matchesSalesperson = salespersonFilter === 'todos' || q.salespersonName === salespersonFilter;
+            return matchesSearch && matchesStatus && matchesSalesperson;
         });
 
         filtered.forEach(q => {
@@ -101,7 +229,13 @@ export default function AdminQuotesView() {
             else initial.history.push(q);
         });
         return initial;
-    }, [allQuotes, searchTerm, statusFilter]);
+    }, [allQuotes, searchTerm, statusFilter, salespersonFilter]);
+
+    const handleClearFilters = () => {
+        setSearchTerm('');
+        setStatusFilter('todos');
+        setSalespersonFilter('todos');
+    };
 
     if (!canListAll) return <div className="p-12 text-center opacity-40 italic font-black uppercase tracking-widest text-[10px] text-slate-500">Acceso restringido a Gerencia Administrativa.</div>;
 
@@ -109,35 +243,99 @@ export default function AdminQuotesView() {
 
     return (
         <div className="flex flex-col gap-6 w-full animate-in fade-in-50 duration-500">
+            {/* TARJETAS KPI DE PIPELINE */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mx-1 sm:mx-2">
+                <DashboardMetricCard 
+                    title="Pipeline Total ($)" 
+                    value={`$${metrics.totalPipeline.toLocaleString('en-US', { maximumFractionDigits: 0 })}`} 
+                    subtitle={`${metrics.totalCount} Propuestas Emitidas`} 
+                    icon={DollarSign} 
+                    iconBg="bg-blue-50" 
+                    iconColor="text-blue-500" 
+                    onClick={handleClearFilters}
+                    isActive={statusFilter === 'todos' && salespersonFilter === 'todos'}
+                />
+                <DashboardMetricCard 
+                    title="Borradores en Curso" 
+                    value={metrics.draftsCount} 
+                    subtitle={`$${metrics.draftsTotal.toLocaleString('en-US', { maximumFractionDigits: 0 })} En Armado`} 
+                    icon={Save} 
+                    iconBg="bg-slate-100" 
+                    iconColor="text-slate-600" 
+                    onClick={() => setStatusFilter('Borrador')}
+                    isActive={statusFilter === 'Borrador'}
+                />
+                <DashboardMetricCard 
+                    title="Presupuestos Activos" 
+                    value={metrics.activeCount} 
+                    subtitle={`$${metrics.activeTotal.toLocaleString('en-US', { maximumFractionDigits: 0 })} En Negociación`} 
+                    icon={Send} 
+                    iconBg="bg-amber-50" 
+                    iconColor="text-amber-500" 
+                    onClick={() => setStatusFilter('Enviada')}
+                    isActive={statusFilter === 'Enviada' || statusFilter === 'Aceptada'}
+                />
+                <DashboardMetricCard 
+                    title="Tasa de Conversión" 
+                    value={`${metrics.conversionRate.toFixed(1)}%`} 
+                    subtitle={`$${metrics.convertedTotal.toLocaleString('en-US', { maximumFractionDigits: 0 })} Convertidos`} 
+                    icon={Award} 
+                    iconBg="bg-purple-50" 
+                    iconColor="text-purple-600" 
+                    onClick={() => setStatusFilter('Convertida')}
+                    isActive={statusFilter === 'Convertida'}
+                />
+            </div>
+
+            {/* FILTROS TÁCTICOS */}
             <Card className="border-none shadow-sm rounded-[1.8rem] sm:rounded-[2rem] bg-white overflow-hidden mx-1 sm:mx-2">
-                <CardContent className="p-5 sm:p-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 items-end">
-                    <div className="space-y-2">
+                <CardContent className="p-5 sm:p-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 items-end">
+                    <div className="space-y-1.5">
                         <Label className="text-[9px] sm:text-[10px] font-black uppercase text-slate-400 tracking-widest px-1">Buscar</Label>
                         <div className="relative">
                             <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
                             <Input 
-                                placeholder="REF / CLIENTE..." 
+                                placeholder="REF / CLIENTE / RIF..." 
                                 className="pl-10 h-10 sm:h-11 bg-slate-50 border-none rounded-xl font-bold text-[11px] sm:text-xs uppercase shadow-inner w-full" 
                                 value={searchTerm} 
                                 onChange={(e) => setSearchTerm(e.target.value)}
                             />
                         </div>
                     </div>
-                    <div className="space-y-2">
+
+                    {uniqueSalespeople.length > 0 && (
+                        <div className="space-y-1.5">
+                            <Label className="text-[9px] sm:text-[10px] font-black uppercase text-slate-400 tracking-widest px-1">Asesor Comercial</Label>
+                            <Select value={salespersonFilter} onValueChange={setSalespersonFilter}>
+                                <SelectTrigger className="h-10 sm:h-11 bg-slate-50 border-none rounded-xl font-bold uppercase text-[10px] sm:text-xs shadow-inner w-full">
+                                    <SelectValue placeholder="Todos" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="todos" className="font-bold text-[10px] sm:text-xs uppercase">ASESOR: TODOS</SelectItem>
+                                    {uniqueSalespeople.map(sp => (
+                                        <SelectItem key={sp} value={sp} className="font-bold text-[10px] sm:text-xs uppercase">{sp.toUpperCase()}</SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+                    )}
+
+                    <div className="space-y-1.5">
                         <Label className="text-[9px] sm:text-[10px] font-black uppercase text-slate-400 tracking-widest px-1">Estado</Label>
                         <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as any)}>
                             <SelectTrigger className="h-10 sm:h-11 bg-slate-50 border-none rounded-xl font-bold uppercase text-[10px] sm:text-xs shadow-inner w-full">
                                 <SelectValue placeholder="Todos" />
                             </SelectTrigger>
                             <SelectContent>
-                                <SelectItem value="todos" className="font-bold text-[10px] sm:text-xs uppercase">Todos</SelectItem>
+                                <SelectItem value="todos" className="font-bold text-[10px] sm:text-xs uppercase">TODOS LOS ESTADOS</SelectItem>
                                 {ALL_STATUSES.map(s => (
-                                    <SelectItem key={s} value={s} className="font-bold text-[10px] sm:text-xs uppercase">{s}</SelectItem>
+                                    <SelectItem key={s} value={s} className="font-bold text-[10px] sm:text-xs uppercase">{s.toUpperCase()}</SelectItem>
                                 ))}
                             </SelectContent>
                         </Select>
                     </div>
-                    <div className="space-y-2">
+
+                    <div className="space-y-1.5">
                         <Label className="text-[9px] sm:text-[10px] font-black uppercase text-slate-400 tracking-widest px-1">Criterio</Label>
                         <Select value={sortBy} onValueChange={(v) => setSortBy(v as any)}>
                             <SelectTrigger className="h-10 sm:h-11 bg-slate-50 border-none rounded-xl font-bold uppercase text-[10px] sm:text-xs shadow-inner w-full">
@@ -149,7 +347,8 @@ export default function AdminQuotesView() {
                             </SelectContent>
                         </Select>
                     </div>
-                    <div className="space-y-2">
+
+                    <div className="space-y-1.5">
                         <Label className="text-[9px] sm:text-[10px] font-black uppercase text-slate-400 tracking-widest px-1">Orden</Label>
                         <div className="flex gap-2">
                             <Button 
@@ -158,7 +357,7 @@ export default function AdminQuotesView() {
                                 className="h-10 sm:h-11 flex-1 rounded-xl font-black uppercase text-[8px] sm:text-[9px] tracking-widest border-slate-100" 
                                 onClick={() => setSortOrder('desc')}
                             >
-                                <SortDesc className="h-3.5 sm:h-4 w-3.5 sm:w-4 mr-1.5 sm:mr-2" /> DESC
+                                <SortDesc className="h-3.5 sm:h-4 w-3.5 sm:w-4 mr-1" /> DESC
                             </Button>
                             <Button 
                                 variant={sortOrder === 'asc' ? 'default' : 'outline'} 
@@ -166,7 +365,7 @@ export default function AdminQuotesView() {
                                 className="h-10 sm:h-11 flex-1 rounded-xl font-black uppercase text-[8px] sm:text-[9px] tracking-widest border-slate-100" 
                                 onClick={() => setSortOrder('asc')}
                             >
-                                <SortAsc className="h-3.5 sm:h-4 w-3.5 sm:w-4 mr-1.5 sm:mr-2" /> ASC
+                                <SortAsc className="h-3.5 sm:h-4 w-3.5 sm:w-4 mr-1" /> ASC
                             </Button>
                         </div>
                     </div>
@@ -234,4 +433,3 @@ export default function AdminQuotesView() {
         </div>
     );
 }
-
