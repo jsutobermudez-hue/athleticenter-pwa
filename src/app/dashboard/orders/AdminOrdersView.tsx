@@ -191,21 +191,26 @@ export default function AdminOrdersView() {
                 <div className="space-y-3 p-2">{[1, 2, 3, 4].map(i => <Skeleton key={i} className="h-20 w-full rounded-2xl bg-white" />)}</div>
             ) : (
                 <div className="space-y-4 pb-20">
-                    <Accordion type="multiple" defaultValue={['solicitudes', 'revisiones', 'borradores', 'comercial', 'operativo', 'logistica', 'cobranzas', 'archivo']} className="space-y-3">
+                    <Accordion type="multiple" defaultValue={[]} className="space-y-3">
                         {visibleSections.map(section => (
                             <AccordionItem key={section.key} value={section.key} className={cn(
                                 "border-none rounded-2xl bg-white ring-1 ring-slate-100 shadow-sm overflow-hidden transition-all", 
-                                section.orders.length > 0 && section.alert && "ring-2 ring-amber-500/30 bg-amber-50/20"
+                                section.orders.length > 0 && section.alert && "ring-2 ring-rose-500/40 bg-rose-50/10"
                             )}>
                                 <AccordionTrigger className="px-5 py-3 hover:no-underline">
-                                    <div className="flex items-center gap-3 text-left">
-                                        <div className={cn("p-2 rounded-xl", section.alert ? "bg-amber-100 text-amber-600" : `bg-${section.color}-50 text-${section.color}-500`)}>
+                                    <div className="flex items-center gap-3 text-left w-full mr-2">
+                                        <div className={cn("p-2 rounded-xl", section.alert && section.orders.length > 0 ? "bg-rose-100 text-rose-600" : `bg-${section.color}-50 text-${section.color}-500`)}>
                                             <section.icon className="h-4 w-4" />
                                         </div>
                                         <div className="space-y-0.5">
                                             <h3 className="text-[11px] font-black uppercase tracking-tight text-slate-900">{section.label}</h3>
                                             <p className="text-[8px] text-muted-foreground font-black uppercase tracking-[0.2em]">{section.orders.length} EXPEDIENTES EN COLA</p>
                                         </div>
+                                        {section.orders.length > 0 && section.alert && (
+                                            <Badge variant="destructive" className="ml-auto bg-rose-600 text-white font-black text-[9px] uppercase px-2.5 py-0.5 rounded-lg animate-pulse shadow-sm flex items-center gap-1">
+                                                <AlertTriangle className="h-3 w-3" /> REVISIÓN REQUERIDA ({section.orders.length})
+                                            </Badge>
+                                        )}
                                     </div>
                                 </AccordionTrigger>
                                 <AccordionContent className="px-5 pb-4">

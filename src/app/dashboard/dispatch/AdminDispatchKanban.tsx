@@ -19,7 +19,8 @@ import {
   Printer,
   ChevronRight,
   CreditCard,
-  Loader2
+  Loader2,
+  AlertTriangle
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -189,20 +190,23 @@ export function AdminDispatchKanban({ groups, onOpenDialog, onNavigateToDetails,
         : sections.filter(s => s.kpi === activeKpi);
 
     return (
-        <Accordion type="multiple" defaultValue={activeKpi !== 'todos' ? visibleSections.map(s => s.key) : []} key={activeKpi} className="space-y-4">
+        <Accordion type="multiple" defaultValue={[]} key={activeKpi} className="space-y-4">
             {visibleSections.map(section => {
                 const data = groups[section.key as OrderStatus] || { orders: [], count: 0, total: 0 };
+                const hasCriticalAlert = data.count > 0 && (section.key === 'Aprobado' || section.key === 'En Preparación' || data.orders.some(o => o.cancellationRequested));
+                
                 return (
                     <AccordionItem key={section.key} value={section.key} className="border-none rounded-[1.8rem] sm:rounded-[2.5rem] bg-white shadow-sm ring-1 ring-primary/5 overflow-hidden transition-all">
                         <AccordionTrigger className="px-5 sm:px-8 py-5 sm:py-6 hover:no-underline group">
                             <div className="flex items-center gap-4 sm:gap-5 text-left flex-1 min-w-0">
                                 <div className={cn(
                                     "p-2.5 sm:p-3 rounded-xl sm:rounded-2xl shadow-sm transition-transform group-data-[state=open]:rotate-12 shrink-0",
-                                    section.color === 'blue' && "bg-blue-50 text-blue-600",
-                                    section.color === 'indigo' && "bg-indigo-50 text-indigo-600",
-                                    section.color === 'slate' && "bg-slate-900 text-white",
-                                    section.color === 'sky' && "bg-sky-50 text-sky-600",
-                                    section.color === 'emerald' && "bg-emerald-50 text-emerald-600",
+                                    hasCriticalAlert ? "bg-rose-100 text-rose-600" :
+                                    section.color === 'blue' ? "bg-blue-50 text-blue-600" :
+                                    section.color === 'indigo' ? "bg-indigo-50 text-indigo-600" :
+                                    section.color === 'slate' ? "bg-slate-900 text-white" :
+                                    section.color === 'sky' ? "bg-sky-50 text-sky-600" :
+                                    "bg-emerald-50 text-emerald-600"
                                 )}>
                                     <section.icon className="h-5 w-5 sm:h-6 sm:w-6" />
                                 </div>
@@ -215,7 +219,13 @@ export function AdminDispatchKanban({ groups, onOpenDialog, onNavigateToDetails,
                                         <p className="text-[7px] font-black text-slate-400 uppercase tracking-widest">VALOR LOTE</p>
                                         <p className="text-sm font-black text-slate-900 tracking-tighter">${data.total.toLocaleString()}</p>
                                     </div>
-                                    <Badge variant="secondary" className="bg-slate-100 text-slate-600 font-black h-6 sm:h-7 px-2.5 sm:px-3 rounded-lg text-[10px] sm:text-xs">{data.count}</Badge>
+                                    {hasCriticalAlert ? (
+                                        <Badge variant="destructive" className="bg-rose-600 text-white font-black h-6 sm:h-7 px-2.5 sm:px-3 rounded-lg text-[10px] sm:text-xs animate-pulse flex items-center gap-1 shadow-sm">
+                                            <AlertTriangle className="h-3 w-3" /> REVISIÓN ({data.count})
+                                        </Badge>
+                                    ) : (
+                                        <Badge variant="secondary" className="bg-slate-100 text-slate-600 font-black h-6 sm:h-7 px-2.5 sm:px-3 rounded-lg text-[10px] sm:text-xs">{data.count}</Badge>
+                                    )}
                                 </div>
                             </div>
                         </AccordionTrigger>

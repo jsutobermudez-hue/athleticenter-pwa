@@ -72,18 +72,27 @@ export function ClientDispatchView() {
                 <p className="text-[9px] sm:text-[10px] text-muted-foreground font-black italic uppercase tracking-[0.4em] opacity-60">Visibilidad en tiempo real de su cadena de suministros.</p>
             </header>
 
-            <Accordion type="multiple" defaultValue={allOrders?.some(o => o.cancellationRequested) ? ['pending', 'transit'] : []} className="space-y-4 w-full">
+            <Accordion type="multiple" defaultValue={[]} className="space-y-4 w-full">
                 <AccordionItem value="pending" className="border-none rounded-[1.8rem] sm:rounded-[2.5rem] bg-white shadow-sm ring-1 ring-amber-100 overflow-hidden">
                     <AccordionTrigger className="px-6 sm:px-8 py-5 sm:py-6 hover:no-underline group">
                         <div className="flex items-center gap-4 sm:gap-5 text-left flex-1 min-w-0">
-                            <div className="p-2.5 sm:p-3 rounded-xl sm:rounded-2xl bg-amber-50 text-amber-600 shadow-sm transition-transform group-data-[state=open]:rotate-12 shrink-0">
+                            <div className={cn(
+                                "p-2.5 sm:p-3 rounded-xl sm:rounded-2xl shadow-sm transition-transform group-data-[state=open]:rotate-12 shrink-0",
+                                groups.pending.length > 0 ? "bg-rose-100 text-rose-600" : "bg-amber-50 text-amber-600"
+                            )}>
                                 <Hourglass className="h-5 sm:h-6 w-5 sm:w-6" />
                             </div>
                             <div className="space-y-0.5 flex-1 min-w-0">
                                 <h3 className="text-sm sm:text-base font-black uppercase tracking-tight text-slate-900 truncate">Validación Comercial</h3>
                                 <p className="text-[8px] sm:text-[9px] text-muted-foreground font-black uppercase tracking-[0.2em] truncate">Pedidos en revisión inicial</p>
                             </div>
-                            <Badge variant="secondary" className="ml-auto mr-4 bg-amber-100 text-amber-700 font-black h-6 sm:h-7 px-2 sm:px-3 rounded-lg text-[10px] sm:text-xs shrink-0">{groups.pending.length}</Badge>
+                            {groups.pending.length > 0 ? (
+                                <Badge variant="destructive" className="ml-auto mr-4 bg-rose-600 text-white font-black h-6 sm:h-7 px-2.5 sm:px-3 rounded-lg text-[10px] sm:text-xs shrink-0 animate-pulse flex items-center gap-1 shadow-sm">
+                                    <AlertTriangle className="h-3 w-3" /> REVISIÓN ({groups.pending.length})
+                                </Badge>
+                            ) : (
+                                <Badge variant="secondary" className="ml-auto mr-4 bg-amber-100 text-amber-700 font-black h-6 sm:h-7 px-2 sm:px-3 rounded-lg text-[10px] sm:text-xs shrink-0">{groups.pending.length}</Badge>
+                            )}
                         </div>
                     </AccordionTrigger>
                     <AccordionContent className="px-6 sm:px-8 pb-6 sm:pb-8 pt-2">

@@ -177,7 +177,13 @@ export default function UserQuotesView({ currentUser }: { currentUser: User }) {
                                     <h3 className="text-sm sm:text-base font-black uppercase tracking-tight text-slate-900">{section.label}</h3>
                                     <p className="text-[8px] sm:text-[9px] text-muted-foreground font-black uppercase tracking-[0.2em]">{section.desc}</p>
                                 </div>
-                                <Badge variant="secondary" className="ml-auto mr-4 bg-slate-100 text-slate-600 font-black h-6 sm:h-7 px-2 sm:px-3 rounded-lg text-[10px] sm:text-xs">{section.items.length}</Badge>
+                                {section.items.length > 0 && (section.key === 'activos' || section.key === 'borradores') ? (
+                                    <Badge variant="destructive" className="ml-auto mr-4 bg-rose-600 text-white font-black h-6 sm:h-7 px-2.5 sm:px-3 rounded-lg text-[10px] sm:text-xs shrink-0 animate-pulse flex items-center gap-1 shadow-sm">
+                                        <AlertTriangle className="h-3 w-3" /> PENDIENTE ({section.items.length})
+                                    </Badge>
+                                ) : (
+                                    <Badge variant="secondary" className="ml-auto mr-4 bg-slate-100 text-slate-600 font-black h-6 sm:h-7 px-2 sm:px-3 rounded-lg text-[10px] sm:text-xs">{section.items.length}</Badge>
+                                )}
                             </div>
                         </AccordionTrigger>
                         <AccordionContent className="px-6 sm:px-8 pb-6 sm:pb-8 pt-2">
