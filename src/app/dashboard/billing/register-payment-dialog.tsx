@@ -239,6 +239,7 @@ export function ConfirmPaymentDialog({ order }: { order: Order }) {
                 createdAt: new Date(),
                 companyProfile: companyProfile || undefined,
                 documentType: data.documentType,
+                globalSettings: globalSettings || undefined,
                 bcvRate: globalSettings?.bcvRate || 1
             });
         }

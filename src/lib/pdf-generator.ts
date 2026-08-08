@@ -137,14 +137,22 @@ export async function generateOrderPDF({
   let totalCashUSD = 0;
 
   const tableRows = orderItems.map(item => {
+    const itemUnitPrice = item.unitPrice || item.product?.price || 0;
     const pricing = calculatePricingTier({ 
         costLanded: item.product?.cost || 0,
         strategy: 'target_price', 
-        targetPriceUSD: item.unitPrice || 0 
+        targetPriceUSD: itemUnitPrice
     }, globalSettings);
 
     const bcvPrice = pricing.priceListBCV;
-    const cashPrice = pricing.priceCashUSD;
+    const productCashPrice = item.product?.priceCashUSD;
+    const listPrice = item.product?.price || bcvPrice;
+
+    // Si el producto ya tiene un precio divisas (priceCashUSD), usar ese valor exacto o su proporción;
+    // de lo contrario utilizar el precio cash calculado según la tasa global de descuento.
+    const cashPrice = (productCashPrice && productCashPrice > 0 && listPrice > 0)
+      ? (itemUnitPrice / listPrice) * productCashPrice
+      : pricing.priceCashUSD;
     
     totalBcvUSD += (item.quantity * bcvPrice);
     totalCashUSD += (item.quantity * cashPrice);
@@ -294,14 +302,20 @@ export async function generateQuotePDF({
   let totalCashUSD = 0;
 
   const tableRows = quoteItems.map((item: any) => {
+    const itemUnitPrice = item.unitPrice || item.product?.price || 0;
     const pricing = calculatePricingTier({ 
         costLanded: item.product?.cost || 0,
         strategy: 'target_price', 
-        targetPriceUSD: item.unitPrice || item.product?.price || 0 
+        targetPriceUSD: itemUnitPrice
     }, globalSettings);
 
     const bcvPrice = pricing.priceListBCV;
-    const cashPrice = pricing.priceCashUSD;
+    const productCashPrice = item.product?.priceCashUSD;
+    const listPrice = item.product?.price || bcvPrice;
+
+    const cashPrice = (productCashPrice && productCashPrice > 0 && listPrice > 0)
+      ? (itemUnitPrice / listPrice) * productCashPrice
+      : pricing.priceCashUSD;
     
     totalBcvUSD += (item.quantity * bcvPrice);
     totalCashUSD += (item.quantity * cashPrice);
