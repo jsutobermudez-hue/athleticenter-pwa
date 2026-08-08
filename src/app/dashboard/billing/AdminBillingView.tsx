@@ -105,24 +105,29 @@ export function AdminBillingView() {
   }, [allInvoices]);
   
   const metrics = useMemo(() => {
-    if (!rawOrders) return { vencido: 0, porCobrar: 0, enVerificacion: 0, recaudado: 0 };
+    if (!rawOrders) return { vencido: 0, porVencer: 0, enVerificacion: 0, totalPorCobrar: 0, recaudado: 0 };
     return rawOrders.reduce((acc, order) => {
       const realCash = order.totalCashReceived ?? ((order.amountPaid || 0) * 0.65);
       acc.recaudado += realCash;
       const inv = getInvoiceFromOrder(order);
       if (!inv) return acc;
       if (inv.status === 'Vencido') acc.vencido += inv.remainingBalance;
-      if (inv.status === 'Por Vencer') acc.porCobrar += inv.remainingBalance;
+      if (inv.status === 'Por Vencer') acc.porVencer += inv.remainingBalance;
       if (inv.status === 'En Verificación') acc.enVerificacion += inv.remainingBalance;
+      if (inv.remainingBalance > 0.05 && inv.status !== 'Pagado') {
+        acc.totalPorCobrar += inv.remainingBalance;
+      }
       return acc;
-    }, { vencido: 0, porCobrar: 0, enVerificacion: 0, recaudado: 0 });
+    }, { vencido: 0, porVencer: 0, enVerificacion: 0, totalPorCobrar: 0, recaudado: 0 });
   }, [rawOrders]);
 
   const filteredInvoices = useMemo(() => {
     if (!allInvoices) return [];
     let items = allInvoices;
     
-    if (statusFilter !== 'todos') {
+    if (statusFilter === 'pendientes') {
+      items = items.filter(i => i.remainingBalance > 0.05 && i.status !== 'Pagado');
+    } else if (statusFilter !== 'todos') {
       items = items.filter(i => i.status === statusFilter);
     }
 
@@ -198,7 +203,7 @@ export function AdminBillingView() {
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 px-2">
         <DashboardMetricCard title="Mora Crítica" value={`$${metrics.vencido.toLocaleString()}`} subtitle="Excedido +30D" icon={FileWarning} iconBg="bg-rose-50" iconColor="text-rose-500" onClick={() => setStatusFilter('Vencido')} isActive={statusFilter === 'Vencido'} />
-        <DashboardMetricCard title="Por Cobrar" value={`$${metrics.porCobrar.toLocaleString()}`} subtitle="Facturas Activas" icon={Wallet} iconBg="bg-blue-50" iconColor="text-blue-500" onClick={() => setStatusFilter('Por Vencer')} isActive={statusFilter === 'Por Vencer'} />
+        <DashboardMetricCard title="Total por Cobrar" value={`$${metrics.totalPorCobrar.toLocaleString()}`} subtitle="Cartera Total Pendiente" icon={Wallet} iconBg="bg-blue-50" iconColor="text-blue-500" onClick={() => setStatusFilter('pendientes')} isActive={statusFilter === 'pendientes'} />
         <DashboardMetricCard title="En Auditoría" value={`$${metrics.enVerificacion.toLocaleString()}`} subtitle="Abonos por Conciliar" icon={Sparkles} iconBg="bg-amber-50" iconColor="text-amber-500" onClick={() => setStatusFilter('En Verificación')} isActive={statusFilter === 'En Verificación'} />
         <DashboardMetricCard title="Efectivo Real" value={`$${metrics.recaudado.toLocaleString()}`} subtitle="Ingreso Neto (CASH)" icon={TrendingUp} iconBg="bg-emerald-50" iconColor="text-emerald-500" onClick={() => setStatusFilter('Pagado')} isActive={statusFilter === 'Pagado'} />
       </div>
@@ -238,10 +243,14 @@ export function AdminBillingView() {
                 </form>
 
                 <Select value={statusFilter} onValueChange={setStatusFilter}>
-                    <SelectTrigger className="h-11 w-full sm:w-44 rounded-xl bg-white border-slate-200 font-bold text-[10px] uppercase shadow-sm"><SelectValue placeholder="Estado" /></SelectTrigger>
+                    <SelectTrigger className="h-11 w-full sm:w-56 rounded-xl bg-white border-slate-200 font-bold text-[10px] uppercase shadow-sm"><SelectValue placeholder="Estado" /></SelectTrigger>
                     <SelectContent>
                         <SelectItem value="todos" className="font-bold text-[10px] uppercase">ESTADO: TODOS</SelectItem>
-                        {['Por Vencer', 'Vencido', 'Pagado', 'En Verificación'].map(s => <SelectItem key={s} value={s} className="font-bold text-[10px] uppercase">{s.toUpperCase()}</SelectItem>)}
+                        <SelectItem value="pendientes" className="font-bold text-[10px] uppercase text-blue-600 font-black">PENDIENTES DE PAGO (TODAS)</SelectItem>
+                        <SelectItem value="Por Vencer" className="font-bold text-[10px] uppercase">POR VENCER (AL DÍA)</SelectItem>
+                        <SelectItem value="Vencido" className="font-bold text-[10px] uppercase text-rose-600 font-bold">VENCIDO (MORA CRÍTICA)</SelectItem>
+                        <SelectItem value="En Verificación" className="font-bold text-[10px] uppercase text-amber-600">EN VERIFICACIÓN</SelectItem>
+                        <SelectItem value="Pagado" className="font-bold text-[10px] uppercase text-emerald-600">PAGADO (FINALIZADO)</SelectItem>
                     </SelectContent>
                 </Select>
 

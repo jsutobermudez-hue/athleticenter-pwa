@@ -199,14 +199,17 @@ export function ClientBillingView() {
   }, [allOrders]);
   
   const stats = useMemo(() => {
-    if (!combinedInvoices) return { porVencer: 0, vencido: 0, enVerificacion: 0, recaudado: 0 };
+    if (!combinedInvoices) return { porVencer: 0, vencido: 0, enVerificacion: 0, totalPorCobrar: 0, recaudado: 0 };
     return combinedInvoices.reduce((acc, invoice) => {
       if (invoice.status === 'Por Vencer') acc.porVencer += invoice.remainingBalance;
       if (invoice.status === 'Vencido') acc.vencido += invoice.remainingBalance;
       if (invoice.status === 'En Verificación') acc.enVerificacion += invoice.remainingBalance;
       if (invoice.status === 'Pagado') acc.recaudado += invoice.amountPaid;
+      if (invoice.remainingBalance > 0.05 && invoice.status !== 'Pagado') {
+        acc.totalPorCobrar += invoice.remainingBalance;
+      }
       return acc;
-    }, { porVencer: 0, vencido: 0, enVerificacion: 0, recaudado: 0 });
+    }, { porVencer: 0, vencido: 0, enVerificacion: 0, totalPorCobrar: 0, recaudado: 0 });
   }, [combinedInvoices]);
 
   if (isLoading) return <div className="flex h-screen items-center justify-center"><Loader2 className="h-10 w-10 animate-spin text-primary" /></div>;

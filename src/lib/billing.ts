@@ -7,7 +7,7 @@ import type { Order, Invoice } from './definitions';
  * Centraliza el cálculo de vencimientos, descuentos y saldos para UI y Agentes IA.
  */
 export function getInvoiceFromOrder(order: Order): Invoice | null {
-    if (!['Entregado', 'En Verificación', 'Pagado'].includes(order.status)) {
+    if (!['Entregado', 'En Verificación', 'Pagado', 'Despachado', 'Completado', 'En Preparación', 'Aprobado'].includes(order.status)) {
         return null;
     }
     
