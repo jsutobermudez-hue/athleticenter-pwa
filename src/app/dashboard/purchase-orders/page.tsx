@@ -27,17 +27,25 @@ import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { PurchaseOrderDetailSheet } from './PurchaseOrderDetailSheet';
 
 export const dynamic = 'force-dynamic';
 
 function PurchaseOrdersContent() {
+    const router = useRouter();
     const firestore = useFirestore();
     const { toast } = useToast();
     const { profile, isUserLoading } = useUser();
     const [isNewDialogOpen, setIsNewDialogOpen] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [selectedPO, setSelectedPO] = useState<PurchaseOrder | null>(null);
+
+    React.useEffect(() => {
+        if (!isUserLoading && profile && !['superadmin', 'gerencia'].includes(profile.role)) {
+            router.replace('/dashboard');
+        }
+    }, [profile, isUserLoading, router]);
 
     const posQuery = useMemoFirebase(() => (firestore ? query(collection(firestore, 'purchaseOrders'), orderBy('createdAt', 'desc'), limit(100)) : null), [firestore]);
     const { data: orders, isLoading: isLoadingOrders } = useCollection<PurchaseOrder>(posQuery);

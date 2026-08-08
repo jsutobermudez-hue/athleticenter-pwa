@@ -1,7 +1,7 @@
 
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useCollection, useFirestore, useMemoFirebase, useUser } from '@/firebase';
 import { collection, query, limit, serverTimestamp, addDoc, doc, updateDoc, deleteDoc } from 'firebase/firestore';
 import type { Supplier } from '@/lib/definitions';
@@ -40,6 +40,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn } from '@/lib/utils';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 
 const SUPPLIER_RUBROS = [
     'Balones y Pelotas',
@@ -142,6 +143,7 @@ function SupplierForm({ initialData, onSubmit, isSubmitting }: { initialData?: P
 }
 
 export default function SuppliersPage() {
+    const router = useRouter();
     const firestore = useFirestore();
     const { toast } = useToast();
     const { profile, isUserLoading } = useUser();
@@ -149,6 +151,12 @@ export default function SuppliersPage() {
     const [isNewDialogOpen, setIsNewDialogOpen] = useState(false);
     const [editingSupplier, setEditingSupplier] = useState<Supplier | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
+
+    useEffect(() => {
+        if (!isUserLoading && profile && !['superadmin', 'gerencia'].includes(profile.role)) {
+            router.replace('/dashboard');
+        }
+    }, [profile, isUserLoading, router]);
 
     const suppliersQuery = useMemoFirebase(() => (firestore ? query(collection(firestore, 'suppliers'), limit(100)) : null), [firestore]);
     const { data: suppliers, isLoading: isLoadingSuppliers } = useCollection<Supplier>(suppliersQuery);
