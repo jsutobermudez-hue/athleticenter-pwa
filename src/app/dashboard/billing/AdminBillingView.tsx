@@ -51,6 +51,7 @@ export function AdminBillingView() {
   const [statusFilter, setStatusFilter] = useState('todos');
   const [salespersonFilter, setSalespersonFilter] = useState('todos');
   const [agingFilter, setAgingFilter] = useState('todos');
+  const [searchInput, setSearchInput] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   
@@ -75,8 +76,21 @@ export function AdminBillingView() {
     const statusQuery = searchParams.get('status');
     if (statusQuery) setStatusFilter(statusQuery);
     const orderQuery = searchParams.get('orderId');
-    if (orderQuery) setSearchTerm(orderQuery);
+    if (orderQuery) {
+      setSearchInput(orderQuery);
+      setSearchTerm(orderQuery);
+    }
   }, [searchParams]);
+
+  const handleExecuteSearch = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    setSearchTerm(searchInput.trim());
+  };
+
+  const handleClearSearchInput = () => {
+    setSearchInput('');
+    setSearchTerm('');
+  };
   
   const allInvoices = useMemo(() => {
     if (!rawOrders) return [];
@@ -193,10 +207,35 @@ export function AdminBillingView() {
         {/* BARRA DE FILTROS AVANZADOS MULTIDIMENSIONAL */}
         <div className="flex flex-col gap-4 border-b border-slate-200 pb-6 px-2">
             <div className="flex flex-wrap items-center gap-3 w-full">
-                <div className="relative flex-1 min-w-[240px]">
-                    <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-                    <Input placeholder="BUSCAR EXPEDIENTE, CLIENTE O RIF..." className="pl-10 h-11 bg-white border-slate-200 rounded-xl text-xs font-bold uppercase shadow-sm" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
-                </div>
+                <form onSubmit={handleExecuteSearch} className="flex flex-1 min-w-[300px] items-center gap-2">
+                    <div className="relative flex-1">
+                        <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                        <Input 
+                            placeholder="BUSCAR EXPEDIENTE #P-, CLIENTE O RIF..." 
+                            className="pl-10 pr-9 h-11 bg-white border-slate-200 rounded-xl text-xs font-bold uppercase shadow-sm focus-visible:ring-2 focus-visible:ring-primary" 
+                            value={searchInput} 
+                            onChange={(e) => {
+                                setSearchInput(e.target.value);
+                                setSearchTerm(e.target.value);
+                            }} 
+                        />
+                        {searchInput && (
+                            <button 
+                                type="button" 
+                                onClick={handleClearSearchInput}
+                                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors p-1 rounded-md"
+                            >
+                                <X className="h-3.5 w-3.5" />
+                            </button>
+                        )}
+                    </div>
+                    <Button 
+                        type="submit" 
+                        className="h-11 px-5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-black text-[10px] uppercase tracking-wider shadow-md shrink-0 flex items-center gap-1.5"
+                    >
+                        <Search className="h-3.5 w-3.5 text-primary" /> BUSCAR
+                    </Button>
+                </form>
 
                 <Select value={statusFilter} onValueChange={setStatusFilter}>
                     <SelectTrigger className="h-11 w-full sm:w-44 rounded-xl bg-white border-slate-200 font-bold text-[10px] uppercase shadow-sm"><SelectValue placeholder="Estado" /></SelectTrigger>
