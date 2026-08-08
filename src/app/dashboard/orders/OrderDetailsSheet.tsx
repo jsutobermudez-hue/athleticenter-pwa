@@ -20,7 +20,7 @@ import {
 } from '@/firebase';
 import { doc, updateDoc, serverTimestamp, query, collection, where, limit } from 'firebase/firestore';
 import { useRouter } from 'next/navigation';
-import type { User, Order, OrderItemClient, CompanyProfile, FinancialSettings, Customer } from '@/lib/definitions';
+import type { User, Order, OrderItemClient, CompanyProfile, FinancialSettings, Customer, Payment } from '@/lib/definitions';
 import {
   Loader2,
   Printer,
@@ -116,6 +116,12 @@ export function OrderDetailsSheet({
   }, [firestore, order?.customerName]);
   const { data: fallbackCustomers } = useCollection<Customer>(fallbackCustomerQuery);
   const fallbackCustomer = fallbackCustomers && fallbackCustomers.length > 0 ? fallbackCustomers[0] : null;
+
+  const paymentsQuery = useMemoFirebase(() => {
+    if (!firestore || !order?.id) return null;
+    return query(collection(firestore, `orders/${order.id}/payments`), limit(20));
+  }, [firestore, order?.id]);
+  const { data: orderPayments, isLoading: isLoadingPayments } = useCollection<Payment>(paymentsQuery);
 
   const finalCustomerRif = order.customerRif || customerData?.rif || fallbackCustomer?.rif || customerRif || '';
   const finalCustomerAddress = customerData?.address || fallbackCustomer?.address || '';
@@ -427,6 +433,85 @@ export function OrderDetailsSheet({
                             </div>
                         </div>
                     )}
+
+                    {/* TARJETA DE COMPROBANTES Y RECIBOS DE PAGO */}
+                    <div className="p-8 rounded-[2.5rem] bg-white border border-slate-100 shadow-xl space-y-6">
+                        <div className="flex items-center justify-between">
+                            <div className="space-y-0.5">
+                                <p className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400">Recibos y Comprobantes</p>
+                                <h4 className="text-sm font-black uppercase text-slate-900">Historial de Abonos ({orderPayments?.length || 0})</h4>
+                            </div>
+                            <Badge variant="outline" className="bg-emerald-50 border-emerald-200 text-emerald-700 font-black text-[9px] px-2 py-0.5">
+                                ${(order.amountPaid || 0).toFixed(2)} / ${(order.totalAmount || 0).toFixed(2)}
+                            </Badge>
+                        </div>
+
+                        {isLoadingPayments ? (
+                            <div className="flex justify-center p-4"><Loader2 className="animate-spin h-5 w-5 text-slate-400" /></div>
+                        ) : orderPayments && orderPayments.length > 0 ? (
+                            <div className="space-y-4">
+                                {orderPayments.map((p, idx) => (
+                                    <div key={idx} className="p-4 rounded-2xl bg-slate-50 border border-slate-100 space-y-3">
+                                        <div className="flex items-center justify-between">
+                                            <div className="space-y-0.5">
+                                                <p className="text-xs font-black uppercase text-slate-900">{p.method}</p>
+                                                <p className="text-[9px] font-mono text-slate-500">Ref: {p.referenceNumber || 'N/A'}</p>
+                                            </div>
+                                            <div className="text-right">
+                                                <p className="text-xs font-black text-emerald-600">${p.amount?.toFixed(2)}</p>
+                                                <Badge variant="outline" className={cn(
+                                                    "text-[8px] font-black uppercase border-none px-2 py-0",
+                                                    p.status === 'verified' ? "bg-emerald-100 text-emerald-800" :
+                                                    p.status === 'pending_verification' ? "bg-amber-100 text-amber-800" :
+                                                    "bg-rose-100 text-rose-800"
+                                                )}>
+                                                    {p.status === 'verified' ? 'Verificado' : p.status === 'pending_verification' ? 'Pendiente' : 'Rechazado'}
+                                                </Badge>
+                                            </div>
+                                        </div>
+
+                                        {p.notes && (
+                                            <p className="text-[9px] text-slate-600 bg-white p-2 rounded-xl border border-slate-100 italic">{p.notes}</p>
+                                        )}
+
+                                        {(p.imageUrl || p.retentionImageUrl) && (
+                                            <div className="flex items-center gap-3 pt-1">
+                                                {p.imageUrl && (
+                                                    <div 
+                                                        onClick={() => setZoomImage(p.imageUrl!)} 
+                                                        className="relative group h-14 w-20 rounded-xl overflow-hidden border-2 border-emerald-200 cursor-pointer shadow-sm hover:opacity-90 transition-opacity shrink-0 bg-slate-900"
+                                                    >
+                                                        <img src={p.imageUrl} alt="Comprobante" className="h-full w-full object-cover" />
+                                                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity text-white">
+                                                            <Maximize2 className="h-4 w-4" />
+                                                        </div>
+                                                    </div>
+                                                )}
+
+                                                {p.retentionImageUrl && (
+                                                    <div 
+                                                        onClick={() => setZoomImage(p.retentionImageUrl!)} 
+                                                        className="relative group h-14 w-20 rounded-xl overflow-hidden border-2 border-indigo-200 cursor-pointer shadow-sm hover:opacity-90 transition-opacity shrink-0 bg-slate-900"
+                                                    >
+                                                        <img src={p.retentionImageUrl} alt="Retención" className="h-full w-full object-cover" />
+                                                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity text-white">
+                                                            <Maximize2 className="h-4 w-4" />
+                                                        </div>
+                                                    </div>
+                                                )}
+                                                
+                                                <div className="text-[8px] font-bold text-slate-400 uppercase leading-relaxed">
+                                                    Toca la foto para ampliar el comprobante bancario.
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+                        ) : (
+                            <p className="text-[10px] font-bold text-slate-400 uppercase text-center py-2 italic">Sin abonos o comprobantes adjuntos.</p>
+                        )}
+                    </div>
 
                     <div className="p-8 rounded-[2.5rem] bg-white border border-slate-100 shadow-xl space-y-6">
                         <div className="space-y-1">
