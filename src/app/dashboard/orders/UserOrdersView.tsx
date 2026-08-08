@@ -23,6 +23,7 @@ export default function UserOrdersView({ currentUser }: { currentUser: User }) {
     const [searchTerm, setSearchTerm] = useState('');
     const [sortBy, setSortBy] = useState<'orderDate' | 'totalAmount'>('orderDate');
     const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+    const [openSections, setOpenSections] = useState<string[]>([]);
 
     const ordersQuery = useMemoFirebase(() => {
         if (!firestore || !currentUser?.id) return null;
@@ -150,7 +151,7 @@ export default function UserOrdersView({ currentUser }: { currentUser: User }) {
                 </CardContent>
             </Card>
 
-            <Accordion type="multiple" defaultValue={[]} className="space-y-4 mx-1 sm:mx-2 pb-20">
+            <Accordion type="multiple" value={openSections} onValueChange={setOpenSections} className="space-y-4 mx-1 sm:mx-2 pb-20">
                 {[
                     { key: 'borradores', label: 'Borradores en Curso', icon: Save, color: 'slate', orders: groups.borradores, desc: 'Trabajos guardados sin enviar' },
                     { key: 'comercial', label: 'En Revisión', icon: Clock, color: 'amber', orders: groups.comercial, desc: 'Esperando validación comercial' },

@@ -28,6 +28,7 @@ export default function AdminOrdersView() {
     const [statusFilter, setStatusFilter] = useState<OrderStatus | 'todos'>('todos');
     const [sortBy, setSortBy] = useState<'orderDate' | 'totalAmount'>('orderDate');
     const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+    const [openSections, setOpenSections] = useState<string[]>([]);
     
     // OPTIMIZACIÓN: Carga dinámica e inmediata de órdenes
     const [queryLimit, setQueryLimit] = useState(50);
@@ -191,7 +192,7 @@ export default function AdminOrdersView() {
                 <div className="space-y-3 p-2">{[1, 2, 3, 4].map(i => <Skeleton key={i} className="h-20 w-full rounded-2xl bg-white" />)}</div>
             ) : (
                 <div className="space-y-4 pb-20">
-                    <Accordion type="multiple" defaultValue={[]} className="space-y-3">
+                    <Accordion type="multiple" value={openSections} onValueChange={setOpenSections} className="space-y-3">
                         {visibleSections.map(section => (
                             <AccordionItem key={section.key} value={section.key} className={cn(
                                 "border-none rounded-2xl bg-white ring-1 ring-slate-100 shadow-sm overflow-hidden transition-all", 

@@ -177,6 +177,7 @@ interface AdminDispatchKanbanProps {
 }
 
 export function AdminDispatchKanban({ groups, onOpenDialog, onNavigateToDetails, activeKpi = 'todos' }: AdminDispatchKanbanProps) {
+    const [openSections, setOpenSections] = useState<string[]>([]);
     const sections = [
         { key: 'Aprobado', label: 'Cola de Picking', icon: PackageSearch, color: 'blue', kpi: 'warehouse' },
         { key: 'En Preparación', label: 'En Embalaje', icon: Cog, color: 'indigo', kpi: 'warehouse' },
@@ -190,7 +191,7 @@ export function AdminDispatchKanban({ groups, onOpenDialog, onNavigateToDetails,
         : sections.filter(s => s.kpi === activeKpi);
 
     return (
-        <Accordion type="multiple" defaultValue={[]} key={activeKpi} className="space-y-4">
+        <Accordion type="multiple" value={openSections} onValueChange={setOpenSections} key={activeKpi} className="space-y-4">
             {visibleSections.map(section => {
                 const data = groups[section.key as OrderStatus] || { orders: [], count: 0, total: 0 };
                 const hasCriticalAlert = data.count > 0 && (section.key === 'Aprobado' || section.key === 'En Preparación' || data.orders.some(o => o.cancellationRequested));

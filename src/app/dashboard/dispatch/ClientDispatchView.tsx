@@ -22,6 +22,7 @@ export function ClientDispatchView() {
 
     const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
     const [searchTerm, setSearchTerm] = useState('');
+    const [openSections, setOpenSections] = useState<string[]>([]);
 
     const ordersQuery = useMemoFirebase(() => {
         if (!user || !currentUser || !firestore) return null;
@@ -72,7 +73,7 @@ export function ClientDispatchView() {
                 <p className="text-[9px] sm:text-[10px] text-muted-foreground font-black italic uppercase tracking-[0.4em] opacity-60">Visibilidad en tiempo real de su cadena de suministros.</p>
             </header>
 
-            <Accordion type="multiple" defaultValue={[]} className="space-y-4 w-full">
+            <Accordion type="multiple" value={openSections} onValueChange={setOpenSections} className="space-y-4 w-full">
                 <AccordionItem value="pending" className="border-none rounded-[1.8rem] sm:rounded-[2.5rem] bg-white shadow-sm ring-1 ring-amber-100 overflow-hidden">
                     <AccordionTrigger className="px-6 sm:px-8 py-5 sm:py-6 hover:no-underline group">
                         <div className="flex items-center gap-4 sm:gap-5 text-left flex-1 min-w-0">

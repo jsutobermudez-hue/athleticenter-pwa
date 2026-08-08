@@ -77,6 +77,7 @@ export default function AdminQuotesView() {
     const [statusFilter, setStatusFilter] = useState<QuoteStatus | 'todos'>('todos');
     const [sortBy, setSortBy] = useState<'quoteDate' | 'totalAmount'>('quoteDate');
     const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+    const [openSections, setOpenSections] = useState<string[]>([]);
 
     const canListAll = useMemo(() => profile && ['superadmin', 'admin', 'gerencia'].includes(profile.role), [profile]);
     
@@ -172,7 +173,7 @@ export default function AdminQuotesView() {
                 </CardContent>
             </Card>
 
-            <Accordion type="multiple" defaultValue={[]} className="space-y-4 mx-1 sm:mx-2 pb-20">
+            <Accordion type="multiple" value={openSections} onValueChange={setOpenSections} className="space-y-4 mx-1 sm:mx-2 pb-20">
                 {[
                     { key: 'borradores', label: 'Borradores / En Curso', icon: Save, color: 'slate', items: groups.borradores, desc: 'Propuestas en fase de configuración' },
                     { key: 'active', label: 'Presupuestos Activos', icon: Send, color: 'blue', items: groups.active, desc: 'Enviadas y esperando aceptación' },
