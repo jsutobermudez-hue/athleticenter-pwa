@@ -39,7 +39,8 @@ import {
   Info,
   Camera,
   QrCode,
-  CheckCircle2
+  CheckCircle2,
+  MessageSquare
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { generateOrderPDF, generatePickingListPDF, generatePackageLabelsPDF } from '@/lib/pdf-generator';
@@ -175,6 +176,30 @@ export function OrderDetailsSheet({
     } finally {
         setIsCompleting(false);
     }
+  };
+
+  const handleShareWhatsApp = () => {
+    const rawPhone = (customerData?.phone || fallbackCustomer?.phone || order.customerPhone || '').replace(/\D/g, '');
+    const cleanPhone = rawPhone.length === 10 ? `58${rawPhone}` : rawPhone;
+    
+    const itemsSummary = itemsWithProductData
+      .slice(0, 5)
+      .map(i => `• ${i.product.name} ${i.size ? `[Talla ${i.size}]` : ''} x${i.quantity} ($${(i.unitPrice * i.quantity).toFixed(2)})`)
+      .join('\n');
+    
+    const text = `*ATHLETICENTER - PEDIDO #${order.id.substring(0, 7).toUpperCase()}*\n\n` +
+      `👤 *Cliente:* ${order.customerName}\n` +
+      `📦 *Estatus:* ${order.status}\n` +
+      `💰 *Total:* $${(order.totalAmount || 0).toFixed(2)} USD\n\n` +
+      `*Resumen de Ítems:*\n${itemsSummary}` +
+      (itemsWithProductData.length > 5 ? `\n...y ${itemsWithProductData.length - 5} más.` : '') +
+      `\n\n¡Gracias por elegir Athleticenter!`;
+
+    const url = cleanPhone 
+      ? `https://wa.me/${cleanPhone}?text=${encodeURIComponent(text)}` 
+      : `https://wa.me/?text=${encodeURIComponent(text)}`;
+
+    window.open(url, '_blank');
   };
 
   const handleExportNote = async () => {
@@ -410,14 +435,25 @@ export function OrderDetailsSheet({
                         </div>
                         <Separator className="bg-slate-100" />
                         <div className="space-y-4">
-                            <Button 
-                                variant="outline" 
-                                disabled={isLoadingItems || itemsWithProductData.length === 0 || isExporting} 
-                                className="w-full h-14 font-black uppercase tracking-widest text-[10px] border-slate-200 bg-white shadow-xl rounded-2xl transition-all active:scale-95" 
-                                onClick={handleExportNote}
-                            >
-                                {isExporting ? <Loader2 className="h-5 w-5 animate-spin mr-2" /> : <Printer className="mr-2 h-5 w-5 text-primary" />} EXPORTAR NOTA PDF
-                            </Button>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <Button 
+                                    variant="outline" 
+                                    disabled={isLoadingItems || itemsWithProductData.length === 0 || isExporting} 
+                                    className="w-full h-14 font-black uppercase tracking-widest text-[10px] border-slate-200 bg-white shadow-xl rounded-2xl transition-all active:scale-95" 
+                                    onClick={handleExportNote}
+                                >
+                                    {isExporting ? <Loader2 className="h-5 w-5 animate-spin mr-2" /> : <Printer className="mr-2 h-5 w-5 text-primary" />} NOTA PDF
+                                </Button>
+
+                                <Button 
+                                    variant="outline" 
+                                    disabled={isLoadingItems || itemsWithProductData.length === 0} 
+                                    className="w-full h-14 font-black uppercase tracking-widest text-[10px] border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 shadow-xl rounded-2xl transition-all active:scale-95" 
+                                    onClick={handleShareWhatsApp}
+                                >
+                                    <MessageSquare className="mr-2 h-5 w-5 text-emerald-600" /> WHATSAPP
+                                </Button>
+                            </div>
 
                             {(order.status === 'Pendiente' || order.status === 'Borrador') && isAdmin && (
                                 <Button 
