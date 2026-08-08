@@ -51,7 +51,7 @@ import { cn } from '@/lib/utils';
 import type { User, Customer, Order } from '@/lib/definitions';
 import { NewUserDialog } from '../users/new-user-dialog';
 import { useCollection, useFirestore, useMemoFirebase, useUser } from '@/firebase';
-import { collection, query, where, limit, orderBy } from 'firebase/firestore';
+import { collection, query, where, limit, orderBy, getDocs, doc, getDoc } from 'firebase/firestore';
 import { Skeleton } from '@/components/ui/skeleton';
 import { EditUserDialog } from '../users/edit-user-dialog';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -158,6 +158,94 @@ function CustomerDetailsSheet({
 
     const { data: customerOrders, isLoading: isLoadingOrders } = useCollection<Order>(customerOrdersQuery);
 
+    const [topProducts, setTopProducts] = useState<Array<{ id: string; name: string; quantity: number; total: number; price: number; imageUrl?: string }>>([]);
+    const [isLoadingTopProducts, setIsLoadingTopProducts] = useState(false);
+
+    // CARGA ASÍNCRONA DE ÍTEMS DE SUBCOLECCIÓN FIRESTORE (`orders/{id}/orderItems`) Y RESOLUCIÓN DE PRODUCTOS
+    useEffect(() => {
+        if (!firestore || !customerOrders || customerOrders.length === 0) {
+            setTopProducts([]);
+            return;
+        }
+
+        let isMounted = true;
+        setIsLoadingTopProducts(true);
+
+        const loadCustomerItems = async () => {
+            try {
+                const validOrders = customerOrders.filter(o => o.status !== 'Cancelado');
+                const productMap = new Map<string, { id: string; name: string; quantity: number; total: number; price: number; imageUrl?: string }>();
+                const productCache = new Map<string, any>();
+
+                for (const order of validOrders) {
+                    let itemsList: any[] = (order as any).items || [];
+                    
+                    if (itemsList.length === 0 && order.id) {
+                        try {
+                            const itemsSnap = await getDocs(collection(firestore, `orders/${order.id}/orderItems`));
+                            itemsList = itemsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+                        } catch (e) {
+                            console.error("Error cargando subcolección orderItems", e);
+                        }
+                    }
+
+                    for (const item of itemsList) {
+                        const productId = item.productId || item.id || item.name;
+                        if (!productId) continue;
+
+                        let name = item.name || item.product?.name;
+                        let imageUrl = item.imageUrl || item.product?.imageUrl;
+                        const qty = item.quantity || 1;
+                        const price = item.unitPrice || item.price || 0;
+                        const total = item.total || (price * qty);
+
+                        if (!name && item.productId) {
+                            if (productCache.has(item.productId)) {
+                                const pData = productCache.get(item.productId);
+                                name = pData.name;
+                                imageUrl = pData.imageUrl;
+                            } else {
+                                try {
+                                    const pSnap = await getDoc(doc(firestore, 'products', item.productId));
+                                    if (pSnap.exists()) {
+                                        const pData = pSnap.data();
+                                        productCache.set(item.productId, pData);
+                                        name = pData.name;
+                                        imageUrl = pData.imageUrl;
+                                    }
+                                } catch (e) {
+                                    console.error("Error leyendo documento del producto", e);
+                                }
+                            }
+                        }
+
+                        const finalName = name || `Producto (${productId.substring(0, 6)})`;
+                        const existing = productMap.get(productId) || { id: productId, name: finalName, quantity: 0, total: 0, price, imageUrl };
+                        existing.quantity += qty;
+                        existing.total += total;
+                        if (imageUrl) existing.imageUrl = imageUrl;
+                        productMap.set(productId, existing);
+                    }
+                }
+
+                if (isMounted) {
+                    const sorted = Array.from(productMap.values()).sort((a, b) => b.total - a.total);
+                    setTopProducts(sorted);
+                    setIsLoadingTopProducts(false);
+                }
+            } catch (error) {
+                console.error("Error procesando top productos del cliente 360", error);
+                if (isMounted) setIsLoadingTopProducts(false);
+            }
+        };
+
+        loadCustomerItems();
+
+        return () => {
+            isMounted = false;
+        };
+    }, [firestore, customerOrders]);
+
     // CÁLCULO DE INTELIGENCIA COMERCIAL 360°
     const analytics = useMemo(() => {
         if (!customerOrders) return {
@@ -165,7 +253,6 @@ function CustomerDetailsSheet({
             totalPaid: 0,
             orderCount: 0,
             avgTicket: 0,
-            topProducts: [],
             paymentRecords: [],
             orderList: []
         };
@@ -175,7 +262,6 @@ function CustomerDetailsSheet({
         let totalSpent = 0;
         let totalPaid = 0;
 
-        const productMap = new Map<string, { id: string; name: string; quantity: number; total: number; price: number }>();
         const paymentRecords: Array<{ orderId: string; dateDisplay: string; method: string; ref: string; amount: number; proofUrl?: string }> = [];
 
         validOrders.forEach(o => {
@@ -183,19 +269,6 @@ function CustomerDetailsSheet({
             const paid = o.amountPaid || 0;
             totalSpent += amount;
             totalPaid += paid;
-
-            ((o as any).items || []).forEach((item: any) => {
-                const key = item.productId || item.name || 'Producto';
-                const name = item.name || item.product?.name || 'Artículo Comercial';
-                const qty = item.quantity || 1;
-                const price = item.unitPrice || item.price || 0;
-                const total = item.total || (price * qty);
-
-                const existing = productMap.get(key) || { id: key, name, quantity: 0, total: 0, price };
-                existing.quantity += qty;
-                existing.total += total;
-                productMap.set(key, existing);
-            });
 
             const paymentRef = (o as any).paymentReference;
             const paymentProof = (o as any).paymentProofUrl;
@@ -222,7 +295,6 @@ function CustomerDetailsSheet({
         });
 
         const avgTicket = orderCount > 0 ? totalSpent / orderCount : 0;
-        const topProducts = Array.from(productMap.values()).sort((a, b) => b.total - a.total);
         const orderList = [...validOrders].sort((a, b) => {
             const dateA = (a.orderDate as any)?.seconds || (a.createdAt as any)?.seconds || 0;
             const dateB = (b.orderDate as any)?.seconds || (b.createdAt as any)?.seconds || 0;
@@ -234,7 +306,6 @@ function CustomerDetailsSheet({
             totalPaid,
             orderCount,
             avgTicket,
-            topProducts,
             paymentRecords,
             orderList
         };
@@ -403,17 +474,29 @@ function CustomerDetailsSheet({
                                     <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400 flex items-center gap-2">
                                         <Package className="h-4 w-4 text-primary" /> Productos Preferidos del Cliente
                                     </h3>
-                                    <span className="text-[9px] font-bold uppercase text-slate-400">{analytics.topProducts.length} Artículos Distintos</span>
+                                    <span className="text-[9px] font-bold uppercase text-slate-400">{topProducts.length} Artículos Distintos</span>
                                 </div>
 
-                                {analytics.topProducts.length > 0 ? (
+                                {isLoadingTopProducts ? (
+                                    <div className="flex h-36 flex-col items-center justify-center gap-2 text-slate-400">
+                                        <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                                        <p className="text-[9px] font-black uppercase tracking-widest">Cargando Historial de Productos...</p>
+                                    </div>
+                                ) : topProducts.length > 0 ? (
                                     <div className="space-y-3">
-                                        {analytics.topProducts.map((prod, idx) => (
+                                        {topProducts.map((prod, idx) => (
                                             <div key={prod.id} className="p-4 rounded-2xl bg-white border border-slate-100 shadow-sm flex items-center justify-between gap-4">
                                                 <div className="flex items-center gap-3.5">
-                                                    <div className="h-9 w-9 rounded-xl bg-slate-900 text-white flex items-center justify-center font-black text-xs shrink-0 shadow-inner">
-                                                        #{idx + 1}
-                                                    </div>
+                                                    {prod.imageUrl ? (
+                                                        <div className="h-11 w-11 rounded-xl bg-slate-50 border border-slate-100 overflow-hidden shrink-0">
+                                                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                                                            <img src={prod.imageUrl} alt={prod.name} className="h-full w-full object-cover" />
+                                                        </div>
+                                                    ) : (
+                                                        <div className="h-10 w-10 rounded-xl bg-slate-900 text-white flex items-center justify-center font-black text-xs shrink-0 shadow-inner">
+                                                            #{idx + 1}
+                                                        </div>
+                                                    )}
                                                     <div className="space-y-0.5">
                                                         <p className="text-xs font-black uppercase text-slate-900 leading-tight">{prod.name}</p>
                                                         <p className="text-[9px] font-bold uppercase text-slate-500">{prod.quantity} Unidades Compradas</p>
