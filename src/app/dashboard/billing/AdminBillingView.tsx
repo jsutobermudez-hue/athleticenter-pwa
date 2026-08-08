@@ -30,7 +30,10 @@ import {
     X, 
     User2,
     Sparkles,
-    Info
+    Info,
+    MessageSquare,
+    Clock,
+    Filter
 } from 'lucide-react';
 import { ConfirmPaymentDialog } from './register-payment-dialog';
 import { getInvoiceFromOrder } from '@/lib/billing';
@@ -46,6 +49,8 @@ export function AdminBillingView() {
   const { profile: currentUser, isUserLoading } = useUser();
 
   const [statusFilter, setStatusFilter] = useState('todos');
+  const [salespersonFilter, setSalespersonFilter] = useState('todos');
+  const [agingFilter, setAgingFilter] = useState('todos');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   
@@ -79,6 +84,11 @@ export function AdminBillingView() {
     const filtered = rawOrders.filter(o => baseStatuses.includes(o.status));
     return filtered.map(getInvoiceFromOrder).filter(Boolean) as Invoice[];
   }, [rawOrders]);
+
+  const uniqueSalespeople = useMemo(() => {
+    if (!allInvoices) return [];
+    return Array.from(new Set(allInvoices.map(i => i.salespersonName))).filter((sp): sp is string => Boolean(sp)).sort();
+  }, [allInvoices]);
   
   const metrics = useMemo(() => {
     if (!rawOrders) return { vencido: 0, porCobrar: 0, enVerificacion: 0, recaudado: 0 };
@@ -97,16 +107,69 @@ export function AdminBillingView() {
   const filteredInvoices = useMemo(() => {
     if (!allInvoices) return [];
     let items = allInvoices;
-    if (statusFilter !== 'todos') items = items.filter(i => i.status === statusFilter);
+    
+    if (statusFilter !== 'todos') {
+      items = items.filter(i => i.status === statusFilter);
+    }
+
+    if (salespersonFilter !== 'todos') {
+      items = items.filter(i => i.salespersonName === salespersonFilter);
+    }
+
+    if (agingFilter !== 'todos') {
+      const now = Date.now();
+      items = items.filter(i => {
+        const createdDate = i.createdAt instanceof Date ? i.createdAt.getTime() : (i.createdAt as any)?.seconds ? (i.createdAt as any).seconds * 1000 : now;
+        const daysOld = Math.floor((now - createdDate) / (1000 * 60 * 60 * 24));
+        if (agingFilter === 'al_dia') return daysOld <= 7;
+        if (agingFilter === 'vencimiento') return daysOld > 7 && daysOld <= 15;
+        if (agingFilter === 'mora') return daysOld > 15 && daysOld <= 30;
+        if (agingFilter === 'mora_critica') return daysOld > 30;
+        return true;
+      });
+    }
+
     if (searchTerm) {
         const term = searchTerm.toLowerCase().trim();
-        items = items.filter(i => i.customerName.toLowerCase().includes(term) || i.id.toLowerCase().includes(term));
+        items = items.filter(i => 
+          i.customerName.toLowerCase().includes(term) || 
+          i.id.toLowerCase().includes(term) ||
+          (i.salespersonName || '').toLowerCase().includes(term)
+        );
     }
     return items;
-  }, [allInvoices, statusFilter, searchTerm]);
+  }, [allInvoices, statusFilter, salespersonFilter, agingFilter, searchTerm]);
+
+  const filteredMetrics = useMemo(() => {
+    const totalRemaining = filteredInvoices.reduce((sum, inv) => sum + inv.remainingBalance, 0);
+    const countPending = filteredInvoices.filter(i => i.remainingBalance > 0.05).length;
+    return { totalRemaining, countPending };
+  }, [filteredInvoices]);
+
+  const handleSendWhatsAppInvoiceReminder = (invoice: Invoice, order?: Order) => {
+    const rawPhone = (order?.customerPhone || '').replace(/\D/g, '');
+    const cleanPhone = rawPhone.length === 10 ? `58${rawPhone}` : rawPhone;
+
+    const text = `*ATHLETICENTER C.A. - RECORDATORIO DE FACTURACIÓN Y PAGO*\n\n` +
+      `Estimado(a) *${invoice.customerName}*,\n\n` +
+      `Le saludamos del Departamento de Cobranzas. Le recordamos el estado de su expediente de facturación:\n\n` +
+      `📄 *Expediente:* #${invoice.id.substring(0, 8).toUpperCase()}\n` +
+      `💰 *Saldo Pendiente:* $${invoice.remainingBalance.toFixed(2)} USD\n` +
+      `📅 *Estado:* ${invoice.statusText}\n\n` +
+      `Por favor agradeceremos el envío de su comprobante de pago para proceder con la conciliación inmediata.\n\n` +
+      `¡Muchas gracias por su preferencia!`;
+
+    const url = cleanPhone 
+      ? `https://wa.me/${cleanPhone}?text=${encodeURIComponent(text)}` 
+      : `https://wa.me/?text=${encodeURIComponent(text)}`;
+
+    window.open(url, '_blank');
+  };
 
   const handleClearFilters = () => {
       setStatusFilter('todos');
+      setSalespersonFilter('todos');
+      setAgingFilter('todos');
       setSearchTerm('');
   };
 
@@ -127,24 +190,64 @@ export function AdminBillingView() {
       </div>
 
       <div className="flex flex-col gap-6 w-full">
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 border-b border-slate-200 pb-6 px-2">
-            <div className="flex flex-wrap items-center gap-4 flex-1 w-full">
-                <div className="relative flex-1 min-w-[250px] max-w-md">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-                    <Input placeholder="BUSCAR EXPEDIENTE O CLIENTE..." className="pl-10 h-11 bg-white border-slate-200 rounded-xl text-xs font-bold uppercase shadow-sm" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+        {/* BARRA DE FILTROS AVANZADOS MULTIDIMENSIONAL */}
+        <div className="flex flex-col gap-4 border-b border-slate-200 pb-6 px-2">
+            <div className="flex flex-wrap items-center gap-3 w-full">
+                <div className="relative flex-1 min-w-[240px]">
+                    <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                    <Input placeholder="BUSCAR EXPEDIENTE, CLIENTE O RIF..." className="pl-10 h-11 bg-white border-slate-200 rounded-xl text-xs font-bold uppercase shadow-sm" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
                 </div>
+
                 <Select value={statusFilter} onValueChange={setStatusFilter}>
                     <SelectTrigger className="h-11 w-full sm:w-44 rounded-xl bg-white border-slate-200 font-bold text-[10px] uppercase shadow-sm"><SelectValue placeholder="Estado" /></SelectTrigger>
                     <SelectContent>
-                        <SelectItem value="todos" className="font-bold text-[10px] uppercase">TODOS LOS ESTADOS</SelectItem>
+                        <SelectItem value="todos" className="font-bold text-[10px] uppercase">ESTADO: TODOS</SelectItem>
                         {['Por Vencer', 'Vencido', 'Pagado', 'En Verificación'].map(s => <SelectItem key={s} value={s} className="font-bold text-[10px] uppercase">{s.toUpperCase()}</SelectItem>)}
                     </SelectContent>
                 </Select>
-                {(statusFilter !== 'todos' || searchTerm) && (
+
+                {isGlobalStaff && uniqueSalespeople.length > 0 && (
+                    <Select value={salespersonFilter} onValueChange={setSalespersonFilter}>
+                        <SelectTrigger className="h-11 w-full sm:w-48 rounded-xl bg-white border-slate-200 font-bold text-[10px] uppercase shadow-sm"><SelectValue placeholder="Asesor" /></SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="todos" className="font-bold text-[10px] uppercase">ASESOR: TODOS</SelectItem>
+                            {uniqueSalespeople.map(sp => <SelectItem key={sp} value={sp} className="font-bold text-[10px] uppercase">{sp.toUpperCase()}</SelectItem>)}
+                        </SelectContent>
+                    </Select>
+                )}
+
+                <Select value={agingFilter} onValueChange={setAgingFilter}>
+                    <SelectTrigger className="h-11 w-full sm:w-48 rounded-xl bg-white border-slate-200 font-bold text-[10px] uppercase shadow-sm"><SelectValue placeholder="Antigüedad" /></SelectTrigger>
+                    <SelectContent>
+                        <SelectItem value="todos" className="font-bold text-[10px] uppercase">ANTIGÜEDAD: TODAS</SelectItem>
+                        <SelectItem value="al_dia" className="font-bold text-[10px] uppercase">AL DÍA (1-7 DÍAS)</SelectItem>
+                        <SelectItem value="vencimiento" className="font-bold text-[10px] uppercase">VENCIMIENTO (8-15 DÍAS)</SelectItem>
+                        <SelectItem value="mora" className="font-bold text-[10px] uppercase">EN MORA (16-30 DÍAS)</SelectItem>
+                        <SelectItem value="mora_critica" className="font-bold text-[10px] uppercase">MORA CRÍTICA (+30 DÍAS)</SelectItem>
+                    </SelectContent>
+                </Select>
+
+                {(statusFilter !== 'todos' || salespersonFilter !== 'todos' || agingFilter !== 'todos' || searchTerm) && (
                     <Button variant="ghost" size="sm" onClick={handleClearFilters} className="text-[9px] font-black uppercase text-rose-500 h-11 px-4 hover:bg-rose-50 rounded-xl">
                         Limpiar <X className="ml-1 h-3 w-3" />
                     </Button>
                 )}
+            </div>
+
+            {/* RESUMEN DE RESULTADOS FILTRADOS */}
+            <div className="flex flex-wrap items-center justify-between gap-4 p-4 rounded-2xl bg-slate-900 text-white shadow-lg">
+                <div className="flex items-center gap-3">
+                    <Filter className="h-4 w-4 text-primary" />
+                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-300">
+                        Resultados Filtrados: <span className="text-white font-bold">{filteredInvoices.length} expedientes</span>
+                    </p>
+                </div>
+                <div className="flex items-center gap-6">
+                    <div className="text-right">
+                        <span className="text-[8px] font-black uppercase tracking-widest text-slate-400 block">Deuda Pendiente Coincidente</span>
+                        <span className="text-base font-black text-amber-400 tracking-tighter">${filteredMetrics.totalRemaining.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</span>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -213,6 +316,14 @@ export function AdminBillingView() {
                                                 )}
                                                 {invoice.remainingBalance > 0.05 && (
                                                     <div className="flex gap-2">
+                                                        <Button 
+                                                            variant="outline" 
+                                                            size="sm" 
+                                                            className="h-9 px-3 rounded-xl border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 font-black text-[9px] uppercase tracking-wider"
+                                                            onClick={() => handleSendWhatsAppInvoiceReminder(invoice, orderForInvoice)}
+                                                        >
+                                                            <MessageSquare className="h-3.5 w-3.5 text-emerald-600 mr-1" /> WhatsApp
+                                                        </Button>
                                                         <ReportPaymentDialog invoice={invoice} mode="partial" />
                                                         <ReportPaymentDialog invoice={invoice} mode="total" />
                                                     </div>
