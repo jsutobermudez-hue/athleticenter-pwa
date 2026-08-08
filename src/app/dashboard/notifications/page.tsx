@@ -88,12 +88,7 @@ export default function NotificationsPage() {
 
   const allUsersQuery = useMemoFirebase(() => {
     if (!firestore || !currentUser) return null;
-    const usersRef = collection(firestore, 'users');
-    if (currentUser.role === 'cliente') {
-        const staffRoles = ['superadmin', 'admin', 'gerencia', 'ventas', 'deposito'];
-        return query(usersRef, where('role', 'in', staffRoles), limit(100));
-    }
-    return query(usersRef, limit(100));
+    return query(collection(firestore, 'users'), limit(300));
   }, [firestore, currentUser]);
 
   const { data: allUsers } = useCollection<AppUser>(allUsersQuery);
