@@ -22,7 +22,15 @@ import {
     PieChart,
     Settings2,
     Zap,
-    Sparkles
+    Sparkles,
+    Clock,
+    AlertTriangle,
+    Send,
+    MessageSquare,
+    Users,
+    ShieldAlert,
+    ChevronRight,
+    ArrowUpRight
 } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Label } from '@/components/ui/label';
@@ -180,6 +188,86 @@ export default function TreasuryPage() {
     const diff = newTotalVES - currentTotalVES;
     return { currentTotalVES, newTotalVES, diff, inventoryCount, targetProducts };
   }, [products, settings, watchedValues.bcvRate, brandFilter, categoryFilter, modelFilter, inflationMultiplier, isMounted, roundingStrategy]);
+
+  const agingAnalysis = useMemo(() => {
+    if (!allOrders) return { buckets: { current: 0, days8_15: 0, days16_30: 0, overdue30: 0 }, overdueCustomers: [] };
+    
+    let current = 0;
+    let days8_15 = 0;
+    let days16_30 = 0;
+    let overdue30 = 0;
+
+    const customerDebtsMap = new Map<string, {
+      customerId: string;
+      customerName: string;
+      phone?: string;
+      totalDebt: number;
+      oldestOrderDays: number;
+      oldestOrderId: string;
+    }>();
+
+    const now = Date.now();
+
+    allOrders.forEach(order => {
+      if (order.status === 'Cancelado') return;
+      const balance = (order.totalAmount || 0) - (order.amountPaid || 0);
+      if (balance <= 0.05) return;
+
+      const orderTime = order.orderDate?.seconds 
+        ? order.orderDate.seconds * 1000 
+        : (order.createdAt?.seconds ? order.createdAt.seconds * 1000 : now);
+      
+      const daysOld = Math.floor((now - orderTime) / (1000 * 60 * 60 * 24));
+
+      if (daysOld <= 7) current += balance;
+      else if (daysOld <= 15) days8_15 += balance;
+      else if (daysOld <= 30) days16_30 += balance;
+      else overdue30 += balance;
+
+      const existing = customerDebtsMap.get(order.customerId) || {
+        customerId: order.customerId,
+        customerName: order.customerName,
+        phone: order.customerPhone,
+        totalDebt: 0,
+        oldestOrderDays: 0,
+        oldestOrderId: order.id
+      };
+
+      existing.totalDebt += balance;
+      if (daysOld > existing.oldestOrderDays) {
+        existing.oldestOrderDays = daysOld;
+        existing.oldestOrderId = order.id;
+      }
+      customerDebtsMap.set(order.customerId, existing);
+    });
+
+    const overdueCustomers = Array.from(customerDebtsMap.values())
+      .sort((a, b) => b.totalDebt - a.totalDebt);
+
+    return {
+      buckets: { current, days8_15, days16_30, overdue30 },
+      overdueCustomers
+    };
+  }, [allOrders]);
+
+  const handleSendWhatsAppDebtReminder = (client: { customerName: string; phone?: string; totalDebt: number; oldestOrderDays: number; oldestOrderId: string }) => {
+    const rawPhone = (client.phone || '').replace(/\D/g, '');
+    const cleanPhone = rawPhone.length === 10 ? `58${rawPhone}` : rawPhone;
+    
+    const text = `*ATHLETICENTER C.A. - AVISO DE DEUDAS Y ESTADO DE CUENTA*\n\n` +
+      `Estimado(a) *${client.customerName}*,\n\n` +
+      `Le saludamos del Departamento de Tesorería. Le recordamos que su cuenta presenta un saldo pendiente por conciliar de:\n\n` +
+      `💰 *Monto Pendiente:* $${client.totalDebt.toFixed(2)} USD\n` +
+      `⏱️ *Antigüedad Máxima:* ${client.oldestOrderDays} días (Factura #${client.oldestOrderId.substring(0, 7).toUpperCase()})\n\n` +
+      `Agradecemos su valioso apoyo realizando su reporte de pago a la brevedad para mantener habilitado su cupo de crédito.\n\n` +
+      `Quedamos atentos a sus comprobantes. ¡Muchas gracias!`;
+
+    const url = cleanPhone 
+      ? `https://wa.me/${cleanPhone}?text=${encodeURIComponent(text)}` 
+      : `https://wa.me/?text=${encodeURIComponent(text)}`;
+
+    window.open(url, '_blank');
+  };
 
   useEffect(() => {
     if (settings) {
@@ -553,6 +641,78 @@ export default function TreasuryPage() {
                             <Badge variant="outline" className="border-slate-200 text-[8px] font-black text-slate-500 bg-white">DINERO PENDIENTE</Badge>
                         </div>
                     </div>
+                </CardContent>
+            </Card>
+
+            {/* MATRIZ DE ENVEJECIMIENTO DE CARTERA (AGING SCHEDULE) */}
+            <Card className="terminal-card bg-white text-slate-900 border border-slate-100 shadow-xl overflow-hidden rounded-[2.5rem]">
+                <CardHeader className="p-8 border-b border-slate-100 bg-slate-50/50 flex flex-row items-center justify-between">
+                    <CardTitle className="text-xs font-black uppercase tracking-[0.3em] text-primary flex items-center gap-3">
+                        <Clock className="h-5 w-5 text-indigo-600" /> Matriz de Envejecimiento de Cartera (Aging Schedule)
+                    </CardTitle>
+                    <Badge variant="outline" className="bg-indigo-50 border-indigo-200 text-indigo-700 font-black text-[9px] px-3 py-1">
+                        {agingAnalysis.overdueCustomers.length} CLIENTES CON SALDO
+                    </Badge>
+                </CardHeader>
+                <CardContent className="p-8 space-y-8">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                        <div className="p-5 rounded-2xl bg-emerald-50 border border-emerald-100 space-y-1">
+                            <p className="text-[9px] font-black uppercase tracking-widest text-emerald-700">Al Día (1-7 Días)</p>
+                            <p className="text-2xl font-black text-emerald-900 tracking-tighter">${agingAnalysis.buckets.current.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</p>
+                        </div>
+                        <div className="p-5 rounded-2xl bg-blue-50 border border-blue-100 space-y-1">
+                            <p className="text-[9px] font-black uppercase tracking-widest text-blue-700">Vencimiento (8-15 Días)</p>
+                            <p className="text-2xl font-black text-blue-900 tracking-tighter">${agingAnalysis.buckets.days8_15.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</p>
+                        </div>
+                        <div className="p-5 rounded-2xl bg-amber-50 border border-amber-100 space-y-1">
+                            <p className="text-[9px] font-black uppercase tracking-widest text-amber-700">Mora (16-30 Días)</p>
+                            <p className="text-2xl font-black text-amber-900 tracking-tighter">${agingAnalysis.buckets.days16_30.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</p>
+                        </div>
+                        <div className="p-5 rounded-2xl bg-rose-50 border border-rose-100 space-y-1">
+                            <p className="text-[9px] font-black uppercase tracking-widest text-rose-700">Mora Crítica (+30 Días)</p>
+                            <p className="text-2xl font-black text-rose-900 tracking-tighter">${agingAnalysis.buckets.overdue30.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</p>
+                        </div>
+                    </div>
+
+                    {agingAnalysis.overdueCustomers.length > 0 && (
+                        <div className="space-y-4">
+                            <div className="flex items-center justify-between px-1">
+                                <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Clientes Deudores Principales</h4>
+                                <span className="text-[9px] font-bold text-slate-400 uppercase">Gestión de Cobranza Ejecutiva</span>
+                            </div>
+                            <div className="divide-y divide-slate-100 rounded-2xl border border-slate-100 overflow-hidden bg-slate-50/30">
+                                {agingAnalysis.overdueCustomers.slice(0, 5).map((client, idx) => (
+                                    <div key={idx} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-white transition-all">
+                                        <div className="space-y-1 min-w-0">
+                                            <div className="flex items-center gap-2">
+                                                <p className="text-xs font-black uppercase text-slate-900 truncate">{client.customerName}</p>
+                                                {client.oldestOrderDays > 35 && (
+                                                    <Badge variant="destructive" className="text-[8px] font-black uppercase px-2 py-0 h-4">Mora Crítica</Badge>
+                                                )}
+                                            </div>
+                                            <p className="text-[9px] font-mono text-slate-500">
+                                                Mayor Antigüedad: <span className="font-bold text-slate-700">{client.oldestOrderDays} días</span> (Pedido #{client.oldestOrderId.substring(0, 7).toUpperCase()})
+                                            </p>
+                                        </div>
+                                        <div className="flex items-center justify-between sm:justify-end gap-4 shrink-0">
+                                            <div className="text-right">
+                                                <p className="text-[8px] font-black uppercase text-slate-400">Deuda Total</p>
+                                                <p className="text-base font-black text-slate-900 tracking-tighter">${client.totalDebt.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</p>
+                                            </div>
+                                            <Button 
+                                                variant="outline" 
+                                                size="sm" 
+                                                className="h-10 px-4 rounded-xl border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 font-black text-[9px] uppercase tracking-wider"
+                                                onClick={() => handleSendWhatsAppDebtReminder(client)}
+                                            >
+                                                <MessageSquare className="mr-1.5 h-3.5 w-3.5 text-emerald-600" /> AVISAR POR WHATSAPP
+                                            </Button>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
                 </CardContent>
             </Card>
         </div>
