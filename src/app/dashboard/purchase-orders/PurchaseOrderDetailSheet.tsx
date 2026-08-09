@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   Sheet,
   SheetContent,
@@ -233,6 +233,23 @@ export function PurchaseOrderDetailSheet({ order, isOpen, onOpenChange }: Purcha
 
   if (!order) return null;
 
+  const PO_STAGES = [
+    { id: 'Pendiente', label: 'Emitido' },
+    { id: 'En Tránsito', label: 'En Tránsito' },
+    { id: 'En Aduana', label: 'En Aduana' },
+    { id: 'Recibido', label: 'Recibido WAC' }
+  ];
+
+  const currentPOStageIndex = useMemo(() => {
+    switch (order.status) {
+      case 'Pendiente': return 0;
+      case 'En Tránsito': return 1;
+      case 'Aduana': return 2;
+      case 'Recibido': return 3;
+      default: return 0;
+    }
+  }, [order.status]);
+
   return (
     <Sheet open={isOpen} onOpenChange={onOpenChange}>
       <SheetContent className="w-full sm:max-w-2xl lg:max-w-3xl p-0 flex flex-col h-screen border-none rounded-l-[2.5rem] shadow-2xl">
@@ -244,6 +261,35 @@ export function PurchaseOrderDetailSheet({ order, isOpen, onOpenChange }: Purcha
             </div>
             <Badge className="bg-primary text-white font-black uppercase text-[9px] px-3 h-6 border-none shadow-lg">{order.status}</Badge>
           </div>
+
+          {/* STEPPER DE IMPORTACIÓN EN CABECERA */}
+          {order.status !== 'Cancelado' && (
+            <div className="mt-6 pt-4 border-t border-slate-800">
+              <div className="grid grid-cols-4 gap-2">
+                {PO_STAGES.map((stage, idx) => {
+                  const isPassed = idx <= currentPOStageIndex;
+                  const isCurrent = idx === currentPOStageIndex;
+                  return (
+                    <div key={stage.id} className="flex flex-col items-center gap-1.5 text-center">
+                      <div className={cn(
+                        "h-7 w-7 rounded-xl flex items-center justify-center font-black text-[9px] transition-all shadow-sm",
+                        isCurrent ? "bg-primary text-white ring-4 ring-primary/20 scale-105" :
+                        isPassed ? "bg-emerald-500 text-white" : "bg-slate-800 text-slate-500"
+                      )}>
+                        #{idx + 1}
+                      </div>
+                      <span className={cn(
+                        "text-[8px] font-black uppercase tracking-wider truncate max-w-full",
+                        isCurrent ? "text-primary font-extrabold" : isPassed ? "text-white" : "text-slate-500"
+                      )}>
+                        {stage.label}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </SheetHeader>
 
         <ScrollArea className="flex-1">
