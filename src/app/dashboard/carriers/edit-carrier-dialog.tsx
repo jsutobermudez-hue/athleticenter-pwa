@@ -49,8 +49,10 @@ const carrierEditSchema = z.object({
 
 type CarrierEditFormValues = z.infer<typeof carrierEditSchema>;
 
-export function EditCarrierDialog({ carrier }: { carrier: Carrier }) {
-  const [isOpen, setIsOpen] = React.useState(false);
+export function EditCarrierDialog({ carrier, isOpen: controlledIsOpen, onOpenChange: controlledOnOpenChange }: { carrier: Carrier, isOpen?: boolean, onOpenChange?: (open: boolean) => void }) {
+  const [internalIsOpen, setInternalIsOpen] = React.useState(false);
+  const isOpen = controlledIsOpen !== undefined ? controlledIsOpen : internalIsOpen;
+  const setIsOpen = controlledOnOpenChange || setInternalIsOpen;
   const { toast } = useToast();
   const firestore = useFirestore();
   const { profile: currentUser } = useUser();
