@@ -14,7 +14,9 @@ import {
     Zap,
     Download,
     ClipboardList,
-    Wallet
+    Wallet,
+    MessageCircle,
+    ShoppingBag
 } from 'lucide-react';
 import { DashboardMetricCard } from '@/components/dashboard/DashboardMetricCard';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -55,32 +57,39 @@ export default function ClientDashboard() {
         };
     }, [myOrders, customerProfile]);
 
+    const handleWhatsAppSalesperson = (e?: React.MouseEvent) => {
+        if (e) e.stopPropagation();
+        const rawPhone = ((customerProfile as any)?.assignedSalespersonPhone || (customerProfile as any)?.telefono || '').replace(/\D/g, '');
+        const salespersonName = customerProfile?.assignedSalespersonName || 'Asesor Comercial';
+        const text = `Hola *${salespersonName}*, le saluda *${customerProfile?.razonSocial || 'Cliente B2B'}* desde la plataforma. Quisiera consultar sobre un pedido / cotización.`;
+        const url = rawPhone ? `https://wa.me/${rawPhone}?text=${encodeURIComponent(text)}` : `https://wa.me/?text=${encodeURIComponent(text)}`;
+        window.open(url, '_blank');
+    };
+
     return (
         <div className="flex flex-col gap-10 pb-20 animate-in fade-in duration-700">
             <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-6 px-1">
                 <div className="space-y-1">
                     <h1 className="terminal-header">Mi Cuenta Pro</h1>
-                    <p className="tech-label opacity-60">Control de Crédito Corporativo y Seguimiento de Suministros.</p>
+                    <p className="tech-label opacity-60">Control de Crédito Corporativo, Rastreo en Vivo y Catálogo B2B.</p>
                 </div>
-                <div className="flex gap-3">
-                    <Button variant="outline" asChild className="h-12 px-6 rounded-xl border-slate-200 font-black uppercase text-[10px] tracking-widest bg-white shadow-sm hover:bg-slate-50">
+                <div className="flex flex-wrap gap-3">
+                    <Button variant="outline" asChild className="h-12 px-6 rounded-2xl border-slate-200 font-black uppercase text-[10px] tracking-widest bg-white shadow-sm hover:bg-slate-50">
                         <Link href="/dashboard/billing">
                             <Wallet className="mr-2 h-4 w-4 text-primary" /> ESTADO CUENTA
                         </Link>
                     </Button>
-                    <Button asChild className="h-12 px-8 rounded-xl bg-slate-900 hover:bg-primary font-black uppercase text-[10px] tracking-widest shadow-xl">
-                        <Link href="/dashboard/inventory">
-                            EXPLORAR CATÁLOGO
-                        </Link>
+                    <Button onClick={handleWhatsAppSalesperson} className="h-12 px-6 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-black uppercase text-[10px] tracking-widest shadow-xl">
+                        <MessageCircle className="mr-2 h-4 w-4" /> ASESOR WHATSAPP
                     </Button>
                 </div>
             </header>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 px-1">
                 <DashboardMetricCard 
                     title="Crédito en Uso" 
                     value={`$${stats.balance.toLocaleString()}`} 
-                    subtitle="Límite: $${(customerProfile?.creditLimit || 0).toLocaleString()}" 
+                    subtitle={`Límite: $${(customerProfile?.creditLimit || 0).toLocaleString()}`} 
                     icon={CreditCard} iconBg="bg-rose-50" iconColor="text-rose-500" 
                     onClick={() => router.push('/dashboard/billing')}
                 />
@@ -99,15 +108,15 @@ export default function ClientDashboard() {
                     onClick={() => router.push('/dashboard/orders')}
                 />
                 <DashboardMetricCard 
-                    title="Mi Asesor" 
-                    value={customerProfile?.assignedSalespersonName?.split(' ')[0] || 'Personal'} 
-                    subtitle="Soporte Directo Red" 
-                    icon={Zap} iconBg="bg-slate-900" iconColor="text-white" 
-                    onClick={() => router.push('/dashboard/billing')}
+                    title="Soporte Directo" 
+                    value={customerProfile?.assignedSalespersonName?.split(' ')[0] || 'Asesor'} 
+                    subtitle="Contactar por WhatsApp" 
+                    icon={MessageCircle} iconBg="bg-emerald-50" iconColor="text-emerald-600" 
+                    onClick={handleWhatsAppSalesperson}
                 />
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 px-1">
                 <div className="lg:col-span-8 space-y-8">
                     <OrderTrackerTimeline order={latestOrder} />
 
@@ -116,6 +125,9 @@ export default function ClientDashboard() {
                             <h3 className="text-xs font-black uppercase tracking-[0.3em] text-slate-400 flex items-center gap-2">
                                 <Zap className="h-4 w-4 text-primary" /> Nuevos Equipos en Red
                             </h3>
+                            <Link href="/dashboard/inventory" className="text-[10px] font-black uppercase text-primary flex items-center gap-1 hover:underline">
+                                Ver Catálogo <ArrowUpRight className="h-3 w-3" />
+                            </Link>
                         </div>
                         <CatalogHighlights />
                     </section>

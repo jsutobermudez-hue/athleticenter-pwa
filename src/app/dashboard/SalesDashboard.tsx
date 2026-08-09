@@ -3,7 +3,7 @@
 import React, { useMemo } from 'react';
 import { useCollection, useFirestore, useMemoFirebase } from '@/firebase';
 import { collection, query, where, limit, Timestamp } from 'firebase/firestore';
-import type { User, Order, Customer, Commission } from '@/lib/definitions';
+import type { User, Order, Customer, Commission, Quote } from '@/lib/definitions';
 import { 
     TrendingUp, 
     Users, 
@@ -12,13 +12,18 @@ import {
     Zap, 
     ArrowUpRight,
     Star,
-    PlusCircle
+    PlusCircle,
+    FileText,
+    MessageCircle,
+    Clock,
+    FileCheck
 } from 'lucide-react';
 import { DashboardMetricCard } from '@/components/dashboard/DashboardMetricCard';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { CatalogHighlights } from '@/components/dashboard/CatalogHighlights';
 import { SalesGoalWidget } from '@/components/dashboard/SalesGoalWidget';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 
@@ -29,36 +34,54 @@ export default function SalesDashboard({ user, profile }: { user: any, profile: 
     const ordersQuery = useMemoFirebase(() => (firestore ? query(collection(firestore, 'orders'), where('salespersonId', '==', profile.id), limit(100)) : null), [firestore, profile.id]);
     const customersQuery = useMemoFirebase(() => (firestore ? query(collection(firestore, 'customers'), where('assignedSalespersonId', '==', profile.id), limit(50)) : null), [firestore, profile.id]);
     const commissionsQuery = useMemoFirebase(() => (firestore ? query(collection(firestore, 'commissions'), where('salespersonId', '==', profile.id), limit(50)) : null), [firestore, profile.id]);
+    const quotesQuery = useMemoFirebase(() => (firestore ? query(collection(firestore, 'quotes'), where('salespersonId', '==', profile.id), limit(50)) : null), [firestore, profile.id]);
 
     const { data: myOrders } = useCollection<Order>(ordersQuery);
     const { data: myCustomers } = useCollection<Customer>(customersQuery);
     const { data: myCommissions } = useCollection<Commission>(commissionsQuery);
+    const { data: myQuotes } = useCollection<Quote>(quotesQuery);
 
     const stats = useMemo(() => {
-        if (!myOrders) return { salesMonth: 0, pending: 0, clients: 0, wallet: 0 };
+        if (!myOrders) return { salesMonth: 0, pending: 0, clients: 0, wallet: 0, activeQuotes: 0 };
         return {
             salesMonth: myOrders.filter(o => o.status === 'Pagado').reduce((s, o) => s + o.totalAmount, 0),
             pending: myOrders.filter(o => ['Pendiente', 'Aprobado'].includes(o.status)).length,
             clients: myCustomers?.length || 0,
-            wallet: myCommissions?.filter(c => c.status === 'pendiente').reduce((s, c) => s + c.salespersonCommissionAmount, 0) || 0
+            wallet: myCommissions?.filter(c => c.status === 'pendiente').reduce((s, c) => s + c.salespersonCommissionAmount, 0) || 0,
+            activeQuotes: myQuotes?.filter(q => q.status === 'Enviada').length || 0
         };
-    }, [myOrders, myCustomers, myCommissions]);
+    }, [myOrders, myCustomers, myCommissions, myQuotes]);
+
+    const handleWhatsAppClient = (c: Customer, e: React.MouseEvent) => {
+        e.stopPropagation();
+        const rawPhone = ((c as any).phone || (c as any).telefono || '').replace(/\D/g, '');
+        const text = `Hola *${c.razonSocial}*, le saluda su asesor comercial en *ATHLETICENTER C.A.* Quedo a su disposición para apoyarle con nuevos requerimientos o cotizaciones.`;
+        const url = rawPhone ? `https://wa.me/${rawPhone}?text=${encodeURIComponent(text)}` : `https://wa.me/?text=${encodeURIComponent(text)}`;
+        window.open(url, '_blank');
+    };
 
     return (
-        <div className="flex flex-col gap-10 pb-20 animate-in fade-in duration-700">
+        <div className="flex flex-col gap-8 pb-20 animate-in fade-in duration-700">
             <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-6 px-1">
                 <div className="space-y-1">
                     <h1 className="terminal-header">Terminal de Ventas</h1>
-                    <p className="tech-label opacity-60">Gestión de Cartera y Ejecución de Pedidos B2B.</p>
+                    <p className="tech-label opacity-60">Gestión de Cartera, Cotizaciones y Ejecución de Pedidos B2B.</p>
                 </div>
-                <Link href="/dashboard/orders/new">
-                    <Button className="h-14 px-10 rounded-2xl bg-primary hover:bg-primary/90 font-black uppercase tracking-[0.2em] shadow-2xl shadow-primary/20 transition-all active:scale-95">
-                        <PlusCircle className="mr-2 h-5 w-5" /> NUEVO PEDIDO
-                    </Button>
-                </Link>
+                <div className="flex flex-wrap items-center gap-2">
+                    <Link href="/dashboard/orders/new">
+                        <Button className="h-12 px-6 rounded-2xl bg-primary hover:bg-primary/90 font-black uppercase tracking-wider text-[10px] shadow-xl">
+                            <PlusCircle className="mr-2 h-4 w-4" /> Nuevo Pedido
+                        </Button>
+                    </Link>
+                    <Link href="/dashboard/quotes/new">
+                        <Button variant="outline" className="h-12 px-6 rounded-2xl border-slate-200 bg-white font-black uppercase tracking-wider text-[10px] shadow-sm hover:bg-slate-50">
+                            <FileText className="mr-2 h-4 w-4 text-blue-600" /> Cotización
+                        </Button>
+                    </Link>
+                </div>
             </header>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 px-1">
                 <DashboardMetricCard 
                     title="Venta Cerrada" 
                     value={`$${stats.salesMonth.toLocaleString()}`} 
@@ -74,11 +97,11 @@ export default function SalesDashboard({ user, profile }: { user: any, profile: 
                     onClick={() => router.push('/dashboard/commissions')}
                 />
                 <DashboardMetricCard 
-                    title="En Gestión" 
-                    value={stats.pending} 
-                    subtitle="Solicitudes Activas" 
-                    icon={ShoppingCart} iconBg="bg-blue-50" iconColor="text-blue-500" 
-                    onClick={() => router.push('/dashboard/orders')}
+                    title="Cotizaciones Activas" 
+                    value={stats.activeQuotes} 
+                    subtitle="Presupuestos Enviados" 
+                    icon={FileCheck} iconBg="bg-blue-50" iconColor="text-blue-500" 
+                    onClick={() => router.push('/dashboard/quotes')}
                 />
                 <DashboardMetricCard 
                     title="Mi Cartera" 
@@ -89,7 +112,7 @@ export default function SalesDashboard({ user, profile }: { user: any, profile: 
                 />
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 px-1">
                 <div className="lg:col-span-8 space-y-8">
                     <section className="space-y-4">
                         <div className="flex items-center justify-between px-1">
@@ -106,22 +129,22 @@ export default function SalesDashboard({ user, profile }: { user: any, profile: 
                     <SalesGoalWidget commissionValue={stats.wallet} />
 
                     {/* Radar de Clientes */}
-                    <Card className="terminal-card bg-slate-900 text-white p-8 space-y-8 relative overflow-hidden">
+                    <Card className="terminal-card bg-slate-900 text-white p-8 space-y-6 relative overflow-hidden shadow-2xl">
                         <div className="absolute top-0 right-0 p-4 opacity-5"><Star className="h-32 w-32" /></div>
-                        <div className="space-y-2 relative z-10">
-                            <h3 className="text-xl font-black uppercase tracking-tighter italic text-primary">Radar de Clientes</h3>
-                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-relaxed">MONITOREO DE ACTIVIDAD DE TU CARTERA B2B.</p>
+                        <div className="space-y-1 relative z-10">
+                            <h3 className="text-xl font-black uppercase tracking-tighter italic text-primary">Radar de Cartera B2B</h3>
+                            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest leading-relaxed">MONITOREO DE TUS CLIENTES ASIGNADOS.</p>
                         </div>
                         <div className="space-y-3 relative z-10">
                             {myCustomers?.slice(0, 5).map((c, i) => (
-                                <div key={i} className="flex items-center justify-between p-3 rounded-xl bg-white/5 border border-white/10">
-                                    <div className="min-w-0">
-                                        <p className="text-[11px] font-black uppercase truncate">{c.razonSocial}</p>
-                                        <p className="text-[8px] font-mono text-slate-500">RIF: {c.rif}</p>
+                                <div key={i} className="flex items-center justify-between p-3.5 rounded-2xl bg-white/5 border border-white/10 hover:bg-white/10 transition-colors">
+                                    <div className="min-w-0 pr-2">
+                                        <p className="text-[11px] font-black uppercase truncate text-white">{c.razonSocial}</p>
+                                        <p className="text-[8px] font-mono text-slate-400 mt-0.5">RIF: {c.rif}</p>
                                     </div>
-                                    <Link href={`/dashboard/clients?search=${c.rif}`}>
-                                        <ArrowUpRight className="h-4 w-4 text-primary" />
-                                    </Link>
+                                    <Button size="sm" variant="ghost" onClick={(e) => handleWhatsAppClient(c, e)} className="h-7 px-2 text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20 text-[8px] font-black uppercase rounded-lg border border-emerald-500/20 shrink-0">
+                                        <MessageCircle className="h-3 w-3 mr-1" /> WhatsApp
+                                    </Button>
                                 </div>
                             ))}
                         </div>
