@@ -1,7 +1,7 @@
 
 /**
  * MOTOR DE CAPTURA DE TASA OFICIAL BCV CON ALTA RESILIENCIA
- * v98.0.0 - Blindaje total contra 'TypeError: Load failed'
+ * v100.0.0 - Triple Mirror Failover con DolarAPI, PyDolarVE y DolarToday
  */
 export async function fetchLatestBcvRate(): Promise<number | null> {
   const providers = [
@@ -11,7 +11,12 @@ export async function fetchLatestBcvRate(): Promise<number | null> {
       parse: (data: any) => data.valor || data.promedio
     },
     {
-      name: 'DolarToday (Mirror AWS)',
+      name: 'PyDolarVE (Mirror Secundario API)',
+      url: 'https://pydolarve.org/api/v1/dollar?page=bcv',
+      parse: (data: any) => data.monedas?.usd?.price || data.price || data.usd
+    },
+    {
+      name: 'DolarToday (Mirror Terciario AWS)',
       url: 'https://s3.amazonaws.com/dolartoday/data.json',
       parse: (data: any) => data.USD?.bcv
     }
@@ -25,7 +30,7 @@ export async function fetchLatestBcvRate(): Promise<number | null> {
   for (const provider of providers) {
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 4000);
+      const timeoutId = setTimeout(() => controller.abort(), 4500);
 
       const response = await fetch(provider.url, { 
         method: 'GET',
@@ -33,8 +38,7 @@ export async function fetchLatestBcvRate(): Promise<number | null> {
         signal: controller.signal,
         cache: 'no-store'
       }).catch(err => {
-          // Captura el fallo de red antes de que suba a la UI
-          console.warn(`[BCV SYNC] Fallo de red inmediato para ${provider.name}: ${err.message}`);
+          console.warn(`[BCV SYNC] Fallo de red para ${provider.name}: ${err.message}`);
           return null;
       });
 
@@ -51,9 +55,8 @@ export async function fetchLatestBcvRate(): Promise<number | null> {
         }
       }
     } catch (error: any) {
-      // Captura TypeError específicamente para evitar el red-screen
-      if (error.name === 'TypeError' || error.message.includes('Load failed')) {
-          console.warn(`[BCV SYNC] TypeError interceptado para ${provider.name}.`);
+      if (error.name === 'TypeError' || error.message?.includes('Load failed')) {
+          console.warn(`[BCV SYNC] Interceptado error de red para ${provider.name}.`);
       }
     }
   }
