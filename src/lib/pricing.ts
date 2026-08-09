@@ -72,6 +72,13 @@ export function calculatePricingTier(
   if (safePricing.strategy === 'target_price') {
     priceListBCV = Math.max(0, safeNum(safePricing.targetPriceUSD));
     priceCashUSD = priceListBCV * (1 - bcvDiscount);
+  } else if (safePricing.strategy === 'target_markup') {
+    const targetMarkup = safeNum(safePricing.targetMarkupPercent !== undefined ? safePricing.targetMarkupPercent : 100) / 100;
+    const desiredProfitUSD = cost * targetMarkup;
+    const costWithOverhead = cost * (1 + overhead);
+    const divisor = 1 - totalFeesPercent;
+    priceCashUSD = divisor > 0.05 ? (costWithOverhead + desiredProfitUSD) / divisor : (cost + desiredProfitUSD) * 1.5;
+    priceListBCV = priceCashUSD / (1 - bcvDiscount);
   } else {
     const targetMargin = safeNum(safePricing.targetMarginPercent || 60) / 100;
     const divisor = 1 - totalFeesPercent - targetMargin;

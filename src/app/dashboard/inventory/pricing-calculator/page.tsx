@@ -33,7 +33,9 @@ import {
     Palette,
     Ruler,
     Landmark,
-    Settings2
+    Settings2,
+    TrendingUp,
+    Percent
 } from 'lucide-react';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
@@ -88,6 +90,8 @@ const importCalcSchema = z.object({
   unitsPerBox: z.coerce.number().default(1),
   freightRatePerCBM: z.coerce.number().default(450),
   otherExpenses: z.coerce.number().default(0),
+  pricingMode: z.enum(['target_markup', 'target_margin', 'target_price']).default('target_markup'),
+  targetMarkupPercent: z.coerce.number().default(100),
   targetMarginPercent: z.coerce.number().default(60),
   useManualPVP: z.boolean().default(false),
   manualPVP: z.coerce.number().default(0),
@@ -121,7 +125,7 @@ function PricingCalculatorContent() {
     defaultValues: {
       sku: '', name: '', brand: '', model: '', category: '', discipline: '', features: '', colors: '', imageUrl: '', minStockThreshold: 5,
       location: 'PASILLO A-1', hasSizes: false, sizeVariants: [], stockLevel: 0, factoryCost: 0, chinaShipping: 0, length: 10, width: 10, height: 10, unitsPerBox: 1,
-      freightRatePerCBM: 450, otherExpenses: 0, targetMarginPercent: 60, useManualPVP: false, manualPVP: 0, priceLocked: false
+      freightRatePerCBM: 450, otherExpenses: 0, pricingMode: 'target_markup', targetMarkupPercent: 100, targetMarginPercent: 60, useManualPVP: false, manualPVP: 0, priceLocked: false
     }
   });
 
@@ -141,11 +145,13 @@ function PricingCalculatorContent() {
   }, [values.hasSizes, values.sizeVariants, values.stockLevel]);
 
   const results = useMemo(() => {
+    const activeMode = values.useManualPVP ? 'target_price' : (values.pricingMode || 'target_markup');
     return calculatePricingTier({
         costLanded: Number(values.factoryCost || 0) + Number(values.chinaShipping || 0),
-        strategy: values.useManualPVP ? 'target_price' : 'target_margin',
-        targetMarginPercent: Number(values.targetMarginPercent),
-        targetPriceUSD: Number(values.manualPVP),
+        strategy: activeMode,
+        targetMarkupPercent: Number(values.targetMarkupPercent !== undefined ? values.targetMarkupPercent : 100),
+        targetMarginPercent: Number(values.targetMarginPercent || 60),
+        targetPriceUSD: Number(values.manualPVP || 0),
         useGlobalSettings: true
     }, globalSettings);
   }, [values, globalSettings]);
@@ -206,6 +212,8 @@ function PricingCalculatorContent() {
                 unitsPerBox: s?.importDetails?.unitsPerBox || 1,
                 freightRatePerCBM: s?.importDetails?.freightRatePerCBM || 450,
                 otherExpenses: s?.importDetails?.otherExpenses || 0,
+                pricingMode: s?.strategy === 'target_price' ? 'target_price' : (s?.strategy === 'target_markup' ? 'target_markup' : 'target_margin'),
+                targetMarkupPercent: s?.targetMarkupPercent !== undefined ? s?.targetMarkupPercent : 100,
                 targetMarginPercent: s?.targetMarginPercent || 60,
                 useManualPVP: s?.strategy === 'target_price',
                 manualPVP: p.price,
@@ -246,6 +254,7 @@ function PricingCalculatorContent() {
 
             const finalStock = data.hasSizes ? stockFromSizes : Math.max(0, Math.floor(Number(data.stockLevel)));
             const colorsArray = data.colors ? data.colors.split(',').map(c => c.trim()).filter(Boolean) : [];
+            const activeStrategy = data.useManualPVP ? 'target_price' : data.pricingMode;
 
             const productPayload = {
                 id: data.sku,
@@ -272,7 +281,8 @@ function PricingCalculatorContent() {
                 landedCost: results.landedCost,
                 netProfit: results.netProfitUSD,
                 strategyDetails: {
-                    strategy: data.useManualPVP ? 'target_price' : 'smart_import',
+                    strategy: activeStrategy,
+                    targetMarkupPercent: data.targetMarkupPercent,
                     targetMarginPercent: data.targetMarginPercent,
                     importDetails: {
                         factoryCost: data.factoryCost,
@@ -369,7 +379,7 @@ function PricingCalculatorContent() {
       <div className={cn("grid grid-cols-1 lg:grid-cols-12 gap-8 items-start transition-opacity duration-500", isLoadingProduct && "opacity-20")}>
         <div className="lg:col-span-7 space-y-8">
             <form onSubmit={handleSubmit(onSave)} id="full-calc-form" className="space-y-8">
-                {/* BLOQUE 1: DENTIDAD DEL PRODUCTO */}
+                {/* BLOQUE 1: IDENTIDAD DEL PRODUCTO */}
                 <Card className="border-none shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
                     <CardHeader className="bg-slate-50/50 py-5 px-8 border-b">
                         <CardTitle className="text-[10px] font-black uppercase tracking-[0.3em] flex items-center gap-2 text-primary"><Tag className="h-4 w-4" /> 1. Datos de Identidad y Categoría</CardTitle>
@@ -475,34 +485,55 @@ function PricingCalculatorContent() {
                     </CardContent>
                 </Card>
 
-                {/* BLOQUE 4: ESTRUCTURA DE COSTOS Y BLINDAJE DE PRECIO */}
+                {/* BLOQUE 4: ESTRUCTURA DE COSTOS, MODALIDAD DE UTILIDAD Y BLINDAJE DE PRECIO */}
                 <Card className="border-none shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
                     <CardHeader className="bg-slate-50/50 py-5 px-8 border-b">
-                        <CardTitle className="text-[10px] font-black uppercase tracking-[0.3em] flex items-center gap-2 text-primary"><Calculator className="h-4 w-4" /> 4. Ingeniería de Costos y Blindaje</CardTitle>
+                        <CardTitle className="text-[10px] font-black uppercase tracking-[0.3em] flex items-center gap-2 text-primary"><Calculator className="h-4 w-4" /> 4. Ingeniería de Costos y Margen de Utilidad</CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-8 pt-8 px-8">
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-8 border-b border-slate-50 pb-8">
                             <div className="space-y-1.5"><Label className="text-[10px] font-black uppercase text-slate-400">Costo Fábrica (USD)</Label><Controller name="factoryCost" control={control} render={({ field }) => <Input type="number" step="0.01" {...field} value={isNaN(field.value) ? "" : field.value} className="h-12 font-black text-xl rounded-xl bg-slate-50 border-none shadow-inner" />} /></div>
                             <div className="space-y-1.5"><Label className="text-[10px] font-black uppercase text-slate-400">China Shipping (USD/un.)</Label><Controller name="chinaShipping" control={control} render={({ field }) => <Input type="number" step="0.01" {...field} value={isNaN(field.value) ? "" : field.value} className="h-12 font-black text-xl rounded-xl bg-slate-50 border-none shadow-inner" />} /></div>
                         </div>
-                        
+
+                        {/* SELECTOR DE MODALIDAD DE FIJACIÓN DE UTILIDAD */}
                         <div className="space-y-6 p-6 bg-slate-50 rounded-[2rem] border border-slate-200 shadow-inner">
-                            <div className="flex items-center justify-between">
-                                <Label className="text-xs font-black uppercase text-primary">Protección PVP Manual</Label>
-                                <Controller name="useManualPVP" control={control} render={({ field }) => <Switch checked={field.value} onCheckedChange={field.onChange} />} />
+                            <div className="space-y-3">
+                                <Label className="text-xs font-black uppercase text-slate-700">Modalidad de Definición de Ganancia</Label>
+                                <div className="grid grid-cols-3 gap-2">
+                                    <Button type="button" size="sm" variant={values.pricingMode === 'target_markup' && !values.useManualPVP ? 'default' : 'outline'} onClick={() => { setValue('pricingMode', 'target_markup'); setValue('useManualPVP', false); }} className="h-10 text-[9px] font-black uppercase rounded-xl">
+                                        % Ganancia s/ Costo (ROI)
+                                    </Button>
+                                    <Button type="button" size="sm" variant={values.pricingMode === 'target_margin' && !values.useManualPVP ? 'default' : 'outline'} onClick={() => { setValue('pricingMode', 'target_margin'); setValue('useManualPVP', false); }} className="h-10 text-[9px] font-black uppercase rounded-xl">
+                                        % Margen s/ Venta
+                                    </Button>
+                                    <Button type="button" size="sm" variant={values.useManualPVP ? 'default' : 'outline'} onClick={() => setValue('useManualPVP', true)} className="h-10 text-[9px] font-black uppercase rounded-xl">
+                                        PVP Manual Fijo
+                                    </Button>
+                                </div>
                             </div>
+
                             {values.useManualPVP ? (
                                 <div className="space-y-4 animate-in slide-in-from-top-2">
                                     <div className="flex justify-between items-center px-1">
-                                        <Label className="text-[10px] uppercase font-bold text-primary">Margen Neto Resultante</Label>
-                                        <span className="text-xl font-black text-primary">{Number(results?.netMarginPercent || 0).toFixed(1)}%</span>
+                                        <Label className="text-[10px] uppercase font-bold text-primary">Ganancia Neta Calculada</Label>
+                                        <span className="text-xl font-black text-emerald-600">${Number(results?.netProfitUSD || 0).toFixed(2)}</span>
                                     </div>
                                     <Controller name="manualPVP" control={control} render={({ field }) => <Input type="number" step="0.01" {...field} value={isNaN(field.value) ? "" : field.value} className="h-16 text-4xl font-black bg-white border-primary/30 text-primary rounded-2xl text-center shadow-inner" />} />
+                                </div>
+                            ) : values.pricingMode === 'target_markup' ? (
+                                <div className="space-y-4 animate-in slide-in-from-bottom-2">
+                                    <div className="flex justify-between items-center px-1">
+                                        <Label className="text-[10px] uppercase font-bold text-primary">% Utilidad sobre Costo Landed (ROI)</Label>
+                                        <span className="text-xl font-black text-emerald-600">{values.targetMarkupPercent}% (+${((Number(values.factoryCost || 0) + Number(values.chinaShipping || 0)) * (Number(values.targetMarkupPercent || 100) / 100)).toFixed(2)} Ganancia Neta)</span>
+                                    </div>
+                                    <Controller name="targetMarkupPercent" control={control} render={({ field }) => <Input type="number" {...field} value={isNaN(field.value) ? "" : field.value} className="h-16 bg-white border-primary/30 text-emerald-600 rounded-2xl text-center text-4xl font-black shadow-inner" />} />
+                                    <p className="text-[9px] font-bold text-slate-500 uppercase text-center">EJEMPLO: 100% = GANAR EXACTAMENTE EL 100% DE LO QUE COSTÓ PUESTO EN VENEZUELA.</p>
                                 </div>
                             ) : (
                                 <div className="space-y-4 animate-in slide-in-from-bottom-2">
                                     <div className="flex justify-between items-center px-1">
-                                        <Label className="text-[10px] uppercase font-bold text-primary">Margen Neto Deseado</Label>
+                                        <Label className="text-[10px] uppercase font-bold text-primary">Margen Neto Deseado sobre Venta</Label>
                                         <span className="text-xl font-black text-primary">{values.targetMarginPercent}%</span>
                                     </div>
                                     <Controller name="targetMarginPercent" control={control} render={({ field }) => <Input type="number" {...field} value={isNaN(field.value) ? "" : field.value} className="h-16 bg-white border-primary/30 text-primary rounded-2xl text-center text-4xl font-black shadow-inner" />} />
@@ -527,7 +558,7 @@ function PricingCalculatorContent() {
                             <div className="space-y-1">
                                 <p className="text-[10px] font-black uppercase tracking-[0.2em] text-primary flex items-center gap-1.5"><Landmark className="h-3.5 w-3.5" /> Parámetros Activos de Tesorería</p>
                                 <p className="text-[11px] font-medium text-slate-300 uppercase">
-                                    Descuento: <span className="text-white font-black">{globalSettings?.defaultBcvDiscount || 25}%</span> | Comisiones Red: <span className="text-primary font-black">{(globalSettings?.defaultCommission || 5) + (globalSettings?.salesManagerCommission || 5) + (globalSettings?.adminCommission || 5)}%</span> | Overhead: <span className="text-white font-black">{globalSettings?.defaultOverhead || 10}%</span>
+                                    Descuento: <span className="text-white font-black">{globalSettings?.defaultBcvDiscount !== undefined ? globalSettings.defaultBcvDiscount : 25}%</span> | Comisiones Red: <span className="text-primary font-black">{(globalSettings?.defaultCommission || 5) + (globalSettings?.salesManagerCommission || 5) + (globalSettings?.adminCommission || 5)}%</span> | Overhead: <span className="text-white font-black">{globalSettings?.defaultOverhead || 10}%</span>
                                 </p>
                             </div>
                             <Button asChild variant="outline" size="sm" className="h-9 px-4 rounded-xl border-white/20 text-white font-black uppercase text-[9px] hover:bg-white/10 shrink-0">
@@ -575,8 +606,8 @@ function PricingCalculatorContent() {
                             isLowMargin ? "bg-rose-500/10 border-rose-500/30" : "bg-emerald-500/10 border-emerald-500/20"
                         )}>
                             <div className="space-y-1">
-                                <span className={cn("text-[10px] font-black uppercase tracking-[0.2em]", isLowMargin ? "text-rose-400" : "text-emerald-400")}>Utilidad Neta</span>
-                                <p className="text-[8px] font-bold opacity-50 uppercase tracking-widest">GANANCIA REALIZADA</p>
+                                <span className={cn("text-[10px] font-black uppercase tracking-[0.2em]", isLowMargin ? "text-rose-400" : "text-emerald-400")}>Utilidad Neta Realizada</span>
+                                <p className="text-[8px] font-bold opacity-50 uppercase tracking-widest">GANANCIA LIMPIA EN BOLSILLO</p>
                             </div>
                             <div className="text-right">
                                 <p className={cn("text-3xl font-black", isLowMargin ? "text-rose-400" : "text-emerald-400")}>${Number(results?.netProfitUSD || 0).toFixed(2)}</p>

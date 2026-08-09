@@ -242,8 +242,9 @@ export interface Notification extends Auditable {
 export interface PricingStrategy {
     costLanded: number;
     useGlobalSettings: boolean;
-    strategy: 'smart_import' | 'target_price' | 'target_margin';
+    strategy: 'smart_import' | 'target_price' | 'target_margin' | 'target_markup';
     targetMarginPercent?: number;
+    targetMarkupPercent?: number;
     targetPriceUSD?: number;
     customCommission?: number;
     customAdminCommission?: number;
