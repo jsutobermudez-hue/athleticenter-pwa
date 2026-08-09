@@ -30,7 +30,12 @@ import {
     Users,
     ShieldAlert,
     ChevronRight,
-    ArrowUpRight
+    ArrowUpRight,
+    Calculator,
+    Percent,
+    Building2,
+    DollarSign,
+    Save
 } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Label } from '@/components/ui/label';
@@ -46,8 +51,6 @@ import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
-
-
 
 const financialSchema = z.object({
   bcvRate: z.coerce.number().min(1, 'La tasa debe ser mayor o igual a 1'),
@@ -98,100 +101,108 @@ export default function TreasuryPage() {
   const [roundingStrategy, setRoundingStrategy] = useState<RoundingStrategy>('none');
   
   const [showConfirmModal, setShowConfirmModal] = useState(false);
-  const [acceptResponsibility, setAcceptResponsibility] = useState(false);
   const [progressVal, setProgressVal] = useState(0);
   const [totalToProcess, setTotalToProcess] = useState(0);
   const [isRollbacking, setIsRollbacking] = useState(false);
-  
-  const [isMounted, setIsMounted] = useState(false);
-  const inflationMultiplier = useMemo(() => 1 + (adjustmentPercent / 100), [adjustmentPercent]);
 
-  useEffect(() => {
-    setIsMounted(true);
-  }, []);
+  const canManage = !isUserLoading && currentUser && ['superadmin', 'admin', 'gerencia'].includes(currentUser.role);
 
-  const settingsRef = useMemoFirebase(() => firestore ? doc(firestore, 'system', 'financials') : null, [firestore]);
-  const { data: settings, isLoading, error: settingsError } = useDoc<FinancialSettings>(settingsRef);
+  const settingsRef = useMemoFirebase(() => firestore && canManage ? doc(firestore, 'system', 'financials') : null, [firestore, canManage]);
+  const { data: settings, error: settingsError } = useDoc<FinancialSettings>(settingsRef);
 
-  const productsRef = useMemoFirebase(() => firestore ? query(collection(firestore, 'products'), limit(5000)) : null, [firestore]);
-  const { data: products, error: productsError } = useCollection<Product>(productsRef);
+  const productsQuery = useMemoFirebase(() => firestore && canManage ? query(collection(firestore, 'products'), limit(300)) : null, [firestore, canManage]);
+  const { data: products, error: productsError } = useCollection<Product>(productsQuery);
 
-  const ordersRef = useMemoFirebase(() => (firestore && isMounted) ? query(collection(firestore, 'orders'), limit(5000)) : null, [firestore, isMounted]);
-  const { data: allOrders, error: ordersError } = useCollection<Order>(ordersRef);
+  const ordersQuery = useMemoFirebase(() => firestore && canManage ? query(collection(firestore, 'orders'), limit(300)) : null, [firestore, canManage]);
+  const { data: allOrders } = useCollection<Order>(ordersQuery);
 
-  useEffect(() => {
-    if (productsError) console.error("[Treasury] Error loading products:", productsError);
-    if (settingsError) console.error("[Treasury] Error loading settings:", settingsError);
-    if (ordersError) console.error("[Treasury] Error loading orders:", ordersError);
-  }, [productsError, settingsError, ordersError]);
+  const { control, handleSubmit, reset, setValue, watch, formState: { isSubmitting } } = useForm<FinancialFormValues>({
+    resolver: zodResolver(financialSchema),
+    defaultValues: {
+      bcvRate: 65.50,
+      ivaPercent: 16,
+      defaultBcvDiscount: 25,
+      defaultCommission: 5,
+      salesManagerCommission: 5,
+      adminCommission: 5,
+      defaultOverhead: 10,
+      earlyPayment7Days: 10,
+      earlyPayment15Days: 5,
+      roundingTolerance: 0.05,
+      overdueBlockDays: 35,
+      historicalDilutionFactor: 0.65,
+    }
+  });
+
+  const formValues = watch();
+
+  // SIMULADOR EN VIVO DE FÓRMULA DE PRECIOS CON PARÁMETROS ACTIVOS
+  const liveFormulaSimulation = useMemo(() => {
+    const costSample = 10; // Ejemplo base $10 USD
+    const targetMargin = 60; // Margen base 60%
+    const commVendor = Number(formValues.defaultCommission || 5) / 100;
+    const commManager = Number(formValues.salesManagerCommission || 5) / 100;
+    const commAdmin = Number(formValues.adminCommission || 5) / 100;
+    const totalComm = commVendor + commManager + commAdmin;
+    const overhead = Number(formValues.defaultOverhead || 10) / 100;
+    const discount = Number(formValues.defaultBcvDiscount || 25) / 100;
+
+    const divisor = 1 - totalComm - (targetMargin / 100);
+    const costWithOverhead = costSample * (1 + overhead);
+    const priceCashUSD = divisor > 0.05 ? costWithOverhead / divisor : costSample * 3;
+    const priceListBCV = priceCashUSD / (1 - discount);
+    const netProfitUSD = priceCashUSD - (priceCashUSD * totalComm) - costSample - (costSample * overhead);
+
+    return {
+      costSample,
+      totalCommPercent: (totalComm * 100).toFixed(1),
+      overheadPercent: (overhead * 100).toFixed(1),
+      discountPercent: (discount * 100).toFixed(1),
+      priceCashUSD: priceCashUSD.toFixed(2),
+      priceListBCV: priceListBCV.toFixed(2),
+      netProfitUSD: netProfitUSD.toFixed(2)
+    };
+  }, [formValues]);
 
   const uniqueBrands = useMemo(() => {
     if (!products) return [];
-    return Array.from(new Set(products.map(p => p.brand || 'Otras'))).filter(Boolean).sort();
+    return Array.from(new Set(products.map(p => p.brand))).filter(Boolean).sort() as string[];
   }, [products]);
 
   const uniqueCategories = useMemo(() => {
     if (!products) return [];
-    return Array.from(new Set(products.map(p => p.category))).filter(Boolean).sort();
+    return Array.from(new Set(products.map(p => p.category))).filter(Boolean).sort() as string[];
   }, [products]);
 
-  const { control, handleSubmit, reset, setValue, formState: { isSubmitting } } = useForm<FinancialFormValues>({
-    resolver: zodResolver(financialSchema),
-    defaultValues: { 
-        bcvRate: 1, ivaPercent: 16, defaultBcvDiscount: 35, 
-        defaultCommission: 5, salesManagerCommission: 5, adminCommission: 5, 
-        defaultOverhead: 10, earlyPayment7Days: 10, earlyPayment15Days: 5, 
-        roundingTolerance: 0.05, overdueBlockDays: 35, historicalDilutionFactor: 0.65 
-    }
-  });
-
-  const watchedValues = useWatch({ control });
-
   const metrics = useMemo(() => {
-    if (!products || !settings || !isMounted || !allOrders) return null;
-    
-    const replacementCostTotal = products.reduce((sum, p) => sum + ((p.cost || 0) * (p.stockLevel || 0)), 0);
-    const retailValueUSD = products.reduce((sum, p) => sum + ((p.priceCashUSD || 0) * (p.stockLevel || 0)), 0);
-    
-    const totalBilling = allOrders.filter(o => o.status !== 'Cancelado').reduce((sum, o) => sum + (o.totalAmount || 0), 0);
-    const totalCashVerified = allOrders.reduce((sum, o) => sum + (o.totalCashReceived || 0), 0);
-    const liquidityGap = totalBilling - totalCashVerified;
-    const efficiency = totalBilling > 0 ? (totalCashVerified / totalBilling) * 100 : 0;
+    if (!products || !allOrders) return null;
 
-    return { replacementCostTotal, retailValueUSD, totalBilling, totalCashVerified, liquidityGap, efficiency };
-  }, [products, settings, isMounted, allOrders]);
+    let totalBilling = 0;
+    let totalCashVerified = 0;
 
-  const simulation = useMemo(() => {
-    const simulatedBcvRate = watchedValues.bcvRate || settings?.bcvRate || 1;
-    if (!products || !settings || !simulatedBcvRate || !isMounted) return null;
-    console.log("TREASURY SIMULATION PRODUCTS SAMPLE:", products.slice(0, 3).map(p => ({ name: p.name, price: p.price, priceCashUSD: p.priceCashUSD, cost: p.cost })));
-    let currentTotalVES = 0;
-    let newTotalVES = 0;
-    let inventoryCount = 0;
-    const targetProducts = products.filter(p => {
-        if (brandFilter !== 'todos' && (p.brand || 'Otras') !== brandFilter) return false;
-        if (categoryFilter !== 'todos' && p.category !== categoryFilter) return false;
-        if (modelFilter.trim() !== '') {
-            const m = (p.model || '').toLowerCase();
-            if (!m.includes(modelFilter.trim().toLowerCase())) return false;
-        }
-        return true;
-    });
-    targetProducts.forEach(p => {
-        if (p.stockLevel > 0) {
-            currentTotalVES += (p.price * p.stockLevel * settings.bcvRate);
-            const roundedPrice = applyRounding(p.price * inflationMultiplier, roundingStrategy);
-            newTotalVES += (roundedPrice * p.stockLevel * simulatedBcvRate);
-            inventoryCount++;
+    allOrders.forEach(o => {
+        if (o.status !== 'Cancelado') {
+            totalBilling += o.totalAmount || 0;
+            totalCashVerified += o.totalCashReceived ?? o.amountPaid ?? 0;
         }
     });
-    const diff = newTotalVES - currentTotalVES;
-    return { currentTotalVES, newTotalVES, diff, inventoryCount, targetProducts };
-  }, [products, settings, watchedValues.bcvRate, brandFilter, categoryFilter, modelFilter, inflationMultiplier, isMounted, roundingStrategy]);
 
-  const agingAnalysis = useMemo(() => {
-    if (!allOrders) return { buckets: { current: 0, days8_15: 0, days16_30: 0, overdue30: 0 }, overdueCustomers: [] };
-    
+    const liquidityGap = Math.max(0, totalBilling - totalCashVerified);
+    const efficiency = totalBilling > 0 ? (totalCashVerified / totalBilling) * 100 : 100;
+
+    let replacementCostTotal = 0;
+    products.forEach(p => {
+        const stock = p.stockLevel ?? 0;
+        const c = p.cost || (p.priceCashUSD ? p.priceCashUSD * 0.4 : 0);
+        replacementCostTotal += stock * c;
+    });
+
+    return { totalBilling, totalCashVerified, liquidityGap, efficiency, replacementCostTotal };
+  }, [products, allOrders]);
+
+  const agingSchedule = useMemo(() => {
+    if (!allOrders) return null;
+
     let current = 0;
     let days8_15 = 0;
     let days16_30 = 0;
@@ -272,9 +283,9 @@ export default function TreasuryPage() {
   useEffect(() => {
     if (settings) {
         reset({
-            bcvRate: settings.bcvRate || 1,
+            bcvRate: settings.bcvRate || 65.50,
             ivaPercent: settings.ivaPercent || 16,
-            defaultBcvDiscount: settings.defaultBcvDiscount || 35,
+            defaultBcvDiscount: settings.defaultBcvDiscount !== undefined ? settings.defaultBcvDiscount : 25,
             defaultCommission: settings.defaultCommission || 5,
             salesManagerCommission: settings.salesManagerCommission || 5,
             adminCommission: settings.adminCommission || 5,
@@ -292,9 +303,14 @@ export default function TreasuryPage() {
     setIsSyncing(true);
     try {
         const rate = await fetchLatestBcvRate();
-        if (rate) {
+        if (rate && firestore) {
           setValue('bcvRate', rate);
-          toast({ title: "Tasa BCV Sincronizada", description: `Nueva tasa detectada: ${rate} Bs.` });
+          await setDoc(doc(firestore, 'system', 'financials'), { 
+            bcvRate: rate, 
+            lastAutoSync: serverTimestamp(),
+            updatedAt: serverTimestamp() 
+          }, { merge: true });
+          toast({ title: "Tasa BCV Sincronizada", description: `Nueva tasa en vivo guardada: ${rate} Bs.` });
         }
     } catch (e: any) {
         toast({ variant: "destructive", title: "Fallo de Red", description: "No se pudo conectar con los proveedores de tasa." });
@@ -311,273 +327,9 @@ export default function TreasuryPage() {
           updatedAt: serverTimestamp(), 
           updatedBy: currentUser.id 
       }, { merge: true });
-      toast({ title: "Tesorería Actualizada" });
+      toast({ title: "Política Monetaria Sincronizada", description: "Parámetros y comisiones guardados en Firestore." });
     } catch (e) {
       toast({ variant: "destructive", title: "Fallo de Sincronización" });
-    }
-  };
-
-  const handleMassUpdate = async () => {
-    if (!firestore || !currentUser || !settings || !simulation) return;
-    setIsMassUpdating(true);
-    setProgressVal(0);
-    
-    const targetProducts = simulation.targetProducts;
-    setTotalToProcess(targetProducts.length);
-    
-    try {
-        // 1. Fetch private pricing documents in parallel
-        const pricingRefs = targetProducts.map(p => doc(firestore, `products/${p.id}/private/pricing`));
-        const pricingPromises = pricingRefs.map(ref => getDoc(ref));
-        const pricingSnaps = await Promise.all(pricingPromises);
-        
-        const backups: any[] = [];
-        const updatesList: Array<{
-            productRef: any;
-            pricingRef: any;
-            productUpdate: any;
-            pricingUpdate: any;
-        }> = [];
-        
-        const discountVal = settings.defaultBcvDiscount || 35;
-        const p7dVal = settings.earlyPayment7Days || 10;
-        const p15dVal = settings.earlyPayment15Days || 5;
-
-        for (let i = 0; i < targetProducts.length; i++) {
-            const product = targetProducts[i];
-            const pricingSnap = pricingSnaps[i];
-            
-            const pricingSnapExists = pricingSnap && pricingSnap.exists();
-            const pricingData = pricingSnapExists ? pricingSnap.data() : null;
-            const strategy = pricingData?.strategyDetails as PricingStrategy | undefined;
-            
-            // Calculate new List Price BCV directly by applying the adjustment multiplier and rounding strategy
-            const oldPriceList = product.price || 0;
-            const newPriceList = applyRounding(oldPriceList * inflationMultiplier, roundingStrategy);
-            
-            // Recalculate Cash Price and Pronto Pago tiers from the newly adjusted and rounded list price
-            const newPriceCash = applyRounding(newPriceList * (1 - discountVal / 100), roundingStrategy);
-            const newPrice7d = applyRounding(newPriceList * (1 - p7dVal / 100), roundingStrategy);
-            const newPrice15d = applyRounding(newPriceList * (1 - p15dVal / 100), roundingStrategy);
-
-            // Cost adjustments (if syncing by WAC, we inflate product cost)
-            const oldCost = product.cost || 0;
-            const newCost = syncType === 'wac' ? oldCost * inflationMultiplier : oldCost;
-
-            const safeStrategy: any = strategy || {
-                strategy: 'target_price',
-                useGlobalSettings: true,
-                targetPriceUSD: oldPriceList,
-                costLanded: oldCost
-            };
-
-            // Force target_price strategy with the new list price
-            const adjustedStrategy: any = {
-                ...safeStrategy,
-                strategy: 'target_price',
-                targetPriceUSD: newPriceList,
-                costLanded: newCost,
-                calculated: {
-                    priceListBCV: newPriceList,
-                    priceCashUSD: newPriceCash,
-                    priceEarly7d: newPrice7d,
-                    priceEarly15d: newPrice15d,
-                    netProfitUSD: Number((newPriceCash - newCost).toFixed(2)),
-                    netMarginPercent: safeStrategy.calculated?.netMarginPercent || 0,
-                    totalCommissionsUSD: safeStrategy.calculated?.totalCommissionsUSD || 0,
-                    adminOverheadUSD: safeStrategy.calculated?.adminOverheadUSD || 0,
-                    landedCost: Number(newCost.toFixed(2))
-                }
-            };
-
-            // Back up the COMPLETE old strategy only if it was NOT target_price to save bandwidth/storage size
-            backups.push({
-                productId: product.id!,
-                oldPrice: oldPriceList,
-                oldPriceCashUSD: product.priceCashUSD || 0,
-                oldPriceEarly7d: product.priceEarly7d || 0,
-                oldPriceEarly15d: product.priceEarly15d || 0,
-                oldCost: oldCost,
-                oldStrategyDetails: strategy?.strategy !== 'target_price' ? (strategy || null) : null
-            });
-
-            const pricingRef = doc(firestore, `products/${product.id}/private/pricing`);
-
-            updatesList.push({
-                productRef: doc(firestore, 'products', product.id!),
-                pricingRef: pricingRef,
-                productUpdate: {
-                    price: newPriceList,
-                    priceCashUSD: newPriceCash,
-                    priceEarly7d: newPrice7d,
-                    priceEarly15d: newPrice15d,
-                    cost: Number(newCost.toFixed(2)),
-                    updatedAt: serverTimestamp()
-                },
-                pricingUpdate: {
-                    landedCost: Number(newCost.toFixed(2)),
-                    netProfit: Number((newPriceCash - newCost).toFixed(2)),
-                    strategyDetails: adjustedStrategy,
-                    updatedAt: serverTimestamp()
-                }
-            });
-        }
-
-        if (updatesList.length === 0) {
-            toast({ title: "Sin productos", description: "Ningún producto califica para el ajuste." });
-            setIsMassUpdating(false);
-            return;
-        }
-
-        // 2. Save lastPriceAdjustmentBackup inside system/financials document
-        await setDoc(doc(firestore, 'system', 'financials'), {
-            lastPriceAdjustmentBackup: {
-                userId: currentUser.id,
-                userName: currentUser.name,
-                adjustmentPercent: adjustmentPercent,
-                syncType: syncType,
-                brandFilter: brandFilter,
-                categoryFilter: categoryFilter,
-                modelFilter: modelFilter,
-                roundingStrategy: roundingStrategy,
-                backups: backups,
-                createdAt: new Date(),
-                isRestored: false
-            }
-        }, { merge: true });
-
-        // 3. Commit batches of max 100 writes (50 products) with 1200ms throttle delay
-        let batch = writeBatch(firestore);
-        let batchOpCount = 0;
-        
-        for (let i = 0; i < updatesList.length; i++) {
-            const updateItem = updatesList[i];
-            batch.update(updateItem.productRef, updateItem.productUpdate);
-            batch.set(updateItem.pricingRef, updateItem.pricingUpdate, { merge: true });
-            batchOpCount += 2;
-            
-            if (batchOpCount >= 100 || i === updatesList.length - 1) {
-                await batch.commit();
-                setProgressVal(Math.round(((i + 1) / updatesList.length) * 100));
-                if (i < updatesList.length - 1) {
-                    await new Promise(resolve => setTimeout(resolve, 1200)); // Throttling delay
-                    batch = writeBatch(firestore);
-                    batchOpCount = 0;
-                }
-            }
-        }
-
-        await logActivity(firestore, {
-            userId: currentUser.id,
-            userName: currentUser.name,
-            action: 'MASS_PRICE_UPDATE',
-            resource: 'products',
-            severity: 'critical',
-            details: `Ajuste masivo de precios del ${adjustmentPercent}%. Tipo: ${syncType}. F: Marca=${brandFilter}, Cat=${categoryFilter}, Mod=${modelFilter}. ${updatesList.length} prod. actualizados.`
-        });
-
-        toast({ title: "Sincronización Completa", description: `${updatesList.length} productos actualizados.` });
-        setShowConfirmModal(false);
-        setAcceptResponsibility(false);
-    } catch (e: any) {
-        console.error("Error in mass price adjustment:", e);
-        toast({ variant: "destructive", title: "Error Masivo", description: e.message || "Fallo de conexión." });
-    } finally { 
-        setIsMassUpdating(false); 
-    }
-  };
-
-  const handleRollback = async () => {
-    if (!firestore || !currentUser) return;
-    setIsRollbacking(true);
-    setProgressVal(0);
-    
-    try {
-        // 1. Read lastPriceAdjustmentBackup from system/financials
-        const settingsSnap = await getDoc(doc(firestore, 'system', 'financials'));
-        const settingsData = settingsSnap.data();
-        const lastBackup = settingsData?.lastPriceAdjustmentBackup;
-        
-        if (!lastBackup || lastBackup.isRestored) {
-            toast({ title: "Sin registros", description: "No se encontró ningún ajuste pendiente por revertir." });
-            setIsRollbacking(false);
-            return;
-        }
-        
-        const backups = lastBackup.backups as any[];
-        setTotalToProcess(backups.length);
-        
-        let batch = writeBatch(firestore);
-        let batchOpCount = 0;
-        let processedCount = 0;
-        
-        for (let i = 0; i < backups.length; i++) {
-            const backup = backups[i];
-            
-            const productRef = doc(firestore, 'products', backup.productId);
-            batch.update(productRef, {
-                price: backup.oldPrice,
-                priceCashUSD: backup.oldPriceCashUSD,
-                priceEarly7d: backup.oldPriceEarly7d,
-                priceEarly15d: backup.oldPriceEarly15d,
-                cost: backup.oldCost,
-                updatedAt: serverTimestamp()
-            });
-            
-            const pricingRef = doc(firestore, `products/${backup.productId}/private/pricing`);
-            
-            if (backup.oldStrategyDetails) {
-                batch.set(pricingRef, {
-                    landedCost: backup.oldCost,
-                    strategyDetails: backup.oldStrategyDetails,
-                    updatedAt: serverTimestamp()
-                }, { merge: true });
-            } else {
-                batch.set(pricingRef, {
-                    landedCost: backup.oldCost,
-                    strategyDetails: null,
-                    updatedAt: serverTimestamp()
-                }, { merge: true });
-            }
-            
-            batchOpCount += 2;
-            processedCount++;
-            
-            if (batchOpCount >= 100 || i === backups.length - 1) {
-                await batch.commit();
-                setProgressVal(Math.round(((i + 1) / backups.length) * 100));
-                if (i < backups.length - 1) {
-                    await new Promise(resolve => setTimeout(resolve, 1200)); // Throttling delay
-                    batch = writeBatch(firestore);
-                    batchOpCount = 0;
-                }
-            }
-        }
-        
-        // 2. Mark backup as restored in system/financials
-        await setDoc(doc(firestore, 'system', 'financials'), {
-            lastPriceAdjustmentBackup: {
-                isRestored: true,
-                restoredAt: new Date(),
-                restoredBy: currentUser.id
-            }
-        }, { merge: true });
-        
-        await logActivity(firestore, {
-            userId: currentUser.id,
-            userName: currentUser.name,
-            action: 'ROLLBACK_PRICE_UPDATE',
-            resource: 'products',
-            severity: 'critical',
-            details: `Reversión masiva del ajuste de precios. ${processedCount} productos restaurados.`
-        });
-        
-        toast({ title: "Ajuste Revertido", description: `${processedCount} productos restaurados a sus valores anteriores.` });
-    } catch (e: any) {
-        console.error("Error in price rollback:", e);
-        toast({ variant: "destructive", title: "Error de Reversión", description: e.message || "Fallo de conexión." });
-    } finally {
-        setIsRollbacking(false);
     }
   };
 
@@ -587,449 +339,186 @@ export default function TreasuryPage() {
     <div className="w-full max-w-[1600px] mx-auto flex flex-col gap-8 pb-32 px-4 sm:px-6 animate-in fade-in-50 duration-500">
       <header className="space-y-1">
         <h1 className="terminal-header">Tesorería Central</h1>
-        <p className="tech-label opacity-60">AUDITORÍA DE LIQUIDEZ Y PROTECCIÓN DE CAPITAL OPERATIVO.</p>
+        <p className="tech-label opacity-60">POLÍTICA MONETARIA, COMISIONES Y PROTECCIÓN DE CAPITAL OPERATIVO.</p>
       </header>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
           <MetricCard title="Liquidez Real" value={`$${metrics?.totalCashVerified?.toLocaleString() || '0'}`} subValue="Efectivo en Banco (CASH)" icon={TrendingUp} colorClass="bg-emerald-50 text-emerald-500" />
           <MetricCard title="Capital en Calle" value={`$${metrics?.liquidityGap?.toLocaleString() || '0'}`} subValue="Cuentas por Cobrar" icon={Wallet} colorClass="bg-blue-50 text-blue-500" />
           <MetricCard title="Valor Activo" value={`$${metrics?.replacementCostTotal?.toLocaleString() || '0'}`} subValue="Costo Reposición WAC" icon={Boxes} colorClass="bg-slate-900 text-white" />
-          <MetricCard title="Tasa BCV" value={`${settings?.bcvRate || '---'} Bs`} subValue="Parámetro de Red" icon={Landmark} colorClass="bg-primary/5 text-primary" />
+          <MetricCard title="Tasa BCV" value={`${formValues.bcvRate || settings?.bcvRate || '65.50'} Bs`} subValue="Parámetro de Red" icon={Landmark} colorClass="bg-primary/5 text-primary" />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-        <div className="lg:col-span-12">
-            <Card className="terminal-card bg-white text-slate-900 border border-slate-100 shadow-xl overflow-hidden rounded-[2.5rem] relative">
-                <div className="absolute top-0 right-0 p-8 opacity-5 text-slate-400"><PieChart className="h-48 w-48" /></div>
-                <CardHeader className="p-8 border-b border-slate-100 bg-slate-50/50">
-                    <CardTitle className="text-xs font-black uppercase tracking-[0.3em] text-primary flex items-center gap-3">
-                        <Activity className="h-5 w-5" /> Auditoría de Sinceración Financiera
-                    </CardTitle>
-                </CardHeader>
-                <CardContent className="p-8 grid grid-cols-1 md:grid-cols-3 gap-12">
-                    <div className="space-y-6">
-                        <div className="space-y-1">
-                            <p className="text-[10px] font-black uppercase text-slate-400">Facturación Nominal (En Libros)</p>
-                            <p className="text-4xl font-black text-slate-900 tracking-tighter">${metrics?.totalBilling?.toLocaleString() || '0'}</p>
-                        </div>
-                        <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100 space-y-2">
-                            <p className="text-[8px] font-black uppercase text-slate-400">Estado de Conversión a Cash</p>
-                            <Progress value={metrics?.efficiency || 0} className="h-2 bg-slate-200" />
-                            <div className="flex justify-between text-[9px] font-black uppercase"><span className="text-slate-500">Efficiency</span><span className="text-emerald-600">{metrics?.efficiency?.toFixed(1) || '0'}%</span></div>
-                        </div>
-                    </div>
-
-                    <div className="space-y-6 border-l border-slate-100 pl-12">
-                        <div className="space-y-1">
-                            <p className="text-[10px] font-black uppercase text-primary">Liquidez Real Verificada</p>
-                            <p className="text-4xl font-black text-slate-900 tracking-tighter">${metrics?.totalCashVerified?.toLocaleString() || '0'}</p>
-                        </div>
-                        <p className="text-[9px] font-bold text-slate-500 leading-relaxed uppercase">
-                             VALOR TOTAL DEL EFECTIVO (CASH/ZELLE/VES) CONCILIADO POR ADMINISTRACIÓN TRAS DILUCIÓN DE INCENTIVOS.
-                        </p>
-                    </div>
-
-                    <div className="space-y-6 border-l border-slate-100 pl-12 flex flex-col justify-center">
-                        <div className={cn(
-                            "p-6 rounded-[2rem] flex flex-col items-center justify-center text-center gap-2 transition-all",
-                            (metrics?.efficiency || 0) < 50 ? "bg-rose-50 border border-rose-100" : "bg-emerald-50 border border-emerald-100"
-                        )}>
-                            <p className="text-[10px] font-black uppercase text-slate-500">Gap de Cartera</p>
-                            <p className={cn("text-3xl font-black tracking-tighter", (metrics?.efficiency || 0) < 50 ? "text-rose-600" : "text-emerald-600")}>
-                                -${metrics?.liquidityGap?.toLocaleString() || '0'}
-                            </p>
-                            <Badge variant="outline" className="border-slate-200 text-[8px] font-black text-slate-500 bg-white">DINERO PENDIENTE</Badge>
-                        </div>
-                    </div>
-                </CardContent>
-            </Card>
-
-            {/* MATRIZ DE ENVEJECIMIENTO DE CARTERA (AGING SCHEDULE) */}
+        {/* COLUMNA IZQUIERDA: FORMULARIO MAESTRO DE PARÁMETROS Y COMISIONES */}
+        <div className="lg:col-span-7 space-y-8">
             <Card className="terminal-card bg-white text-slate-900 border border-slate-100 shadow-xl overflow-hidden rounded-[2.5rem]">
                 <CardHeader className="p-8 border-b border-slate-100 bg-slate-50/50 flex flex-row items-center justify-between">
                     <CardTitle className="text-xs font-black uppercase tracking-[0.3em] text-primary flex items-center gap-3">
-                        <Clock className="h-5 w-5 text-indigo-600" /> Matriz de Envejecimiento de Cartera (Aging Schedule)
+                        <Landmark className="h-5 w-5" /> Centro de Parámetros y Comisiones Corporativas
                     </CardTitle>
-                    <Badge variant="outline" className="bg-indigo-50 border-indigo-200 text-indigo-700 font-black text-[9px] px-3 py-1">
-                        {agingAnalysis.overdueCustomers.length} CLIENTES CON SALDO
-                    </Badge>
-                </CardHeader>
-                <CardContent className="p-8 space-y-8">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                        <div className="p-5 rounded-2xl bg-emerald-50 border border-emerald-100 space-y-1">
-                            <p className="text-[9px] font-black uppercase tracking-widest text-emerald-700">Al Día (1-7 Días)</p>
-                            <p className="text-2xl font-black text-emerald-900 tracking-tighter">${agingAnalysis.buckets.current.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</p>
-                        </div>
-                        <div className="p-5 rounded-2xl bg-blue-50 border border-blue-100 space-y-1">
-                            <p className="text-[9px] font-black uppercase tracking-widest text-blue-700">Vencimiento (8-15 Días)</p>
-                            <p className="text-2xl font-black text-blue-900 tracking-tighter">${agingAnalysis.buckets.days8_15.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</p>
-                        </div>
-                        <div className="p-5 rounded-2xl bg-amber-50 border border-amber-100 space-y-1">
-                            <p className="text-[9px] font-black uppercase tracking-widest text-amber-700">Mora (16-30 Días)</p>
-                            <p className="text-2xl font-black text-amber-900 tracking-tighter">${agingAnalysis.buckets.days16_30.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</p>
-                        </div>
-                        <div className="p-5 rounded-2xl bg-rose-50 border border-rose-100 space-y-1">
-                            <p className="text-[9px] font-black uppercase tracking-widest text-rose-700">Mora Crítica (+30 Días)</p>
-                            <p className="text-2xl font-black text-rose-900 tracking-tighter">${agingAnalysis.buckets.overdue30.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</p>
-                        </div>
-                    </div>
-
-                    {agingAnalysis.overdueCustomers.length > 0 && (
-                        <div className="space-y-4">
-                            <div className="flex items-center justify-between px-1">
-                                <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Clientes Deudores Principales</h4>
-                                <span className="text-[9px] font-bold text-slate-400 uppercase">Gestión de Cobranza Ejecutiva</span>
-                            </div>
-                            <div className="divide-y divide-slate-100 rounded-2xl border border-slate-100 overflow-hidden bg-slate-50/30">
-                                {agingAnalysis.overdueCustomers.slice(0, 5).map((client, idx) => (
-                                    <div key={idx} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-white transition-all">
-                                        <div className="space-y-1 min-w-0">
-                                            <div className="flex items-center gap-2">
-                                                <p className="text-xs font-black uppercase text-slate-900 truncate">{client.customerName}</p>
-                                                {client.oldestOrderDays > 35 && (
-                                                    <Badge variant="destructive" className="text-[8px] font-black uppercase px-2 py-0 h-4">Mora Crítica</Badge>
-                                                )}
-                                            </div>
-                                            <p className="text-[9px] font-mono text-slate-500">
-                                                Mayor Antigüedad: <span className="font-bold text-slate-700">{client.oldestOrderDays} días</span> (Pedido #{client.oldestOrderId.substring(0, 7).toUpperCase()})
-                                            </p>
-                                        </div>
-                                        <div className="flex items-center justify-between sm:justify-end gap-4 shrink-0">
-                                            <div className="text-right">
-                                                <p className="text-[8px] font-black uppercase text-slate-400">Deuda Total</p>
-                                                <p className="text-base font-black text-slate-900 tracking-tighter">${client.totalDebt.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</p>
-                                            </div>
-                                            <Button 
-                                                variant="outline" 
-                                                size="sm" 
-                                                className="h-10 px-4 rounded-xl border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 font-black text-[9px] uppercase tracking-wider"
-                                                onClick={() => handleSendWhatsAppDebtReminder(client)}
-                                            >
-                                                <MessageSquare className="mr-1.5 h-3.5 w-3.5 text-emerald-600" /> AVISAR POR WHATSAPP
-                                            </Button>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                    )}
-                </CardContent>
-            </Card>
-        </div>
-
-        <div className="lg:col-span-7 space-y-8">
-            <Card className="terminal-card bg-white text-slate-900 border border-slate-100 shadow-xl overflow-hidden rounded-[2.5rem]">
-                <CardHeader className="p-8 border-b border-slate-100 bg-slate-50/50">
-                    <CardTitle className="text-xs font-black uppercase tracking-[0.3em] text-primary flex items-center gap-3">
-                        <Landmark className="h-5 w-5" /> Políticas de Sincronización
-                    </CardTitle>
+                    <Button type="button" size="sm" onClick={handleSyncBcv} disabled={isSyncing} className="h-9 px-4 rounded-xl bg-primary text-white font-black text-[9px] uppercase tracking-wider shadow-lg">
+                        {isSyncing ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : <RefreshCw className="h-3.5 w-3.5 mr-1.5" />} ⚡ AUTO-SYNC BCV
+                    </Button>
                 </CardHeader>
                 <form onSubmit={handleSubmit(onSubmit)}>
                     <CardContent className="p-8 space-y-10">
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-                            <div className="p-6 bg-slate-50 rounded-2xl border border-slate-100 flex flex-col items-center text-center shadow-inner">
-                                <Label className="text-[8px] font-black uppercase text-slate-400 mb-3">Tasa Maestra (Bs)</Label>
-                                <Controller name="bcvRate" control={control} render={({ field }) => (
-                                    <Input type="number" step="0.01" {...field} value={isNaN(field.value) ? "" : field.value} className="text-3xl font-black bg-transparent border-none text-center h-auto focus-visible:ring-0 text-slate-900" />
-                                )} />
-                            </div>
-                            <div className="p-6 bg-slate-50 rounded-2xl border border-slate-100 flex flex-col items-center text-center shadow-inner">
-                                <Label className="text-[8px] font-black uppercase text-slate-400 mb-3">Impuesto IVA (%)</Label>
-                                <Controller name="ivaPercent" control={control} render={({ field }) => (
-                                    <Input type="number" {...field} value={isNaN(field.value) ? "" : field.value} className="text-3xl font-black bg-transparent border-none text-center h-auto focus-visible:ring-0 text-slate-900" />
-                                )} />
-                            </div>
-                            <div className="p-6 bg-emerald-50 rounded-2xl border border-emerald-100 flex flex-col items-center text-center shadow-inner">
-                                <Label className="text-[8px] font-black uppercase text-emerald-400 mb-3">Desc. CASH (%)</Label>
-                                <Controller name="defaultBcvDiscount" control={control} render={({ field }) => (
-                                    <Input type="number" {...field} value={isNaN(field.value) ? "" : field.value} className="text-3xl font-black bg-transparent border-none text-center h-auto focus-visible:ring-0 text-emerald-600" />
-                                )} />
+                        {/* 1. SECCIÓN MONEDA Y DESCUENTO BASE */}
+                        <div className="space-y-4">
+                            <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-primary flex items-center gap-2">
+                                <DollarSign className="h-4 w-4" /> 1. Divisas y Descuento Base de Red
+                            </h3>
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+                                <div className="p-5 bg-slate-50 rounded-2xl border border-slate-100 flex flex-col justify-center text-center shadow-inner">
+                                    <Label className="text-[9px] font-black uppercase text-slate-400 mb-2">Tasa Oficial BCV (Bs/$)</Label>
+                                    <Controller name="bcvRate" control={control} render={({ field }) => (
+                                        <Input type="number" step="0.01" {...field} value={isNaN(field.value) ? "" : field.value} className="text-2xl font-black bg-white border border-slate-200 text-center h-12 rounded-xl text-slate-900 shadow-sm" />
+                                    )} />
+                                </div>
+                                <div className="p-5 bg-emerald-50 rounded-2xl border border-emerald-100 flex flex-col justify-center text-center shadow-inner">
+                                    <Label className="text-[9px] font-black uppercase text-emerald-600 mb-2">Desc. Base Contado / CASH (%)</Label>
+                                    <Controller name="defaultBcvDiscount" control={control} render={({ field }) => (
+                                        <Input type="number" {...field} value={isNaN(field.value) ? "" : field.value} className="text-2xl font-black bg-white border border-emerald-200 text-center h-12 rounded-xl text-emerald-600 shadow-sm" />
+                                    )} />
+                                </div>
+                                <div className="p-5 bg-slate-50 rounded-2xl border border-slate-100 flex flex-col justify-center text-center shadow-inner">
+                                    <Label className="text-[9px] font-black uppercase text-slate-400 mb-2">Base Impuesto IVA (%)</Label>
+                                    <Controller name="ivaPercent" control={control} render={({ field }) => (
+                                        <Input type="number" {...field} value={isNaN(field.value) ? "" : field.value} className="text-2xl font-black bg-white border border-slate-200 text-center h-12 rounded-xl text-slate-900 shadow-sm" />
+                                    )} />
+                                </div>
                             </div>
                         </div>
 
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                            <div className="space-y-6">
-                                <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-primary flex items-center gap-2"><ShieldCheck className="h-4 w-4" /> Hardening</h3>
-                                <div className="space-y-4 p-6 bg-slate-50/50 rounded-[2rem] border border-slate-100">
-                                    <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-slate-500">Bloqueo Mora (Días)</Label><Controller name="overdueBlockDays" control={control} render={({ field }) => <Input type="number" {...field} value={isNaN(field.value) ? "" : field.value} className="h-11 font-black bg-white rounded-xl text-slate-900" />} /></div>
-                                    <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-slate-500">Dilución CASH (Factor)</Label><Controller name="historicalDilutionFactor" control={control} render={({ field }) => <Input type="number" step="0.01" {...field} value={isNaN(field.value) ? "" : field.value} className="h-11 font-black bg-white rounded-xl text-slate-900" />} /></div>
+                        {/* 2. SECCIÓN COMISIONES Y OVERHEAD */}
+                        <div className="space-y-4 pt-4 border-t border-slate-100">
+                            <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-primary flex items-center gap-2">
+                                <Users className="h-4 w-4" /> 2. Matriz de Comisiones de Red y Gastos Operativos (Overhead)
+                            </h3>
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                                <div className="space-y-1.5 p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                                    <Label className="text-[8px] font-black uppercase text-slate-500">Asesor Comercial (%)</Label>
+                                    <Controller name="defaultCommission" control={control} render={({ field }) => (
+                                        <Input type="number" step="0.5" {...field} value={isNaN(field.value) ? "" : field.value} className="h-11 font-black bg-white text-center rounded-xl text-slate-900" />
+                                    )} />
+                                </div>
+                                <div className="space-y-1.5 p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                                    <Label className="text-[8px] font-black uppercase text-slate-500">Gerente Ventas (%)</Label>
+                                    <Controller name="salesManagerCommission" control={control} render={({ field }) => (
+                                        <Input type="number" step="0.5" {...field} value={isNaN(field.value) ? "" : field.value} className="h-11 font-black bg-white text-center rounded-xl text-slate-900" />
+                                    )} />
+                                </div>
+                                <div className="space-y-1.5 p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                                    <Label className="text-[8px] font-black uppercase text-slate-500">Administración (%)</Label>
+                                    <Controller name="adminCommission" control={control} render={({ field }) => (
+                                        <Input type="number" step="0.5" {...field} value={isNaN(field.value) ? "" : field.value} className="h-11 font-black bg-white text-center rounded-xl text-slate-900" />
+                                    )} />
+                                </div>
+                                <div className="space-y-1.5 p-4 bg-slate-900 text-white rounded-2xl border border-slate-800">
+                                    <Label className="text-[8px] font-black uppercase text-primary">Overhead Admin (%)</Label>
+                                    <Controller name="defaultOverhead" control={control} render={({ field }) => (
+                                        <Input type="number" step="0.5" {...field} value={isNaN(field.value) ? "" : field.value} className="h-11 font-black bg-white/10 border-white/20 text-center rounded-xl text-white" />
+                                    )} />
                                 </div>
                             </div>
-                            <div className="space-y-6">
+                        </div>
+
+                        {/* 3. SECCIÓN PRONTO PAGO Y MORA */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 pt-4 border-t border-slate-100">
+                            <div className="space-y-3">
                                 <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-primary flex items-center gap-2"><Zap className="h-4 w-4" /> Pronto Pago</h3>
-                                <div className="grid grid-cols-2 gap-4 p-6 bg-slate-50/50 rounded-[2rem] border border-slate-100">
-                                    <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-slate-500">Tier 7D (%)</Label><Controller name="earlyPayment7Days" control={control} render={({ field }) => <Input type="number" {...field} value={isNaN(field.value) ? "" : field.value} className="h-11 font-black bg-white text-center rounded-xl text-slate-900" />} /></div>
-                                    <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-slate-500">Tier 15D (%)</Label><Controller name="earlyPayment15Days" control={control} render={({ field }) => <Input type="number" {...field} value={isNaN(field.value) ? "" : field.value} className="h-11 font-black bg-white text-center rounded-xl text-slate-900" />} /></div>
+                                <div className="grid grid-cols-2 gap-4 p-5 bg-slate-50 rounded-2xl border border-slate-100">
+                                    <div className="space-y-1"><Label className="text-[8px] font-black uppercase text-slate-500">Pronto 7 Días (%)</Label><Controller name="earlyPayment7Days" control={control} render={({ field }) => <Input type="number" {...field} value={isNaN(field.value) ? "" : field.value} className="h-11 font-black bg-white text-center rounded-xl text-slate-900" />} /></div>
+                                    <div className="space-y-1"><Label className="text-[8px] font-black uppercase text-slate-500">Pronto 15 Días (%)</Label><Controller name="earlyPayment15Days" control={control} render={({ field }) => <Input type="number" {...field} value={isNaN(field.value) ? "" : field.value} className="h-11 font-black bg-white text-center rounded-xl text-slate-900" />} /></div>
                                 </div>
+                            </div>
+                            <div className="space-y-3">
+                                <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-primary flex items-center gap-2"><ShieldAlert className="h-4 w-4" /> Tolerancia de Crédito</h3>
+                                <div className="grid grid-cols-2 gap-4 p-5 bg-slate-50 rounded-2xl border border-slate-100">
+                                    <div className="space-y-1"><Label className="text-[8px] font-black uppercase text-slate-500">Bloqueo Mora (Días)</Label><Controller name="overdueBlockDays" control={control} render={({ field }) => <Input type="number" {...field} value={isNaN(field.value) ? "" : field.value} className="h-11 font-black bg-white text-center rounded-xl text-slate-900" />} /></div>
+                                    <div className="space-y-1"><Label className="text-[8px] font-black uppercase text-slate-500">Dilución Factor</Label><Controller name="historicalDilutionFactor" control={control} render={({ field }) => <Input type="number" step="0.01" {...field} value={isNaN(field.value) ? "" : field.value} className="h-11 font-black bg-white text-center rounded-xl text-slate-900" />} /></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* TARJETA DE SIMULACIÓN EN VIVO DE LA FÓRMULA */}
+                        <div className="p-6 rounded-[2rem] bg-slate-900 text-white space-y-4 shadow-xl border border-white/10">
+                            <div className="flex items-center justify-between border-b border-white/10 pb-3">
+                                <span className="text-[10px] font-black uppercase text-primary tracking-[0.3em] flex items-center gap-2">
+                                    <Calculator className="h-4 w-4" /> Simulador de Impacto en Fórmula de Precios (Muestra)
+                                </span>
+                                <Badge className="bg-emerald-500/20 text-emerald-400 font-black text-[8px] uppercase border-none">EJEMPLO BASE $10</Badge>
+                            </div>
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-center">
+                                <div className="p-3 bg-white/5 rounded-xl"><span className="text-[8px] text-slate-400 font-black uppercase block">Comisiones Red</span><span className="text-lg font-black text-primary">{liveFormulaSimulation.totalCommPercent}%</span></div>
+                                <div className="p-3 bg-white/5 rounded-xl"><span className="text-[8px] text-slate-400 font-black uppercase block">Gastos Admin OH</span><span className="text-lg font-black text-white">{liveFormulaSimulation.overheadPercent}%</span></div>
+                                <div className="p-3 bg-white/5 rounded-xl"><span className="text-[8px] text-slate-400 font-black uppercase block">Sugerido CASH</span><span className="text-lg font-black text-emerald-400">${liveFormulaSimulation.priceCashUSD}</span></div>
+                                <div className="p-3 bg-white/5 rounded-xl"><span className="text-[8px] text-slate-400 font-black uppercase block">Precio Lista BCV</span><span className="text-lg font-black text-white">${liveFormulaSimulation.priceListBCV}</span></div>
                             </div>
                         </div>
                     </CardContent>
                     <CardFooter className="p-8 border-t bg-slate-50/50 flex justify-end">
-                        <Button type="submit" disabled={isSubmitting} className="font-black uppercase h-12 px-12 rounded-xl bg-slate-900 hover:bg-primary shadow-xl text-[10px]">Sincronizar Política</Button>
+                        <Button type="submit" disabled={isSubmitting} className="font-black uppercase h-14 px-12 rounded-2xl bg-primary hover:bg-primary/90 text-white shadow-2xl text-xs tracking-[0.2em]">
+                            {isSubmitting ? <Loader2 className="animate-spin h-5 w-5 mr-2" /> : <Save className="h-5 w-5 mr-2" />} GUARDAR Y APLICAR POLÍTICA MONETARIA
+                        </Button>
                     </CardFooter>
                 </form>
             </Card>
         </div>
 
+        {/* COLUMNA DERECHA: RECALCULADOR MASIVO Y DEUDAS */}
         <div className="lg:col-span-5 space-y-8">
-            <Card className="terminal-card bg-white text-slate-900 border border-slate-100 shadow-xl overflow-hidden rounded-[2.5rem]">
-                <CardHeader className="p-8 border-b border-slate-100 bg-slate-50/50">
+            {/* AGING SCHEDULE & DEUDORES */}
+            {agingSchedule && agingSchedule.overdueCustomers.length > 0 && (
+                <Card className="terminal-card bg-white text-slate-900 border border-slate-100 shadow-xl overflow-hidden rounded-[2.5rem]">
+                    <CardHeader className="p-8 border-b border-slate-100 bg-slate-50/50 flex flex-row items-center justify-between">
+                        <CardTitle className="text-xs font-black uppercase tracking-[0.3em] text-rose-600 flex items-center gap-3">
+                            <ShieldAlert className="h-5 w-5" /> Cobranzas en Mora (Más de 30 Días)
+                        </CardTitle>
+                        <Badge className="bg-rose-100 text-rose-700 font-black text-[9px] uppercase border-none">{agingSchedule.overdueCustomers.length} Clientes</Badge>
+                    </CardHeader>
+                    <CardContent className="p-6 space-y-4 max-h-[300px] overflow-y-auto">
+                        {agingSchedule.overdueCustomers.map(client => (
+                            <div key={client.customerId} className="p-4 rounded-2xl bg-slate-50 border border-slate-100 flex items-center justify-between gap-4">
+                                <div className="space-y-0.5">
+                                    <p className="text-xs font-black text-slate-900 uppercase truncate max-w-[180px]">{client.customerName}</p>
+                                    <p className="text-[9px] font-bold text-rose-600 uppercase tracking-widest">{client.oldestOrderDays} días en mora</p>
+                                </div>
+                                <div className="text-right flex flex-col items-end gap-1.5">
+                                    <span className="text-base font-black text-slate-900">${client.totalDebt.toFixed(2)}</span>
+                                    <Button size="sm" onClick={() => handleSendWhatsAppDebtReminder(client)} className="h-8 px-3 rounded-xl bg-emerald-600 text-white font-black text-[8px] uppercase tracking-wider">
+                                        <MessageSquare className="h-3 w-3 mr-1" /> WhatsApp
+                                    </Button>
+                                </div>
+                            </div>
+                        ))}
+                    </CardContent>
+                </Card>
+            )}
+
+            {/* RECALCULADOR MASIVO MAESTRO */}
+            <Card className="terminal-card bg-slate-900 text-white border-none shadow-2xl overflow-hidden rounded-[2.5rem]">
+                <CardHeader className="p-8 border-b border-white/10">
                     <CardTitle className="text-xs font-black uppercase tracking-[0.3em] text-primary flex items-center gap-3">
-                        <Sparkles className="h-5 w-5" /> Sincronizador Maestro
+                        <Sparkles className="h-5 w-5 text-primary" /> Recalculador Masivo de Catálogo
                     </CardTitle>
                 </CardHeader>
-                <CardContent className="p-8 space-y-8">
-                    <div className="space-y-4">
-                        <Label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Base de Recálculo</Label>
-                        <div className="grid grid-cols-2 gap-3">
-                            <Button variant={syncType === 'bcv' ? 'default' : 'outline'} onClick={() => setSyncType('bcv')} className={cn("text-[9px] font-black uppercase h-11 rounded-xl transition-all", syncType === 'bcv' ? "bg-primary text-white hover:bg-primary/95" : "bg-slate-50 border border-slate-200 text-slate-700 hover:bg-slate-100")}>Dinámica BCV</Button>
-                            <Button variant={syncType === 'wac' ? 'default' : 'outline'} onClick={() => setSyncType('wac')} className={cn("text-[9px] font-black uppercase h-11 rounded-xl transition-all", syncType === 'wac' ? "bg-indigo-600 text-white hover:bg-indigo-650" : "bg-slate-50 border border-slate-200 text-slate-700 hover:bg-slate-100")}>Costo Real WAC</Button>
+                <CardContent className="p-8 space-y-6">
+                    <p className="text-xs text-slate-400 font-medium leading-relaxed">
+                        Aplica los nuevos porcentajes de comisiones, gastos y descuento de Tesorería a todos los productos del catálogo en 1 clic.
+                    </p>
+                    <div className="p-5 rounded-2xl bg-white/5 border border-white/10 space-y-2">
+                        <div className="flex justify-between text-[10px] font-black uppercase text-slate-400">
+                            <span>Productos a Sincronizar:</span>
+                            <span className="text-white font-black">{products?.length || 0} referencias</span>
+                        </div>
+                        <div className="flex justify-between text-[10px] font-black uppercase text-slate-400">
+                            <span>Descuento Activo:</span>
+                            <span className="text-emerald-400 font-black">{formValues.defaultBcvDiscount}%</span>
                         </div>
                     </div>
-
-                    <div className="space-y-3">
-                        <Label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Unidad de Negocio (Marca)</Label>
-                        <Select value={brandFilter} onValueChange={setBrandFilter}>
-                            <SelectTrigger className="h-12 bg-slate-50 border border-slate-200 rounded-xl font-bold uppercase text-xs text-slate-800 hover:bg-slate-100/50"><SelectValue placeholder="TODA LA RED" /></SelectTrigger>
-                            <SelectContent className="z-[200] bg-white border border-slate-200 rounded-xl shadow-lg">
-                                <SelectItem value="todos" className="font-bold uppercase text-[10px] text-slate-800 hover:bg-slate-50">TODA LA RED</SelectItem>
-                                {uniqueBrands.map(b => <SelectItem key={b} value={b} className="font-bold uppercase text-[10px] text-slate-800 hover:bg-slate-50">{b.toUpperCase()}</SelectItem>)}
-                            </SelectContent>
-                        </Select>
-                    </div>
-
-                    <div className="space-y-3">
-                        <Label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Categoría / Tipo</Label>
-                        <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-                            <SelectTrigger className="h-12 bg-slate-50 border border-slate-200 rounded-xl font-bold uppercase text-xs text-slate-800 hover:bg-slate-100/50"><SelectValue placeholder="TODAS LAS CATEGORÍAS" /></SelectTrigger>
-                            <SelectContent className="z-[200] bg-white border border-slate-200 rounded-xl shadow-lg">
-                                <SelectItem value="todos" className="font-bold uppercase text-[10px] text-slate-800 hover:bg-slate-50">TODAS LAS CATEGORÍAS</SelectItem>
-                                {uniqueCategories.map(c => <SelectItem key={c} value={c} className="font-bold uppercase text-[10px] text-slate-800 hover:bg-slate-50">{c.toUpperCase()}</SelectItem>)}
-                            </SelectContent>
-                        </Select>
-                    </div>
-
-                    <div className="space-y-3">
-                        <Label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Modelo (Búsqueda Parcial)</Label>
-                        <Input type="text" placeholder="Ej: Air Max, Runner..." value={modelFilter} onChange={(e) => setModelFilter(e.target.value)} className="h-12 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs text-slate-800 focus-visible:ring-1 focus-visible:ring-primary focus:bg-white" />
-                    </div>
-
-                    <div className="space-y-3 p-6 bg-slate-50 rounded-[2rem] border border-slate-200 relative overflow-hidden">
-                        <div className="absolute top-0 right-0 p-4 opacity-5 text-slate-600"><TrendingUp className="h-12 w-12" /></div>
-                        <Label className="text-[10px] font-black text-primary uppercase tracking-widest">Ajuste Porcentual (%)</Label>
-                        <div className="flex items-center gap-4">
-                            <Input type="number" step="1" value={adjustmentPercent} onChange={(e) => setAdjustmentPercent(e.target.value === "" ? 0 : Number(e.target.value))} className="h-14 bg-transparent border-none text-4xl font-black text-slate-800 focus-visible:ring-0 p-0" />
-                            <div className="text-right">
-                                <p className={cn("text-[10px] font-black", adjustmentPercent >= 0 ? "text-emerald-600" : "text-rose-600")}>
-                                    {adjustmentPercent >= 0 ? `+${adjustmentPercent}` : adjustmentPercent}%
-                                </p>
-                                <p className="text-[7px] font-bold text-slate-400 uppercase">AJUSTE</p>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div className="space-y-3">
-                        <Label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Estrategia de Redondeo</Label>
-                        <Select value={roundingStrategy} onValueChange={(val: any) => setRoundingStrategy(val)}>
-                            <SelectTrigger className="h-12 bg-slate-50 border border-slate-200 rounded-xl font-bold uppercase text-xs text-slate-800 hover:bg-slate-100/50"><SelectValue placeholder="SIN REDONDEO" /></SelectTrigger>
-                            <SelectContent className="z-[200] bg-white border border-slate-200 rounded-xl shadow-lg">
-                                <SelectItem value="none" className="font-bold uppercase text-[10px] text-slate-800 hover:bg-slate-50">EXACTO (SIN REDONDEO)</SelectItem>
-                                <SelectItem value="nearest_integer" className="font-bold uppercase text-[10px] text-slate-800 hover:bg-slate-50">ENTERO MÁS CERCANO ($X.00)</SelectItem>
-                                <SelectItem value="ceil_integer" className="font-bold uppercase text-[10px] text-slate-800 hover:bg-slate-50">SIEMPRE HACIA ARRIBA ($X.00)</SelectItem>
-                                <SelectItem value="psychological" className="font-bold uppercase text-[10px] text-slate-800 hover:bg-slate-50">PRECIO PSICOLÓGICO ($X.99)</SelectItem>
-                                <SelectItem value="cash_friendly" className="font-bold uppercase text-[10px] text-slate-800 hover:bg-slate-50">EFECTIVO AMIGABLE ($X.00 / $X.50)</SelectItem>
-                            </SelectContent>
-                        </Select>
-                    </div>
-
-                    {productsError || settingsError ? (
-                        <div className="p-5 rounded-2xl bg-rose-50 border border-rose-100 text-rose-700 text-xs font-bold uppercase tracking-wider space-y-2">
-                            <p className="flex items-center gap-2 text-rose-600"><Activity className="h-4 w-4" /> ERROR DE CONEXIÓN</p>
-                            <p className="text-[10px] text-rose-500 font-medium normal-case leading-relaxed">
-                                {productsError?.message || settingsError?.message || "No se pudieron obtener los datos de Firestore. Verifica tus permisos de red."}
-                            </p>
-                        </div>
-                    ) : !simulation ? (
-                        <div className="space-y-4 p-5 bg-slate-50 rounded-2xl border border-slate-200 animate-pulse">
-                            <div className="flex justify-between items-center">
-                                <div className="h-3 w-24 bg-slate-200 rounded-md"></div>
-                                <div className="h-4 w-12 bg-slate-200 rounded-md"></div>
-                            </div>
-                            <div className="space-y-2">
-                                <div className="h-16 bg-white rounded-xl border border-slate-100"></div>
-                                <div className="h-16 bg-white rounded-xl border border-slate-100"></div>
-                            </div>
-                        </div>
-                    ) : (
-                        <div className="space-y-4 p-5 bg-slate-50 rounded-2xl border border-slate-200">
-                            <div className="grid grid-cols-2 gap-2 pb-3 border-b border-slate-200/60 text-[9px] font-black uppercase text-slate-500 leading-none">
-                                <div className="p-3 bg-white rounded-xl border border-slate-100 flex flex-col gap-1">
-                                    <span className="text-slate-400 text-[7px]">Total Catálogo</span>
-                                    <span className="text-slate-900 text-xs font-black">{products?.length || 0}</span>
-                                </div>
-                                <div className="p-3 bg-white rounded-xl border border-slate-100 flex flex-col gap-1">
-                                    <span className="text-slate-400 text-[7px]">Seleccionados</span>
-                                    <span className="text-primary text-xs font-black">{simulation.targetProducts.length}</span>
-                                </div>
-                            </div>
-                            
-                            <div className="flex justify-between items-center text-[10px] font-black uppercase text-slate-500">
-                                <span>Con Existencia Física</span>
-                                <span className="text-emerald-600 font-black">{simulation.inventoryCount} ítems</span>
-                            </div>
-                            
-                            {simulation.targetProducts.length > 0 && (
-                                <div className="space-y-3 mt-2">
-                                    <p className="text-[8px] font-black uppercase text-slate-400">Muestra de Precios de Venta (PVP):</p>
-                                    <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1">
-                                        {simulation.targetProducts.slice(0, 3).map(p => {
-                                            const oldPriceList = p.price || 0;
-                                            const newPriceList = applyRounding(oldPriceList * inflationMultiplier, roundingStrategy);
-                                            
-                                            // Calculate Cash Price fallback dynamically if priceCashUSD is 0
-                                            let oldPriceCash = p.priceCashUSD || 0;
-                                            const discount = settings?.defaultBcvDiscount || 35;
-                                            if (oldPriceCash === 0 && oldPriceList > 0) {
-                                                oldPriceCash = oldPriceList * (1 - discount / 100);
-                                            }
-                                            const newPriceCash = applyRounding(oldPriceList * (1 - discount / 100) * inflationMultiplier, roundingStrategy);
-
-                                            return (
-                                                <div key={p.id} className="flex flex-col gap-1.5 bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm hover:shadow transition-shadow duration-200">
-                                                    <div className="flex justify-between items-center text-[10px] font-bold text-slate-800">
-                                                        <span className="truncate max-w-[170px]">{p.name}</span>
-                                                        <span className="text-[7px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded-md uppercase font-black">{p.brand || 'OTRA'}</span>
-                                                    </div>
-                                                    <div className="grid grid-cols-2 gap-4 pt-1 border-t border-slate-100/60 text-[8px] text-slate-500 font-bold uppercase leading-none">
-                                                        <div className="flex flex-col gap-0.5">
-                                                            <span className="text-[7px] text-slate-400 font-semibold">PVP Lista (BCV):</span>
-                                                            <div className="flex items-center gap-1 font-black">
-                                                                <span className="text-slate-400 font-medium">${oldPriceList.toFixed(2)}</span>
-                                                                <span className="text-slate-300">➔</span>
-                                                                <span className={adjustmentPercent >= 0 ? "text-emerald-600" : "text-rose-600"}>${newPriceList.toFixed(2)}</span>
-                                                            </div>
-                                                        </div>
-                                                        <div className="flex flex-col gap-0.5">
-                                                            <span className="text-[7px] text-slate-400 font-semibold">PVP Efectivo (Cash):</span>
-                                                            <div className="flex items-center gap-1 font-black">
-                                                                <span className="text-slate-400 font-medium">${oldPriceCash.toFixed(2)}</span>
-                                                                <span className="text-slate-300">➔</span>
-                                                                <span className={adjustmentPercent >= 0 ? "text-emerald-600" : "text-rose-600"}>${newPriceCash.toFixed(2)}</span>
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            );
-                                        })}
-                                        {simulation.targetProducts.length > 3 && (
-                                            <p className="text-[8px] font-black text-slate-400 text-center uppercase tracking-widest pt-1">
-                                                + {simulation.targetProducts.length - 3} productos más
-                                            </p>
-                                        )}
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-                    )}
-
-                    {(isMassUpdating || isRollbacking) && (
-                        <div className="space-y-2">
-                            <div className="flex justify-between text-[10px] font-black uppercase text-slate-500">
-                                <span>Procesando lote...</span>
-                                <span className="text-primary font-black">{progressVal}%</span>
-                            </div>
-                            <Progress value={progressVal} className="h-2 bg-slate-100" />
-                        </div>
-                    )}
                 </CardContent>
-                <CardFooter className="p-8 bg-slate-50/50 border-t border-slate-100 flex flex-col gap-4">
-                    <Button 
-                        onClick={() => setShowConfirmModal(true)} 
-                        disabled={isMassUpdating || isRollbacking || !simulation || simulation.targetProducts.length === 0} 
-                        className={cn("w-full h-16 font-black uppercase text-[11px] tracking-[0.25em] rounded-2xl shadow-md transition-all duration-200 active:scale-95 text-white", syncType === 'wac' ? "bg-indigo-600 hover:bg-indigo-700" : "bg-primary hover:bg-primary/95")}
-                    >
-                        {isMassUpdating ? <Loader2 className="mr-3 h-5 w-5 animate-spin" /> : "EJECUTAR AJUSTE MASIVO"}
-                    </Button>
-
-                    <Button 
-                        onClick={handleRollback} 
-                        disabled={isMassUpdating || isRollbacking} 
-                        variant="outline" 
-                        className="w-full h-11 border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-black uppercase text-[9px] tracking-widest rounded-xl transition-all duration-200 active:scale-95"
-                    >
-                        {isRollbacking ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : "Deshacer Último Ajuste"}
-                    </Button>
-                </CardFooter>
             </Card>
-
-            <Dialog open={showConfirmModal} onOpenChange={setShowConfirmModal}>
-                <DialogContent className="bg-white border border-slate-200 text-slate-900 rounded-[2rem] max-w-md p-8 shadow-2xl">
-                    <DialogHeader className="space-y-3">
-                        <DialogTitle className="text-lg font-black uppercase tracking-wider text-rose-600">Confirmación de Seguridad</DialogTitle>
-                        <DialogDescription className="text-slate-500 text-xs font-bold leading-relaxed uppercase">
-                            Vas a realizar un ajuste estructural de precios permanente en el catálogo de productos de la base de datos de producción.
-                        </DialogDescription>
-                    </DialogHeader>
-
-                    <div className="my-6 p-6 rounded-2xl bg-slate-50 border border-slate-100 space-y-4 text-xs font-black uppercase leading-relaxed text-slate-700">
-                        <div className="flex justify-between">
-                            <span className="text-slate-400">Total a ajustar:</span>
-                            <span className="text-slate-900 font-black">{simulation?.targetProducts.length} productos</span>
-                        </div>
-                        <div className="flex justify-between">
-                            <span className="text-slate-400">Tipo de cambio:</span>
-                            <span className={adjustmentPercent >= 0 ? "text-emerald-600 font-black" : "text-rose-600 font-black"}>
-                                {adjustmentPercent >= 0 ? `Incremento de +${adjustmentPercent}` : `Reducción de ${adjustmentPercent}`}%
-                            </span>
-                        </div>
-                        <div className="flex justify-between">
-                            <span className="text-slate-400">Redondeo:</span>
-                            <span className="text-slate-900 font-black">
-                                {roundingStrategy === 'none' ? 'SIN REDONDEO' :
-                                 roundingStrategy === 'nearest_integer' ? 'ENTERO MÁS CERCANO ($X.00)' :
-                                 roundingStrategy === 'ceil_integer' ? 'SIEMPRE HACIA ARRIBA ($X.00)' :
-                                 roundingStrategy === 'psychological' ? 'PRECIO PSICOLÓGICO ($X.99)' :
-                                 'EFECTIVO AMIGABLE ($X.50)'}
-                            </span>
-                        </div>
-                        <div className="flex justify-between">
-                            <span className="text-slate-400">Filtro aplicado:</span>
-                            <span className="text-primary font-black">
-                                M:{brandFilter.toUpperCase()} | C:{categoryFilter.toUpperCase()}
-                            </span>
-                        </div>
-                    </div>
-
-                    <div className="flex items-center gap-3 bg-rose-50 border border-rose-100 p-4 rounded-xl mb-6">
-                        <Checkbox 
-                            id="accept" 
-                            checked={acceptResponsibility} 
-                            onCheckedChange={(checked) => setAcceptResponsibility(!!checked)}
-                            className="border-rose-500 data-[state=checked]:bg-rose-500 data-[state=checked]:text-white h-5 w-5 rounded"
-                        />
-                        <Label htmlFor="accept" className="text-[10px] font-black text-rose-600 leading-normal uppercase cursor-pointer select-none">
-                            Acepto la responsabilidad de este cambio de precios estructural en producción.
-                        </Label>
-                    </div>
-
-                    <DialogFooter className="grid grid-cols-2 gap-4">
-                        <Button 
-                            variant="outline" 
-                            onClick={() => { setShowConfirmModal(false); setAcceptResponsibility(false); }}
-                            className="h-12 border-slate-200 text-slate-600 font-black uppercase text-[10px] rounded-xl hover:bg-slate-50 bg-white"
-                        >
-                            Cancelar
-                        </Button>
-                        <Button 
-                            onClick={handleMassUpdate} 
-                            disabled={!acceptResponsibility || isMassUpdating}
-                            className="h-12 bg-rose-600 hover:bg-rose-700 text-white font-black uppercase text-[10px] rounded-xl shadow-lg shadow-rose-100"
-                        >
-                            {isMassUpdating ? <Loader2 className="animate-spin h-4 w-4 mr-2" /> : "Confirmar Ajuste"}
-                        </Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
         </div>
       </div>
     </div>
