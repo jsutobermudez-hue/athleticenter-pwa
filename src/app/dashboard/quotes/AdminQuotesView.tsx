@@ -2,12 +2,12 @@
 
 import React, { useMemo, useState } from 'react';
 import { useCollection, useFirestore, useMemoFirebase, useUser } from '@/firebase';
-import { collection, query, orderBy, limit } from 'firebase/firestore';
+import { collection, query, orderBy, limit, addDoc, serverTimestamp, Timestamp } from 'firebase/firestore';
 import type { Quote, QuoteStatus } from '@/lib/definitions';
 import { Skeleton } from '@/components/ui/skeleton';
 import { QuoteSheetController } from './QuoteSheetController';
 import { Card, CardContent } from '@/components/ui/card';
-import { Search, Send, History, Calendar, Filter, SortAsc, SortDesc, Save, Eye, ClipboardList, AlertTriangle, MessageCircle, DollarSign, Award, CheckCircle2, FilterX } from 'lucide-react';
+import { Search, Send, History, Calendar, Filter, SortAsc, SortDesc, Save, Eye, ClipboardList, AlertTriangle, MessageCircle, DollarSign, Award, CheckCircle2, FilterX, Copy } from 'lucide-react';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -16,6 +16,7 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/
 import { format, differenceInDays } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
+import { useToast } from '@/hooks/use-toast';
 
 const ALL_STATUSES: QuoteStatus[] = ['Borrador', 'Enviada', 'Aceptada', 'Convertida', 'Vencida', 'Cancelada'];
 
@@ -59,6 +60,9 @@ function DashboardMetricCard({
 }
 
 function QuoteCard({ quote, onSelect }: { quote: Quote; onSelect: (q: Quote) => void }) {
+    const firestore = useFirestore();
+    const { profile } = useUser();
+    const { toast } = useToast();
     const getStatusColor = (status: QuoteStatus) => {
         switch (status) {
             case 'Borrador': return 'bg-slate-400';
@@ -132,9 +136,42 @@ function QuoteCard({ quote, onSelect }: { quote: Quote; onSelect: (q: Quote) => 
                     <Button 
                         size="sm" 
                         onClick={handleSendWhatsAppQuote}
-                        className="h-8 px-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-[9px] uppercase tracking-wider flex items-center gap-1 shadow-sm"
+                        className="h-8 px-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-[9px] uppercase tracking-wider flex items-center gap-1 shadow-sm"
                     >
                         <MessageCircle className="h-3.5 w-3.5" /> WhatsApp
+                    </Button>
+                    <Button 
+                        variant="outline" 
+                        size="icon" 
+                        title="Duplicar propuesta"
+                        onClick={async (e) => {
+                            e.stopPropagation();
+                            if (!firestore || !profile) return;
+                            try {
+                                const docRef = await addDoc(collection(firestore, 'quotes'), {
+                                    customerId: quote.customerId,
+                                    customerName: quote.customerName,
+                                    customerPhone: quote.customerPhone || '',
+                                    items: (quote as any).items || [],
+                                    subtotal: (quote as any).subtotal || quote.totalAmount,
+                                    tax: (quote as any).tax || 0,
+                                    totalAmount: quote.totalAmount,
+                                    status: 'Borrador',
+                                    salespersonId: profile.id,
+                                    salespersonName: profile.name,
+                                    quoteDate: serverTimestamp(),
+                                    validUntil: Timestamp.fromDate(new Date(Date.now() + 15 * 24 * 60 * 60 * 1000)),
+                                    createdAt: serverTimestamp(),
+                                    createdBy: profile.id
+                                });
+                                toast({ title: "Cotización Duplicada", description: "Borrador creado en 1 clic." });
+                            } catch (err: any) {
+                                toast({ variant: 'destructive', title: "Fallo al duplicar" });
+                            }
+                        }}
+                        className="h-8 w-8 rounded-xl border-slate-200 text-slate-600 hover:bg-slate-50"
+                    >
+                        <Copy className="h-3.5 w-3.5" />
                     </Button>
                     <Button 
                         variant="ghost" 

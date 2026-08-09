@@ -3,7 +3,7 @@
 import React, { useMemo, useState } from 'react';
 import type { User, Quote, QuoteStatus } from '@/lib/definitions';
 import { useCollection, useFirestore, useMemoFirebase } from '@/firebase';
-import { collection, query, where, limit, Timestamp } from 'firebase/firestore';
+import { collection, query, where, limit, Timestamp, addDoc, serverTimestamp } from 'firebase/firestore';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Skeleton } from '@/components/ui/skeleton';
 import { QuoteSheetController } from './QuoteSheetController';
@@ -15,8 +15,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { format, differenceInDays } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
-import { FileEdit, Send, History, Calendar, Search, AlertTriangle, SortAsc, SortDesc, ClipboardList, Save, MessageCircle, Eye, DollarSign, Award } from 'lucide-react';
+import { FileEdit, Send, History, Calendar, Search, AlertTriangle, SortAsc, SortDesc, ClipboardList, Save, MessageCircle, Eye, DollarSign, Award, Copy } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { useToast } from '@/hooks/use-toast';
 
 function DashboardMetricCard({
   title,
@@ -58,6 +59,9 @@ function DashboardMetricCard({
 }
 
 function QuoteCard({ quote, onSelect }: { quote: Quote; onSelect: (q: Quote) => void }) {
+    const firestore = useFirestore();
+    const { toast } = useToast();
+
     const getStatusColor = (status: QuoteStatus) => {
         switch (status) {
             case 'Borrador': return 'bg-slate-400';
@@ -95,7 +99,10 @@ function QuoteCard({ quote, onSelect }: { quote: Quote; onSelect: (q: Quote) => 
     };
 
     return (
-        <Card className="group cursor-pointer transition-all hover:border-primary/20 border-primary/5 bg-white p-4 flex flex-col gap-4 rounded-2xl shadow-sm ring-1 ring-primary/5 h-full hover:shadow-md hover:-translate-y-0.5" onClick={() => onSelect(quote)}>
+        <Card 
+            className="group cursor-pointer transition-all hover:border-primary/20 border-primary/5 bg-white p-4 flex flex-col gap-4 rounded-2xl shadow-sm ring-1 ring-primary/5 hover:shadow-md hover:-translate-y-0.5" 
+            onClick={() => onSelect(quote)}
+        >
             <div className="flex justify-between items-start">
                 <div className="space-y-0.5">
                     <p className="text-[7px] font-black text-slate-400 uppercase tracking-widest">EXPEDIENTE</p>
@@ -125,9 +132,42 @@ function QuoteCard({ quote, onSelect }: { quote: Quote; onSelect: (q: Quote) => 
                     <Button 
                         size="sm" 
                         onClick={handleSendWhatsAppQuote}
-                        className="h-8 px-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-[9px] uppercase tracking-wider flex items-center gap-1 shadow-sm"
+                        className="h-8 px-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-[9px] uppercase tracking-wider flex items-center gap-1 shadow-sm"
                     >
                         <MessageCircle className="h-3.5 w-3.5" /> WhatsApp
+                    </Button>
+                    <Button 
+                        variant="outline" 
+                        size="icon" 
+                        title="Duplicar propuesta"
+                        onClick={async (e) => {
+                            e.stopPropagation();
+                            if (!firestore) return;
+                            try {
+                                await addDoc(collection(firestore, 'quotes'), {
+                                    customerId: quote.customerId,
+                                    customerName: quote.customerName,
+                                    customerPhone: quote.customerPhone || '',
+                                    items: (quote as any).items || [],
+                                    subtotal: (quote as any).subtotal || quote.totalAmount,
+                                    tax: (quote as any).tax || 0,
+                                    totalAmount: quote.totalAmount,
+                                    status: 'Borrador',
+                                    salespersonId: quote.salespersonId,
+                                    salespersonName: quote.salespersonName,
+                                    quoteDate: serverTimestamp(),
+                                    validUntil: Timestamp.fromDate(new Date(Date.now() + 15 * 24 * 60 * 60 * 1000)),
+                                    createdAt: serverTimestamp(),
+                                    createdBy: quote.salespersonId
+                                });
+                                toast({ title: "Cotización Duplicada", description: "Borrador de propuesta creado." });
+                            } catch (err: any) {
+                                toast({ variant: 'destructive', title: "Fallo al duplicar" });
+                            }
+                        }}
+                        className="h-8 w-8 rounded-xl border-slate-200 text-slate-600 hover:bg-slate-50"
+                    >
+                        <Copy className="h-3.5 w-3.5" />
                     </Button>
                     <Button 
                         variant="ghost" 
