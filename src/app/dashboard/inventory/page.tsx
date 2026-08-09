@@ -19,10 +19,14 @@ import {
     Sparkles, 
     Zap,
     LayoutGrid,
+    List,
     X,
     Info,
     Plus,
-    PackageSearch
+    PackageSearch,
+    DollarSign,
+    MapPin,
+    Eye
 } from 'lucide-react';
 import { NewProductDialog } from './manage-inventory-dialog';
 import type { Product, Offer, FinancialSettings, CompanyProfile } from '@/lib/definitions';
@@ -33,6 +37,7 @@ import { collection, query, limit, doc, Timestamp } from 'firebase/firestore';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Badge } from '@/components/ui/badge';
 import { ProductDetailsSheet } from './product-details-sheet';
 import { DeleteProductDialog } from './delete-product-dialog';
 import { ProductCard } from '@/components/dashboard/ProductCard';
@@ -90,7 +95,9 @@ function InventoryContent() {
   
   const [catalogFilter, setCatalogFilter] = useState<'todos' | 'offers' | 'new' | 'active'>('todos');
   const [stockStatusFilter, setStockStatusFilter] = useState('todos');
+  const [categoryFilter, setCategoryFilter] = useState('todos');
   const [searchTerm, setSearchTerm] = useState('');
+  const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid');
 
   const { products: inventory, isLoading: isLoadingInventory } = useCatalog();
 
@@ -120,6 +127,37 @@ function InventoryContent() {
   
   const canCreateProduct = isAdmin;
   const canManageStock = isAdmin || isWarehouse;
+
+  // CATEGORÍAS ÚNICAS
+  const uniqueCategories = useMemo(() => {
+    if (!inventory) return [];
+    return Array.from(new Set(inventory.map(p => p.category))).filter(Boolean).sort();
+  }, [inventory]);
+
+  // VALOR MONETARIO DEL INVENTARIO Y ESTADÍSTICAS
+  const stats = useMemo(() => {
+    if (!inventory) return null;
+
+    let totalValuation = 0;
+    let totalUnits = 0;
+
+    const lowStockCount = inventory.filter(p => {
+        const stockVal = p.stockLevel ?? (p as any).stock ?? 0;
+        totalUnits += stockVal;
+        totalValuation += stockVal * (p.price || 0);
+        return stockVal > 0 && stockVal < 10;
+    }).length;
+
+    const offersCount = inventory.filter(p => p.activeOfferIds && p.activeOfferIds.length > 0).length;
+    const categoriesCount = new Set(inventory.map(p => p.category)).size;
+    const sevenDaysAgo = subDays(new Date(), 7);
+    const newArrivalsCount = inventory.filter(p => {
+        const createdDate = (p.createdAt as Timestamp)?.toDate();
+        return createdDate && isAfter(createdDate, sevenDaysAgo);
+    }).length;
+
+    return { totalValuation, totalUnits, lowStockCount, offersCount, categoriesCount, newArrivalsCount };
+  }, [inventory]);
   
   const filteredInventory = useMemo(() => {
     if (!inventory) return [];
@@ -148,6 +186,10 @@ function InventoryContent() {
       });
     }
 
+    if (categoryFilter !== 'todos') {
+      items = items.filter(p => p.category === categoryFilter);
+    }
+
     const term = searchTerm.toLowerCase().trim();
     if (term) {
       items = items.filter(p => 
@@ -155,28 +197,12 @@ function InventoryContent() {
         p.sku.toLowerCase().includes(term) ||
         p.category.toLowerCase().includes(term) ||
         p.discipline?.toLowerCase().includes(term) ||
-        p.brand?.toLowerCase().includes(term)
+        p.brand?.toLowerCase().includes(term) ||
+        p.warehouseLocation?.toLowerCase().includes(term)
       );
     }
     return items;
-  }, [inventory, searchTerm, stockStatusFilter, catalogFilter]);
-
-  const stats = useMemo(() => {
-    if (!inventory || !globalSettings) return null;
-    const lowStockCount = inventory.filter(p => {
-        const stockVal = p.stockLevel ?? (p as any).stock ?? 0;
-        return stockVal > 0 && stockVal < 10;
-    }).length;
-    const offersCount = inventory.filter(p => p.activeOfferIds && p.activeOfferIds.length > 0).length;
-    const categoriesCount = new Set(inventory.map(p => p.category)).size;
-    const sevenDaysAgo = subDays(new Date(), 7);
-    const newArrivalsCount = inventory.filter(p => {
-        const createdDate = (p.createdAt as Timestamp)?.toDate();
-        return createdDate && isAfter(createdDate, sevenDaysAgo);
-    }).length;
-
-    return { lowStockCount, offersCount, categoriesCount, newArrivalsCount };
-  }, [inventory, globalSettings]);
+  }, [inventory, searchTerm, stockStatusFilter, catalogFilter, categoryFilter]);
 
   const toggleCatalogFilter = (filter: typeof catalogFilter) => {
       setCatalogFilter(prev => prev === filter ? 'todos' : filter);
@@ -191,6 +217,7 @@ function InventoryContent() {
       e.stopPropagation();
       setStockStatusFilter('todos');
       setCatalogFilter('todos');
+      setCategoryFilter('todos');
       setSearchTerm('');
   };
 
@@ -210,6 +237,26 @@ function InventoryContent() {
                 </p>
             </div>
             <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+                {/* ALTERNADOR DE VISTA MOSAICO / TABLA */}
+                <div className="flex bg-slate-100 p-1 rounded-xl gap-1 border border-slate-200">
+                  <Button
+                    size="sm"
+                    variant={viewMode === 'grid' ? 'default' : 'ghost'}
+                    onClick={() => setViewMode('grid')}
+                    className="h-8 px-3 rounded-lg text-[9px] font-black uppercase tracking-wider"
+                  >
+                    <LayoutGrid className="h-3.5 w-3.5 mr-1" /> Mosaico
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant={viewMode === 'table' ? 'default' : 'ghost'}
+                    onClick={() => setViewMode('table')}
+                    className="h-8 px-3 rounded-lg text-[9px] font-black uppercase tracking-wider"
+                  >
+                    <List className="h-3.5 w-3.5 mr-1" /> Tabla Compacta
+                  </Button>
+                </div>
+
                 {canManageStock && (
                     <Button 
                         type="button"
@@ -238,11 +285,20 @@ function InventoryContent() {
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 px-1">
               <SummaryCard 
+                  title="Valorización Total ($)" 
+                  value={`$${(stats?.totalValuation || 0).toLocaleString('en-US', { maximumFractionDigits: 0 })}`} 
+                  subValue={`${stats?.totalUnits || 0} Unidades en Stock`} 
+                  icon={DollarSign} 
+                  colorClass="bg-emerald-50 text-emerald-500"
+                  onClick={() => setCatalogFilter('todos')}
+                  isActive={catalogFilter === 'todos' && categoryFilter === 'todos'}
+              />
+              <SummaryCard 
                   title="Oportunidades" 
                   value={stats?.offersCount.toString() || '0'} 
                   subValue="Artículos con Oferta" 
                   icon={Tag} 
-                  colorClass="bg-emerald-50 text-emerald-500"
+                  colorClass="bg-blue-50 text-blue-500"
                   onClick={() => toggleCatalogFilter('offers')}
                   isActive={catalogFilter === 'offers'}
               />
@@ -251,18 +307,9 @@ function InventoryContent() {
                   value={stats?.newArrivalsCount.toString() || '0'} 
                   subValue="Últimos 7 días" 
                   icon={Sparkles} 
-                  colorClass="bg-blue-50 text-blue-500"
+                  colorClass="bg-indigo-50 text-indigo-500"
                   onClick={() => toggleCatalogFilter('new')}
                   isActive={catalogFilter === 'new'}
-              />
-              <SummaryCard 
-                  title="Categorías Pro" 
-                  value={stats?.categoriesCount.toString() || '0'} 
-                  subValue="Rubros especializados" 
-                  icon={LayoutGrid} 
-                  colorClass="bg-indigo-50 text-indigo-500"
-                  onClick={() => setCatalogFilter('todos')}
-                  isActive={catalogFilter === 'todos'}
               />
               <SummaryCard 
                   title="Stock Crítico" 
@@ -280,39 +327,53 @@ function InventoryContent() {
             <CardHeader className="bg-muted/5 border-b py-4 px-6 sm:px-8">
               <div className="flex justify-between items-center">
                 <CardTitle className="text-[10px] font-black uppercase tracking-[0.3em] text-muted-foreground flex items-center gap-2">
-                    <Filter className="h-3.5 w-3.5" /> FILTROS OPERATIVOS
+                    <Filter className="h-3.5 w-3.5" /> FILTROS OPERATIVOS MULTIDIMENSIONALES
                 </CardTitle>
-                {(stockStatusFilter !== 'todos' || catalogFilter !== 'todos' || searchTerm) && (
+                {(stockStatusFilter !== 'todos' || catalogFilter !== 'todos' || categoryFilter !== 'todos' || searchTerm) && (
                     <Button type="button" variant="ghost" size="sm" onClick={handleClearFilters} className="text-[9px] font-black uppercase text-primary h-10 px-4 rounded-xl hover:bg-primary/5 transition-all">
                         Limpiar Auditoría <X className="ml-1 h-3 w-3" />
                     </Button>
                 )}
               </div>
             </CardHeader>
-            <CardContent className="p-8">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                 <div className="space-y-2">
+            <CardContent className="p-6 grid grid-cols-1 sm:grid-cols-3 gap-4 items-end">
+                 <div className="space-y-1.5">
                     <Label className="tech-label px-1">BÚSQUEDA INTELIGENTE</Label>
                     <div className="relative">
-                      <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4.5 w-4.5 text-slate-400" />
-                      <Input placeholder="Nombre, SKU, Marca..." className="w-full h-12 pl-12 rounded-xl bg-slate-50 border-none font-bold text-sm shadow-inner" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+                      <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                      <Input placeholder="Nombre, SKU, Pasillo..." className="w-full h-11 pl-10 rounded-xl bg-slate-50 border-none font-bold text-xs uppercase shadow-inner" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
                     </div>
                 </div>
-                <div className="space-y-2">
-                     <Label className="tech-label px-1">ESTADO DE EXISTENCIAS</Label>
-                     <Select value={stockStatusFilter} onValueChange={setStockStatusFilter}>
-                        <SelectTrigger className="h-12 rounded-xl bg-slate-50 border-none font-bold text-sm shadow-inner">
-                            <SelectValue placeholder="Estado de Existencias" />
+
+                <div className="space-y-1.5">
+                     <Label className="tech-label px-1">RUBRO / CATEGORÍA</Label>
+                     <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+                        <SelectTrigger className="h-11 rounded-xl bg-slate-50 border-none font-bold uppercase text-xs shadow-inner">
+                            <SelectValue placeholder="Todas las Categorías" />
                         </SelectTrigger>
                         <SelectContent>
-                            <SelectItem value="todos">TODOS LOS PRODUCTOS</SelectItem>
-                            <SelectItem value="in_stock">DISPONIBILIDAD TOTAL</SelectItem>
-                            <SelectItem value="low">REPOSICIÓN NECESARIA</SelectItem>
-                            <SelectItem value="out">AGOTADOS</SelectItem>
+                            <SelectItem value="todos" className="font-bold text-xs uppercase">TODAS LAS CATEGORÍAS</SelectItem>
+                            {uniqueCategories.map(cat => (
+                                <SelectItem key={cat} value={cat} className="font-bold text-xs uppercase">{cat.toUpperCase()}</SelectItem>
+                            ))}
                         </SelectContent>
                     </Select>
                 </div>
-              </div>
+
+                <div className="space-y-1.5">
+                     <Label className="tech-label px-1">ESTADO DE EXISTENCIAS</Label>
+                     <Select value={stockStatusFilter} onValueChange={setStockStatusFilter}>
+                        <SelectTrigger className="h-11 rounded-xl bg-slate-50 border-none font-bold uppercase text-xs shadow-inner">
+                            <SelectValue placeholder="Estado de Existencias" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="todos" className="font-bold text-xs uppercase">TODOS LOS PRODUCTOS</SelectItem>
+                            <SelectItem value="in_stock" className="font-bold text-xs uppercase">DISPONIBILIDAD TOTAL</SelectItem>
+                            <SelectItem value="low" className="font-bold text-xs uppercase">REPOSICIÓN NECESARIA (&lt;10)</SelectItem>
+                            <SelectItem value="out" className="font-bold text-xs uppercase">AGOTADOS (0)</SelectItem>
+                        </SelectContent>
+                    </Select>
+                </div>
             </CardContent>
           </Card>
           
@@ -320,6 +381,68 @@ function InventoryContent() {
             {isLoading && inventory === null ? (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-6">
                 {Array.from({ length: 10 }).map((_, i) => <Skeleton key={i} className="h-[280px] w-full rounded-[2.5rem]" />)}
+                </div>
+            ) : viewMode === 'table' ? (
+                <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden">
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-left border-collapse">
+                            <thead>
+                                <tr className="border-b border-slate-100 bg-slate-50/50 text-[9px] font-black uppercase tracking-widest text-slate-400">
+                                    <th className="p-4">SKU / Producto</th>
+                                    <th className="p-4">Categoría</th>
+                                    <th className="p-4">Ubicación Depósito</th>
+                                    <th className="p-4">Stock Nivel</th>
+                                    <th className="p-4">Precio Base ($)</th>
+                                    <th className="p-4 text-right">Acción</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100">
+                                {filteredInventory.map(p => {
+                                    const stockVal = p.stockLevel ?? (p as any).stock ?? 0;
+                                    return (
+                                        <tr key={p.id} className="hover:bg-slate-50/60 transition-colors text-xs">
+                                            <td className="p-4 font-black uppercase text-slate-900">
+                                                <div className="flex items-center gap-3">
+                                                    {p.imageUrl ? (
+                                                        // eslint-disable-next-line @next/next/no-img-element
+                                                        <img src={p.imageUrl} alt={p.name} className="h-10 w-10 rounded-xl object-cover border border-slate-100 shrink-0" />
+                                                    ) : (
+                                                        <div className="h-10 w-10 rounded-xl bg-slate-100 text-slate-400 flex items-center justify-center shrink-0">
+                                                            <Boxes className="h-5 w-5" />
+                                                        </div>
+                                                    )}
+                                                    <div>
+                                                        <p className="font-black text-slate-900 leading-tight">{p.name}</p>
+                                                        <p className="text-[9px] font-mono font-bold text-slate-400">{p.sku}</p>
+                                                    </div>
+                                                </div>
+                                            </td>
+                                            <td className="p-4 font-bold text-slate-600 uppercase text-[10px]">{p.category}</td>
+                                            <td className="p-4">
+                                                <Badge variant="outline" className="bg-primary/5 text-primary border-primary/20 text-[8px] font-black uppercase">
+                                                    <MapPin className="h-2.5 w-2.5 mr-1" /> {p.warehouseLocation || 'S/U'}
+                                                </Badge>
+                                            </td>
+                                            <td className="p-4">
+                                                <Badge className={cn(
+                                                    "text-[8px] font-black uppercase border-none text-white",
+                                                    stockVal === 0 ? "bg-rose-600" : stockVal < 10 ? "bg-amber-500" : "bg-emerald-600"
+                                                )}>
+                                                    {stockVal} UNID.
+                                                </Badge>
+                                            </td>
+                                            <td className="p-4 font-black text-slate-900">${(p.price || 0).toFixed(2)}</td>
+                                            <td className="p-4 text-right">
+                                                <Button size="sm" variant="ghost" onClick={() => setSelectedProduct(p)} className="h-8 px-3 rounded-lg text-slate-400 hover:text-primary">
+                                                    <Eye className="h-4 w-4" />
+                                                </Button>
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             ) : (
                 <div className="space-y-10">
