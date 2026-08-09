@@ -240,7 +240,7 @@ export function ConfirmPaymentDialog({ order }: { order: Order }) {
                 companyProfile: companyProfile || undefined,
                 documentType: data.documentType,
                 globalSettings: globalSettings || undefined,
-                bcvRate: globalSettings?.bcvRate || 1
+                bcvRate: globalSettings?.bcvRate || 65.50
             });
         }
 

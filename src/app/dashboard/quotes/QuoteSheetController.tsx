@@ -120,7 +120,7 @@ export function QuoteSheetController({ quote, onOpenChange }: { quote: Quote, on
                 expiryDate: quote.expiryDate, 
                 companyProfile,
                 globalSettings,
-                bcvRate: globalSettings?.bcvRate || 1
+                bcvRate: globalSettings?.bcvRate || 65.50
             });
 
         } catch (e) {

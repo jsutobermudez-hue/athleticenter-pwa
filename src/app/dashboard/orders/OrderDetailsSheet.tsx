@@ -262,7 +262,7 @@ export function OrderDetailsSheet({
             companyProfile: companyProfile || undefined,
             documentType: 'nota',
             globalSettings: globalSettings || undefined,
-            bcvRate: globalSettings?.bcvRate || 1
+            bcvRate: globalSettings?.bcvRate || 65.50
         });
         toast({ title: "Nota Generada con Éxito" });
     } catch (e) {

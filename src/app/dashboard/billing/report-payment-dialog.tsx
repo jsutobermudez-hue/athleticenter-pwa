@@ -113,11 +113,11 @@ export function ReportPaymentDialog({ invoice, mode = 'partial' }: { invoice: In
 
   const globalSettings = useMemo(() => {
     return globalSettingsRaw || {
-        bcvRate: 1,
+        bcvRate: 65.50,
         ivaPercent: 16,
-        defaultBcvDiscount: 35,
-        earlyPayment7Days: 5,
-        earlyPayment15Days: 3
+        defaultBcvDiscount: 25,
+        earlyPayment7Days: 10,
+        earlyPayment15Days: 5
     } as FinancialSettings;
   }, [globalSettingsRaw]);
 
@@ -687,6 +687,18 @@ export function ReportPaymentDialog({ invoice, mode = 'partial' }: { invoice: In
                                                 "text-5xl sm:text-6xl font-black tracking-tighter leading-none transition-all",
                                                 calculation.discountAmount > 0 ? "text-emerald-400" : "text-white"
                                             )}>${calculation.finalAmount.toFixed(2)}</p>
+
+                                            {/* SÓLO SE MUESTRA EN BOLÍVARES CUANDO SE SELECCIONA PAGO MÓVIL / VES */}
+                                            {selectedMethod === 'Pago Móvil' && (
+                                                <div className="mt-4 p-4 rounded-2xl bg-emerald-500/20 border border-emerald-500/30 space-y-1 animate-in fade-in duration-300">
+                                                    <p className="text-[9px] font-black uppercase tracking-widest text-emerald-400">Monto Exacto a Pagar en Bolívares (VES)</p>
+                                                    <p className="text-2xl font-black text-white tracking-tight">
+                                                        Bs. {(calculation.finalAmount * (globalSettings.bcvRate || 65.50)).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                    </p>
+                                                    <p className="text-[7px] font-bold text-emerald-300/70 uppercase">Tasa Oficial BCV: Bs. {(globalSettings.bcvRate || 65.50).toFixed(2)} / USD</p>
+                                                </div>
+                                            )}
+
                                             <p className="text-[8px] font-bold text-white/40 uppercase mt-4">ESTE ES EL MONTO EXACTO QUE DEBE FIGURAR EN SU COMPROBANTE.</p>
                                         </div>
                                     </div>
