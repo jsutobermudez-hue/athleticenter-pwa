@@ -2,12 +2,13 @@
 
 import React, { useState, useMemo, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useForm, Controller, useWatch } from 'react-hook-form';
+import { useForm, Controller, useWatch, useFieldArray } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { useDoc, useFirestore, useMemoFirebase, useUser, useCollection } from '@/firebase';
 import { doc, serverTimestamp, runTransaction, collection, getDoc, limit, query, addDoc } from 'firebase/firestore';
@@ -25,12 +26,18 @@ import {
     Save,
     MapPin,
     AlertTriangle,
-    Boxes
+    Boxes,
+    Plus,
+    Trash2,
+    Sparkles,
+    Palette,
+    Ruler
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { FinancialSettings, PricingStrategy, Product } from '@/lib/definitions';
 import { ImageUploader } from '@/components/ui/image-uploader';
 import { Switch } from '@/components/ui/switch';
+import { generateProductDescription } from '@/ai/flows/generate-product-description';
 import {
   Command,
   CommandEmpty,
@@ -50,6 +57,11 @@ import { calculatePricingTier } from '@/lib/pricing';
 
 export const dynamic = 'force-dynamic';
 
+const sizeVariantSchema = z.object({
+  label: z.string().min(1, "Talla requerida"),
+  stock: z.coerce.number().min(0, "Mínimo 0")
+});
+
 const importCalcSchema = z.object({
   sku: z.string().min(1, "SKU / Referencia Requerida"),
   name: z.string().min(1, "Nombre de Producto Requerido"),
@@ -57,10 +69,13 @@ const importCalcSchema = z.object({
   model: z.string().optional().default(''),
   category: z.string().min(1, "Categoría Requerida"),
   discipline: z.string().optional().default(''),
+  features: z.string().optional().default(''),
+  colors: z.string().optional().default(''),
   imageUrl: z.string().optional().default(''),
   minStockThreshold: z.coerce.number().min(0).default(5),
   location: z.string().optional().default('PASILLO A-1'),
   hasSizes: z.boolean().default(false),
+  sizeVariants: z.array(sizeVariantSchema).default([]),
   stockLevel: z.coerce.number().min(0).default(0),
   factoryCost: z.coerce.number().min(0).default(0),
   chinaShipping: z.coerce.number().min(0).default(0),
@@ -86,6 +101,7 @@ function PricingCalculatorContent() {
   const { profile: currentUser, isUserLoading } = useUser();
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isLoadingProduct, setIsLoadingProduct] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
   const [loadedProductData, setLoadedProductData] = useState<Product | null>(null);
 
   // RESTRICCIÓN ESTRICTA DE ACCESO: SOLO SUPERADMIN, ADMIN Y GERENCIA
@@ -100,13 +116,26 @@ function PricingCalculatorContent() {
   const { control, handleSubmit, setValue, reset, formState: { isSubmitting } } = useForm<ImportCalcValues>({
     resolver: zodResolver(importCalcSchema),
     defaultValues: {
-      sku: '', name: '', brand: '', model: '', category: '', discipline: '', imageUrl: '', minStockThreshold: 5,
-      location: 'PASILLO A-1', hasSizes: false, stockLevel: 0, factoryCost: 0, chinaShipping: 0, length: 10, width: 10, height: 10, unitsPerBox: 1,
+      sku: '', name: '', brand: '', model: '', category: '', discipline: '', features: '', colors: '', imageUrl: '', minStockThreshold: 5,
+      location: 'PASILLO A-1', hasSizes: false, sizeVariants: [], stockLevel: 0, factoryCost: 0, chinaShipping: 0, length: 10, width: 10, height: 10, unitsPerBox: 1,
       freightRatePerCBM: 450, otherExpenses: 0, targetMarginPercent: 60, useManualPVP: false, manualPVP: 0, priceLocked: false
     }
   });
 
+  const { fields: sizeFields, append: appendSize, remove: removeSize } = useFieldArray({
+    control,
+    name: "sizeVariants"
+  });
+
   const values = useWatch({ control });
+
+  // CÁLCULO AUTOMÁTICO DE STOCK TOTAL SI TIENE TALLAS
+  const calculatedTotalStock = useMemo(() => {
+    if (!values.hasSizes || !values.sizeVariants || values.sizeVariants.length === 0) {
+      return Number(values.stockLevel || 0);
+    }
+    return values.sizeVariants.reduce((sum, v) => sum + (Number(v.stock) || 0), 0);
+  }, [values.hasSizes, values.sizeVariants, values.stockLevel]);
 
   const results = useMemo(() => {
     return calculatePricingTier({
@@ -117,6 +146,28 @@ function PricingCalculatorContent() {
         useGlobalSettings: true
     }, globalSettings);
   }, [values, globalSettings]);
+
+  const onGenerateDescription = async () => {
+    if (!values.name || !values.category) {
+        toast({ variant: 'destructive', title: 'Faltan datos básicos', description: 'Por favor ingresa Nombre y Categoría.' });
+        return;
+    }
+    setIsGenerating(true);
+    try {
+        const result = await generateProductDescription({ 
+            name: values.name || '', 
+            brand: values.brand || '', 
+            category: values.category || '', 
+            discipline: values.discipline || '' 
+        });
+        setValue('features', result.description);
+        toast({ title: '✨ IA Copywriter', description: 'Ficha técnica generada.' });
+    } catch (e) {
+        toast({ variant: 'destructive', title: 'Error IA', description: 'No se pudo generar la descripción.' });
+    } finally {
+        setIsGenerating(false);
+    }
+  };
 
   const loadProductData = async (sku: string) => {
     if (!firestore || !sku) return;
@@ -131,12 +182,18 @@ function PricingCalculatorContent() {
             setLoadedProductData(p);
             const pricingData = priceSnap.exists() ? priceSnap.data() : null;
             const s = pricingData?.strategyDetails;
+
+            const existingSizes = p.sizes ? Object.entries(p.sizes).map(([label, stock]) => ({ label, stock: Number(stock) })) : [];
             
             reset({
                 sku: p.sku, name: p.name, brand: p.brand, model: p.model || '', category: p.category,
                 discipline: p.discipline || '', imageUrl: p.imageUrl || '',
-                minStockThreshold: p.minStockThreshold || 5, hasSizes: p.hasSizes || false,
-                location: (p as any).location || 'PASILLO A-1',
+                features: p.features || '',
+                colors: (p as any).colors ? (Array.isArray((p as any).colors) ? (p as any).colors.join(', ') : (p as any).colors) : '',
+                minStockThreshold: p.minStockThreshold || 5, 
+                hasSizes: p.hasSizes || false,
+                sizeVariants: existingSizes,
+                location: (p as any).location || p.warehouseLocation || 'PASILLO A-1',
                 stockLevel: p.stockLevel || 0,
                 factoryCost: s?.importDetails?.factoryCost || 0,
                 chinaShipping: s?.importDetails?.chinaShipping || 0,
@@ -170,22 +227,42 @@ function PricingCalculatorContent() {
             const isExisting = productSnap.exists();
             const existingData = isExisting ? productSnap.data() : null;
 
-            // SI EL PRECIO ESTÁ BLOQUEADO Y SE INTENTA CAMBIAR EL PRECIO MANUALMENTE SIN PERMISO DE GERENCIA
             if (isExisting && existingData?.priceLocked && currentUser.role !== 'superadmin' && currentUser.role !== 'gerencia') {
                 throw new Error("El precio de este producto está CONGELADO por Gerencia.");
             }
 
+            const sizesMap: { [key: string]: number } = {};
+            let stockFromSizes = 0;
+            if (data.hasSizes && data.sizeVariants) {
+                data.sizeVariants.forEach(v => {
+                    const s = Math.max(0, Math.floor(Number(v.stock)));
+                    sizesMap[v.label] = s;
+                    stockFromSizes += s;
+                });
+            }
+
+            const finalStock = data.hasSizes ? stockFromSizes : Math.max(0, Math.floor(Number(data.stockLevel)));
+            const colorsArray = data.colors ? data.colors.split(',').map(c => c.trim()).filter(Boolean) : [];
+
             const productPayload = {
+                id: data.sku,
                 sku: data.sku, name: data.name, brand: data.brand, model: data.model,
-                category: data.category, discipline: data.discipline, imageUrl: data.imageUrl,
-                stockLevel: data.stockLevel, hasSizes: data.hasSizes, minStockThreshold: data.minStockThreshold,
-                location: data.location || 'PASILLO A-1',
+                category: data.category, discipline: data.discipline, 
+                features: data.features,
+                colors: colorsArray,
+                imageUrl: data.imageUrl,
+                stockLevel: finalStock, 
+                hasSizes: data.hasSizes, 
+                sizes: data.hasSizes ? sizesMap : null,
+                minStockThreshold: data.minStockThreshold,
+                warehouseLocation: data.location || 'PASILLO A-1',
                 priceLocked: data.priceLocked,
                 price: results.priceListBCV, priceCashUSD: results.priceCashUSD,
                 priceEarly7d: results.priceEarly7d, priceEarly15d: results.priceEarly15d,
                 updatedAt: serverTimestamp(),
                 createdAt: isExisting ? existingData?.createdAt : serverTimestamp(),
-                createdBy: isExisting ? existingData?.createdBy : currentUser.id
+                createdBy: isExisting ? existingData?.createdBy : currentUser.id,
+                userId: currentUser.id
             };
 
             const pricingPayload = {
@@ -226,7 +303,7 @@ function PricingCalculatorContent() {
             timestamp: serverTimestamp()
         });
 
-        toast({ title: "Producto Guardado y Publicado", description: `Referencia ${data.sku} sincronizada en catálogo.` });
+        toast({ title: "Producto Registrado y Publicado", description: `Referencia ${data.sku} sincronizada en catálogo.` });
         router.push('/dashboard/inventory');
     } catch (e: any) {
         toast({ variant: 'destructive', title: "Operación Denegada", description: e.message });
@@ -255,7 +332,7 @@ function PricingCalculatorContent() {
             <Button variant="ghost" size="icon" onClick={() => router.back()} className="h-10 w-10 rounded-full hover:bg-slate-100"><ArrowLeft className="h-5 w-5" /></Button>
             <div>
                 <h1 className="text-3xl sm:text-4xl font-black uppercase tracking-tighter text-slate-900 leading-none">Estudio Unificado de Registro y Pricing</h1>
-                <p className="text-muted-foreground text-[10px] sm:text-xs font-black italic uppercase tracking-[0.3em] opacity-60 mt-1">Registro Completo de Productos, Costos y Blindaje de Márgenes.</p>
+                <p className="text-muted-foreground text-[10px] sm:text-xs font-black italic uppercase tracking-[0.3em] opacity-60 mt-1">Registro Completo con Tallas, Colores, Ficha IA y Blindaje de Márgenes.</p>
             </div>
         </div>
         
@@ -289,10 +366,10 @@ function PricingCalculatorContent() {
       <div className={cn("grid grid-cols-1 lg:grid-cols-12 gap-8 items-start transition-opacity duration-500", isLoadingProduct && "opacity-20")}>
         <div className="lg:col-span-7 space-y-8">
             <form onSubmit={handleSubmit(onSave)} id="full-calc-form" className="space-y-8">
-                {/* BLOQUE 1: IDENTIDAD Y ALMACÉN */}
+                {/* BLOQUE 1: DENTIDAD DEL PRODUCTO */}
                 <Card className="border-none shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
                     <CardHeader className="bg-slate-50/50 py-5 px-8 border-b">
-                        <CardTitle className="text-[10px] font-black uppercase tracking-[0.3em] flex items-center gap-2 text-primary"><Tag className="h-4 w-4" /> 1. Datos del Producto y Almacén</CardTitle>
+                        <CardTitle className="text-[10px] font-black uppercase tracking-[0.3em] flex items-center gap-2 text-primary"><Tag className="h-4 w-4" /> 1. Datos de Identidad y Categoría</CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-8 pt-8 px-8">
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
@@ -304,19 +381,101 @@ function PricingCalculatorContent() {
                             <div className="space-y-1.5"><Label className="text-[10px] font-black uppercase text-slate-400 px-1">Categoría</Label><Controller name="category" control={control} render={({ field }) => <Input {...field} value={field.value ?? ""} placeholder="Ej: Calzado, Balones" className="h-11 rounded-xl bg-slate-50 border-none font-bold" />} /></div>
                             <div className="space-y-1.5"><Label className="text-[10px] font-black uppercase text-slate-400 px-1">Disciplina</Label><Controller name="discipline" control={control} render={({ field }) => <Input {...field} value={field.value ?? ""} placeholder="Ej: Fútbol, Baloncesto" className="h-11 rounded-xl bg-slate-50 border-none font-bold" />} /></div>
                         </div>
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 pt-2 border-t border-slate-100">
-                            <div className="space-y-1.5"><Label className="text-[10px] font-black uppercase text-slate-400 px-1">Stock Inicial (Unidades)</Label><Controller name="stockLevel" control={control} render={({ field }) => <Input type="number" {...field} value={isNaN(field.value) ? "" : field.value} className="h-11 rounded-xl bg-slate-50 border-none font-black text-center" />} /></div>
-                            <div className="space-y-1.5"><Label className="text-[10px] font-black uppercase text-slate-400 px-1">Umbral Stock Crítico</Label><Controller name="minStockThreshold" control={control} render={({ field }) => <Input type="number" {...field} value={isNaN(field.value) ? "" : field.value} className="h-11 rounded-xl bg-slate-50 border-none font-black text-center" />} /></div>
-                            <div className="space-y-1.5"><Label className="text-[10px] font-black uppercase text-slate-400 px-1">Ubicación Depósito</Label><Controller name="location" control={control} render={({ field }) => <Input {...field} value={field.value ?? ""} placeholder="PASILLO A-1" className="h-11 rounded-xl bg-slate-50 border-none font-bold text-center uppercase" />} /></div>
+                        <div className="space-y-1.5">
+                            <Label className="text-[10px] font-black uppercase text-slate-400 px-1 flex items-center gap-1.5"><Palette className="h-3.5 w-3.5 text-primary" /> Colores Disponibles (Separados por coma)</Label>
+                            <Controller name="colors" control={control} render={({ field }) => <Input {...field} value={field.value ?? ""} placeholder="Ej: Negro / Dorado, Rojo / Blanco, Azul" className="h-11 rounded-xl bg-slate-50 border-none font-bold" />} />
+                        </div>
+                    </CardContent>
+                </Card>
+
+                {/* BLOQUE 2: VARIANTES DE TALLAS Y DEPÓSITO */}
+                <Card className="border-none shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
+                    <CardHeader className="bg-slate-50/50 py-5 px-8 border-b flex flex-row items-center justify-between">
+                        <CardTitle className="text-[10px] font-black uppercase tracking-[0.3em] flex items-center gap-2 text-primary"><Ruler className="h-4 w-4" /> 2. Variantes de Talla y Almacén</CardTitle>
+                        <div className="flex items-center gap-2">
+                            <Label className="text-[9px] font-black uppercase text-slate-500">¿Tiene Tallas?</Label>
+                            <Controller name="hasSizes" control={control} render={({ field }) => <Switch checked={field.value} onCheckedChange={field.onChange} />} />
+                        </div>
+                    </CardHeader>
+                    <CardContent className="space-y-8 pt-8 px-8">
+                        {values.hasSizes ? (
+                            <div className="space-y-6 animate-in fade-in duration-300">
+                                <div className="flex items-center justify-between">
+                                    <Label className="text-xs font-black uppercase text-slate-700">Desglose de Inventario por Talla</Label>
+                                    <Button 
+                                        type="button" 
+                                        size="sm" 
+                                        onClick={() => appendSize({ label: '', stock: 0 })}
+                                        className="h-8 px-3 rounded-xl bg-primary text-white font-black text-[9px] uppercase tracking-wider"
+                                    >
+                                        <Plus className="h-3.5 w-3.5 mr-1" /> Añadir Talla
+                                    </Button>
+                                </div>
+
+                                {sizeFields.length > 0 ? (
+                                    <div className="space-y-3">
+                                        {sizeFields.map((fieldItem, index) => (
+                                            <div key={fieldItem.id} className="flex items-center gap-3 p-3 rounded-2xl bg-slate-50 border border-slate-200">
+                                                <div className="flex-1">
+                                                    <Controller 
+                                                        name={`sizeVariants.${index}.label`} 
+                                                        control={control} 
+                                                        render={({ field }) => <Input {...field} placeholder="Ej: Talla 38, M, L" className="h-10 font-black uppercase bg-white rounded-xl text-xs" />} 
+                                                    />
+                                                </div>
+                                                <div className="w-28">
+                                                    <Controller 
+                                                        name={`sizeVariants.${index}.stock`} 
+                                                        control={control} 
+                                                        render={({ field }) => <Input type="number" {...field} placeholder="Stock" className="h-10 font-black text-center bg-white rounded-xl text-xs" />} 
+                                                    />
+                                                </div>
+                                                <Button type="button" variant="ghost" size="icon" onClick={() => removeSize(index)} className="h-9 w-9 rounded-xl text-rose-500 hover:bg-rose-50"><Trash2 className="h-4 w-4" /></Button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <div className="p-6 text-center border border-dashed border-slate-200 rounded-2xl text-xs font-bold text-slate-400 uppercase">
+                                        Haz clic en "+ AÑADIR TALLA" para desglosar el stock por talla.
+                                    </div>
+                                )}
+
+                                <div className="p-4 rounded-2xl bg-primary/10 flex justify-between items-center">
+                                    <span className="text-xs font-black uppercase text-primary">Stock Total Acumulado:</span>
+                                    <span className="text-xl font-black text-primary">{calculatedTotalStock} Unidades</span>
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+                                <div className="space-y-1.5"><Label className="text-[10px] font-black uppercase text-slate-400 px-1">Stock Inicial (Unidades)</Label><Controller name="stockLevel" control={control} render={({ field }) => <Input type="number" {...field} value={isNaN(field.value) ? "" : field.value} className="h-11 rounded-xl bg-slate-50 border-none font-black text-center" />} /></div>
+                                <div className="space-y-1.5"><Label className="text-[10px] font-black uppercase text-slate-400 px-1">Umbral Stock Crítico</Label><Controller name="minStockThreshold" control={control} render={({ field }) => <Input type="number" {...field} value={isNaN(field.value) ? "" : field.value} className="h-11 rounded-xl bg-slate-50 border-none font-black text-center" />} /></div>
+                                <div className="space-y-1.5"><Label className="text-[10px] font-black uppercase text-slate-400 px-1">Ubicación Depósito</Label><Controller name="location" control={control} render={({ field }) => <Input {...field} value={field.value ?? ""} placeholder="PASILLO A-1" className="h-11 rounded-xl bg-slate-50 border-none font-bold text-center uppercase" />} /></div>
+                            </div>
+                        )}
+                    </CardContent>
+                </Card>
+
+                {/* BLOQUE 3: FICHA TÉCNICA E IA COPYWRITER */}
+                <Card className="border-none shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
+                    <CardHeader className="bg-slate-50/50 py-5 px-8 border-b flex flex-row items-center justify-between">
+                        <CardTitle className="text-[10px] font-black uppercase tracking-[0.3em] flex items-center gap-2 text-primary"><Sparkles className="h-4 w-4" /> 3. Ficha Técnica e IA Copywriter</CardTitle>
+                        <Button type="button" size="sm" onClick={onGenerateDescription} disabled={isGenerating} className="h-8 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-black text-[9px] uppercase tracking-wider">
+                            {isGenerating ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <Sparkles className="h-3.5 w-3.5 mr-1" />} Redactar con IA
+                        </Button>
+                    </CardHeader>
+                    <CardContent className="space-y-8 pt-8 px-8">
+                        <div className="space-y-1.5">
+                            <Label className="text-[10px] font-black uppercase text-slate-400 px-1">Descripción y Ficha Técnica del Equipo</Label>
+                            <Controller name="features" control={control} render={({ field }) => <Textarea {...field} value={field.value ?? ""} rows={4} placeholder="Características técnicas, materiales de fabricación, especificaciones..." className="rounded-xl bg-slate-50 border-none font-medium text-xs leading-relaxed" />} />
                         </div>
                         <ImageUploader folderPath="products" onImageUploaded={(url) => setValue('imageUrl', url)} initialImageUrl={values.imageUrl} label="Imagen Principal del Producto" />
                     </CardContent>
                 </Card>
 
-                {/* BLOQUE 2: ESTRUCTURA DE COSTOS Y BLINDAJE DE PRECIO */}
+                {/* BLOQUE 4: ESTRUCTURA DE COSTOS Y BLINDAJE DE PRECIO */}
                 <Card className="border-none shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
                     <CardHeader className="bg-slate-50/50 py-5 px-8 border-b">
-                        <CardTitle className="text-[10px] font-black uppercase tracking-[0.3em] flex items-center gap-2 text-primary"><Calculator className="h-4 w-4" /> 2. Ingeniería de Costos y Blindaje</CardTitle>
+                        <CardTitle className="text-[10px] font-black uppercase tracking-[0.3em] flex items-center gap-2 text-primary"><Calculator className="h-4 w-4" /> 4. Ingeniería de Costos y Blindaje</CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-8 pt-8 px-8">
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-8 border-b border-slate-50 pb-8">
