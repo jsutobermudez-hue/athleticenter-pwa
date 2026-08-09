@@ -31,7 +31,9 @@ import {
     Bug,
     Copy,
     Fingerprint,
-    Settings2
+    Settings2,
+    ArrowUpRight,
+    Calculator
 } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Label } from '@/components/ui/label';
@@ -47,6 +49,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 import { useDataSaving } from '@/hooks/use-data-saving';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import Link from 'next/link';
 
 export const dynamic = 'force-dynamic';
 
@@ -54,26 +57,8 @@ const companyProfileSchema = z.object({
   companyName: z.string().min(1, 'La razón social es requerida.'),
   companyRif: z.string().min(1, 'El RIF es requerido.'),
   companyAddress: z.string().min(5, 'La dirección fiscal es obligatoria.'),
+  companyPhone: z.string().optional().default(''),
   logoUrl: z.string().optional().default(''),
-});
-
-const financialSchema = z.object({
-  ivaPercent: z.coerce.number().min(0).max(100),
-  defaultBcvDiscount: z.coerce.number().min(0).max(100),
-  defaultCommission: z.coerce.number().min(0).max(100),
-  earlyPayment7Days: z.coerce.number().min(0).max(100),
-  earlyPayment15Days: z.coerce.number().min(0).max(100),
-});
-
-const visualSchema = z.object({
-  logoFit: z.enum(['contain', 'cover']),
-  headerShowLogo: z.boolean(),
-  loginBackgroundType: z.enum(['color', 'image']),
-  loginBackgroundValue: z.string().min(1, 'Valor requerido'),
-  loginOverlayEnabled: z.boolean(),
-  loginOverlayColor: z.string(),
-  loginOverlayOpacity: z.coerce.number().min(0).max(1),
-  loginShowBranding: z.boolean(),
 });
 
 function SettingsContent() {
@@ -84,16 +69,15 @@ function SettingsContent() {
     <div className="flex flex-col gap-10 max-w-6xl mx-auto pb-32 animate-in fade-in-50 duration-500 px-4">
       <header className="space-y-1">
         <h1 className="terminal-header">Centro de Configuración</h1>
-        <p className="tech-label opacity-60">Control Maestro de la Terminal y Parametrización de Red.</p>
+        <p className="tech-label opacity-60">Identidad Institucional, Notificaciones y Diagnóstico de Red.</p>
       </header>
 
       <div className="grid gap-8 grid-cols-1 lg:grid-cols-2 items-start">
          <PerformanceWidget />
          <DeviceLinkingWidget />
          {isAdmin && <CompanyProfileWidget />}
-         {isAdmin && <VisualAccessWidget />}
+         {isAdmin && <TreasuryCentralLinkWidget />}
          <NotificationTestWidget />
-         {isAdmin && <GlobalFinanceWidget />}
          <ManualDownloadWidget />
          
          <Card className="terminal-card p-8 space-y-6 lg:col-span-2">
@@ -123,25 +107,12 @@ function PerformanceWidget() {
 }
 
 function DeviceLinkingWidget() {
-    const firestore = useFirestore();
-    const { user } = useUser();
-    const { toast } = useToast();
-    const [isSyncing, setIsSyncing] = useState(false);
-
-    const handleSync = async () => {
-        if (!firestore || !user) return;
-        setIsSyncing(true);
-        try {
-            await initializePushNotifications(user.uid, firestore);
-            toast({ title: "Terminal Sincronizada" });
-        } catch (e) { toast({ variant: 'destructive', title: "Fallo de Vínculo" }); }
-        finally { setIsSyncing(false); }
-    };
-
     return (
         <Card className="terminal-card">
-            <CardHeader className="py-6 px-8 border-b bg-slate-50"><CardTitle className="text-xs font-black uppercase tracking-[0.3em] flex items-center gap-3 text-primary"><Smartphone className="h-4 w-4" /> Enlace PWA</CardTitle></CardHeader>
-            <CardContent className="p-8"><Button onClick={handleSync} disabled={isSyncing} className="w-full h-14 bg-slate-900 text-white rounded-2xl shadow-xl">{isSyncing ? <Loader2 className="animate-spin h-4 w-4 mr-2" /> : "VINCULAR ESTE DISPOSITIVO"}</Button></CardContent>
+            <CardHeader className="py-6 px-8 border-b bg-slate-50"><CardTitle className="text-xs font-black uppercase tracking-[0.3em] flex items-center gap-3 text-primary"><Smartphone className="h-4 w-4" /> Dispositivo</CardTitle></CardHeader>
+            <CardContent className="p-8 space-y-4">
+                <p className="text-xs text-slate-500 font-medium">Terminal PWA vinculada con cifrado de sesión seguro.</p>
+            </CardContent>
         </Card>
     );
 }
@@ -149,82 +120,73 @@ function DeviceLinkingWidget() {
 function CompanyProfileWidget() {
     const firestore = useFirestore();
     const { toast } = useToast();
-    const { profile: currentUser } = useUser();
     const profileRef = useMemoFirebase(() => firestore ? doc(firestore, 'companyProfile', 'main') : null, [firestore]);
-    const { data: profile, isLoading } = useDoc<CompanyProfileType>(profileRef);
-    const { control, handleSubmit, reset } = useForm({ defaultValues: { companyName: '', companyRif: '', companyAddress: '', logoUrl: '' } });
+    const { data: profileData, isLoading } = useDoc<CompanyProfileType>(profileRef);
 
-    useEffect(() => { if (profile) reset(profile); }, [profile, reset]);
+    const { control, handleSubmit, reset, setValue } = useForm({
+        resolver: zodResolver(companyProfileSchema),
+        defaultValues: { companyName: '', companyRif: '', companyAddress: '', companyPhone: '', logoUrl: '' }
+    });
+
+    useEffect(() => {
+        if (profileData) reset(profileData as any);
+    }, [profileData, reset]);
 
     const onSubmit = async (data: any) => {
-        if (!firestore || !currentUser) return;
-        await setDoc(doc(firestore, 'companyProfile', 'main'), { ...data, updatedAt: serverTimestamp(), updatedBy: currentUser.id }, { merge: true });
-        toast({ title: "Perfil Guardado" });
+        if (!firestore) return;
+        await setDoc(doc(firestore, 'companyProfile', 'main'), { ...data, updatedAt: serverTimestamp() }, { merge: true });
+        toast({ title: "Identidad Institucional Sincronizada" });
     };
 
     if (isLoading) return <Skeleton className="h-64 w-full" />;
 
     return (
         <Card className="terminal-card">
-            <CardHeader className="py-6 px-8 border-b bg-slate-50"><CardTitle className="text-xs font-black uppercase tracking-[0.3em] flex items-center gap-3 text-primary"><Building2 className="h-4 w-4" /> Datos Fiscales</CardTitle></CardHeader>
+            <CardHeader className="py-6 px-8 border-b bg-slate-50"><CardTitle className="text-xs font-black uppercase tracking-[0.3em] flex items-center gap-3 text-primary"><Building2 className="h-4 w-4" /> Identidad Institucional (Facturación / PDF)</CardTitle></CardHeader>
             <form onSubmit={handleSubmit(onSubmit)}>
                 <CardContent className="p-8 space-y-4">
-                    <Controller name="companyName" control={control} render={({ field }) => <Input {...field} placeholder="Razón Social" />} />
-                    <Controller name="companyRif" control={control} render={({ field }) => <Input {...field} placeholder="RIF" />} />
-                    <Controller name="companyAddress" control={control} render={({ field }) => <Textarea {...field} placeholder="Dirección Fiscal" />} />
-                    <Button type="submit" className="w-full h-12 rounded-xl">Guardar Cambios</Button>
+                    <div><Label className="text-[10px] font-black uppercase text-slate-400">Razón Social</Label><Controller name="companyName" control={control} render={({ field }) => <Input {...field} className="h-11 font-black rounded-xl bg-slate-50" />} /></div>
+                    <div className="grid grid-cols-2 gap-4">
+                        <div><Label className="text-[10px] font-black uppercase text-slate-400">RIF Fiscal</Label><Controller name="companyRif" control={control} render={({ field }) => <Input {...field} className="h-11 font-black rounded-xl bg-slate-50" />} /></div>
+                        <div><Label className="text-[10px] font-black uppercase text-slate-400">Teléfono Corporativo</Label><Controller name="companyPhone" control={control} render={({ field }) => <Input {...field} className="h-11 font-black rounded-xl bg-slate-50" />} /></div>
+                    </div>
+                    <div><Label className="text-[10px] font-black uppercase text-slate-400">Dirección Fiscal</Label><Controller name="companyAddress" control={control} render={({ field }) => <Textarea {...field} rows={2} className="rounded-xl bg-slate-50 font-medium text-xs" />} /></div>
+                    <ImageUploader folderPath="branding" onImageUploaded={(url) => setValue('logoUrl', url)} initialImageUrl={profileData?.logoUrl} label="Logo Institucional para PDF" />
                 </CardContent>
+                <CardFooter className="p-8 border-t bg-slate-50/50">
+                    <Button type="submit" className="w-full h-12 rounded-xl font-black uppercase text-[10px] tracking-widest bg-primary text-white"><Save className="mr-2 h-4 w-4" /> Guardar Identidad</Button>
+                </CardFooter>
             </form>
         </Card>
     );
 }
 
-function VisualAccessWidget() {
-    const firestore = useFirestore();
-    const { toast } = useToast();
-    const profileRef = useMemoFirebase(() => firestore ? doc(firestore, 'companyProfile', 'main') : null, [firestore]);
-    const { data: profile, isLoading } = useDoc<CompanyProfileType>(profileRef);
-    const { control, handleSubmit, reset } = useForm({ defaultValues: { logoFit: 'contain', headerShowLogo: true } });
-
-    useEffect(() => { if (profile) reset(profile as any); }, [profile, reset]);
-
-    const onSubmit = async (data: any) => {
-        if (!firestore) return;
-        await setDoc(doc(firestore, 'companyProfile', 'main'), data, { merge: true });
-        toast({ title: "Ajustes Visuales Guardados" });
-    };
-
-    if (isLoading) return <Skeleton className="h-64 w-full" />;
-
+function TreasuryCentralLinkWidget() {
     return (
-        <Card className="terminal-card">
-            <CardHeader className="py-6 px-8 bg-slate-900 text-white"><CardTitle className="text-xs font-black uppercase tracking-widest text-primary">Identidad Visual</CardTitle></CardHeader>
-            <form onSubmit={handleSubmit(onSubmit)}><CardContent className="p-8 space-y-4"><div className="flex items-center justify-between"><Label>Mostrar Logo</Label><Controller name="headerShowLogo" control={control} render={({ field }) => <Switch checked={field.value} onCheckedChange={field.onChange} />} /></div><Button type="submit" className="w-full">Sincronizar</Button></CardContent></form>
-        </Card>
-    );
-}
-
-function GlobalFinanceWidget() {
-    const firestore = useFirestore();
-    const { toast } = useToast();
-    const settingsRef = useMemoFirebase(() => firestore ? doc(firestore, 'system', 'financials') : null, [firestore]);
-    const { data: settings, isLoading } = useDoc<FinancialSettings>(settingsRef);
-    const { control, handleSubmit, reset } = useForm({ defaultValues: { ivaPercent: 16, defaultCommission: 5 } });
-
-    useEffect(() => { if (settings) reset(settings as any); }, [settings, reset]);
-
-    const onSubmit = async (data: any) => {
-        if (!firestore) return;
-        await setDoc(doc(firestore, 'system', 'financials'), data, { merge: true });
-        toast({ title: "Tesorería Sincronizada" });
-    };
-
-    if (isLoading) return <Skeleton className="h-64 w-full" />;
-
-    return (
-        <Card className="terminal-card">
-            <CardHeader className="py-6 px-8 bg-slate-50"><CardTitle className="text-xs font-black uppercase tracking-widest text-primary">Tesorería</CardTitle></CardHeader>
-            <form onSubmit={handleSubmit(onSubmit)}><CardContent className="p-8 space-y-4"><div className="grid grid-cols-2 gap-4"><div><Label>IVA (%)</Label><Controller name="ivaPercent" control={control} render={({ field }) => <Input type="number" {...field} />} /></div><div><Label>Comisión (%)</Label><Controller name="defaultCommission" control={control} render={({ field }) => <Input type="number" {...field} />} /></div></div><Button type="submit" className="w-full">Guardar</Button></CardContent></form>
+        <Card className="terminal-card bg-slate-900 text-white border-none shadow-2xl overflow-hidden relative group">
+            <div className="absolute top-0 right-0 p-6 opacity-10 group-hover:rotate-12 transition-transform">
+                <Landmark className="h-32 w-32 text-primary" />
+            </div>
+            <CardHeader className="py-6 px-8 border-b border-white/10">
+                <CardTitle className="text-xs font-black uppercase tracking-[0.3em] text-primary flex items-center gap-3">
+                    <Landmark className="h-4 w-4" /> Parámetros Financieros y Comisiones
+                </CardTitle>
+            </CardHeader>
+            <CardContent className="p-8 space-y-4 relative z-10">
+                <p className="text-xs text-slate-300 font-medium leading-relaxed">
+                    La gestión de la <span className="text-white font-black">Tasa Oficial BCV</span>, el <span className="text-white font-black">Descuento Base de Contado (25%)</span>, las <span className="text-primary font-black">Comisiones de Red</span> y el <span className="text-white font-black">Overhead Operativo</span> están centralizados exclusivamente en Tesorería.
+                </p>
+                <div className="p-4 rounded-2xl bg-white/5 border border-white/10 text-[9px] font-mono text-slate-400 uppercase tracking-widest">
+                    Nodo Único Monetario: system/financials
+                </div>
+            </CardContent>
+            <CardFooter className="p-8 border-t border-white/10 bg-white/5 relative z-10">
+                <Button asChild className="w-full h-12 rounded-xl font-black uppercase text-[10px] tracking-widest bg-primary hover:bg-primary/90 text-white shadow-xl">
+                    <Link href="/dashboard/treasury">
+                        IR A TESORERÍA Y PARÁMETROS <ArrowUpRight className="ml-2 h-4 w-4" />
+                    </Link>
+                </Button>
+            </CardFooter>
         </Card>
     );
 }
@@ -255,8 +217,8 @@ function NotificationTestWidget() {
 
     return (
         <Card className="terminal-card">
-            <CardHeader className="py-6 px-8 border-b bg-slate-50"><CardTitle className="text-xs font-black uppercase tracking-widest text-primary">Diagnóstico</CardTitle></CardHeader>
-            <CardContent className="p-8"><Button onClick={handleTest} disabled={isTesting} className="w-full h-14 bg-emerald-600 text-white rounded-2xl">{isTesting ? <Loader2 className="animate-spin" /> : "DISPARAR PRUEBA"}</Button></CardContent>
+            <CardHeader className="py-6 px-8 border-b bg-slate-50"><CardTitle className="text-xs font-black uppercase tracking-widest text-primary">Diagnóstico de Push</CardTitle></CardHeader>
+            <CardContent className="p-8"><Button onClick={handleTest} disabled={isTesting} className="w-full h-14 bg-emerald-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest">{isTesting ? <Loader2 className="animate-spin" /> : "DISPARAR PRUEBA PUSH"}</Button></CardContent>
         </Card>
     );
 }
@@ -278,13 +240,17 @@ function ManualDownloadWidget() {
     };
 
     return (
-        <Card className="terminal-card bg-slate-900 text-white">
-            <CardHeader className="py-6 px-8 border-b border-white/5"><CardTitle className="text-xs font-black uppercase text-primary">Documentación</CardTitle></CardHeader>
-            <CardContent className="p-8"><Button onClick={handleDownload} disabled={isGenerating} className="w-full h-14 bg-white text-slate-900 rounded-2xl">{isGenerating ? <Loader2 className="animate-spin" /> : "DESCARGAR MANUAL PDF"}</Button></CardContent>
+        <Card className="terminal-card">
+            <CardHeader className="py-6 px-8 border-b bg-slate-50"><CardTitle className="text-xs font-black uppercase tracking-widest text-primary">Manual Operativo</CardTitle></CardHeader>
+            <CardContent className="p-8"><Button onClick={handleDownload} disabled={isGenerating} className="w-full h-14 bg-slate-900 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest">{isGenerating ? <Loader2 className="animate-spin" /> : "DESCARGAR MANUAL PDF"}</Button></CardContent>
         </Card>
     );
 }
 
 export default function SettingsPage() {
-    return <Suspense fallback={<div className="flex h-screen items-center justify-center"><Loader2 className="animate-spin" /></div>}><SettingsContent /></Suspense>;
+    return (
+        <Suspense fallback={<div className="flex h-screen items-center justify-center"><Loader2 className="animate-spin text-primary h-10 w-10" /></div>}>
+            <SettingsContent />
+        </Suspense>
+    );
 }

@@ -31,8 +31,11 @@ import {
     Trash2,
     Sparkles,
     Palette,
-    Ruler
+    Ruler,
+    Landmark,
+    Settings2
 } from 'lucide-react';
+import Link from 'next/link';
 import { cn } from '@/lib/utils';
 import type { FinancialSettings, PricingStrategy, Product } from '@/lib/definitions';
 import { ImageUploader } from '@/components/ui/image-uploader';
@@ -517,6 +520,21 @@ function PricingCalculatorContent() {
                                 <p className="text-[9px] text-slate-400">Impide que actualizaciones masivas o automatizadas alteren este precio.</p>
                             </div>
                             <Controller name="priceLocked" control={control} render={({ field }) => <Switch checked={field.value} onCheckedChange={field.onChange} />} />
+                        </div>
+
+                        {/* BANNER INFORMATIVO NODO ÚNICO DE TESORERÍA */}
+                        <div className="p-5 rounded-[2rem] bg-slate-900 text-white border border-primary/20 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-xl">
+                            <div className="space-y-1">
+                                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-primary flex items-center gap-1.5"><Landmark className="h-3.5 w-3.5" /> Parámetros Activos de Tesorería</p>
+                                <p className="text-[11px] font-medium text-slate-300 uppercase">
+                                    Descuento: <span className="text-white font-black">{globalSettings?.defaultBcvDiscount || 25}%</span> | Comisiones Red: <span className="text-primary font-black">{(globalSettings?.defaultCommission || 5) + (globalSettings?.salesManagerCommission || 5) + (globalSettings?.adminCommission || 5)}%</span> | Overhead: <span className="text-white font-black">{globalSettings?.defaultOverhead || 10}%</span>
+                                </p>
+                            </div>
+                            <Button asChild variant="outline" size="sm" className="h-9 px-4 rounded-xl border-white/20 text-white font-black uppercase text-[9px] hover:bg-white/10 shrink-0">
+                                <Link href="/dashboard/treasury">
+                                    <Settings2 className="mr-1.5 h-3.5 w-3.5 text-primary" /> TESORERÍA
+                                </Link>
+                            </Button>
                         </div>
                     </CardContent>
                 </Card>
