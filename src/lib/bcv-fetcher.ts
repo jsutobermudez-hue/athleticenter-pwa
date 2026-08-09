@@ -1,30 +1,37 @@
 
 /**
  * MOTOR DE CAPTURA DE TASA OFICIAL BCV CON ALTA RESILIENCIA
- * v100.0.0 - Triple Mirror Failover con DolarAPI, PyDolarVE y DolarToday
+ * v101.0.0 - Endpoints Oficiales Validados en Vivo
  */
 export async function fetchLatestBcvRate(): Promise<number | null> {
   const providers = [
     {
-      name: 'DolarAPI (Mirror Principal)',
-      url: 'https://ve.dolarapi.com/v1/dolares/bcv',
-      parse: (data: any) => data.valor || data.promedio
+      name: 'DolarAPI Oficial (Principal)',
+      url: 'https://ve.dolarapi.com/v1/dolares/oficial',
+      parse: (data: any) => data.promedio || data.valor || data.precio
     },
     {
-      name: 'PyDolarVE (Mirror Secundario API)',
-      url: 'https://pydolarve.org/api/v1/dollar?page=bcv',
-      parse: (data: any) => data.monedas?.usd?.price || data.price || data.usd
+      name: 'DolarAPI Lista Completa (Mirror 2)',
+      url: 'https://ve.dolarapi.com/v1/dolares',
+      parse: (data: any) => {
+        if (Array.isArray(data)) {
+          const bcv = data.find((item: any) => item.fuente === 'oficial' || item.nombre?.toLowerCase().includes('dólar'));
+          return bcv?.promedio || bcv?.valor;
+        }
+        return null;
+      }
     },
     {
-      name: 'DolarToday (Mirror Terciario AWS)',
+      name: 'DolarToday AWS (Mirror 3)',
       url: 'https://s3.amazonaws.com/dolartoday/data.json',
-      parse: (data: any) => data.USD?.bcv
+      parse: (data: any) => data.USD?.bcv || data.USD?.promedio_real
     }
   ];
 
   const commonHeaders = {
     'Accept': 'application/json',
-    'Cache-Control': 'no-cache'
+    'Cache-Control': 'no-cache',
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
   };
 
   for (const provider of providers) {
