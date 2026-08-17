@@ -1,6 +1,6 @@
 import { jsPDF } from 'jspdf';
 import 'jspdf-autotable';
-import type { OrderItemClient, QuoteItemClient, CompanyProfile, Invoice, Payment, Commission, Product, Order, User, Customer, FinancialSettings } from './definitions';
+import type { OrderItemClient, QuoteItemClient, CompanyProfile, Invoice, Payment, Commission, Product, Order, User, Customer, FinancialSettings, PurchaseOrder } from './definitions';
 import { Timestamp } from 'firebase/firestore';
 import QRCode from 'qrcode';
 import { format } from 'date-fns';
@@ -502,4 +502,75 @@ export async function generateSystemManualPDF(companyProfile?: Partial<CompanyPr
     doc.text(doc.splitTextToSize(text2, 180), 14, 97);
 
     doc.save('Manual_Athleticenter_Pro.pdf');
+}
+
+export async function generatePurchaseOrderPDF(order: PurchaseOrder, companyProfile?: Partial<CompanyProfile>) {
+    const doc = new jsPDF();
+    const date = order.createdAt ? (order.createdAt instanceof Timestamp ? order.createdAt.toDate() : new Date(order.createdAt as any)) : new Date();
+    await addFiscalHeader(doc, companyProfile, 'MANIFIESTO DE SUMINISTROS', order.id?.substring(0, 8) || 'PO-SUMINISTRO', date);
+
+    doc.setFillColor(248, 250, 252);
+    doc.rect(14, 50, 182, 30, 'F');
+    doc.setDrawColor(226, 232, 240);
+    doc.rect(14, 50, 182, 30, 'S');
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(8);
+    doc.setTextColor(100);
+    doc.text("DATOS DE LA IMPORTACIÓN / PROVEEDOR INTERNACIONAL:", 18, 56);
+
+    doc.setFontSize(11);
+    doc.setTextColor(30, 41, 59);
+    doc.text((order.supplierName || 'PROVEEDOR N/A').toUpperCase(), 18, 63);
+
+    doc.setFontSize(9);
+    doc.text(`ORIGEN: ${(order.originCity || '').toUpperCase()}, ${(order.originCountry || '').toUpperCase()}`, 18, 69);
+    doc.text(`MODO DE TRANSPORTE: ${(order.transportMode || 'Marítimo').toUpperCase()}`, 18, 74);
+
+    const etaStr = order.estimatedArrival 
+        ? (order.estimatedArrival instanceof Timestamp ? format(order.estimatedArrival.toDate(), 'dd/MM/yyyy') : '')
+        : 'N/A';
+    doc.text(`ESTADO: ${(order.status || 'Pendiente').toUpperCase()} | ETA: ${etaStr}`, 120, 69);
+
+    const items = order.items || [];
+    const tableRows = items.map((item, idx) => [
+        `#${idx + 1}`,
+        (item.sku || 'N/A').toUpperCase(),
+        (item.name || 'N/A').toUpperCase(),
+        `${item.quantity} UNID`,
+        `$ ${(item.unitCost || 0).toFixed(2)}`,
+        `$ ${((item.quantity || 0) * (item.unitCost || 0)).toFixed(2)}`
+    ]);
+
+    (doc as any).autoTable({
+        head: [["ITEM", "REF / SKU", "DESCRIPCIÓN DE PRODUCTO", "CANTIDAD", "COSTO LANDED", "SUBTOTAL USD"]],
+        body: tableRows.length > 0 ? tableRows : [["-", "-", "Sin artículos en el manifiesto", "-", "-", "$0.00"]],
+        startY: 86,
+        theme: 'grid',
+        headStyles: { fillColor: [30, 41, 59], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8 },
+        bodyStyles: { fontSize: 8 },
+        columnStyles: {
+            0: { cellWidth: 15, halign: 'center' },
+            1: { cellWidth: 30, fontStyle: 'bold' },
+            2: { cellWidth: 65 },
+            3: { cellWidth: 22, halign: 'center', fontStyle: 'bold' },
+            4: { cellWidth: 25, halign: 'right' },
+            5: { cellWidth: 25, halign: 'right', fontStyle: 'bold' }
+        }
+    });
+
+    const finalY = (doc as any).lastAutoTable.finalY + 10;
+
+    doc.setFillColor(241, 245, 249);
+    doc.rect(120, finalY, 76, 20, 'F');
+    doc.setDrawColor(203, 213, 225);
+    doc.rect(120, finalY, 76, 20, 'S');
+
+    doc.setFontSize(8); doc.setFont("helvetica", "bold"); doc.setTextColor(100);
+    doc.text("INVERSIÓN TOTAL LOTE:", 124, finalY + 7);
+
+    doc.setFontSize(14); doc.setTextColor(37, 99, 235);
+    doc.text(`$ ${(order.totalCost || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })} USD`, 192, finalY + 15, { align: 'right' });
+
+    doc.save(`Manifiesto_Importacion_${(order.id || 'PO').substring(0, 8)}.pdf`);
 }

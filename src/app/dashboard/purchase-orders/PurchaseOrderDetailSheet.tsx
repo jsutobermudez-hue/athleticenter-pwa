@@ -21,7 +21,7 @@ import {
   useDoc,
 } from '@/firebase';
 import { collection, query, limit, doc, runTransaction, serverTimestamp, updateDoc, getDoc } from 'firebase/firestore';
-import type { PurchaseOrder, Product, PurchaseOrderItem, StockHistory, FinancialSettings } from '@/lib/definitions';
+import type { PurchaseOrder, Product, PurchaseOrderItem, StockHistory, FinancialSettings, CompanyProfile } from '@/lib/definitions';
 import {
   Loader2,
   Package,
@@ -34,7 +34,9 @@ import {
   AlertTriangle,
   DollarSign,
   TrendingUp,
-  ArrowUpRight
+  ArrowUpRight,
+  Printer,
+  FileText
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -49,6 +51,7 @@ import {
 } from '@/components/ui/select';
 import { createAppNotifications } from '@/lib/notifications';
 import { logActivity } from '@/lib/audit';
+import { generatePurchaseOrderPDF } from '@/lib/pdf-generator';
 
 interface PurchaseOrderDetailSheetProps {
   order: PurchaseOrder | null;
@@ -61,6 +64,7 @@ export function PurchaseOrderDetailSheet({ order, isOpen, onOpenChange }: Purcha
   const { profile: currentUser } = useUser();
   const { toast } = useToast();
   const [isActionPending, setIsActionPending] = useState(false);
+  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
   const [selectedProductId, setSelectedProductId] = useState('');
   const [quantity, setQuantity] = useState(1);
   const [unitCost, setUnitCost] = useState(0);
@@ -70,6 +74,27 @@ export function PurchaseOrderDetailSheet({ order, isOpen, onOpenChange }: Purcha
 
   const settingsRef = useMemoFirebase(() => firestore ? doc(firestore, 'system', 'financials') : null, [firestore]);
   const { data: globalSettings } = useDoc<FinancialSettings>(settingsRef);
+
+  const safeItems = useMemo(() => {
+    return order?.items || [];
+  }, [order?.items]);
+
+  const handleExportPDF = async () => {
+    if (!order || !firestore) return;
+    setIsGeneratingPdf(true);
+    try {
+        const companyRef = doc(firestore, 'system', 'companyProfile');
+        const companySnap = await getDoc(companyRef);
+        const companyProfile = companySnap.exists() ? (companySnap.data() as CompanyProfile) : undefined;
+        
+        await generatePurchaseOrderPDF(order, companyProfile);
+        toast({ title: "Manifiesto Exportado", description: "Documento PDF generado correctamente." });
+    } catch (e: any) {
+        toast({ variant: 'destructive', title: "Error de Exportación PDF", description: e.message });
+    } finally {
+        setIsGeneratingPdf(false);
+    }
+  };
 
   const handleAddItem = async () => {
     if (!order || !selectedProductId || !firestore || !currentUser) return;
@@ -87,7 +112,7 @@ export function PurchaseOrderDetailSheet({ order, isOpen, onOpenChange }: Purcha
             unitCost
         };
 
-        const updatedItems = [...(order.items || []), newItem];
+        const updatedItems = [...safeItems, newItem];
         const newTotalCost = updatedItems.reduce((sum, i) => sum + (i.quantity * i.unitCost), 0);
 
         await updateDoc(orderRef, {
@@ -113,7 +138,7 @@ export function PurchaseOrderDetailSheet({ order, isOpen, onOpenChange }: Purcha
     setIsActionPending(true);
     try {
         const orderRef = doc(firestore, 'purchaseOrders', order.id!);
-        const updatedItems = [...order.items];
+        const updatedItems = [...safeItems];
         updatedItems.splice(index, 1);
         const newTotalCost = updatedItems.reduce((sum, i) => sum + (i.quantity * i.unitCost), 0);
 
@@ -125,27 +150,23 @@ export function PurchaseOrderDetailSheet({ order, isOpen, onOpenChange }: Purcha
     } catch (e) {} finally { setIsActionPending(false); }
   };
 
-  /**
-   * MOTOR WAC (v10.1) - FASE 5
-   * Certifica la recepción y recalcula el Costo Promedio Ponderado.
-   * Corregido: Protocolo de lectura atómica "reads before writes".
-   */
   const handleReceiveOrder = async () => {
-    if (!order || !firestore || !currentUser || !globalSettings) return;
-    if (order.items.length === 0) {
-        toast({ variant: 'destructive', title: "Manifiesto vacío" });
+    if (!order || !firestore || !currentUser) return;
+    if (safeItems.length === 0) {
+        toast({ variant: 'destructive', title: "Manifiesto vacío", description: "Agrega al menos un artículo antes de certificar la recepción." });
         return;
     }
 
     setIsActionPending(true);
     const criticalErosions: string[] = [];
+    const bcvDiscount = globalSettings?.defaultBcvDiscount !== undefined ? globalSettings.defaultBcvDiscount : 25;
 
     try {
         await runTransaction(firestore, async (transaction) => {
             const poRef = doc(firestore, 'purchaseOrders', order.id!);
             
             // --- 1. LECTURAS PREVIAS (READS FIRST) ---
-            const uniqueProductIds = Array.from(new Set(order.items.map(i => i.productId)));
+            const uniqueProductIds = Array.from(new Set(safeItems.map(i => i.productId)));
             const productRefs = uniqueProductIds.map(id => doc(firestore, 'products', id));
             
             const [poSnap, ...productSnaps] = await Promise.all([
@@ -159,7 +180,7 @@ export function PurchaseOrderDetailSheet({ order, isOpen, onOpenChange }: Purcha
             });
 
             // --- 2. ESCRITURAS (WRITES) ---
-            for (const item of order.items) {
+            for (const item of safeItems) {
                 const productData = productDataMap.get(item.productId);
                 
                 if (productData) {
@@ -173,9 +194,9 @@ export function PurchaseOrderDetailSheet({ order, isOpen, onOpenChange }: Purcha
                         ? ((oldStock * oldCost) + (newQty * newCost)) / totalStock
                         : newCost;
 
-                    const pvpCash = productData.priceCashUSD || (productData.price * (1 - (globalSettings.defaultBcvDiscount / 100)));
+                    const pvpCash = productData.priceCashUSD || (productData.price * (1 - (bcvDiscount / 100)));
                     const netProfit = pvpCash - (pvpCash * 0.25) - weightedCost; 
-                    const margin = (netProfit / pvpCash) * 100;
+                    const margin = pvpCash > 0 ? (netProfit / pvpCash) * 100 : 0;
 
                     if (margin < 15) {
                         criticalErosions.push(`${productData.name} (${margin.toFixed(1)}%)`);
@@ -222,7 +243,7 @@ export function PurchaseOrderDetailSheet({ order, isOpen, onOpenChange }: Purcha
             });
         }
 
-        toast({ title: "¡Inventario Sincerado!", description: "Costo promedio y stock actualizados." });
+        toast({ title: "¡Inventario Sincerado!", description: "Costo promedio ponderado y stock actualizados en catálogo." });
         onOpenChange(false);
     } catch (e: any) {
         toast({ variant: 'destructive', title: "Fallo en Recepción", description: e.message });
@@ -256,10 +277,22 @@ export function PurchaseOrderDetailSheet({ order, isOpen, onOpenChange }: Purcha
         <SheetHeader className="p-8 pb-4 bg-slate-900 text-white shrink-0">
           <div className="flex justify-between items-start">
             <div className="space-y-1 text-left">
-                <SheetTitle className="text-2xl font-black uppercase tracking-tighter text-white">Certificar Recepción</SheetTitle>
+                <SheetTitle className="text-2xl font-black uppercase tracking-tighter text-white">Manifiesto de Importación</SheetTitle>
                 <SheetDescription className="font-bold text-[10px] uppercase tracking-[0.2em] text-primary">{order.supplierName}</SheetDescription>
             </div>
-            <Badge className="bg-primary text-white font-black uppercase text-[9px] px-3 h-6 border-none shadow-lg">{order.status}</Badge>
+            <div className="flex items-center gap-2">
+                <Button 
+                    type="button" 
+                    size="sm" 
+                    variant="outline"
+                    onClick={handleExportPDF} 
+                    disabled={isGeneratingPdf} 
+                    className="h-8 px-3 rounded-xl border-white/20 bg-white/10 text-white hover:bg-white/20 font-black text-[9px] uppercase tracking-wider"
+                >
+                    {isGeneratingPdf ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <Printer className="h-3.5 w-3.5 mr-1 text-primary" />} PDF MANIFIESTO
+                </Button>
+                <Badge className="bg-primary text-white font-black uppercase text-[9px] px-3 h-8 border-none shadow-lg">{order.status}</Badge>
+            </div>
           </div>
 
           {/* STEPPER DE IMPORTACIÓN EN CABECERA */}
@@ -305,7 +338,7 @@ export function PurchaseOrderDetailSheet({ order, isOpen, onOpenChange }: Purcha
                     </div>
                     <div className="p-4 rounded-2xl bg-blue-50 border border-blue-100 space-y-1 text-right">
                         <p className="text-[8px] font-black text-blue-400 uppercase tracking-widest">INVERSIÓN LOTE</p>
-                        <p className="text-lg font-black text-blue-700 tracking-tighter">${order.totalCost.toLocaleString()}</p>
+                        <p className="text-lg font-black text-blue-700 tracking-tighter">${(order.totalCost || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
                     </div>
                 </div>
 
@@ -345,10 +378,10 @@ export function PurchaseOrderDetailSheet({ order, isOpen, onOpenChange }: Purcha
                 )}
 
                 <div className="space-y-4">
-                    <h3 className="text-[10px] font-black uppercase tracking-[0.4em] text-slate-400 flex items-center gap-2 px-1"><Boxes className="h-4 w-4" /> ARTÍCULOS EN MANIFIESTO</h3>
+                    <h3 className="text-[10px] font-black uppercase tracking-[0.4em] text-slate-400 flex items-center gap-2 px-1"><Boxes className="h-4 w-4" /> ARTÍCULOS EN MANIFIESTO ({safeItems.length})</h3>
                     <div className="rounded-[2rem] border border-slate-100 overflow-hidden shadow-sm">
                         <div className="divide-y divide-slate-50 bg-white">
-                            {order.items.length > 0 ? order.items.map((item, idx) => (
+                            {safeItems.length > 0 ? safeItems.map((item, idx) => (
                                 <div key={idx} className="p-5 flex items-center justify-between group hover:bg-slate-50 transition-colors">
                                     <div className="flex-1 min-w-0 mr-4">
                                         <p className="text-sm font-black uppercase truncate text-slate-900 leading-tight">{item.name}</p>
@@ -398,17 +431,26 @@ export function PurchaseOrderDetailSheet({ order, isOpen, onOpenChange }: Purcha
         </ScrollArea>
 
         <SheetFooter className="p-8 border-t bg-slate-50 shrink-0">
-            <div className="w-full flex flex-col gap-4">
-                {['En Tránsito', 'Aduana', 'Pendiente'].includes(order.status) ? (
+            <div className="w-full flex flex-col sm:flex-row gap-3">
+                <Button 
+                    type="button" 
+                    variant="outline" 
+                    onClick={handleExportPDF} 
+                    disabled={isGeneratingPdf} 
+                    className="flex-1 h-14 border-slate-200 bg-white hover:bg-slate-100 font-black uppercase text-xs tracking-wider rounded-2xl"
+                >
+                    {isGeneratingPdf ? <Loader2 className="animate-spin h-5 w-5 mr-2" /> : <Printer className="mr-2 h-5 w-5 text-primary" />} EXPORTAR MANIFIESTO PDF
+                </Button>
+
+                {['En Tránsito', 'Aduana', 'Pendiente'].includes(order.status) && (
                     <Button 
                         onClick={handleReceiveOrder} 
-                        disabled={isActionPending || order.items.length === 0} 
-                        className="w-full h-14 bg-emerald-600 hover:bg-emerald-700 text-white font-black uppercase text-sm tracking-[0.2em] shadow-2xl rounded-2xl transition-all active:scale-95"
+                        disabled={isActionPending || safeItems.length === 0} 
+                        className="flex-1 h-14 bg-emerald-600 hover:bg-emerald-700 text-white font-black uppercase text-xs tracking-wider shadow-2xl rounded-2xl transition-all active:scale-95"
                     >
-                        {isActionPending ? <Loader2 className="animate-spin h-5 w-5 mr-3" /> : <ShieldCheck className="mr-3 h-5 w-5" />} 
-                        CERTIFICAR RECEPCIÓN FISCAL
+                        {isActionPending ? <Loader2 className="animate-spin h-5 w-5 mr-2" /> : <ShieldCheck className="mr-2 h-5 w-5" />} CERTIFICAR RECEPCIÓN WAC
                     </Button>
-                ) : null}
+                )}
             </div>
         </SheetFooter>
       </SheetContent>
