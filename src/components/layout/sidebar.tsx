@@ -93,6 +93,7 @@ const financieraItems: MenuItem[] = [
 
 // --- GRUPO 5: INTELIGENCIA ESTRATÉGICA ---
 const inteligenciaItems: MenuItem[] = [
+  { href: '/dashboard/pricing-intelligence', label: 'Pricing Intelligence', icon: Sparkles, roles: ['superadmin', 'gerencia', 'admin'] },
   { href: '/dashboard/intelligence', label: 'Tablero BI', icon: BarChart3, roles: ['superadmin', 'gerencia'] },
   { href: '/dashboard/marketing', label: 'Radar Marketing', icon: Zap, roles: ['superadmin', 'admin'] },
   { href: '/dashboard/reports', label: 'Reportes y BI', icon: FileBarChart, roles: ['superadmin', 'gerencia', 'admin'] },
