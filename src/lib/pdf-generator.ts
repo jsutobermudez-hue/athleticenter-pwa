@@ -510,9 +510,9 @@ export async function generatePurchaseOrderPDF(order: PurchaseOrder, companyProf
     await addFiscalHeader(doc, companyProfile, 'MANIFIESTO DE SUMINISTROS', order.id?.substring(0, 8) || 'PO-SUMINISTRO', date);
 
     doc.setFillColor(248, 250, 252);
-    doc.rect(14, 50, 182, 30, 'F');
+    doc.rect(14, 50, 182, 32, 'F');
     doc.setDrawColor(226, 232, 240);
-    doc.rect(14, 50, 182, 30, 'S');
+    doc.rect(14, 50, 182, 32, 'S');
 
     doc.setFont("helvetica", "bold");
     doc.setFontSize(8);
@@ -523,43 +523,55 @@ export async function generatePurchaseOrderPDF(order: PurchaseOrder, companyProf
     doc.setTextColor(30, 41, 59);
     doc.text((order.supplierName || 'PROVEEDOR N/A').toUpperCase(), 18, 63);
 
-    doc.setFontSize(9);
-    doc.text(`ORIGEN: ${(order.originCity || '').toUpperCase()}, ${(order.originCountry || '').toUpperCase()}`, 18, 69);
-    doc.text(`MODO DE TRANSPORTE: ${(order.transportMode || 'Marítimo').toUpperCase()}`, 18, 74);
+    doc.setFontSize(8);
+    doc.text(`ORIGEN: ${(order.originCity || '').toUpperCase()}, ${(order.originCountry || '').toUpperCase()} | MODO: ${(order.transportMode || 'Marítimo').toUpperCase()}`, 18, 69);
+    doc.text(`CONTENEDOR / GUÍA: ${order.trackingNumber || order.blNumber || 'SIN GUÍA'} | CONTENEDOR: ${order.containerType || 'Carga LCL'} | CBM: ${order.totalCBM ? order.totalCBM.toFixed(2) : '0.00'} m³`, 18, 75);
 
     const etaStr = order.estimatedArrival 
         ? (order.estimatedArrival instanceof Timestamp ? format(order.estimatedArrival.toDate(), 'dd/MM/yyyy') : '')
         : 'N/A';
-    doc.text(`ESTADO: ${(order.status || 'Pendiente').toUpperCase()} | ETA: ${etaStr}`, 120, 69);
+    doc.text(`ESTADO: ${(order.status || 'Pendiente').toUpperCase()} | ETA: ${etaStr}`, 120, 63);
 
     const items = order.items || [];
-    const tableRows = items.map((item, idx) => [
-        `#${idx + 1}`,
-        (item.sku || 'N/A').toUpperCase(),
-        (item.name || 'N/A').toUpperCase(),
-        `${item.quantity} UNID`,
-        `$ ${(item.unitCost || 0).toFixed(2)}`,
-        `$ ${((item.quantity || 0) * (item.unitCost || 0)).toFixed(2)}`
-    ]);
+    const tableRows = items.map((item, idx) => {
+        const unitCost = item.unitCost || 0;
+        const landed = item.landedUnitCost || unitCost;
+        const qty = item.quantity || 0;
+        return [
+            `#${idx + 1}`,
+            (item.sku || 'N/A').toUpperCase(),
+            (item.name || 'N/A').toUpperCase(),
+            `${qty} UNID`,
+            `$ ${unitCost.toFixed(2)}`,
+            `$ ${landed.toFixed(2)}`,
+            `$ ${(qty * landed).toFixed(2)}`
+        ];
+    });
 
     (doc as any).autoTable({
-        head: [["ITEM", "REF / SKU", "DESCRIPCIÓN DE PRODUCTO", "CANTIDAD", "COSTO LANDED", "SUBTOTAL USD"]],
-        body: tableRows.length > 0 ? tableRows : [["-", "-", "Sin artículos en el manifiesto", "-", "-", "$0.00"]],
-        startY: 86,
+        head: [["ITEM", "REF / SKU", "DESCRIPCIÓN DE PRODUCTO", "CANTIDAD", "FOB UNID", "LANDED UNID", "SUBTOTAL USD"]],
+        body: tableRows.length > 0 ? tableRows : [["-", "-", "Sin artículos en el manifiesto", "-", "-", "-", "$0.00"]],
+        startY: 88,
         theme: 'grid',
         headStyles: { fillColor: [30, 41, 59], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8 },
         bodyStyles: { fontSize: 8 },
         columnStyles: {
-            0: { cellWidth: 15, halign: 'center' },
-            1: { cellWidth: 30, fontStyle: 'bold' },
-            2: { cellWidth: 65 },
-            3: { cellWidth: 22, halign: 'center', fontStyle: 'bold' },
-            4: { cellWidth: 25, halign: 'right' },
-            5: { cellWidth: 25, halign: 'right', fontStyle: 'bold' }
+            0: { cellWidth: 12, halign: 'center' },
+            1: { cellWidth: 28, fontStyle: 'bold' },
+            2: { cellWidth: 58 },
+            3: { cellWidth: 20, halign: 'center', fontStyle: 'bold' },
+            4: { cellWidth: 20, halign: 'right' },
+            5: { cellWidth: 22, halign: 'right', fontStyle: 'bold' },
+            6: { cellWidth: 22, halign: 'right', fontStyle: 'bold' }
         }
     });
 
     const finalY = (doc as any).lastAutoTable.finalY + 10;
+
+    const customsTotal = (order.customsTariffsAmount || 0) + (order.portFeesAmount || 0) + (order.customsAgentFeesAmount || 0) + (order.otherCustomsExpenses || 0);
+
+    doc.setFontSize(8); doc.setFont("helvetica", "normal"); doc.setTextColor(100);
+    doc.text(`Gastos de Importación (Aranceles, Flete y Puerto): $ ${customsTotal.toFixed(2)} USD`, 14, finalY + 5);
 
     doc.setFillColor(241, 245, 249);
     doc.rect(120, finalY, 76, 20, 'F');

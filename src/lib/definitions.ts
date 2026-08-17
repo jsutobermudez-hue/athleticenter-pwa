@@ -325,6 +325,12 @@ export interface PurchaseOrderItem {
     name: string;
     quantity: number;
     unitCost: number;
+    landedUnitCost?: number;
+    boxCount?: number;
+    lengthCm?: number;
+    widthCm?: number;
+    heightCm?: number;
+    cbmTotal?: number;
 }
 
 export interface Commission extends Auditable {

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Sheet,
   SheetContent,
@@ -36,7 +36,13 @@ import {
   TrendingUp,
   ArrowUpRight,
   Printer,
-  FileText
+  FileText,
+  Ship,
+  Plane,
+  Truck,
+  Calculator,
+  Save,
+  MapPin
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -69,15 +75,62 @@ export function PurchaseOrderDetailSheet({ order, isOpen, onOpenChange }: Purcha
   const [quantity, setQuantity] = useState(1);
   const [unitCost, setUnitCost] = useState(0);
 
+  // CAMPOS LOGÍSTICOS Y DESGOTO LANDED
+  const [trackingNumber, setTrackingNumber] = useState('');
+  const [blNumber, setBlNumber] = useState('');
+  const [containerType, setContainerType] = useState<'20HQ' | '40HQ' | '45HQ' | 'LCL (Carga Suelta)'>('LCL (Carga Suelta)');
+  const [totalCBM, setTotalCBM] = useState(0);
+  const [customsTariffsAmount, setCustomsTariffsAmount] = useState(0);
+  const [portFeesAmount, setPortFeesAmount] = useState(0);
+  const [customsAgentFeesAmount, setCustomsAgentFeesAmount] = useState(0);
+  const [otherCustomsExpenses, setOtherCustomsExpenses] = useState(0);
+
   const productsQuery = useMemoFirebase(() => (firestore ? query(collection(firestore, 'products'), limit(200)) : null), [firestore]);
   const { data: allProducts } = useCollection<Product>(productsQuery);
 
   const settingsRef = useMemoFirebase(() => firestore ? doc(firestore, 'system', 'financials') : null, [firestore]);
   const { data: globalSettings } = useDoc<FinancialSettings>(settingsRef);
 
+  useEffect(() => {
+    if (order) {
+        setTrackingNumber(order.trackingNumber || '');
+        setBlNumber(order.blNumber || '');
+        setContainerType(order.containerType || 'LCL (Carga Suelta)');
+        setTotalCBM(order.totalCBM || 0);
+        setCustomsTariffsAmount(order.customsTariffsAmount || 0);
+        setPortFeesAmount(order.portFeesAmount || 0);
+        setCustomsAgentFeesAmount(order.customsAgentFeesAmount || 0);
+        setOtherCustomsExpenses(order.otherCustomsExpenses || 0);
+    }
+  }, [order]);
+
   const safeItems = useMemo(() => {
     return order?.items || [];
   }, [order?.items]);
+
+  // CÁLCULO DE PRORRATEO LANDED REAL POR ITEM
+  const landedProrationFactor = useMemo(() => {
+    const totalFob = safeItems.reduce((sum, i) => sum + (i.quantity * i.unitCost), 0);
+    const totalCustomsExpenses = customsTariffsAmount + portFeesAmount + customsAgentFeesAmount + otherCustomsExpenses;
+    if (totalFob <= 0) return 0;
+    return totalCustomsExpenses / totalFob;
+  }, [safeItems, customsTariffsAmount, portFeesAmount, customsAgentFeesAmount, otherCustomsExpenses]);
+
+  const safeItemsWithLanded = useMemo(() => {
+    return safeItems.map(item => {
+        const landedCost = item.unitCost * (1 + landedProrationFactor);
+        return {
+            ...item,
+            landedUnitCost: landedCost
+        };
+    });
+  }, [safeItems, landedProrationFactor]);
+
+  const calculatedTotalLandedInvestment = useMemo(() => {
+    const totalFob = safeItems.reduce((sum, i) => sum + (i.quantity * i.unitCost), 0);
+    const totalCustomsExpenses = customsTariffsAmount + portFeesAmount + customsAgentFeesAmount + otherCustomsExpenses;
+    return totalFob + totalCustomsExpenses;
+  }, [safeItems, customsTariffsAmount, portFeesAmount, customsAgentFeesAmount, otherCustomsExpenses]);
 
   const handleExportPDF = async () => {
     if (!order || !firestore) return;
@@ -87,12 +140,54 @@ export function PurchaseOrderDetailSheet({ order, isOpen, onOpenChange }: Purcha
         const companySnap = await getDoc(companyRef);
         const companyProfile = companySnap.exists() ? (companySnap.data() as CompanyProfile) : undefined;
         
-        await generatePurchaseOrderPDF(order, companyProfile);
+        const orderForPdf = {
+            ...order,
+            items: safeItemsWithLanded,
+            totalCost: calculatedTotalLandedInvestment,
+            trackingNumber,
+            blNumber,
+            containerType,
+            totalCBM,
+            customsTariffsAmount,
+            portFeesAmount,
+            customsAgentFeesAmount,
+            otherCustomsExpenses
+        };
+
+        await generatePurchaseOrderPDF(orderForPdf as any, companyProfile);
         toast({ title: "Manifiesto Exportado", description: "Documento PDF generado correctamente." });
     } catch (e: any) {
         toast({ variant: 'destructive', title: "Error de Exportación PDF", description: e.message });
     } finally {
         setIsGeneratingPdf(false);
+    }
+  };
+
+  const handleSaveLogisticsAndExpenses = async () => {
+    if (!order || !firestore || !currentUser) return;
+    setIsActionPending(true);
+    try {
+        const orderRef = doc(firestore, 'purchaseOrders', order.id!);
+        await updateDoc(orderRef, {
+            trackingNumber,
+            blNumber,
+            containerType,
+            totalCBM: Number(totalCBM),
+            customsTariffsAmount: Number(customsTariffsAmount),
+            portFeesAmount: Number(portFeesAmount),
+            customsAgentFeesAmount: Number(customsAgentFeesAmount),
+            otherCustomsExpenses: Number(otherCustomsExpenses),
+            items: safeItemsWithLanded,
+            totalCost: calculatedTotalLandedInvestment,
+            updatedAt: serverTimestamp(),
+            updatedBy: currentUser.id
+        } as any);
+
+        toast({ title: "Datos Logísticos Sincronizados", description: "Costo Landed prorrateado actualizado en la orden." });
+    } catch (e: any) {
+        toast({ variant: 'destructive', title: "Error de Guardado", description: e.message });
+    } finally {
+        setIsActionPending(false);
     }
   };
 
@@ -109,15 +204,17 @@ export function PurchaseOrderDetailSheet({ order, isOpen, onOpenChange }: Purcha
             sku: product.sku,
             name: product.name,
             quantity,
-            unitCost
+            unitCost,
+            landedUnitCost: unitCost * (1 + landedProrationFactor)
         };
 
         const updatedItems = [...safeItems, newItem];
-        const newTotalCost = updatedItems.reduce((sum, i) => sum + (i.quantity * i.unitCost), 0);
+        const updatedTotalFob = updatedItems.reduce((sum, i) => sum + (i.quantity * i.unitCost), 0);
+        const updatedTotalLanded = updatedTotalFob + customsTariffsAmount + portFeesAmount + customsAgentFeesAmount + otherCustomsExpenses;
 
         await updateDoc(orderRef, {
             items: updatedItems,
-            totalCost: newTotalCost,
+            totalCost: updatedTotalLanded,
             updatedAt: serverTimestamp(),
             updatedBy: currentUser.id
         } as any);
@@ -140,11 +237,12 @@ export function PurchaseOrderDetailSheet({ order, isOpen, onOpenChange }: Purcha
         const orderRef = doc(firestore, 'purchaseOrders', order.id!);
         const updatedItems = [...safeItems];
         updatedItems.splice(index, 1);
-        const newTotalCost = updatedItems.reduce((sum, i) => sum + (i.quantity * i.unitCost), 0);
+        const updatedTotalFob = updatedItems.reduce((sum, i) => sum + (i.quantity * i.unitCost), 0);
+        const updatedTotalLanded = updatedTotalFob + customsTariffsAmount + portFeesAmount + customsAgentFeesAmount + otherCustomsExpenses;
 
         await updateDoc(orderRef, {
             items: updatedItems,
-            totalCost: newTotalCost,
+            totalCost: updatedTotalLanded,
             updatedAt: serverTimestamp()
         } as any);
     } catch (e) {} finally { setIsActionPending(false); }
@@ -180,14 +278,14 @@ export function PurchaseOrderDetailSheet({ order, isOpen, onOpenChange }: Purcha
             });
 
             // --- 2. ESCRITURAS (WRITES) ---
-            for (const item of safeItems) {
+            for (const item of safeItemsWithLanded) {
                 const productData = productDataMap.get(item.productId);
                 
                 if (productData) {
                     const oldStock = productData.stockLevel ?? (productData as any).stock ?? 0;
                     const oldCost = productData.cost || 0;
                     const newQty = item.quantity;
-                    const newCost = item.unitCost;
+                    const newCost = item.landedUnitCost || item.unitCost;
 
                     const totalStock = oldStock + newQty;
                     const weightedCost = oldStock > 0 
@@ -273,11 +371,11 @@ export function PurchaseOrderDetailSheet({ order, isOpen, onOpenChange }: Purcha
 
   return (
     <Sheet open={isOpen} onOpenChange={onOpenChange}>
-      <SheetContent className="w-full sm:max-w-2xl lg:max-w-3xl p-0 flex flex-col h-screen border-none rounded-l-[2.5rem] shadow-2xl">
+      <SheetContent className="w-full sm:max-w-2xl lg:max-w-4xl p-0 flex flex-col h-screen border-none rounded-l-[2.5rem] shadow-2xl">
         <SheetHeader className="p-8 pb-4 bg-slate-900 text-white shrink-0">
           <div className="flex justify-between items-start">
             <div className="space-y-1 text-left">
-                <SheetTitle className="text-2xl font-black uppercase tracking-tighter text-white">Manifiesto de Importación</SheetTitle>
+                <SheetTitle className="text-2xl font-black uppercase tracking-tighter text-white">Manifiesto e Inteligencia de Importación</SheetTitle>
                 <SheetDescription className="font-bold text-[10px] uppercase tracking-[0.2em] text-primary">{order.supplierName}</SheetDescription>
             </div>
             <div className="flex items-center gap-2">
@@ -327,7 +425,8 @@ export function PurchaseOrderDetailSheet({ order, isOpen, onOpenChange }: Purcha
 
         <ScrollArea className="flex-1">
             <div className="p-8 space-y-8">
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                {/* 1. CABECERA RESUMEN DE INVERSIÓN Y LANDED */}
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
                     <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100 space-y-1">
                         <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">ORIGEN</p>
                         <p className="text-11px font-black uppercase truncate text-slate-700">{order.originCity}, {order.originCountry}</p>
@@ -336,9 +435,67 @@ export function PurchaseOrderDetailSheet({ order, isOpen, onOpenChange }: Purcha
                         <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">TRANSPORTE</p>
                         <p className="text-11px font-black uppercase text-slate-700">{order.transportMode === 'Marítimo' ? '🚢 MARÍTIMO' : '✈️ AÉREO'}</p>
                     </div>
+                    <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100 space-y-1 text-center">
+                        <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">FACTOR PRORRATEO</p>
+                        <p className="text-11px font-black uppercase text-emerald-600">+{(landedProrationFactor * 100).toFixed(1)}% Gastos</p>
+                    </div>
                     <div className="p-4 rounded-2xl bg-blue-50 border border-blue-100 space-y-1 text-right">
-                        <p className="text-[8px] font-black text-blue-400 uppercase tracking-widest">INVERSIÓN LOTE</p>
-                        <p className="text-lg font-black text-blue-700 tracking-tighter">${(order.totalCost || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
+                        <p className="text-[8px] font-black text-blue-400 uppercase tracking-widest">INVERSIÓN LANDED TOTAL</p>
+                        <p className="text-lg font-black text-blue-700 tracking-tighter">${calculatedTotalLandedInvestment.toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
+                    </div>
+                </div>
+
+                {/* 2. PANEL DE TRAZABILIDAD LOGÍSTICA Y DESGLOSE DE GASTOS EN DESTINO */}
+                <div className="p-6 rounded-[2rem] bg-slate-50 border border-slate-200 space-y-6">
+                    <div className="flex items-center justify-between border-b border-slate-200/60 pb-3">
+                        <span className="text-[10px] font-black uppercase tracking-[0.2em] text-primary flex items-center gap-2">
+                            <Truck className="h-4 w-4" /> Trazabilidad Logística y Gastos en Destino
+                        </span>
+                        <Button type="button" size="sm" onClick={handleSaveLogisticsAndExpenses} disabled={isActionPending} className="h-8 px-4 rounded-xl bg-slate-900 text-white font-black text-[9px] uppercase tracking-wider">
+                            <Save className="h-3.5 w-3.5 mr-1" /> Guardar Gastos
+                        </Button>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        <div className="space-y-1">
+                            <Label className="text-[8px] font-black uppercase text-slate-500">N° Guía / B/L / AWB</Label>
+                            <Input value={trackingNumber} onChange={(e) => setTrackingNumber(e.target.value)} placeholder="Ej. AWB-9823412" className="h-10 text-xs font-bold uppercase bg-white rounded-xl" />
+                        </div>
+                        <div className="space-y-1">
+                            <Label className="text-[8px] font-black uppercase text-slate-500">Tipo Contenedor / Carga</Label>
+                            <Select value={containerType} onValueChange={(val: any) => setContainerType(val)}>
+                                <SelectTrigger className="h-10 text-xs font-bold uppercase bg-white rounded-xl"><SelectValue /></SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="LCL (Carga Suelta)" className="font-bold text-xs uppercase">LCL (CARGA SUELTA)</SelectItem>
+                                    <SelectItem value="20HQ" className="font-bold text-xs uppercase">CONTENEDOR 20FT</SelectItem>
+                                    <SelectItem value="40HQ" className="font-bold text-xs uppercase">CONTENEDOR 40FT HQ</SelectItem>
+                                    <SelectItem value="45HQ" className="font-bold text-xs uppercase">CONTENEDOR 45FT HQ</SelectItem>
+                                </SelectContent>
+                            </Select>
+                        </div>
+                        <div className="space-y-1">
+                            <Label className="text-[8px] font-black uppercase text-slate-500">Volumen CBM (m³)</Label>
+                            <Input type="number" step="0.01" value={totalCBM} onChange={(e) => setTotalCBM(Number(e.target.value))} placeholder="Ej. 12.5" className="h-10 text-xs font-bold text-center bg-white rounded-xl" />
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 pt-2 border-t border-slate-200/60">
+                        <div className="space-y-1">
+                            <Label className="text-[8px] font-black uppercase text-slate-500">Aranceles Aduana ($)</Label>
+                            <Input type="number" step="0.01" value={customsTariffsAmount} onChange={(e) => setCustomsTariffsAmount(Number(e.target.value))} className="h-10 text-xs font-bold text-center bg-white rounded-xl" />
+                        </div>
+                        <div className="space-y-1">
+                            <Label className="text-[8px] font-black uppercase text-slate-500">Gastos Puerto ($)</Label>
+                            <Input type="number" step="0.01" value={portFeesAmount} onChange={(e) => setPortFeesAmount(Number(e.target.value))} className="h-10 text-xs font-bold text-center bg-white rounded-xl" />
+                        </div>
+                        <div className="space-y-1">
+                            <Label className="text-[8px] font-black uppercase text-slate-500">Agente Aduanal ($)</Label>
+                            <Input type="number" step="0.01" value={customsAgentFeesAmount} onChange={(e) => setCustomsAgentFeesAmount(Number(e.target.value))} className="h-10 text-xs font-bold text-center bg-white rounded-xl" />
+                        </div>
+                        <div className="space-y-1">
+                            <Label className="text-[8px] font-black uppercase text-slate-500">Flete / Seguro / Otros ($)</Label>
+                            <Input type="number" step="0.01" value={otherCustomsExpenses} onChange={(e) => setOtherCustomsExpenses(Number(e.target.value))} className="h-10 text-xs font-bold text-center bg-white rounded-xl" />
+                        </div>
                     </div>
                 </div>
 
@@ -365,7 +522,7 @@ export function PurchaseOrderDetailSheet({ order, isOpen, onOpenChange }: Purcha
                                 <Input type="number" min="1" value={quantity} onChange={(e) => setQuantity(Number(e.target.value))} className="h-11 text-center font-black rounded-xl border-none shadow-sm" />
                             </div>
                             <div className="md:col-span-3 space-y-1.5">
-                                <Label className="text-[9px] font-black uppercase px-1">Costo Landed (USD)</Label>
+                                <Label className="text-[9px] font-black uppercase px-1">Costo FOB Fábrica (USD)</Label>
                                 <Input type="number" step="0.01" value={unitCost} onChange={(e) => setUnitCost(Number(e.target.value))} className="h-11 font-black rounded-xl border-none shadow-sm" />
                             </div>
                             <div className="md:col-span-1">
@@ -377,11 +534,12 @@ export function PurchaseOrderDetailSheet({ order, isOpen, onOpenChange }: Purcha
                     </div>
                 )}
 
+                {/* 3. LISTADO DE ARTÍCULOS CON COMPARATIVA FOB VS LANDED PRORRATEADO */}
                 <div className="space-y-4">
-                    <h3 className="text-[10px] font-black uppercase tracking-[0.4em] text-slate-400 flex items-center gap-2 px-1"><Boxes className="h-4 w-4" /> ARTÍCULOS EN MANIFIESTO ({safeItems.length})</h3>
+                    <h3 className="text-[10px] font-black uppercase tracking-[0.4em] text-slate-400 flex items-center gap-2 px-1"><Boxes className="h-4 w-4" /> ARTÍCULOS EN MANIFIESTO ({safeItemsWithLanded.length})</h3>
                     <div className="rounded-[2rem] border border-slate-100 overflow-hidden shadow-sm">
                         <div className="divide-y divide-slate-50 bg-white">
-                            {safeItems.length > 0 ? safeItems.map((item, idx) => (
+                            {safeItemsWithLanded.length > 0 ? safeItemsWithLanded.map((item, idx) => (
                                 <div key={idx} className="p-5 flex items-center justify-between group hover:bg-slate-50 transition-colors">
                                     <div className="flex-1 min-w-0 mr-4">
                                         <p className="text-sm font-black uppercase truncate text-slate-900 leading-tight">{item.name}</p>
@@ -391,10 +549,14 @@ export function PurchaseOrderDetailSheet({ order, isOpen, onOpenChange }: Purcha
                                             <span className="text-[9px] font-black text-primary uppercase">{item.quantity} UNIDADES</span>
                                         </div>
                                     </div>
-                                    <div className="text-right flex items-center gap-4">
+                                    <div className="text-right flex items-center gap-6">
                                         <div className="space-y-0.5">
-                                            <p className="text-[8px] font-black text-slate-400 uppercase">Costo Landed</p>
-                                            <p className="font-black text-lg text-slate-900 tracking-tighter">${item.unitCost.toFixed(2)}</p>
+                                            <p className="text-[8px] font-black text-slate-400 uppercase">FOB Fábrica</p>
+                                            <p className="font-black text-sm text-slate-500 tracking-tighter">${item.unitCost.toFixed(2)}</p>
+                                        </div>
+                                        <div className="space-y-0.5">
+                                            <p className="text-[8px] font-black text-emerald-600 uppercase">Landed Prorrateado</p>
+                                            <p className="font-black text-lg text-emerald-700 tracking-tighter">${item.landedUnitCost?.toFixed(2)}</p>
                                         </div>
                                         {order.status === 'Pendiente' && (
                                             <Button variant="ghost" size="icon" onClick={() => handleRemoveItem(idx)} className="h-10 w-10 rounded-xl text-rose-500 opacity-0 group-hover:opacity-100">
@@ -419,10 +581,10 @@ export function PurchaseOrderDetailSheet({ order, isOpen, onOpenChange }: Purcha
                             <TrendingUp className="h-6 w-6" />
                         </div>
                         <div className="space-y-1.5">
-                            <p className="text-sm font-black uppercase text-emerald-900">Protocolo de Sinceración WAC</p>
+                            <p className="text-sm font-black uppercase text-emerald-900">Protocolo de Sinceración WAC con Gastos Landed Real</p>
                             <p className="text-[10px] font-medium text-emerald-700 leading-relaxed uppercase">
-                                Al certificar, el sistema diluirá los costos de este lote con las existencias actuales. 
-                                <span className="text-emerald-900 font-bold block mt-1">ESTA ACCIÓN ACTUALIZARÁ EL VALOR DE TUS ACTIVOS EN TIEMPO REAL.</span>
+                                Al certificar, el sistema diluirá los costos <span className="font-black text-emerald-900">LANDED PRORRATEADOS CON GASTOS EN DESTINO</span> de este lote con las existencias actuales. 
+                                <span className="text-emerald-900 font-bold block mt-1">ESTA ACCIÓN ACTUALIZARÁ EL VALOR DE TUS ACTIVOS Y PRECIOS WAC EN TIEMPO REAL.</span>
                             </p>
                         </div>
                     </div>
