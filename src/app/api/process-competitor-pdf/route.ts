@@ -1,15 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
+import * as XLSX from 'xlsx';
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 60; // 60 segundos tiempo de ejecución para PDFs extensos
+export const maxDuration = 60; // 60 segundos de tiempo de ejecución para archivos grandes
 
 const SYSTEM_PROMPT = `
 Eres un Auditor Financiero Senior experto en Inteligencia de Precios B2B para Athleticenter PRO, una empresa mayorista de equipamiento y artículos deportivos en todas las disciplinas (Fútbol, Béisbol, Baloncesto, Voleibol, Tenis, Natación, Boxeo, Fitness, Artes Marciales, Pádel, Atletismo, Ciclismo, etc.).
 
-Tu tarea es analizar minuciosamente la lista de precios o catálogo en PDF adjunto enviado por la competencia.
+Tu tarea es analizar minuciosamente el archivo adjunto enviado por la competencia (PDF, Hoja de Cálculo Excel, Imagen o Texto).
 
 REGLAS DE EXTRACCIÓN ESTRICTAS:
-1. Lee todo el PDF e identifica ÚNICAMENTE los productos y equipos deportivos con su precio de venta de competencia en Dólares ($ USD).
+1. Lee todo el contenido del archivo e identifica ÚNICAMENTE los productos y equipos deportivos con su precio de venta de competencia en Dólares ($ USD).
 2. Ignora todo el ruido visual, membretes, logos, direcciones, teléfonos, términos legales de crédito, cuentas bancarias y títulos de secciones.
 3. Para cada producto deportivo identificado, extrae:
    - "item": Nombre claro y completo del artículo deportivo (incluye marca, modelo y especificación si está presente).
@@ -43,23 +44,61 @@ export async function POST(req: NextRequest) {
 
     if (!file) {
       return NextResponse.json(
-        { success: false, error: 'No se adjuntó ningún archivo PDF en la solicitud.' },
+        { success: false, error: 'No se adjuntó ningún archivo en la solicitud.' },
         { status: 400 }
       );
     }
 
-    if (!file.name.toLowerCase().endsWith('.pdf') && file.type !== 'application/pdf') {
-      return NextResponse.json(
-        { success: false, error: 'El archivo subido debe estar en formato PDF.' },
-        { status: 400 }
-      );
+    const fileName = file.name.toLowerCase();
+    const mimeType = file.type || '';
+
+    let promptPart: any = null;
+
+    // 1. SI ES UN ARCHIVO DE EXCEL O CSV (.xlsx, .xls, .csv)
+    if (fileName.endsWith('.xlsx') || fileName.endsWith('.xls') || fileName.endsWith('.csv') || mimeType.includes('spreadsheet') || mimeType.includes('csv')) {
+      const arrayBuffer = await file.arrayBuffer();
+      const workbook = XLSX.read(arrayBuffer, { type: 'buffer' });
+      let textContent = '';
+      workbook.SheetNames.forEach(sheetName => {
+        const sheet = workbook.Sheets[sheetName];
+        textContent += `--- HOJA EXCEL: ${sheetName} ---\n` + XLSX.utils.sheet_to_csv(sheet) + '\n\n';
+      });
+      promptPart = {
+        text: `A continuación se presenta el contenido extraído de la hoja de cálculo de la competencia (${file.name}):\n\n${textContent}`
+      };
+    }
+    // 2. SI ES UN ARCHIVO PDF
+    else if (fileName.endsWith('.pdf') || mimeType === 'application/pdf') {
+      const arrayBuffer = await file.arrayBuffer();
+      const base64Data = Buffer.from(arrayBuffer).toString('base64');
+      promptPart = {
+        inlineData: {
+          mimeType: 'application/pdf',
+          data: base64Data
+        }
+      };
+    }
+    // 3. SI ES UNA IMAGEN (.png, .jpg, .jpeg, .webp)
+    else if (fileName.endsWith('.png') || fileName.endsWith('.jpg') || fileName.endsWith('.jpeg') || fileName.endsWith('.webp') || mimeType.startsWith('image/')) {
+      const arrayBuffer = await file.arrayBuffer();
+      const base64Data = Buffer.from(arrayBuffer).toString('base64');
+      const imgMime = mimeType || (fileName.endsWith('.png') ? 'image/png' : fileName.endsWith('.webp') ? 'image/webp' : 'image/jpeg');
+      promptPart = {
+        inlineData: {
+          mimeType: imgMime,
+          data: base64Data
+        }
+      };
+    }
+    // 4. OTROS ARCHIVOS DE TEXTO PLANO / DOCUMENTOS (.txt, .tsv, etc.)
+    else {
+      const textContent = await file.text();
+      promptPart = {
+        text: `A continuación se presenta el texto del documento de la competencia (${file.name}):\n\n${textContent}`
+      };
     }
 
-    // Convertir el archivo PDF a Buffer -> Base64
-    const arrayBuffer = await file.arrayBuffer();
-    const base64Data = Buffer.from(arrayBuffer).toString('base64');
-
-    // Intentar llamadas a Gemini 2.5 Flash / 1.5 Flash con failover
+    // Intentar llamadas a Gemini 2.5 Flash / 1.5 Flash
     const modelsToTry = [
       'gemini-2.5-flash',
       'gemini-1.5-flash'
@@ -81,12 +120,7 @@ export async function POST(req: NextRequest) {
                   role: 'user',
                   parts: [
                     { text: SYSTEM_PROMPT },
-                    {
-                      inlineData: {
-                        mimeType: 'application/pdf',
-                        data: base64Data
-                      }
-                    }
+                    promptPart
                   ]
                 }
               ],
@@ -113,16 +147,15 @@ export async function POST(req: NextRequest) {
     }
 
     if (!rawResponseText) {
-      throw new Error(`No se pudo procesar el PDF con Gemini. Detalle: ${typeof lastError === 'string' ? lastError : lastError?.message || 'Error de conexión'}`);
+      throw new Error(`No se pudo procesar el archivo con Gemini. Detalle: ${typeof lastError === 'string' ? lastError : lastError?.message || 'Error de conexión'}`);
     }
 
-    // Saneamiento estricto de JSON (Eliminar comillas Markdown ```json y espacios)
+    // Saneamiento estricto de JSON
     let cleanedText = rawResponseText
       .replace(/```json/gi, '')
       .replace(/```/g, '')
       .trim();
 
-    // Extraer subcadena JSON válida si Gemini incluyó texto previo/posterior
     const firstBracket = cleanedText.indexOf('[');
     const lastBracket = cleanedText.lastIndexOf(']');
     if (firstBracket !== -1 && lastBracket !== -1 && lastBracket > firstBracket) {
@@ -137,7 +170,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         {
           success: false,
-          error: 'Gemini devolvió un formato de texto no parseable.',
+          error: 'Gemini devolvió un formato no parseable para este archivo.',
           rawOutput: rawResponseText
         },
         { status: 422 }
@@ -169,7 +202,7 @@ export async function POST(req: NextRequest) {
   } catch (error: any) {
     console.error("[Pricing Intelligence API Error]:", error);
     return NextResponse.json(
-      { success: false, error: error.message || 'Error interno al procesar el PDF de competencia.' },
+      { success: false, error: error.message || 'Error interno al procesar el archivo de la competencia.' },
       { status: 500 }
     );
   }

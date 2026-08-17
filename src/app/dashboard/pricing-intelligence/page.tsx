@@ -78,6 +78,13 @@ export default function PricingIntelligencePage() {
   const productsQuery = useMemoFirebase(() => (firestore && canManage ? query(collection(firestore, 'products'), limit(300)) : null), [firestore, canManage]);
   const { data: catalogProducts, isLoading: isLoadingProducts } = useCollection<Product>(productsQuery);
 
+  // VALIDACIÓN MULTI-FORMATO (PDF, EXCEL, CSV, IMÁGENES, TEXTO)
+  const isSupportedFile = (file: File) => {
+    const name = file.name.toLowerCase();
+    const allowedExts = ['.pdf', '.xlsx', '.xls', '.csv', '.docx', '.txt', '.tsv', '.png', '.jpg', '.jpeg', '.webp'];
+    return allowedExts.some(ext => name.endsWith(ext)) || file.type.startsWith('image/') || file.type.includes('spreadsheet') || file.type.includes('csv') || file.type === 'application/pdf';
+  };
+
   // EVENTOS DRAG AND DROP
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
@@ -94,10 +101,10 @@ export default function PricingIntelligencePage() {
     setIsDragOver(false);
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
       const file = e.dataTransfer.files[0];
-      if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
+      if (isSupportedFile(file)) {
         setSelectedFile(file);
       } else {
-        toast({ variant: 'destructive', title: 'Archivo No Válido', description: 'Por favor sube un archivo en formato PDF.' });
+        toast({ variant: 'destructive', title: 'Formato No Soportado', description: 'Por favor sube un archivo PDF, Excel (.xlsx, .xls, .csv), Imagen (.png, .jpg) o Texto.' });
       }
     }
   };
@@ -105,26 +112,26 @@ export default function PricingIntelligencePage() {
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
       const file = e.target.files[0];
-      if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
+      if (isSupportedFile(file)) {
         setSelectedFile(file);
       } else {
-        toast({ variant: 'destructive', title: 'Archivo No Válido', description: 'Por favor sube un archivo en formato PDF.' });
+        toast({ variant: 'destructive', title: 'Formato No Soportado', description: 'Por favor sube un archivo PDF, Excel (.xlsx, .xls, .csv), Imagen (.png, .jpg) o Texto.' });
       }
     }
   };
 
-  // PROCESAR PDF CON GEMINI Y EMPAREJAR
+  // PROCESAR ARCHIVO CON GEMINI Y EMPAREJAR
   const handleProcessPDF = async () => {
     if (!selectedFile) return;
     setIsProcessing(true);
-    setAnalysisStep('Subiendo PDF y Conectando con Gemini AI...');
+    setAnalysisStep('Subiendo archivo y conectando con Gemini AI...');
     setAnalysisProgress(20);
 
     try {
       const formData = new FormData();
       formData.append('file', selectedFile);
 
-      setAnalysisStep('Gemini 2.5 Flash analizando tabla de precios...');
+      setAnalysisStep('Gemini 2.5 Flash analizando tabla y lista de precios...');
       setAnalysisProgress(50);
 
       const response = await fetch('/api/process-competitor-pdf', {
@@ -155,7 +162,7 @@ export default function PricingIntelligencePage() {
     } catch (e: any) {
       toast({
         variant: 'destructive',
-        title: 'Error en Análisis de PDF',
+        title: 'Error en Análisis de Archivo',
         description: e.message || 'Fallo de conexión al procesar la lista.'
       });
     } finally {
@@ -292,7 +299,7 @@ export default function PricingIntelligencePage() {
       <Card className="border-none shadow-xl rounded-[2.5rem] bg-white overflow-hidden">
         <CardHeader className="bg-slate-50/50 py-5 px-8 border-b flex flex-row items-center justify-between">
           <CardTitle className="text-xs font-black uppercase tracking-[0.3em] text-primary flex items-center gap-2">
-            <UploadCloud className="h-5 w-5" /> 1. Carga de PDF de Competencia
+            <UploadCloud className="h-5 w-5" /> 1. Carga de Lista de Precios (PDF, Excel, Capturas, Texto)
           </CardTitle>
           {selectedFile && (
             <Button variant="ghost" size="sm" onClick={() => setSelectedFile(null)} className="h-8 text-rose-500 font-black text-[9px] uppercase">
@@ -312,7 +319,7 @@ export default function PricingIntelligencePage() {
           >
             <input
               type="file"
-              accept=".pdf,application/pdf"
+              accept=".pdf,.xlsx,.xls,.csv,.docx,.txt,.tsv,image/*"
               onChange={handleFileChange}
               className="absolute inset-0 opacity-0 cursor-pointer"
             />
@@ -323,15 +330,15 @@ export default function PricingIntelligencePage() {
               <div className="space-y-2">
                 <Badge className="bg-primary text-white font-mono text-[10px] px-3 py-1 uppercase">{selectedFile.name}</Badge>
                 <p className="text-[10px] text-slate-400 font-mono">{(selectedFile.size / (1024 * 1024)).toFixed(2)} MB</p>
-                <p className="text-xs font-bold text-emerald-600 uppercase">¡Archivo listo para extracción con Gemini AI!</p>
+                <p className="text-xs font-bold text-emerald-600 uppercase">¡Archivo listo para análisis con IA Gemini!</p>
               </div>
             ) : (
               <div className="space-y-2 max-w-md">
-                <h3 className="text-sm font-black uppercase text-slate-900 tracking-wider">Arrastra aquí la lista de precios en PDF</h3>
+                <h3 className="text-sm font-black uppercase text-slate-900 tracking-wider">Arrastra aquí la lista de precios de la competencia</h3>
                 <p className="text-[10px] font-medium text-slate-400 uppercase leading-relaxed">
-                  Soporta catálogos multideporte de competencia (Fútbol, Béisbol, Baloncesto, Voleibol, Tenis, Natación, Boxeo, Fitness).
+                  Soporta archivos <strong>PDF</strong>, Hojas de Excel (<strong>.xlsx, .xls, .csv</strong>), Fotos/Capturas (<strong>.png, .jpg</strong>) y Documentos de texto.
                 </p>
-                <Badge variant="outline" className="border-slate-200 text-[8px] font-bold text-slate-500 uppercase mt-2">SELECCIONAR ARCHIVO PDF</Badge>
+                <Badge variant="outline" className="border-slate-200 text-[8px] font-bold text-slate-500 uppercase mt-2">SELECCIONAR EXCEL, PDF O IMAGEN</Badge>
               </div>
             )}
           </div>
