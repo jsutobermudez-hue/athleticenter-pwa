@@ -39,6 +39,22 @@ import { format } from 'date-fns';
 
 export const dynamic = 'force-dynamic';
 
+function parseSafeDate(val: any): Date | null {
+    if (!val) return null;
+    if (val instanceof Date) return isNaN(val.getTime()) ? null : val;
+    if (typeof val?.toDate === 'function') {
+        try { return val.toDate(); } catch (e) { return null; }
+    }
+    if (typeof val?.seconds === 'number') {
+        return new Date(val.seconds * 1000);
+    }
+    if (typeof val === 'string' || typeof val === 'number') {
+        const d = new Date(val);
+        return isNaN(d.getTime()) ? null : d;
+    }
+    return null;
+}
+
 function DashboardMetricCard({
   title,
   value,
@@ -323,7 +339,7 @@ function PurchaseOrdersContent() {
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 px-1">
                 {filteredOrders.length > 0 ? filteredOrders.map(po => {
-                    const etaDate = po.estimatedArrival ? (po.estimatedArrival as Timestamp).toDate() : null;
+                    const etaDate = parseSafeDate(po.estimatedArrival);
 
                     return (
                         <Card key={po.id} onClick={() => setSelectedPO(po)} className="cursor-pointer border-none shadow-xl rounded-[2.5rem] overflow-hidden group flex flex-col sm:flex-row transition-all hover:shadow-2xl hover:-translate-y-1">
