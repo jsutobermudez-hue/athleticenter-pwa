@@ -33,7 +33,8 @@ import {
     Info,
     MessageSquare,
     Clock,
-    Filter
+    Filter,
+    Download
 } from 'lucide-react';
 import { ConfirmPaymentDialog } from './register-payment-dialog';
 import { getInvoiceFromOrder } from '@/lib/billing';
@@ -227,19 +228,63 @@ export function AdminBillingView() {
   };
 
   const handleClearFilters = () => {
-      setStatusFilter('todos');
-      setSalespersonFilter('todos');
-      setAgingFilter('todos');
-      setSearchTerm('');
+    setStatusFilter('todos');
+    setSalespersonFilter('todos');
+    setAgingFilter('todos');
+    setDateFilter('todos');
+    setSearchTerm('');
+    setSearchInput('');
+  };
+
+  const totalFilteredSalesUSD = useMemo(() => filteredInvoices.reduce((sum, i) => sum + i.amountTotal, 0), [filteredInvoices]);
+  const totalFilteredPendingUSD = useMemo(() => filteredInvoices.reduce((sum, i) => sum + i.remainingBalance, 0), [filteredInvoices]);
+
+  const exportInvoicesToCSV = () => {
+    if (!filteredInvoices || filteredInvoices.length === 0) return;
+    const bcvRate = 65.50;
+    const headers = ['Expediente ID', 'Cliente', 'Asesor Comercial', 'Estado', 'Monto Total USD', 'Saldo Pendiente USD', 'Monto Total Bs (BCV)', 'Saldo Pendiente Bs (BCV)'];
+    const rows = filteredInvoices.map(i => [
+      i.id,
+      `"${(i.customerName || '').replace(/"/g, '""')}"`,
+      `"${(i.salespersonName || 'Directo').replace(/"/g, '""')}"`,
+      i.statusText || i.status,
+      i.amountTotal.toFixed(2),
+      i.remainingBalance.toFixed(2),
+      (i.amountTotal * bcvRate).toFixed(2),
+      (i.remainingBalance * bcvRate).toFixed(2)
+    ]);
+    const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `Facturas_Athleticenter_${format(new Date(), 'yyyy-MM-dd')}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   if (isUserLoading || !currentUser) return <div className="flex h-screen items-center justify-center"><Loader2 className="h-10 w-10 animate-spin text-primary" /></div>;
 
   return (
     <div className="w-full max-w-full mx-auto flex flex-col gap-8 pb-32 animate-in fade-in-50 duration-500">
-      <header className="space-y-1 px-2">
-        <h1 className="text-4xl font-black uppercase tracking-tighter text-slate-900 leading-none italic">Cobranza y Facturación</h1>
-        <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.4em]">Auditoría de ingresos y conciliación de abonos de la red global.</p>
+      <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 px-2">
+        <div className="space-y-1">
+          <h1 className="text-4xl font-black uppercase tracking-tighter text-slate-900 leading-none italic">Cobranza y Facturación</h1>
+          <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.4em]">Auditoría de ingresos y conciliación de abonos de la red global.</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge variant="outline" className="bg-emerald-50 text-emerald-800 border-emerald-200 text-[10px] font-black uppercase px-3 py-1.5 rounded-xl flex items-center gap-1.5 shadow-sm">
+            <span>💱 Tasa Oficial BCV: Bs. 65.50 / USD</span>
+          </Badge>
+          <Button
+            onClick={exportInvoicesToCSV}
+            variant="outline"
+            className="h-9 px-4 rounded-xl border-slate-200 bg-white hover:bg-slate-50 text-slate-900 text-[9px] font-black uppercase tracking-wider shadow-sm flex items-center gap-1.5"
+          >
+            <Download className="h-3.5 w-3.5 text-primary" /> Exportar a Excel
+          </Button>
+        </div>
       </header>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 px-2">
@@ -460,6 +505,17 @@ export function AdminBillingView() {
                 </div>
                 <ScrollBar orientation="horizontal" className="bg-slate-50 h-3" />
             </ScrollArea>
+
+            {/* RESUMEN DINÁMICO AL PIE DE LA TABLA */}
+            <div className="bg-slate-900 text-white p-4 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-3 text-xs font-mono font-bold mt-2 shadow-lg">
+              <span className="text-[10px] uppercase font-black tracking-widest text-slate-400">
+                Mostrando <span className="text-white font-bold">{filteredInvoices.length}</span> expedientes de facturación seleccionados
+              </span>
+              <div className="flex flex-wrap items-center gap-4 text-[11px]">
+                <span>Total Facturado: <span className="text-emerald-400 font-black">${totalFilteredSalesUSD.toLocaleString('en-US', { minimumFractionDigits: 2 })} USD</span> <span className="text-slate-400 text-[9px]">(Bs. {(totalFilteredSalesUSD * 65.50).toLocaleString('es-VE', { minimumFractionDigits: 2 })})</span></span>
+                <span>Saldo Pendiente: <span className="text-amber-400 font-black">${totalFilteredPendingUSD.toLocaleString('en-US', { minimumFractionDigits: 2 })} USD</span></span>
+              </div>
+            </div>
         </div>
       </div>
 

@@ -8,7 +8,8 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { OrderCard } from './OrderCard';
 import { OrderSheetController } from './OrderSheetController';
 import { Card, CardContent } from '@/components/ui/card';
-import { Search, Clock, Package, Truck, History, CreditCard, SortAsc, SortDesc, Save, AlertTriangle, MessageCircle, ShieldCheck, Loader2, Plus, DollarSign, Wallet, ArrowUpRight } from 'lucide-react';
+import { Search, Clock, Package, Truck, History, CreditCard, SortAsc, SortDesc, Save, AlertTriangle, MessageCircle, ShieldCheck, Loader2, Plus, DollarSign, Wallet, ArrowUpRight, Download } from 'lucide-react';
+import { format } from 'date-fns';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -197,6 +198,29 @@ export default function AdminOrdersView() {
         return initial;
     }, [allOrders, searchTerm, statusFilter, salespersonFilter, dateFilter]);
 
+    const exportOrdersToCSV = () => {
+        if (!allOrders || allOrders.length === 0) return;
+        const bcvRate = 65.50;
+        const headers = ['Pedido ID', 'Cliente', 'Asesor Comercial', 'Estado', 'Monto USD', 'Monto Bs (BCV)'];
+        const rows = allOrders.map(o => [
+            o.id,
+            `"${(o.customerName || '').replace(/"/g, '""')}"`,
+            `"${(o.salespersonName || 'Directo').replace(/"/g, '""')}"`,
+            o.status,
+            (o.totalAmount || 0).toFixed(2),
+            ((o.totalAmount || 0) * bcvRate).toFixed(2)
+        ]);
+        const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.setAttribute('download', `Ventas_y_Pedidos_Athleticenter_${format(new Date(), 'yyyy-MM-dd')}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    };
+
     if (!canListAll) return <div className="p-12 text-center opacity-40 italic font-black uppercase tracking-widest text-[10px]">Acceso restringido a Gerencia y Logística.</div>;
 
     const allSections = [
@@ -295,30 +319,39 @@ export default function AdminOrdersView() {
             {/* Barra de Filtros y Ordenamiento con Selector de Periodo */}
             <Card className="border-none shadow-sm rounded-2xl overflow-hidden bg-white mx-1 sm:mx-2">
                 <CardContent className="p-4 space-y-4">
-                    {/* FILTROS RÁPIDOS DE PERÍODOS DE VENTA */}
-                    <div className="flex flex-wrap items-center gap-2 pb-2 border-b border-slate-100">
-                        <span className="text-[9px] font-black uppercase tracking-widest text-slate-400 mr-1">Periodo:</span>
-                        {[
-                            { id: 'todos', label: '🌐 Todo el Histórico' },
-                            { id: 'today', label: '☀️ Hoy' },
-                            { id: '7d', label: '⚡ Últimos 7 Días' },
-                            { id: 'this_month', label: '🗓️ Mes Actual' },
-                            { id: 'last_month', label: '📅 Mes Anterior' },
-                        ].map(p => (
-                            <button
-                                key={p.id}
-                                type="button"
-                                onClick={() => setDateFilter(p.id as any)}
-                                className={cn(
-                                    "px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer border",
-                                    dateFilter === p.id 
-                                        ? "bg-slate-900 text-white border-slate-900 shadow-sm" 
-                                        : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100"
-                                )}
-                            >
-                                {p.label}
-                            </button>
-                        ))}
+                    {/* FILTROS RÁPIDOS DE PERÍODOS DE VENTA Y EXPORTACIÓN */}
+                    <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-slate-100">
+                        <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-[9px] font-black uppercase tracking-widest text-slate-400 mr-1">Periodo:</span>
+                            {[
+                                { id: 'todos', label: '🌐 Todo el Histórico' },
+                                { id: 'today', label: '☀️ Hoy' },
+                                { id: '7d', label: '⚡ Últimos 7 Días' },
+                                { id: 'this_month', label: '🗓️ Mes Actual' },
+                                { id: 'last_month', label: '📅 Mes Anterior' },
+                            ].map(p => (
+                                <button
+                                    key={p.id}
+                                    type="button"
+                                    onClick={() => setDateFilter(p.id as any)}
+                                    className={cn(
+                                        "px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer border",
+                                        dateFilter === p.id 
+                                            ? "bg-slate-900 text-white border-slate-900 shadow-sm" 
+                                            : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100"
+                                    )}
+                                >
+                                    {p.label}
+                                </button>
+                            ))}
+                        </div>
+                        <Button
+                            onClick={exportOrdersToCSV}
+                            variant="outline"
+                            className="h-8 px-3 rounded-xl border-slate-200 bg-white hover:bg-slate-50 text-slate-900 text-[9px] font-black uppercase tracking-wider shadow-sm flex items-center gap-1.5 ml-auto"
+                        >
+                            <Download className="h-3.5 w-3.5 text-primary" /> Exportar a Excel
+                        </Button>
                     </div>
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 items-end">
