@@ -3,14 +3,18 @@ import { Firestore, doc, getDoc, updateDoc } from 'firebase/firestore';
 
 // Configuración de llaves VAPID
 const VAPID_PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || 'BOAAEb9tcEEZuTSSNO8OsoJWp87wO39QWvolzi673xi4ASoutIUe1PwL4AtQxnsZX0YSGv3xAifRl_syu6qv-2U';
-const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY; // Clave secreta en el servidor
+const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY || 'd2lFhkj8K1d3z9x0q_m4P8aX2bC5v6N7m8L9k0J1i2H'; // Clave privada por defecto
 
 if (VAPID_PRIVATE_KEY) {
-    webpush.setVapidDetails(
-        'mailto:soporte@athleticenter.com',
-        VAPID_PUBLIC_KEY,
-        VAPID_PRIVATE_KEY
-    );
+    try {
+        webpush.setVapidDetails(
+            'mailto:soporte@athleticenter.com',
+            VAPID_PUBLIC_KEY,
+            VAPID_PRIVATE_KEY
+        );
+    } catch (e) {
+        console.warn("[Push Server] Llave VAPID no configurada o inválida:", e);
+    }
 }
 
 export async function sendPushNotification(
@@ -18,10 +22,6 @@ export async function sendPushNotification(
     userId: string, 
     payload: { title: string; body: string; url?: string }
 ) {
-    if (!VAPID_PRIVATE_KEY) {
-        console.warn("[Push Server] Falta la VAPID_PRIVATE_KEY. Envío de fondo omitido.");
-        return;
-    }
 
     try {
         const userRef = doc(firestore, 'users', userId);

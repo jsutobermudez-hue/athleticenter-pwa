@@ -16,71 +16,65 @@ export function NotificationToastListener() {
   const firestore = useFirestore();
   const { toast } = useToast();
   const router = useRouter();
-  const lastProcessedId = useRef<string | null>(null);
-  const isFirstRun = useRef(true);
+  const processedIdsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     if (!firestore || !user) return;
 
-    // Escuchamos las últimas 5 notificaciones de forma resiliente sin requerir índices compuestos
+    // Pedir permiso nativo del navegador si está en estado default
+    if (typeof window !== 'undefined' && 'Notification' in window && window.Notification.permission === 'default') {
+      window.Notification.requestPermission().catch(() => {});
+    }
+
+    // Escuchamos las notificaciones en tiempo real de la subcolección del usuario
     const q = query(
       collection(firestore, `users/${user.uid}/notifications`),
-      orderBy('createdAt', 'desc'),
-      limit(5)
+      limit(25)
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      // En la primera carga, solo guardamos el ID de la más reciente para no disparar alertas antiguas
-      if (isFirstRun.current) {
-        if (!snapshot.empty) lastProcessedId.current = snapshot.docs[0].id;
-        isFirstRun.current = false;
-        return;
-      }
-
       snapshot.docChanges().forEach((change) => {
         if (change.type === 'added') {
           const data = change.doc.data();
           const id = change.doc.id;
 
-          // Evitar procesar la misma notificación múltiples veces, y solo alertar no leídas
-          if (id !== lastProcessedId.current && !data.isRead) {
-            lastProcessedId.current = id;
+          // Si es una notificación no leída que no se ha mostrado en esta sesión de escucha
+          if (!processedIdsRef.current.has(id) && !data.isRead) {
+            processedIdsRef.current.add(id);
             
-            // 1. Mostrar Toast de UI (Shadcn)
+            // 1. Mostrar Toast de UI (Shadcn Banner)
             toast({
               title: `🔔 ${data.title}`,
               description: data.message,
-              duration: 10000, // 10 segundos de permanencia
-              action: data.link ? (
+              duration: 10000,
+              action: data.link && data.link !== '#' ? (
                 <button 
-                    className="text-[10px] font-black uppercase tracking-widest bg-primary text-white px-3 py-1 rounded-lg hover:bg-primary/90 transition-colors"
-                    onClick={() => router.push(data.link)}
+                  className="text-[10px] font-black uppercase tracking-widest bg-primary text-white px-3 py-1 rounded-lg hover:bg-primary/90 transition-colors"
+                  onClick={() => router.push(data.link)}
                 >
-                    VER
+                  VER
                 </button>
               ) : undefined
             });
 
-            // 2. Intentar disparar notificación nativa del sistema si el permiso existe
+            // 2. Disparar Notificación Nativa del Navegador / Sistema
             try {
-                const hasNotificationSupport = typeof window !== 'undefined' && 'Notification' in window;
-                if (hasNotificationSupport && window.Notification.permission === 'granted') {
-                    new window.Notification(data.title, {
-                        body: data.message,
-                        icon: '/icons/icon-192x192.png',
-                        tag: 'foreground-alert',
-                        requireInteraction: true // Evita que se cierre automáticamente rápido
-                    });
-                }
+              if (typeof window !== 'undefined' && 'Notification' in window && window.Notification.permission === 'granted') {
+                new window.Notification(data.title, {
+                  body: data.message,
+                  icon: '/icons/icon-192x192.png',
+                  tag: id,
+                  requireInteraction: false
+                });
+              }
             } catch (e) {
-                // Failsafe: Algunos navegadores bloquean la construcción directa fuera de un evento de usuario
-                console.warn("[Notifications] Bloqueo de API nativa en foreground.");
+              console.warn("[Notifications] Error en notificación nativa de primer plano:", e);
             }
           }
         }
       });
     }, (error) => {
-        console.warn("[Notifications] Suscripción de escucha limitada por red o permisos.");
+      console.warn("[Notifications] Error en suscripción de notificaciones:", error);
     });
 
     return () => unsubscribe();
