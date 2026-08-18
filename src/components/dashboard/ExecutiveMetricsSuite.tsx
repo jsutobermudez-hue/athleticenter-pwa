@@ -51,6 +51,7 @@ export function ExecutiveMetricsSuite({ orders }: ExecutiveMetricsSuiteProps) {
     const [selectedBarOrders, setSelectedBarOrders] = useState<Order[] | null>(null);
     const [customModalLabel, setCustomModalLabel] = useState<string>('');
     const [auditMode, setAuditMode] = useState<'ventas' | 'cobranzas' | 'despachos' | 'cancelaciones' | 'pendientes'>('ventas');
+    const [paymentMethodFilter, setPaymentMethodFilter] = useState<'todos' | 'cash' | 'bcv' | 'zelle'>('todos');
 
     const openAuditForType = (type: 'ventas' | 'cobranzas' | 'despachos' | 'cancelaciones' | 'pendientes', customOrders?: Order[], customLabel?: string) => {
         setAuditMode(type);
@@ -532,15 +533,41 @@ export function ExecutiveMetricsSuite({ orders }: ExecutiveMetricsSuiteProps) {
                         );
                     })()}
 
-                    {/* BARRA DE BÚSQUEDA DENTRO DE LA MODAL */}
-                    <div className="relative my-2">
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
-                        <Input
-                            placeholder="BUSCAR CLIENTE, VENDEDOR O PEDIDO..."
-                            value={auditSearchTerm}
-                            onChange={(e) => setAuditSearchTerm(e.target.value)}
-                            className="pl-9 h-10 text-[10px] font-bold uppercase bg-slate-50 border-none rounded-xl"
-                        />
+                    {/* BARRA DE BÚSQUEDA Y FILTRO DE MÉTODOS DENTRO DE LA MODAL */}
+                    <div className="flex flex-col sm:flex-row items-center gap-2 my-2">
+                        <div className="relative flex-1 w-full">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+                            <Input
+                                placeholder="BUSCAR CLIENTE, VENDEDOR O PEDIDO..."
+                                value={auditSearchTerm}
+                                onChange={(e) => setAuditSearchTerm(e.target.value)}
+                                className="pl-9 h-10 text-[10px] font-bold uppercase bg-slate-50 border-none rounded-xl"
+                            />
+                        </div>
+                        {auditMode === 'cobranzas' && (
+                            <div className="flex flex-wrap items-center gap-1 bg-slate-100 p-1 rounded-xl">
+                                {[
+                                    { id: 'todos', label: '💵 Todos' },
+                                    { id: 'cash', label: '💵 Cash USD' },
+                                    { id: 'bcv', label: '🇻🇪 Bolívares BCV' },
+                                    { id: 'zelle', label: '🏦 Zelle' },
+                                ].map(m => (
+                                    <button
+                                        key={m.id}
+                                        type="button"
+                                        onClick={() => setPaymentMethodFilter(m.id as any)}
+                                        className={cn(
+                                            "px-2.5 py-1.5 rounded-lg text-[8px] font-black uppercase tracking-wider transition-all border",
+                                            paymentMethodFilter === m.id
+                                                ? "bg-emerald-700 text-white border-emerald-700 shadow-sm"
+                                                : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+                                        )}
+                                    >
+                                        {m.label}
+                                    </button>
+                                ))}
+                            </div>
+                        )}
                     </div>
 
                     {/* TABLA DE PEDIDOS DESGLOSADOS ADAPTADA AL MODO */}
@@ -564,12 +591,21 @@ export function ExecutiveMetricsSuite({ orders }: ExecutiveMetricsSuiteProps) {
                                 {(selectedBarOrders || orders || [])
                                     .filter(o => {
                                         const term = auditSearchTerm.toLowerCase().trim();
-                                        if (!term) return true;
-                                        return (
-                                            (o.customerName || '').toLowerCase().includes(term) ||
-                                            (o.salespersonName || '').toLowerCase().includes(term) ||
-                                            (o.id || '').toLowerCase().includes(term)
-                                        );
+                                        if (term) {
+                                            const matchesTerm = (
+                                                (o.customerName || '').toLowerCase().includes(term) ||
+                                                (o.salespersonName || '').toLowerCase().includes(term) ||
+                                                (o.id || '').toLowerCase().includes(term)
+                                            );
+                                            if (!matchesTerm) return false;
+                                        }
+                                        if (auditMode === 'cobranzas' && paymentMethodFilter !== 'todos') {
+                                            const pMethod = ((o as any).paymentMethod || (o as any).paymentType || (o as any).paymentChannel || '').toLowerCase();
+                                            if (paymentMethodFilter === 'cash' && !pMethod.includes('efectivo') && !pMethod.includes('cash')) return false;
+                                            if (paymentMethodFilter === 'bcv' && !pMethod.includes('bcv') && !pMethod.includes('bolivar') && !pMethod.includes('pago movil') && !pMethod.includes('transferencia')) return false;
+                                            if (paymentMethodFilter === 'zelle' && !pMethod.includes('zelle') && !pMethod.includes('swift')) return false;
+                                        }
+                                        return true;
                                     })
                                     .map((o, idx) => {
                                         const rowVal = auditMode === 'cobranzas' 
