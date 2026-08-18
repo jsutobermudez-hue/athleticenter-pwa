@@ -15,6 +15,7 @@ import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Progress } from '@/components/ui/progress';
 import { useToast } from '@/hooks/use-toast';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
 import { 
     Calculator, 
@@ -78,6 +79,12 @@ export default function BreakEvenPage() {
 
   // FILTRO BÚSQUEDA DATA GRID
   const [searchTerm, setSearchTerm] = useState('');
+
+  // MODALES INTERACTIVOS DE LAS TARJETAS KPI
+  const [isExpensesModalOpen, setIsExpensesModalOpen] = useState(false);
+  const [isScenarioModalOpen, setIsScenarioModalOpen] = useState(false);
+  const [isBreakEvenDetailModalOpen, setIsBreakEvenDetailModalOpen] = useState(false);
+  const [isProgressModalOpen, setIsProgressModalOpen] = useState(false);
 
   // CÁLCULO DE VENTAS REALES REGISTRADAS ESTE MES
   const actualMonthMetrics = useMemo(() => {
@@ -180,70 +187,100 @@ export default function BreakEvenPage() {
         </div>
       </header>
 
-      {/* 1. TARJETAS KPI EJECUTIVAS EN TIEMPO REAL */}
+      {/* 1. TARJETAS KPI EJECUTIVAS EN TIEMPO REAL - INTERACTIVAS */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-        <Card className="border-none shadow-xl rounded-[2rem] bg-slate-900 text-white p-6 flex flex-col justify-between relative overflow-hidden">
+        {/* TARJETA 1: COSTOS FIJOS MENSUALES */}
+        <Card 
+          onClick={() => setIsExpensesModalOpen(true)}
+          className="border-none shadow-xl rounded-[2rem] bg-slate-900 text-white p-6 flex flex-col justify-between relative overflow-hidden cursor-pointer hover:scale-[1.02] hover:shadow-2xl transition-all duration-300 group"
+        >
           <div className="flex justify-between items-start">
             <div>
-              <p className="text-[9px] font-black uppercase tracking-[0.2em] text-primary">Costos Fijos Mensuales</p>
+              <p className="text-[9px] font-black uppercase tracking-[0.2em] text-primary flex items-center gap-1">
+                Costos Fijos Mensuales <ArrowUpRight className="h-3 w-3 opacity-0 group-hover:opacity-100 transition-opacity" />
+              </p>
               <h3 className="text-3xl font-black tracking-tight text-white mt-1">${summary.totalFixedExpensesUSD.toLocaleString('en-US')}</h3>
               <p className="text-[9px] font-bold text-slate-400 font-mono">Bs. {(summary.totalFixedExpensesUSD * summary.bcvRate).toLocaleString('es-VE')} (BCV)</p>
             </div>
-            <div className="p-3 rounded-2xl bg-primary/20 text-primary"><Building2 className="h-6 w-6" /></div>
+            <div className="p-3 rounded-2xl bg-primary/20 text-primary group-hover:bg-primary group-hover:text-white transition-colors"><Building2 className="h-6 w-6" /></div>
           </div>
-          <Badge variant="outline" className="mt-4 border-slate-800 text-[8px] font-mono text-slate-400 uppercase w-fit">
-            {expenses.filter(e => e.isFixed).length} Rubros Fijos Registrados
-          </Badge>
+          <div className="flex items-center justify-between mt-4">
+            <Badge variant="outline" className="border-slate-800 text-[8px] font-mono text-slate-400 uppercase">
+              {expenses.filter(e => e.isFixed).length} Rubros Fijos Registrados
+            </Badge>
+            <span className="text-[8px] font-black uppercase text-primary tracking-widest group-hover:underline">VER DETALLE ➔</span>
+          </div>
         </Card>
 
-        <Card className="border-none shadow-xl rounded-[2rem] bg-gradient-to-br from-primary to-blue-700 text-white p-6 flex flex-col justify-between relative overflow-hidden">
+        {/* TARJETA 2: META DE GANANCIA DESEADA */}
+        <Card 
+          onClick={() => setIsScenarioModalOpen(true)}
+          className="border-none shadow-xl rounded-[2rem] bg-gradient-to-br from-primary to-blue-700 text-white p-6 flex flex-col justify-between relative overflow-hidden cursor-pointer hover:scale-[1.02] hover:shadow-2xl transition-all duration-300 group"
+        >
           <div className="flex justify-between items-start">
             <div>
-              <p className="text-[9px] font-black uppercase tracking-[0.2em] text-white/80">Meta de Ganancia Deseada</p>
+              <p className="text-[9px] font-black uppercase tracking-[0.2em] text-white/80 flex items-center gap-1">
+                Meta de Ganancia Deseada <ArrowUpRight className="h-3 w-3 opacity-0 group-hover:opacity-100 transition-opacity" />
+              </p>
               <h3 className="text-3xl font-black tracking-tight text-white mt-1">${summary.targetProfitUSD.toLocaleString('en-US')}</h3>
-              <p className="text-[9px] font-bold text-white/70 font-mono">Utilidad Neta Meta</p>
+              <p className="text-[9px] font-bold text-white/70 font-mono">Utilidad Neta Meta Mensual</p>
             </div>
-            <div className="p-3 rounded-2xl bg-white/20 text-white"><TrendingUp className="h-6 w-6" /></div>
+            <div className="p-3 rounded-2xl bg-white/20 text-white group-hover:bg-white group-hover:text-primary transition-colors"><TrendingUp className="h-6 w-6" /></div>
           </div>
-          <div className="flex items-center gap-2 mt-4">
+          <div className="flex items-center gap-2 mt-4" onClick={(e) => e.stopPropagation()}>
             <Input
               type="number"
               value={targetProfitUSD}
               onChange={(e) => setTargetProfitUSD(Number(e.target.value))}
-              className="h-8 font-black text-center text-xs bg-white/20 border-none text-white rounded-xl placeholder:text-white/50 w-32"
+              className="h-8 font-black text-center text-xs bg-white/20 border-none text-white rounded-xl placeholder:text-white/50 w-28"
             />
             <span className="text-[8px] font-black uppercase text-white/90">Ajustar Meta USD</span>
           </div>
         </Card>
 
-        <Card className="border-none shadow-xl rounded-[2rem] bg-emerald-600 text-white p-6 flex flex-col justify-between relative overflow-hidden">
+        {/* TARJETA 3: FACTURACIÓN REQUERIDA TOTAL */}
+        <Card 
+          onClick={() => setIsBreakEvenDetailModalOpen(true)}
+          className="border-none shadow-xl rounded-[2rem] bg-emerald-600 text-white p-6 flex flex-col justify-between relative overflow-hidden cursor-pointer hover:scale-[1.02] hover:shadow-2xl transition-all duration-300 group"
+        >
           <div className="flex justify-between items-start">
             <div>
-              <p className="text-[9px] font-black uppercase tracking-[0.2em] text-emerald-200">Facturación Requerida Total</p>
+              <p className="text-[9px] font-black uppercase tracking-[0.2em] text-emerald-200 flex items-center gap-1">
+                Facturación Requerida Total <ArrowUpRight className="h-3 w-3 opacity-0 group-hover:opacity-100 transition-opacity" />
+              </p>
               <h3 className="text-3xl font-black tracking-tight text-white mt-1">${summary.totalRequiredRevenueUSD.toLocaleString('en-US')}</h3>
               <p className="text-[9px] font-bold text-emerald-100 font-mono">Bs. {summary.totalRequiredRevenueVES.toLocaleString('es-VE')} (BCV)</p>
             </div>
-            <div className="p-3 rounded-2xl bg-white/20 text-white"><DollarSign className="h-6 w-6" /></div>
+            <div className="p-3 rounded-2xl bg-white/20 text-white group-hover:bg-white group-hover:text-emerald-700 transition-colors"><DollarSign className="h-6 w-6" /></div>
           </div>
-          <Badge className="mt-4 bg-white/20 text-white font-mono text-[9px] font-black border-none w-fit">
-            {summary.totalRequiredUnits} Unidades a Vender
-          </Badge>
+          <div className="flex items-center justify-between mt-4">
+            <Badge className="bg-white/20 text-white font-mono text-[9px] font-black border-none">
+              {summary.totalRequiredUnits} Unidades a Vender
+            </Badge>
+            <span className="text-[8px] font-black uppercase text-emerald-100 tracking-widest group-hover:underline">FÓRMULA ➔</span>
+          </div>
         </Card>
 
-        <Card className="border-none shadow-xl rounded-[2rem] bg-white p-6 flex flex-col justify-between relative overflow-hidden border border-slate-100">
+        {/* TARJETA 4: PROGRESO REAL DEL MES */}
+        <Card 
+          onClick={() => setIsProgressModalOpen(true)}
+          className="border-none shadow-xl rounded-[2rem] bg-white p-6 flex flex-col justify-between relative overflow-hidden border border-slate-100 cursor-pointer hover:scale-[1.02] hover:shadow-2xl transition-all duration-300 group"
+        >
           <div className="flex justify-between items-start">
             <div>
-              <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Progreso Real del Mes</p>
+              <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400 flex items-center gap-1">
+                Progreso Real del Mes <ArrowUpRight className="h-3 w-3 opacity-0 group-hover:opacity-100 transition-opacity" />
+              </p>
               <h3 className="text-3xl font-black tracking-tight text-slate-900 mt-1">{summary.breakEvenProgressPercent}%</h3>
               <p className="text-[9px] font-bold text-slate-500 uppercase">${actualMonthMetrics.salesUSD.toLocaleString('en-US')} Vendidos</p>
             </div>
-            <div className="p-3 rounded-2xl bg-slate-100 text-slate-700"><BarChart3 className="h-6 w-6" /></div>
+            <div className="p-3 rounded-2xl bg-slate-100 text-slate-700 group-hover:bg-primary group-hover:text-white transition-colors"><BarChart3 className="h-6 w-6" /></div>
           </div>
           <div className="space-y-1.5 mt-4">
             <Progress value={summary.breakEvenProgressPercent} className="h-2 bg-slate-100" />
             <div className="flex justify-between text-[8px] font-black uppercase text-slate-400">
               <span>{actualMonthMetrics.units} Unidades Reales</span>
-              <span>Meta: {summary.totalRequiredUnits} Unids</span>
+              <span className="group-hover:text-primary transition-colors">VER PEDIDOS ➔</span>
             </div>
           </div>
         </Card>
@@ -472,6 +509,184 @@ export default function BreakEvenPage() {
           </table>
         </CardContent>
       </Card>
+
+      {/* MODAL 1: DETALLE DE COSTOS FIJOS POR CATEGORÍA */}
+      <Dialog open={isExpensesModalOpen} onOpenChange={setIsExpensesModalOpen}>
+        <DialogContent className="sm:max-w-xl rounded-[2.5rem] border-none shadow-2xl overflow-hidden p-8">
+          <DialogHeader className="space-y-2">
+            <DialogTitle className="text-xl font-black uppercase tracking-tight text-slate-900 flex items-center gap-2">
+              <Building2 className="h-5 w-5 text-primary" /> Auditoría de Costos Fijos Mensuales
+            </DialogTitle>
+            <DialogDescription className="text-xs text-slate-500 font-medium">
+              Origen de datos: Colección <code>expenses</code> en Firestore (Filtrado por <code>isFixed: true</code>).
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            <div className="p-4 rounded-2xl bg-slate-900 text-white flex justify-between items-center">
+              <div>
+                <span className="text-[8px] font-black uppercase text-primary tracking-widest">Total Gastos Fijos</span>
+                <h3 className="text-2xl font-black text-white">${summary.totalFixedExpensesUSD.toLocaleString('en-US')} USD</h3>
+              </div>
+              <Badge className="bg-primary/20 text-primary font-mono text-[9px] border-none">
+                Bs. {(summary.totalFixedExpensesUSD * summary.bcvRate).toLocaleString('es-VE')} BCV
+              </Badge>
+            </div>
+
+            <div className="space-y-2 max-h-[300px] overflow-y-auto pr-2">
+              {expenses.filter(e => e.isFixed).map((exp, i) => (
+                <div key={i} className="p-3.5 rounded-2xl bg-slate-50 border border-slate-100 flex justify-between items-center text-xs font-bold text-slate-800">
+                  <div>
+                    <p className="font-black text-slate-900 uppercase">{exp.concept}</p>
+                    <span className="text-[8px] font-black text-slate-400 uppercase">{exp.category}</span>
+                  </div>
+                  <span className="font-mono font-black text-slate-900">${exp.amountUSD.toFixed(2)} USD</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button onClick={() => setIsExpensesModalOpen(false)} className="h-11 px-6 rounded-xl bg-slate-900 text-white font-black text-xs uppercase">
+              Cerrar Auditoría
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* MODAL 2: SIMULADOR DE ESCENARIOS DE GANANCIA */}
+      <Dialog open={isScenarioModalOpen} onOpenChange={setIsScenarioModalOpen}>
+        <DialogContent className="sm:max-w-md rounded-[2.5rem] border-none shadow-2xl overflow-hidden p-8">
+          <DialogHeader className="space-y-2">
+            <DialogTitle className="text-xl font-black uppercase tracking-tight text-slate-900 flex items-center gap-2">
+              <TrendingUp className="h-5 w-5 text-primary" /> Simulador de Escenarios de Ganancia Meta
+            </DialogTitle>
+            <DialogDescription className="text-xs text-slate-500 font-medium">
+              Origen de datos: Documento <code>system/financials</code> en Firestore (Propiedad <code>targetProfitUSD</code>).
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            <p className="text-xs font-bold text-slate-700 uppercase">Selecciona un escenario rápido de proyección mensual:</p>
+            <div className="grid grid-cols-3 gap-3">
+              <Button
+                variant="outline"
+                onClick={() => { setTargetProfitUSD(2000); setIsScenarioModalOpen(false); }}
+                className="h-20 flex flex-col items-center justify-center rounded-2xl border-slate-200 hover:border-primary hover:bg-primary/5"
+              >
+                <span className="text-[8px] font-black uppercase text-slate-400">Conservador</span>
+                <span className="text-sm font-black text-slate-900">$2,000</span>
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => { setTargetProfitUSD(5000); setIsScenarioModalOpen(false); }}
+                className="h-20 flex flex-col items-center justify-center rounded-2xl border-primary bg-primary/5"
+              >
+                <span className="text-[8px] font-black uppercase text-primary">Moderado</span>
+                <span className="text-sm font-black text-primary">$5,000</span>
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => { setTargetProfitUSD(10000); setIsScenarioModalOpen(false); }}
+                className="h-20 flex flex-col items-center justify-center rounded-2xl border-emerald-500 hover:bg-emerald-50"
+              >
+                <span className="text-[8px] font-black uppercase text-emerald-600">Agresivo</span>
+                <span className="text-sm font-black text-emerald-700">$10,000</span>
+              </Button>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setIsScenarioModalOpen(false)} className="h-11 rounded-xl font-black text-xs uppercase">Cerrar</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* MODAL 3: FÓRMULA Y DESGLOSE DE FACTURACIÓN REQUERIDA */}
+      <Dialog open={isBreakEvenDetailModalOpen} onOpenChange={setIsBreakEvenDetailModalOpen}>
+        <DialogContent className="sm:max-w-lg rounded-[2.5rem] border-none shadow-2xl overflow-hidden p-8">
+          <DialogHeader className="space-y-2">
+            <DialogTitle className="text-xl font-black uppercase tracking-tight text-slate-900 flex items-center gap-2">
+              <DollarSign className="h-5 w-5 text-emerald-600" /> Matemática del Punto de Equilibrio
+            </DialogTitle>
+            <DialogDescription className="text-xs text-slate-500 font-medium">
+              Origen de datos: Calculado por el motor <code>breakEvenEngine.ts</code> utilizando las comisiones de Tesorería (15%) y Overhead (10%).
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-100 text-center space-y-1">
+              <span className="text-[8px] font-black uppercase text-emerald-600">Fórmula Aplicada</span>
+              <p className="text-xs font-mono font-black text-emerald-900">
+                PE Unidades = (Costos Fijos $ + Ganancia Deseada $) / Margen Ponderado (MCP)
+              </p>
+              <p className="text-xl font-black text-emerald-700 font-mono pt-2">
+                PE = (${summary.totalFixedExpensesUSD} + ${summary.targetProfitUSD}) / ${summary.weightedContributionMargin} = {summary.totalRequiredUnits} Unids
+              </p>
+            </div>
+
+            <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100 space-y-2">
+              <div className="flex justify-between text-xs font-bold text-slate-700">
+                <span>Facturación Requerida USD:</span>
+                <span className="font-mono font-black text-slate-900">${summary.totalRequiredRevenueUSD.toLocaleString('en-US')}</span>
+              </div>
+              <div className="flex justify-between text-xs font-bold text-slate-700">
+                <span>Facturación Requerida BCV:</span>
+                <span className="font-mono font-black text-slate-900">Bs. {summary.totalRequiredRevenueVES.toLocaleString('es-VE')}</span>
+              </div>
+              <div className="flex justify-between text-xs font-bold text-slate-700">
+                <span>Tasa Oficial BCV Aplicada:</span>
+                <span className="font-mono font-black text-primary">Bs. {summary.bcvRate.toFixed(2)}</span>
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button onClick={() => setIsBreakEvenDetailModalOpen(false)} className="h-11 px-6 rounded-xl bg-slate-900 text-white font-black text-xs uppercase">
+              Entendido
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* MODAL 4: DETALLE DE PROGRESO REAL Y VENTAS REGISTRADAS */}
+      <Dialog open={isProgressModalOpen} onOpenChange={setIsProgressModalOpen}>
+        <DialogContent className="sm:max-w-lg rounded-[2.5rem] border-none shadow-2xl overflow-hidden p-8">
+          <DialogHeader className="space-y-2">
+            <DialogTitle className="text-xl font-black uppercase tracking-tight text-slate-900 flex items-center gap-2">
+              <BarChart3 className="h-5 w-5 text-primary" /> Auditoría de Ventas Reales del Mes
+            </DialogTitle>
+            <DialogDescription className="text-xs text-slate-500 font-medium">
+              Origen de datos: Colección <code>orders</code> en Firestore (Pedidos procesados este mes).
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            <div className="p-4 rounded-2xl bg-slate-900 text-white flex justify-between items-center">
+              <div>
+                <span className="text-[8px] font-black uppercase text-primary tracking-widest">Total Ventas Registradas</span>
+                <h3 className="text-2xl font-black text-white">${actualMonthMetrics.salesUSD.toLocaleString('en-US')} USD</h3>
+              </div>
+              <Badge className="bg-emerald-500 text-white font-mono text-[10px] border-none">
+                {actualMonthMetrics.units} Unidades Reales
+              </Badge>
+            </div>
+
+            <p className="text-xs text-slate-500 font-medium">
+              Has cubierto el <strong className="text-slate-900">{summary.breakEvenProgressPercent}%</strong> de la meta requerida para estar en punto de equilibrio y generar la ganancia deseada.
+            </p>
+          </div>
+
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => { setIsProgressModalOpen(false); router.push('/dashboard/orders'); }} className="h-11 px-6 rounded-xl font-black text-xs uppercase">
+              Ver Todos los Pedidos
+            </Button>
+            <Button onClick={() => setIsProgressModalOpen(false)} className="h-11 px-6 rounded-xl bg-slate-900 text-white font-black text-xs uppercase">
+              Cerrar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
