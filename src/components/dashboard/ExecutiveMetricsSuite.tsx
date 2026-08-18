@@ -92,13 +92,38 @@ export function ExecutiveMetricsSuite({ orders }: ExecutiveMetricsSuiteProps) {
                 };
             });
         } else if (period === 'this_month') {
-            const mStart = new Date(now.getFullYear(), now.getMonth(), 1);
-            const mEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
-            periodsList = [{ dateLabel: format(now, 'MMMM yyyy', { locale: es }).toUpperCase(), start: mStart, end: mEnd, rawDate: mStart }];
+            const year = now.getFullYear();
+            const month = now.getMonth();
+            const lastDayOfMonth = new Date(year, month + 1, 0).getDate();
+            const weekRanges = [
+                { label: 'Sem 1 (1-7)', startDay: 1, endDay: 7 },
+                { label: 'Sem 2 (8-14)', startDay: 8, endDay: 14 },
+                { label: 'Sem 3 (15-21)', startDay: 15, endDay: 21 },
+                { label: `Sem 4 (22-${lastDayOfMonth})`, startDay: 22, endDay: lastDayOfMonth },
+            ];
+            periodsList = weekRanges.map(w => ({
+                dateLabel: w.label,
+                start: new Date(year, month, w.startDay, 0, 0, 0),
+                end: new Date(year, month, w.endDay, 23, 59, 59, 999),
+                rawDate: new Date(year, month, w.startDay)
+            }));
         } else if (period === 'last_month') {
-            const mStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-            const mEnd = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
-            periodsList = [{ dateLabel: format(mStart, 'MMMM yyyy', { locale: es }).toUpperCase(), start: mStart, end: mEnd, rawDate: mStart }];
+            const lmDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+            const year = lmDate.getFullYear();
+            const month = lmDate.getMonth();
+            const lastDayOfMonth = new Date(year, month + 1, 0).getDate();
+            const weekRanges = [
+                { label: 'Sem 1 (1-7)', startDay: 1, endDay: 7 },
+                { label: 'Sem 2 (8-14)', startDay: 8, endDay: 14 },
+                { label: 'Sem 3 (15-21)', startDay: 15, endDay: 21 },
+                { label: `Sem 4 (22-${lastDayOfMonth})`, startDay: 22, endDay: lastDayOfMonth },
+            ];
+            periodsList = weekRanges.map(w => ({
+                dateLabel: w.label,
+                start: new Date(year, month, w.startDay, 0, 0, 0),
+                end: new Date(year, month, w.endDay, 23, 59, 59, 999),
+                rawDate: new Date(year, month, w.startDay)
+            }));
         } else if (period === '30d') {
             periodsList = Array.from({ length: 30 }, (_, i) => {
                 const day = startOfDay(subDays(now, 29 - i));
@@ -307,8 +332,8 @@ export function ExecutiveMetricsSuite({ orders }: ExecutiveMetricsSuiteProps) {
                                         formatter={(val: any, name: any) => [`$${Number(val).toLocaleString()}`, name === 'ventas' ? 'Ventas Comercial' : 'Cobranzas Cash']}
                                     />
                                     <Legend wrapperStyle={{ fontSize: '10px', fontWeight: 900, textTransform: 'uppercase', paddingTop: '10px' }} />
-                                    <Bar dataKey="ventas" name="ventas" fill="#3b82f6" radius={[6, 6, 0, 0]} onClick={handleBarClick} className="cursor-pointer hover:opacity-80 transition-opacity" />
-                                    <Bar dataKey="cobranzas" name="cobranzas" fill="#10b981" radius={[6, 6, 0, 0]} onClick={handleBarClick} className="cursor-pointer hover:opacity-80 transition-opacity" />
+                                    <Bar dataKey="ventas" name="ventas" fill="#3b82f6" radius={[6, 6, 0, 0]} maxBarSize={50} onClick={handleBarClick} className="cursor-pointer hover:opacity-80 transition-opacity" />
+                                    <Bar dataKey="cobranzas" name="cobranzas" fill="#10b981" radius={[6, 6, 0, 0]} maxBarSize={50} onClick={handleBarClick} className="cursor-pointer hover:opacity-80 transition-opacity" />
                                 </BarChart>
                             </ResponsiveContainer>
                         </div>
@@ -334,8 +359,8 @@ export function ExecutiveMetricsSuite({ orders }: ExecutiveMetricsSuiteProps) {
                                         formatter={(val: any, name: any) => [`${val} Unid.`, name === 'despachos' ? 'Despachados / Entregados' : 'Cancelaciones']}
                                     />
                                     <Legend wrapperStyle={{ fontSize: '10px', fontWeight: 900, textTransform: 'uppercase', paddingTop: '10px' }} />
-                                    <Bar dataKey="despachos" name="despachos" fill="#38bdf8" radius={[6, 6, 0, 0]} onClick={handleBarClick} className="cursor-pointer hover:opacity-80 transition-opacity" />
-                                    <Bar dataKey="cancelaciones" name="cancelaciones" fill="#f43f5e" radius={[6, 6, 0, 0]} onClick={handleBarClick} className="cursor-pointer hover:opacity-80 transition-opacity" />
+                                    <Bar dataKey="despachos" name="despachos" fill="#38bdf8" radius={[6, 6, 0, 0]} maxBarSize={50} onClick={handleBarClick} className="cursor-pointer hover:opacity-80 transition-opacity" />
+                                    <Bar dataKey="cancelaciones" name="cancelaciones" fill="#f43f5e" radius={[6, 6, 0, 0]} maxBarSize={50} onClick={handleBarClick} className="cursor-pointer hover:opacity-80 transition-opacity" />
                                 </BarChart>
                             </ResponsiveContainer>
                         </div>
