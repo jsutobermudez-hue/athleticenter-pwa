@@ -6,7 +6,8 @@ import {
     Card, 
     CardContent, 
     CardHeader, 
-    CardTitle 
+    CardTitle,
+    CardFooter
 } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
@@ -60,6 +61,7 @@ export function SalespersonRankingCard({ orders }: { orders: Order[] }) {
         const startOfWeek = new Date();
         startOfWeek.setDate(now.getDate() - 7);
         const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+        const VALID_SALES_STATUSES = ['Entregado', 'Completado', 'Despachado', 'Pagado', 'Aprobado', 'En Preparación'];
 
         let parsedStart: Date | null = null;
         let parsedEnd: Date | null = null;
@@ -73,7 +75,8 @@ export function SalespersonRankingCard({ orders }: { orders: Order[] }) {
         }
 
         return orders.filter(o => {
-            const oDate = convertToDate(o.createdAt || o.orderDate);
+            if (!VALID_SALES_STATUSES.includes(o.status)) return false;
+            const oDate = convertToDate(o.receptionDate || o.approvalDate || o.createdAt || o.orderDate);
 
             if (period === 'semana') {
                 return oDate >= startOfWeek;
@@ -89,14 +92,13 @@ export function SalespersonRankingCard({ orders }: { orders: Order[] }) {
         });
     }, [orders, period, startDate, endDate]);
 
-    // Agrupación y ordenamiento por vendedor
+    // Agrupación y ordenamiento por vendedor (incluyendo Ventas Directas)
     const salespersonRanking = useMemo(() => {
         const groups: { [id: string]: { id: string; name: string; totalSales: number; orderCount: number; orders: Order[] } } = {};
 
         filteredOrders.forEach(order => {
-            if (!order.salespersonId) return;
-            const spId = order.salespersonId;
-            const spName = order.salespersonName || 'Vendedor';
+            const spId = order.salespersonId || 'direct_system';
+            const spName = order.salespersonName || (order.salespersonId ? 'Vendedor' : 'Ventas Directas / Sistema');
 
             // Filtro por texto del nombre del vendedor
             if (searchQuery && !spName.toLowerCase().includes(searchQuery.toLowerCase())) {
@@ -216,6 +218,12 @@ export function SalespersonRankingCard({ orders }: { orders: Order[] }) {
                         </div>
                     )}
                 </CardContent>
+                <CardFooter className="p-6 border-t border-white/5 bg-white/[0.02] flex items-center justify-between">
+                    <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Total Facturado en Periodo ({period.toUpperCase()}):</span>
+                    <p className="text-base font-black tracking-tighter text-emerald-400 font-mono">
+                        ${salespersonRanking.reduce((sum, r) => sum + r.totalSales, 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                    </p>
+                </CardFooter>
             </Card>
 
             {/* Modal de Pedidos de Vendedor */}
