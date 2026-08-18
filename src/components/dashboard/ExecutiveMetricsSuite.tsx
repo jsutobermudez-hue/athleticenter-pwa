@@ -40,6 +40,28 @@ const convertToDate = (value: any): Date => {
     return new Date(value);
 };
 
+const getEffectiveCashReceived = (o: Order): number => {
+    if (!o) return 0;
+    if (typeof o.totalCashReceived === 'number' && o.totalCashReceived > 0) {
+        return o.totalCashReceived;
+    }
+    if (typeof o.amountPaid === 'number' && o.amountPaid > 0) {
+        return o.amountPaid;
+    }
+    const altPaid = (o as any).paidAmount || (o as any).totalPaid || (o as any).montoPagado;
+    if (typeof altPaid === 'number' && altPaid > 0) {
+        return altPaid;
+    }
+    if (o.status === 'Pagado' || (o as any).isPaid === true || (o as any).paymentStatus === 'Pagado') {
+        return o.totalAmount || 0;
+    }
+    return 0;
+};
+
+const isCashOrder = (o: Order): boolean => {
+    return getEffectiveCashReceived(o) > 0 || o.status === 'Pagado' || (o as any).isPaid === true || (o as any).paymentStatus === 'Pagado';
+};
+
 export function ExecutiveMetricsSuite({ orders }: ExecutiveMetricsSuiteProps) {
     const [period, setPeriod] = useState<'today' | '7d' | '30d' | 'this_month' | 'last_month' | '6m'>('this_month');
     const [activeTab, setActiveTab] = useState<'comparative' | 'logistics' | 'matrix'>('comparative');
@@ -115,13 +137,13 @@ export function ExecutiveMetricsSuite({ orders }: ExecutiveMetricsSuiteProps) {
         }
 
         if (auditMode === 'cobranzas') {
-            baseList = baseList.filter(o => (o.amountPaid && o.amountPaid > 0) || o.status === 'Pagado');
+            baseList = baseList.filter(o => isCashOrder(o));
         } else if (auditMode === 'despachos') {
             baseList = baseList.filter(o => ['Despachado', 'Entregado', 'Completado'].includes(o.status));
         } else if (auditMode === 'cancelaciones') {
             baseList = baseList.filter(o => o.status === 'Cancelado');
         } else if (auditMode === 'pendientes') {
-            baseList = baseList.filter(o => (o.totalAmount || 0) - (o.amountPaid || 0) > 0.05);
+            baseList = baseList.filter(o => Math.max(0, (o.totalAmount || 0) - getEffectiveCashReceived(o)) > 0.05);
         } else {
             baseList = baseList.filter(o => VALID_SALES_STATUSES.includes(o.status));
         }
@@ -240,13 +262,13 @@ export function ExecutiveMetricsSuite({ orders }: ExecutiveMetricsSuiteProps) {
             const salesOrders = periodOrders.filter(o => VALID_SALES_STATUSES.includes(o.status));
             const salesTotal = salesOrders.reduce((sum, o) => sum + (o.totalAmount || 0), 0);
             
-            const cashTotal = periodOrders.reduce((sum, o) => {
-                if (o.status === 'Pagado') return sum + (o.totalAmount || 0);
-                return sum + (o.amountPaid || 0);
-            }, 0);
+            const cashOrders = periodOrders.filter(o => isCashOrder(o));
+            const cashTotal = periodOrders.reduce((sum, o) => sum + getEffectiveCashReceived(o), 0);
 
-            const dispatchedCount = periodOrders.filter(o => ['Despachado', 'Entregado', 'Completado'].includes(o.status)).length;
-            const cancelledCount = periodOrders.filter(o => o.status === 'Cancelado').length;
+            const dispatchedOrders = periodOrders.filter(o => ['Despachado', 'Entregado', 'Completado'].includes(o.status));
+            const cancelledOrders = periodOrders.filter(o => o.status === 'Cancelado');
+            const dispatchedCount = dispatchedOrders.length;
+            const cancelledCount = cancelledOrders.length;
             const ordersCount = periodOrders.length;
             const pendingBalance = Math.max(0, salesTotal - cashTotal);
             const avgTicket = ordersCount > 0 ? salesTotal / ordersCount : 0;
@@ -268,7 +290,11 @@ export function ExecutiveMetricsSuite({ orders }: ExecutiveMetricsSuiteProps) {
                 pedidosTotales: ordersCount,
                 ticketPromedio: avgTicket,
                 tasaCancelacion: cancelRate,
-                periodOrders: periodOrders
+                periodOrders: periodOrders,
+                salesOrders: salesOrders,
+                cashOrders: cashOrders,
+                dispatchedOrders: dispatchedOrders,
+                cancelledOrders: cancelledOrders
             };
         });
 
