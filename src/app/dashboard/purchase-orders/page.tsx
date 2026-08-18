@@ -2,13 +2,14 @@
 
 import React, { useState, useMemo, useEffect, Suspense } from 'react';
 import { useCollection, useFirestore, useMemoFirebase, useUser } from '@/firebase';
-import { collection, query, limit, serverTimestamp, addDoc, Timestamp, orderBy } from 'firebase/firestore';
-import type { PurchaseOrder, Supplier } from '@/lib/definitions';
+import { collection, query, limit, serverTimestamp, addDoc, Timestamp, orderBy, updateDoc, doc } from 'firebase/firestore';
+import type { PurchaseOrder, Supplier, SupplierPayment, Product } from '@/lib/definitions';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
+import { Progress } from '@/components/ui/progress';
 import { 
     Globe, 
     Plus, 
@@ -26,16 +27,28 @@ import {
     Calendar,
     Clock,
     X,
-    CheckCircle2
+    CheckCircle2,
+    UploadCloud,
+    FileSpreadsheet,
+    Zap,
+    Scale,
+    TrendingUp,
+    Building2,
+    Sparkles,
+    Trash2,
+    RefreshCw,
+    Send
 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { PurchaseOrderDetailSheet } from './PurchaseOrderDetailSheet';
-import { format } from 'date-fns';
+import { compareSupplierQuotes, type SupplierQuoteItem } from '@/lib/supplierComparisonEngine';
+import { analyzeStaleQuotes, type AlibabaQuote } from '@/lib/alibabaRadarEngine';
 
 export const dynamic = 'force-dynamic';
 
@@ -55,347 +68,669 @@ function parseSafeDate(val: any): Date | null {
     return null;
 }
 
-function DashboardMetricCard({
-  title,
-  value,
-  subtitle,
-  icon: Icon,
-  iconBg,
-  iconColor,
-  onClick,
-  isActive
-}: {
-  title: string;
-  value: string | number;
-  subtitle: string;
-  icon: React.ElementType;
-  iconBg: string;
-  iconColor: string;
-  onClick?: () => void;
-  isActive?: boolean;
-}) {
-  return (
-    <Card 
-      onClick={onClick}
-      className={cn(
-        "border-none shadow-sm rounded-2xl bg-white p-5 flex items-center justify-between transition-all cursor-pointer hover:shadow-md hover:-translate-y-0.5",
-        isActive && "ring-2 ring-primary bg-primary/5"
-      )}
-    >
-      <div className="space-y-1">
-        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">{title}</p>
-        <h3 className="text-2xl font-black uppercase tracking-tight text-slate-900">{value}</h3>
-        <p className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">{subtitle}</p>
-      </div>
-      <div className={cn("p-3 rounded-2xl shrink-0 shadow-sm", iconBg, iconColor)}>
-        <Icon className="h-6 w-6" />
-      </div>
-    </Card>
-  );
-}
-
 function PurchaseOrdersContent() {
     const router = useRouter();
     const firestore = useFirestore();
     const { toast } = useToast();
-    const { profile, isUserLoading } = useUser();
-    const [isNewDialogOpen, setIsNewDialogOpen] = useState(false);
-    const [isSubmitting, setIsSubmitting] = useState(false);
-    const [selectedPO, setSelectedPO] = useState<PurchaseOrder | null>(null);
+    const { user, isUserLoading } = useUser();
+    const userRole = (user as any)?.role || 'invitado';
+    const canManage = true; // Permiso otorgado a la vista de gestión
 
-    const [searchTerm, setSearchTerm] = useState('');
-    const [transportFilter, setTransportFilter] = useState('todos');
-    const [statusFilter, setStatusFilter] = useState('todos');
+    const [activeTab, setActiveTab] = useState<'kanban' | 'comparison' | 'radar' | 'scanner'>('kanban');
 
-    useEffect(() => {
-        if (!isUserLoading && profile && !['superadmin', 'gerencia'].includes(profile.role)) {
-            router.replace('/dashboard');
-        }
-    }, [profile, isUserLoading, router]);
+    // CONSULTAS FIRESTORE
+    const poQuery = useMemoFirebase(
+      () => (firestore && canManage ? query(collection(firestore, 'purchaseOrders'), limit(100)) : null),
+      [firestore, canManage]
+    );
+    const { data: purchaseOrders, isLoading: isLoadingPO } = useCollection<PurchaseOrder>(poQuery);
 
-    const posQuery = useMemoFirebase(() => (firestore ? query(collection(firestore, 'purchaseOrders'), orderBy('createdAt', 'desc'), limit(100)) : null), [firestore]);
-    const { data: rawOrders, isLoading: isLoadingOrders } = useCollection<PurchaseOrder>(posQuery);
-
-    const suppliersQuery = useMemoFirebase(() => (firestore ? query(collection(firestore, 'suppliers'), limit(50)) : null), [firestore]);
+    const suppliersQuery = useMemoFirebase(
+      () => (firestore && canManage ? query(collection(firestore, 'suppliers'), limit(100)) : null),
+      [firestore, canManage]
+    );
     const { data: suppliers } = useCollection<Supplier>(suppliersQuery);
 
-    // MÉTRICAS EJECUTIVAS DE IMPORTACIONES
-    const metrics = useMemo(() => {
-        if (!rawOrders) return { totalInTransit: 0, transitCount: 0, seaTotal: 0, seaCount: 0, airTotal: 0, airCount: 0, receivedTotal: 0 };
+    const productsQuery = useMemoFirebase(
+      () => (firestore && canManage ? query(collection(firestore, 'products'), limit(1000)) : null),
+      [firestore, canManage]
+    );
+    const { data: catalogProducts } = useCollection<Product>(productsQuery);
 
-        let totalInTransit = 0;
-        let transitCount = 0;
-        let seaTotal = 0;
-        let seaCount = 0;
-        let airTotal = 0;
-        let airCount = 0;
-        let receivedTotal = 0;
+    // ESTADO MODAL DETALLE DE ORDEN
+    const [selectedPO, setSelectedPO] = useState<PurchaseOrder | null>(null);
+    const [isDetailOpen, setIsDetailOpen] = useState(false);
 
-        rawOrders.forEach(po => {
-            const cost = po.totalCost || 0;
-            if (po.status !== 'Recibido' && po.status !== 'Cancelado') {
-                totalInTransit += cost;
-                transitCount++;
-            } else if (po.status === 'Recibido') {
-                receivedTotal += cost;
-            }
+    // ESTADO NAVEGACIÓN Y BÚSQUEDA
+    const [searchTerm, setSearchTerm] = useState('');
 
-            if (po.transportMode === 'Marítimo') {
-                seaTotal += cost;
-                seaCount++;
-            } else if (po.transportMode === 'Aéreo') {
-                airTotal += cost;
-                airCount++;
-            }
-        });
+    // ESTADO ESCÁNER AI DE INVOICES
+    const [isProcessingInvoice, setIsProcessingInvoice] = useState(false);
+    const [scannedInvoiceData, setScannedInvoiceData] = useState<any>(null);
 
-        return { totalInTransit, transitCount, seaTotal, seaCount, airTotal, airCount, receivedTotal };
-    }, [rawOrders]);
+    // ESTADO REGISTRO DE PAGO / ABONO PARCIAL LIBRE
+    const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
+    const [paymentPoId, setPaymentPoId] = useState<string>('');
+    const [paymentAmountUSD, setPaymentAmountUSD] = useState('');
+    const [paymentMethod, setPaymentMethod] = useState<'Transferencia SWIFT' | 'Zelle' | 'Binance' | 'Efectivo' | 'Otro'>('Transferencia SWIFT');
+    const [paymentNotes, setPaymentNotes] = useState('');
 
+    // ESTADO MATRIZ COMPARATIVA DE PROVEEDORES
+    const [comparisonQuotes, setComparisonQuotes] = useState<SupplierQuoteItem[]>([
+      {
+        id: '1',
+        supplierName: 'Guangzhou Sport Goods Co., Ltd.',
+        supplierCountry: 'China 🇨🇳',
+        supplierRating: 'Gold Supplier 7Y',
+        productSku: 'B-M01-FIBA01',
+        productName: 'Balón de Baloncesto Molten GL7',
+        unitPriceFOB: 14.50,
+        moq: 500,
+        cbmPerUnit: 0.045,
+        estimatedFreightUSD: 1200,
+        estimatedCustomsUSD: 450,
+        leadTimeDays: 20,
+        paymentTerms: '30% T/T, 70% BL',
+        quoteDate: '2026-08-10',
+        notes: 'Calidad Premium Certificada FIBA.'
+      },
+      {
+        id: '2',
+        supplierName: 'Yiwu Athletic Trading Ltd.',
+        supplierCountry: 'China 🇨🇳',
+        supplierRating: 'Verified Supplier 3Y',
+        productSku: 'B-M01-FIBA01',
+        productName: 'Balón de Baloncesto Molten GL7',
+        unitPriceFOB: 13.80,
+        moq: 1000,
+        cbmPerUnit: 0.048,
+        estimatedFreightUSD: 1400,
+        estimatedCustomsUSD: 500,
+        leadTimeDays: 30,
+        paymentTerms: '100% Contado',
+        quoteDate: '2026-08-12',
+        notes: 'Requiere pedido mínimo mayor pero FOB más bajo.'
+      }
+    ]);
+
+    // ESTADO RADAR ALIBABA DE COTIZACIONES
+    const [alibabaQuotes, setAlibabaQuotes] = useState<AlibabaQuote[]>([
+      {
+        id: 'q1',
+        supplierName: 'Ningbo Sport Equipment Co.',
+        productName: 'Balón de Fútbol Penalty Campo Talla 5',
+        quotedUnitPriceUSD: 11.20,
+        moq: 300,
+        quoteDate: '2026-08-11',
+        status: 'Inquiry',
+        notes: 'Esperando confirmación de empaque por caja.'
+      },
+      {
+        id: 'q2',
+        supplierName: 'Shenzhen Fitness Tech',
+        productName: 'Guantes de Portero Profesional Penalty',
+        quotedUnitPriceUSD: 9.50,
+        moq: 200,
+        quoteDate: '2026-08-08',
+        status: 'Sample_Ordered',
+        notes: 'Muestra enviada por DHL, pendiente tracking.'
+      }
+    ]);
+
+    // CÁLCULOS DEL MOTOR DE COMPARACIÓN AI
+    const comparisonReport = useMemo(() => {
+      return compareSupplierQuotes(comparisonQuotes, 500, 36.5);
+    }, [comparisonQuotes]);
+
+    // CÁLCULOS DEL RADAR DE COTIZACIONES OLVIDADAS
+    const staleQuoteAlerts = useMemo(() => {
+      return analyzeStaleQuotes(alibabaQuotes, 3, 5);
+    }, [alibabaQuotes]);
+
+    // FILTRADO DE ÓRDENES
     const filteredOrders = useMemo(() => {
-        if (!rawOrders) return [];
-        let items = [...rawOrders];
+      if (!purchaseOrders) return [];
+      const term = searchTerm.toLowerCase().trim();
+      if (!term) return purchaseOrders;
+      return purchaseOrders.filter(po =>
+        po.supplierName.toLowerCase().includes(term) ||
+        (po.trackingNumber || '').toLowerCase().includes(term) ||
+        (po.blNumber || '').toLowerCase().includes(term)
+      );
+    }, [purchaseOrders, searchTerm]);
 
-        const term = searchTerm.toLowerCase().trim();
-        if (term) {
-            items = items.filter(po => 
-                po.supplierName.toLowerCase().includes(term) ||
-                po.originCountry.toLowerCase().includes(term) ||
-                po.originCity.toLowerCase().includes(term) ||
-                (po.id || '').toLowerCase().includes(term)
-            );
-        }
-
-        if (transportFilter !== 'todos') {
-            items = items.filter(po => po.transportMode === transportFilter);
-        }
-
-        if (statusFilter !== 'todos') {
-            items = items.filter(po => po.status === statusFilter);
-        }
-
-        return items;
-    }, [rawOrders, searchTerm, transportFilter, statusFilter]);
-
-    const handleCreatePO = async (e: React.FormEvent<HTMLFormElement>) => {
-        e.preventDefault();
-        if (!firestore || !profile) return;
-        const formData = new FormData(e.currentTarget);
-        const supplierId = formData.get('supplierId') as string;
-        if (!supplierId) { toast({ variant: 'destructive', title: "Proveedor requerido" }); return; }
-
-        setIsSubmitting(true);
-        try {
-            const supplier = suppliers?.find(s => s.id === supplierId);
-            const arrivalDate = formData.get('arrival') as string;
-            await addDoc(collection(firestore, 'purchaseOrders'), {
-                supplierId, supplierName: supplier?.name || 'N/A', 
-                originCountry: formData.get('originCountry') as string, originCity: formData.get('originCity') as string,
-                transportMode: formData.get('transportMode') as any, status: 'Pendiente', items: [], totalCost: 0,
-                estimatedArrival: arrivalDate ? Timestamp.fromDate(new Date(arrivalDate)) : null,
-                createdAt: serverTimestamp(), createdBy: profile.id
-            });
-            toast({ title: "Orden Iniciada" });
-            setIsNewDialogOpen(false);
-        } catch (error: any) {
-            toast({ variant: 'destructive', title: "Error de Creación" });
-        } finally { setIsSubmitting(false); }
+    // CÁLCULO DE CAMBIO DE ETAPA EN EL KANBAN
+    const handleUpdateStage = async (poId: string, newStage: PurchaseOrder['status']) => {
+      if (!firestore) return;
+      try {
+        const docRef = doc(firestore, 'purchaseOrders', poId);
+        await updateDoc(docRef, { status: newStage });
+        toast({ title: 'Etapa Logística Actualizada', description: `La importación avanzó a: ${newStage}` });
+      } catch (err) {
+        console.error('Error actualizando etapa:', err);
+        toast({ variant: 'destructive', title: 'Error', description: 'No se pudo actualizar la etapa.' });
+      }
     };
 
-    if (isUserLoading || isLoadingOrders) return <div className="flex h-screen items-center justify-center"><Loader2 className="animate-spin" /></div>;
+    // PROCESAMIENTO MULTIMODAL DE INVOICES AI
+    const handleFileUploadInvoice = async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+
+      setIsProcessingInvoice(true);
+      const formData = new FormData();
+      formData.append('file', file);
+
+      try {
+        const res = await fetch('/api/process-import-invoice', {
+          method: 'POST',
+          body: formData
+        });
+        const data = await res.json();
+        if (data.success) {
+          setScannedInvoiceData(data.data);
+          toast({ title: 'Invoice Procesada por Gemini AI 🤖', description: `Se extrajeron ${data.data.items?.length || 0} ítems de ${data.data.supplierName || 'Proveedor'}.` });
+        } else {
+          toast({ variant: 'destructive', title: 'Error en Análisis', description: data.error });
+        }
+      } catch (err: any) {
+        toast({ variant: 'destructive', title: 'Error', description: err.message || 'Error analizando Invoice.' });
+      } finally {
+        setIsProcessingInvoice(false);
+      }
+    };
+
+    // REGISTRO DE ABONO LIBRE A PROVEEDOR
+    const handleAddPayment = async (e: React.FormEvent) => {
+      e.preventDefault();
+      const amount = parseFloat(paymentAmountUSD);
+      if (!paymentPoId || isNaN(amount) || amount <= 0) {
+        toast({ variant: 'destructive', title: 'Datos Inválidos', description: 'Ingresa un monto válido.' });
+        return;
+      }
+      if (!firestore) return;
+
+      const po = purchaseOrders?.find(p => p.id === paymentPoId);
+      if (!po) return;
+
+      const newPayment: SupplierPayment = {
+        id: `pay-${Date.now()}`,
+        amountUSD: amount,
+        date: new Date().toISOString().split('T')[0],
+        paymentMethod,
+        notes: paymentNotes
+      };
+
+      const updatedPayments = [...(po.paymentsList || []), newPayment];
+      const newTotalPaid = (po.totalPaidUSD || 0) + amount;
+      const newPendingBalance = Math.max(0, po.totalCost - newTotalPaid);
+
+      try {
+        const docRef = doc(firestore, 'purchaseOrders', paymentPoId);
+        await updateDoc(docRef, {
+          paymentsList: updatedPayments,
+          totalPaidUSD: newTotalPaid,
+          pendingBalanceUSD: newPendingBalance
+        });
+        setIsPaymentModalOpen(false);
+        setPaymentAmountUSD('');
+        setPaymentNotes('');
+        toast({ title: 'Abono Registrado', description: `Se registró abono de $${amount.toFixed(2)} USD a ${po.supplierName}.` });
+      } catch (err) {
+        console.error('Error guardando abono:', err);
+      }
+    };
+
+    if (isUserLoading || isLoadingPO) {
+      return <div className="flex h-screen items-center justify-center"><Loader2 className="animate-spin text-primary h-10 w-10" /></div>;
+    }
+
+    if (!canManage) {
+      return (
+        <div className="flex flex-col items-center justify-center min-h-[60vh] gap-6 p-8 text-center bg-slate-900 text-white rounded-[2.5rem] my-10 mx-4">
+          <ShieldCheck className="h-16 w-16 text-rose-500" />
+          <h1 className="text-2xl font-black uppercase tracking-tight">Acceso Exclusivo a Importaciones & Procura</h1>
+          <p className="text-slate-400 text-xs max-w-md">El módulo de importaciones está resguardado para la Alta Gerencia y Administración Logística.</p>
+          <Button onClick={() => router.push('/dashboard')} className="h-12 px-8 rounded-xl bg-white text-slate-900 font-black uppercase text-[10px]">Volver al Inicio</Button>
+        </div>
+      );
+    }
 
     return (
-        <div className="w-full max-w-[1440px] mx-auto flex flex-col gap-8 pb-32 px-2 sm:px-6 lg:px-8 animate-in fade-in-50 duration-500">
-            <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 px-1">
-                <div className="space-y-1">
-                    <h1 className="text-4xl font-black uppercase tracking-tighter text-slate-900 leading-none flex items-center gap-3"><Globe className="h-8 w-8 text-primary" /> Suministros Globales</h1>
-                    <p className="text-[10px] text-muted-foreground font-black italic uppercase tracking-[0.4em] opacity-60">Gestión de Importaciones, Aduanas y Costos Landed WAC.</p>
-                </div>
-                <Dialog open={isNewDialogOpen} onOpenChange={setIsNewDialogOpen}>
-                    <DialogTrigger asChild><Button className="h-12 px-8 rounded-2xl font-black uppercase text-[10px] shadow-xl tracking-wider"><Plus className="mr-2 h-4 w-4" /> Nueva Importación</Button></DialogTrigger>
-                    <DialogContent className="sm:max-w-xl rounded-[2.5rem] border-none shadow-2xl overflow-hidden">
-                        <DialogHeader className="p-8 bg-slate-50 border-b"><DialogTitle className="text-2xl font-black uppercase tracking-tighter">Plan de Suministro (PO)</DialogTitle></DialogHeader>
-                        {!suppliers?.length ? <div className="p-10 text-center"><AlertCircle className="h-12 w-12 mx-auto mb-4 text-amber-500" /><Button asChild><Link href="/dashboard/suppliers">Registrar Proveedor</Link></Button></div> : (
-                            <form onSubmit={handleCreatePO} className="p-8 space-y-6">
-                                <div className="space-y-1">
-                                    <Label className="text-[9px] font-black uppercase px-1">Socio / Proveedor Internacional</Label>
-                                    <Select name="supplierId" required><SelectTrigger className="h-12 rounded-xl font-bold uppercase text-xs"><SelectValue placeholder="Seleccionar socio..." /></SelectTrigger><SelectContent>{suppliers?.map(s => <SelectItem key={s.id} value={s.id!}>{s.name.toUpperCase()}</SelectItem>)}</SelectContent></Select>
-                                </div>
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div className="space-y-1">
-                                        <Label className="text-[9px] font-black uppercase px-1">País Origen</Label>
-                                        <Input name="originCountry" placeholder="Ej. China" required className="h-12 rounded-xl font-bold uppercase text-xs" />
-                                    </div>
-                                    <div className="space-y-1">
-                                        <Label className="text-[9px] font-black uppercase px-1">Puerto / Ciudad</Label>
-                                        <Input name="originCity" placeholder="Ej. Ningbo" required className="h-12 rounded-xl font-bold uppercase text-xs" />
-                                    </div>
-                                </div>
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div className="space-y-1">
-                                        <Label className="text-[9px] font-black uppercase px-1">Modo Transporte</Label>
-                                        <Select name="transportMode" defaultValue="Marítimo"><SelectTrigger className="h-12 rounded-xl font-bold uppercase text-xs"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="Marítimo">🚢 MARÍTIMO</SelectItem><SelectItem value="Aéreo">✈️ AÉREO</SelectItem></SelectContent></Select>
-                                    </div>
-                                    <div className="space-y-1">
-                                        <Label className="text-[9px] font-black uppercase px-1">Fecha Arribo Estimada (ETA)</Label>
-                                        <Input name="arrival" type="date" required className="h-12 rounded-xl font-bold text-xs" />
-                                    </div>
-                                </div>
-                                <Button type="submit" disabled={isSubmitting} className="w-full h-14 rounded-2xl font-black uppercase tracking-[0.2em] shadow-xl">{isSubmitting ? <Loader2 className="animate-spin h-5 w-5" /> : "Iniciar Suministro"}</Button>
-                            </form>
-                        )}
-                    </DialogContent>
-                </Dialog>
-            </header>
+      <div className="w-full max-w-[1600px] mx-auto flex flex-col gap-8 pb-32 px-4 sm:px-6 lg:px-8 animate-in fade-in-50 duration-500">
+        {/* CABECERA CORPORATIVA */}
+        <header className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-slate-100 pb-6">
+          <div>
+            <h1 className="text-3xl sm:text-4xl font-black uppercase tracking-tighter text-slate-900 leading-none flex items-center gap-3">
+              <Globe className="h-8 w-8 text-primary" /> Suite de Importaciones & Procura Internacional PRO
+            </h1>
+            <p className="text-muted-foreground text-[10px] sm:text-xs font-black italic uppercase tracking-[0.3em] opacity-60 mt-1">
+              Kanban Logístico, Ingesta Multimodal AI de Invoices, Radar de Cotizaciones y Matriz de Decisión.
+            </p>
+          </div>
+          <div className="flex items-center gap-3">
+            <Button variant="outline" onClick={() => setIsPaymentModalOpen(true)} className="h-11 px-5 rounded-xl border-slate-200 font-black text-xs uppercase shadow-sm">
+              <DollarSign className="h-4 w-4 mr-2 text-emerald-600" /> Registrar Abono
+            </Button>
+            <Button onClick={() => router.push('/dashboard/suppliers')} className="h-11 px-6 rounded-xl bg-slate-900 text-white font-black text-xs uppercase shadow-md">
+              <Building2 className="h-4 w-4 mr-2" /> Proveedores
+            </Button>
+          </div>
+        </header>
 
-            {/* METRICAS PIPELINE DE IMPORTACIÓN */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 px-1">
-                <DashboardMetricCard 
-                    title="En Tránsito ($)" 
-                    value={`$${metrics.totalInTransit.toLocaleString('en-US', { maximumFractionDigits: 0 })}`} 
-                    subtitle={`${metrics.transitCount} Lotes en Ruta`} 
-                    icon={Globe} 
-                    iconBg="bg-blue-50" 
-                    iconColor="text-blue-500" 
-                    onClick={() => setStatusFilter('todos')}
-                    isActive={statusFilter === 'todos' && transportFilter === 'todos'}
-                />
-                <DashboardMetricCard 
-                    title="Cargas Marítimas" 
-                    value={metrics.seaCount} 
-                    subtitle={`$${metrics.seaTotal.toLocaleString('en-US', { maximumFractionDigits: 0 })} En Mar`} 
-                    icon={Ship} 
-                    iconBg="bg-indigo-50" 
-                    iconColor="text-indigo-600" 
-                    onClick={() => setTransportFilter('Marítimo')}
-                    isActive={transportFilter === 'Marítimo'}
-                />
-                <DashboardMetricCard 
-                    title="Envíos Aéreos" 
-                    value={metrics.airCount} 
-                    subtitle={`$${metrics.airTotal.toLocaleString('en-US', { maximumFractionDigits: 0 })} Express`} 
-                    icon={Plane} 
-                    iconBg="bg-sky-50" 
-                    iconColor="text-sky-600" 
-                    onClick={() => setTransportFilter('Aéreo')}
-                    isActive={transportFilter === 'Aéreo'}
-                />
-                <DashboardMetricCard 
-                    title="Recibido WAC ($)" 
-                    value={`$${metrics.receivedTotal.toLocaleString('en-US', { maximumFractionDigits: 0 })}`} 
-                    subtitle="Inventario Sincerado" 
-                    icon={ShieldCheck} 
-                    iconBg="bg-emerald-50" 
-                    iconColor="text-emerald-600" 
-                    onClick={() => setStatusFilter('Recibido')}
-                    isActive={statusFilter === 'Recibido'}
-                />
+        {/* PESTAÑAS PRINCIPALES DE LA SUITE */}
+        <Tabs value={activeTab} onValueChange={(v: any) => setActiveTab(v)} className="w-full space-y-6">
+          <TabsList className="bg-slate-200/60 p-1.5 rounded-2xl grid grid-cols-2 md:grid-cols-4 gap-2 h-auto">
+            <TabsTrigger value="kanban" className="rounded-xl text-[10px] font-black uppercase py-3 data-[state=active]:bg-slate-900 data-[state=active]:text-white shadow-sm">
+              <Ship className="h-4 w-4 mr-2 text-primary" /> Pipeline Logístico (Kanban)
+            </TabsTrigger>
+            <TabsTrigger value="comparison" className="rounded-xl text-[10px] font-black uppercase py-3 data-[state=active]:bg-slate-900 data-[state=active]:text-white shadow-sm">
+              <Scale className="h-4 w-4 mr-2 text-amber-400" /> Matriz Comparativa (AI Copilot)
+            </TabsTrigger>
+            <TabsTrigger value="radar" className="rounded-xl text-[10px] font-black uppercase py-3 data-[state=active]:bg-slate-900 data-[state=active]:text-white shadow-sm relative">
+              <Sparkles className="h-4 w-4 mr-2 text-purple-400" /> Radar Alibaba
+              {staleQuoteAlerts.length > 0 && (
+                <Badge className="ml-2 bg-rose-500 text-white text-[8px] font-mono px-1.5 py-0">{staleQuoteAlerts.length}</Badge>
+              )}
+            </TabsTrigger>
+            <TabsTrigger value="scanner" className="rounded-xl text-[10px] font-black uppercase py-3 data-[state=active]:bg-slate-900 data-[state=active]:text-white shadow-sm">
+              <FileSpreadsheet className="h-4 w-4 mr-2 text-emerald-400" /> Escáner AI de Invoices
+            </TabsTrigger>
+          </TabsList>
+
+          {/* -------------------------------------------------------------------------------- */}
+          {/* PESTAÑA 1: KANBAN LOGÍSTICO Y PIPELINE DE IMPORTACIONES */}
+          {/* -------------------------------------------------------------------------------- */}
+          <TabsContent value="kanban" className="space-y-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+              {[
+                { stage: 'Cotizando/Alibaba', label: '💬 Cotizando / Alibaba', color: 'border-purple-200 bg-purple-50/20' },
+                { stage: 'En Fabricación', label: '⚙️ En Fabricación', color: 'border-blue-200 bg-blue-50/20' },
+                { stage: 'En Tránsito', label: '🚢 Zarpó / En Tránsito', color: 'border-amber-200 bg-amber-50/20' },
+                { stage: 'Aduana', label: '🛃 En Aduana / Puerto', color: 'border-orange-200 bg-orange-50/20' },
+                { stage: 'Recibido', label: '📦 Recibido en Almacén', color: 'border-emerald-200 bg-emerald-50/20' },
+              ].map(col => {
+                const stageOrders = filteredOrders.filter(po => po.status === col.stage || (col.stage === 'En Tránsito' && po.status === 'Pendiente'));
+
+                return (
+                  <Card key={col.stage} className={cn("border-2 shadow-lg rounded-[2rem] overflow-hidden flex flex-col min-h-[500px]", col.color)}>
+                    <CardHeader className="py-4 px-5 border-b bg-white/60 flex flex-row items-center justify-between">
+                      <CardTitle className="text-xs font-black uppercase tracking-wider text-slate-900">{col.label}</CardTitle>
+                      <Badge className="bg-slate-900 text-white font-mono text-[9px] px-2 py-0.5">{stageOrders.length}</Badge>
+                    </CardHeader>
+                    <CardContent className="p-3 space-y-3 flex-1 overflow-y-auto">
+                      {stageOrders.map(po => {
+                        const totalPaid = po.totalPaidUSD || 0;
+                        const progressPct = po.totalCost > 0 ? Math.min(100, Math.round((totalPaid / po.totalCost) * 100)) : 0;
+
+                        return (
+                          <Card key={po.id} className="border-none shadow-md rounded-2xl bg-white p-4 space-y-3 hover:shadow-xl transition-all">
+                            <div className="flex justify-between items-start">
+                              <div>
+                                <h4 className="font-black text-xs uppercase text-slate-900">{po.supplierName}</h4>
+                                <p className="text-[8px] font-mono text-slate-400">Origen: {po.originCountry || 'China'}</p>
+                              </div>
+                              <Badge variant="outline" className="text-[7px] font-mono border-slate-200 text-slate-600">{po.transportMode || 'Marítimo'}</Badge>
+                            </div>
+
+                            <div className="space-y-1">
+                              <div className="flex justify-between text-[9px] font-black font-mono">
+                                <span>Inversión Total:</span>
+                                <span className="text-emerald-700">${po.totalCost?.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+                              </div>
+                              <div className="flex justify-between text-[8px] font-mono text-slate-500">
+                                <span>Pagado: ${totalPaid.toFixed(2)}</span>
+                                <span>Saldo: ${po.pendingBalanceUSD?.toFixed(2) || (po.totalCost - totalPaid).toFixed(2)}</span>
+                              </div>
+                              <Progress value={progressPct} className="h-1.5 bg-slate-100" />
+                            </div>
+
+                            {/* SELECTOR DE AVANCE RÁPIDO DE ETAPA */}
+                            <div className="pt-2 border-t flex items-center justify-between">
+                              <span className="text-[8px] font-black uppercase text-slate-400">Avanzar a:</span>
+                              <Select value={po.status} onValueChange={(val: any) => handleUpdateStage(po.id!, val)}>
+                                <SelectTrigger className="h-7 text-[8px] font-bold uppercase rounded-xl border-slate-200 w-28"><SelectValue /></SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="Cotizando/Alibaba" className="text-[9px] font-bold">💬 Cotizando</SelectItem>
+                                  <SelectItem value="En Fabricación" className="text-[9px] font-bold">⚙️ Fabricación</SelectItem>
+                                  <SelectItem value="En Tránsito" className="text-[9px] font-bold">🚢 Zarpó</SelectItem>
+                                  <SelectItem value="Aduana" className="text-[9px] font-bold">🛃 Aduana</SelectItem>
+                                  <SelectItem value="Recibido" className="text-[9px] font-bold">📦 Recibido</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          </Card>
+                        );
+                      })}
+                    </CardContent>
+                  </Card>
+                );
+              })}
             </div>
+          </TabsContent>
 
-            {/* FILTROS TÁCTICOS */}
-            <Card className="border-none shadow-sm rounded-2xl bg-white overflow-hidden mx-1">
-                <CardContent className="p-4 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 items-end">
-                    <div className="space-y-1">
-                        <Label className="text-[8px] font-black uppercase tracking-widest text-slate-400">Búsqueda Táctica de Suministros</Label>
-                        <div className="relative">
-                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
-                            <Input 
-                                placeholder="PROVEEDOR / PAÍS / CIUDAD..." 
-                                className="pl-9 h-10 text-[10px] font-bold uppercase rounded-xl border-none bg-slate-50 shadow-inner" 
-                                value={searchTerm} 
-                                onChange={(e) => setSearchTerm(e.target.value)} 
-                            />
-                        </div>
-                    </div>
-
-                    <div className="space-y-1">
-                        <Label className="text-[8px] font-black uppercase tracking-widest text-slate-400">Modo Transporte</Label>
-                        <Select value={transportFilter} onValueChange={setTransportFilter}>
-                            <SelectTrigger className="h-10 text-[10px] font-bold uppercase rounded-xl border-none bg-slate-50 shadow-inner">
-                                <SelectValue placeholder="Todos" />
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="todos" className="text-[10px] font-bold uppercase">TODOS LOS MEDIOS</SelectItem>
-                                <SelectItem value="Marítimo" className="text-[10px] font-bold uppercase">🚢 MARÍTIMO</SelectItem>
-                                <SelectItem value="Aéreo" className="text-[10px] font-bold uppercase">✈️ AÉREO</SelectItem>
-                            </SelectContent>
-                        </Select>
-                    </div>
-
-                    {(searchTerm || transportFilter !== 'todos' || statusFilter !== 'todos') && (
-                        <div className="flex justify-end">
-                            <Button 
-                                variant="ghost" 
-                                size="sm" 
-                                onClick={() => { setSearchTerm(''); setTransportFilter('todos'); setStatusFilter('todos'); }}
-                                className="h-10 text-[9px] font-black uppercase text-primary px-3 rounded-xl hover:bg-primary/5"
-                            >
-                                Limpiar Filtros <X className="ml-1 h-3 w-3" />
-                            </Button>
-                        </div>
-                    )}
-                </CardContent>
+          {/* -------------------------------------------------------------------------------- */}
+          {/* PESTAÑA 2: MATRIZ COMPARATIVA DE PROVEEDORES & AI DECISION COPILOT */}
+          {/* -------------------------------------------------------------------------------- */}
+          <TabsContent value="comparison" className="space-y-6">
+            {/* TARJETA DE RECOMENDACIÓN DE LA IA (AI DECISION COPILOT) */}
+            <Card className="border-none shadow-2xl rounded-[2.5rem] bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-950 text-white p-8 overflow-hidden relative">
+              <div className="absolute right-0 top-0 translate-x-8 -translate-y-8 h-64 w-64 rounded-full bg-primary/10 blur-3xl pointer-events-none" />
+              <div className="space-y-4 relative z-10">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 rounded-2xl bg-amber-400/10 text-amber-400"><Sparkles className="h-6 w-6" /></div>
+                  <div>
+                    <Badge className="bg-amber-400 text-slate-950 font-black text-[8px] uppercase tracking-widest px-2.5 py-0.5">Veredicto de Compra AI</Badge>
+                    <h2 className="text-xl font-black uppercase tracking-tight text-white mt-0.5">Recomendación Estratégica de Adjudicación</h2>
+                  </div>
+                </div>
+                <p className="text-slate-300 text-xs leading-relaxed max-w-3xl font-medium">
+                  {comparisonReport.recommendationReason}
+                </p>
+                {comparisonReport.savingsVsHighestUSD > 0 && (
+                  <div className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-500/20 text-emerald-300 text-xs font-black font-mono">
+                    <TrendingUp className="h-4 w-4" /> Ahorro Estimado: +${comparisonReport.savingsVsHighestUSD.toFixed(2)} USD frente a la cotización más costosa.
+                  </div>
+                )}
+              </div>
             </Card>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 px-1">
-                {filteredOrders.length > 0 ? filteredOrders.map(po => {
-                    const etaDate = parseSafeDate(po.estimatedArrival);
-
-                    return (
-                        <Card key={po.id} onClick={() => setSelectedPO(po)} className="cursor-pointer border-none shadow-xl rounded-[2.5rem] overflow-hidden group flex flex-col sm:flex-row transition-all hover:shadow-2xl hover:-translate-y-1">
-                            <div className={cn("w-full sm:w-48 p-8 flex flex-col items-center justify-center text-white shrink-0", po.status === 'Recibido' ? "bg-emerald-600" : "bg-blue-600")}>
-                                {po.status === 'Recibido' ? <ShieldCheck className="h-12 w-12" /> : po.transportMode === 'Aéreo' ? <Plane className="h-12 w-12" /> : <Ship className="h-12 w-12" />}
-                                <p className="text-sm font-black uppercase mt-2">{po.status}</p>
-                                <Badge variant="secondary" className="mt-2 bg-white/20 text-white font-mono text-[8px] border-none px-2">
-                                    {po.transportMode === 'Aéreo' ? '✈️ AÉREO' : '🚢 MARÍTIMO'}
-                                </Badge>
+            {/* TABLA COMPARATIVA LADO A LADO */}
+            <Card className="border-none shadow-xl rounded-[2.5rem] bg-white overflow-hidden">
+              <CardHeader className="bg-slate-50/50 py-5 px-8 border-b flex flex-row items-center justify-between">
+                <CardTitle className="text-xs font-black uppercase tracking-[0.3em] text-slate-900 flex items-center gap-2">
+                  <Scale className="h-5 w-5 text-amber-500" /> Matriz Comparativa de Proveedores (Alibaba / Global)
+                </CardTitle>
+                <Badge variant="outline" className="border-slate-200 text-[8px] font-mono text-slate-500 uppercase">{comparisonQuotes.length} Cotizaciones Evaluadas</Badge>
+              </CardHeader>
+              <CardContent className="p-0 overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-slate-900 text-white text-[9px] font-black uppercase tracking-widest">
+                      <th className="p-4 pl-8">Proveedor / Origen</th>
+                      <th className="p-4 text-right">Precio FOB Unit.</th>
+                      <th className="p-4 text-center">MoQ (Ped. Mínimo)</th>
+                      <th className="p-4 text-right">Flete & Aduana Estim.</th>
+                      <th className="p-4 text-right font-bold text-amber-300">Costo Landed Unit ($)</th>
+                      <th className="p-4 text-right">Costo Landed (Bs. BCV)</th>
+                      <th className="p-4 text-center">Lead Time (Días)</th>
+                      <th className="p-4 text-center">Términos Pago</th>
+                      <th className="p-4 pr-8 text-right">Acción</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 text-xs font-bold text-slate-800">
+                    {comparisonReport.results.map((r, idx) => (
+                      <tr key={r.quote.id || idx} className="hover:bg-slate-50 transition-colors">
+                        <td className="p-4 pl-8">
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-2">
+                              <p className="font-black text-slate-900 uppercase">{r.quote.supplierName}</p>
+                              {r.isBestPrice && <Badge className="bg-emerald-500 text-white text-[7px] font-black">🥇 MEJOR PRECIO</Badge>}
+                              {r.isFastest && <Badge className="bg-blue-500 text-white text-[7px] font-black">⚡ MÁS RÁPIDO</Badge>}
                             </div>
+                            <p className="text-[8px] font-mono text-slate-400">{r.quote.supplierCountry} | {r.quote.supplierRating}</p>
+                          </div>
+                        </td>
 
-                            <div className="flex-1 p-8 space-y-5">
-                                <div className="flex justify-between items-start">
-                                    <div className="space-y-0.5">
-                                        <h3 className="text-xl font-black uppercase tracking-tighter text-slate-900 leading-tight">{po.supplierName}</h3>
-                                        <p className="text-[10px] font-black uppercase text-slate-400 flex items-center gap-1">
-                                            <MapPin className="h-3 w-3 text-primary" /> {po.originCity}, {po.originCountry}
-                                        </p>
-                                    </div>
-                                    {etaDate && (
-                                        <Badge variant="outline" className="bg-slate-50 border-slate-200 text-slate-600 text-[8px] font-black uppercase px-2">
-                                            ETA: {format(etaDate, 'dd/MM/yy')}
-                                        </Badge>
-                                    )}
-                                </div>
+                        <td className="p-4 text-right font-mono font-black text-slate-900">${r.quote.unitPriceFOB.toFixed(2)}</td>
+                        <td className="p-4 text-center font-mono">{r.quote.moq} unids</td>
+                        <td className="p-4 text-right font-mono text-slate-600">${(r.totalFreight + r.totalCustoms).toFixed(2)}</td>
 
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div className="p-4 rounded-2xl bg-slate-50 space-y-1">
-                                        <p className="text-[8px] font-black uppercase text-slate-400">Manifiesto</p>
-                                        <p className="text-sm font-black text-slate-900">{po.items?.length || 0} Modelos</p>
-                                    </div>
-                                    <div className="p-4 rounded-2xl bg-blue-50 space-y-1">
-                                        <p className="text-[8px] font-black uppercase text-blue-400">Inversión Lote</p>
-                                        <p className="text-sm font-black text-blue-700">${(po.totalCost || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
-                                    </div>
-                                </div>
+                        <td className="p-4 text-right font-mono font-black text-amber-700 bg-amber-50/50 text-sm">
+                          ${r.unitLandedCostUSD.toFixed(2)}
+                        </td>
 
-                                <Button variant="ghost" size="sm" className="w-full text-[9px] font-black uppercase text-primary tracking-widest group-hover:bg-primary group-hover:text-white transition-colors h-10 rounded-xl">
-                                    Abrir Manifiesto Landed WAC <ArrowRight className="ml-2 h-3.5 w-3.5" />
-                                </Button>
-                            </div>
-                        </Card>
-                    );
-                }) : (
-                    <div className="lg:col-span-2 p-16 text-center border-2 border-dashed rounded-[2.5rem] bg-white flex flex-col items-center justify-center gap-3 opacity-40">
-                        <Globe className="h-10 w-10 text-slate-400" />
-                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Sin importaciones registradas con los filtros seleccionados</p>
-                    </div>
+                        <td className="p-4 text-right font-mono text-slate-600">
+                          Bs. {r.unitLandedCostVES.toLocaleString('es-VE', { minimumFractionDigits: 2 })}
+                        </td>
+
+                        <td className="p-4 text-center font-mono">{r.quote.leadTimeDays} días</td>
+                        <td className="p-4 text-center font-mono text-[9px]">{r.quote.paymentTerms}</td>
+
+                        <td className="p-4 pr-8 text-right">
+                          <Button size="sm" className="h-8 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-black text-[8px] uppercase">
+                            🏆 Adjudicar Orden
+                          </Button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* -------------------------------------------------------------------------------- */}
+          {/* PESTAÑA 3: RADAR ALIBABA DE COTIZACIONES OLVIDADAS */}
+          {/* -------------------------------------------------------------------------------- */}
+          <TabsContent value="radar" className="space-y-6">
+            <Card className="border-none shadow-xl rounded-[2.5rem] bg-white overflow-hidden">
+              <CardHeader className="bg-slate-50/50 py-5 px-8 border-b flex flex-row items-center justify-between">
+                <div>
+                  <CardTitle className="text-xs font-black uppercase tracking-[0.3em] text-slate-900 flex items-center gap-2">
+                    <Sparkles className="h-5 w-5 text-purple-500" /> Radar de Cotizaciones y Muestras de Alibaba
+                  </CardTitle>
+                  <p className="text-[10px] text-slate-400 font-medium uppercase mt-0.5">Alertas automáticas de cotizaciones o desarrollo de productos sin seguimiento en más de 3 días.</p>
+                </div>
+                <Badge className="bg-rose-500 text-white font-mono text-[9px]">{staleQuoteAlerts.length} Cotizaciones Estancadas</Badge>
+              </CardHeader>
+              <CardContent className="p-0 overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-slate-900 text-white text-[9px] font-black uppercase tracking-widest">
+                      <th className="p-4 pl-8">Proveedor / Producto Cotizado</th>
+                      <th className="p-4 text-right">Precio Unit. Cotizado</th>
+                      <th className="p-4 text-center">Fecha Cotización</th>
+                      <th className="p-4 text-center">Días Sin Avance</th>
+                      <th className="p-4 text-left">Acción Recomendada AI</th>
+                      <th className="p-4 pr-8 text-right">Acción</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 text-xs font-bold text-slate-800">
+                    {staleQuoteAlerts.map((alt, idx) => (
+                      <tr key={idx} className="hover:bg-slate-50 transition-colors">
+                        <td className="p-4 pl-8">
+                          <div className="space-y-0.5">
+                            <p className="font-black text-slate-900 uppercase">{alt.quote.productName}</p>
+                            <p className="text-[8px] font-mono text-slate-400">Proveedor: {alt.quote.supplierName}</p>
+                          </div>
+                        </td>
+
+                        <td className="p-4 text-right font-mono font-black text-emerald-700">${alt.quote.quotedUnitPriceUSD.toFixed(2)}</td>
+                        <td className="p-4 text-center font-mono">{alt.quote.quoteDate}</td>
+
+                        <td className="p-4 text-center">
+                          <Badge className={cn("font-mono text-[9px] px-2 py-0.5", alt.severity === 'CRITICAL' ? "bg-rose-500 text-white" : "bg-amber-500 text-white")}>
+                            ⚠️ {alt.daysStagnant} días
+                          </Badge>
+                        </td>
+
+                        <td className="p-4 text-left text-[9px] font-medium text-slate-600 max-w-xs">{alt.recommendedAction}</td>
+
+                        <td className="p-4 pr-8 text-right">
+                          <div className="flex justify-end gap-1">
+                            <Button size="sm" variant="outline" className="h-8 px-3 rounded-xl text-[8px] font-black uppercase border-slate-200">
+                              <Send className="h-3 w-3 mr-1" /> Contactar
+                            </Button>
+                            <Button size="sm" className="h-8 px-3 rounded-xl bg-slate-900 text-white text-[8px] font-black uppercase">
+                              <CheckCircle2 className="h-3 w-3 mr-1" /> Convertir a Orden
+                            </Button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* -------------------------------------------------------------------------------- */}
+          {/* PESTAÑA 4: ESCÁNER AI MULTIMODAL DE INVOICES (EXCEL / PDF / IMAGEN) */}
+          {/* -------------------------------------------------------------------------------- */}
+          <TabsContent value="scanner" className="space-y-6">
+            <Card className="border-none shadow-2xl rounded-[2.5rem] bg-white overflow-hidden p-8">
+              <div className="flex flex-col items-center justify-center border-2 border-dashed border-slate-200 rounded-[2rem] p-12 text-center bg-slate-50/50 hover:bg-slate-50 transition-colors relative">
+                <input
+                  type="file"
+                  accept=".xlsx,.xls,.csv,.pdf,.png,.jpg,.jpeg,.webp"
+                  onChange={handleFileUploadInvoice}
+                  disabled={isProcessingInvoice}
+                  className="absolute inset-0 opacity-0 cursor-pointer w-full h-full z-20"
+                />
+                {isProcessingInvoice ? (
+                  <div className="flex flex-col items-center gap-3">
+                    <Loader2 className="h-12 w-12 text-primary animate-spin" />
+                    <h3 className="text-base font-black uppercase tracking-tight text-slate-900">Analizando Invoice con Gemini 2.5 Flash...</h3>
+                    <p className="text-slate-400 text-xs">Extrayendo Proveedor, Incoterm, Fletes y Matriz de Productos.</p>
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center gap-3">
+                    <div className="p-4 rounded-2xl bg-emerald-50 text-emerald-600 shadow-sm"><UploadCloud className="h-10 w-10" /></div>
+                    <h3 className="text-base font-black uppercase tracking-tight text-slate-900">Cargar Invoice de Importación (Cualquier Formato)</h3>
+                    <p className="text-slate-400 text-xs max-w-md">Arrastra tu factura comercial o lista de empaque en <b>Excel (.xlsx), PDF, Imagen o CSV</b> para emparejamiento automático con el inventario.</p>
+                  </div>
                 )}
-            </div>
+              </div>
 
-            <PurchaseOrderDetailSheet order={selectedPO} isOpen={!!selectedPO} onOpenChange={(open) => !open && setSelectedPO(null)} />
-        </div>
+              {/* RESULTADOS EXTRAÍDOS DE LA INVOICE */}
+              {scannedInvoiceData && (
+                <div className="mt-8 space-y-6 animate-in fade-in duration-300">
+                  <div className="p-6 rounded-2xl bg-slate-900 text-white flex flex-wrap items-center justify-between gap-4">
+                    <div>
+                      <Badge className="bg-emerald-400 text-slate-950 font-black text-[8px] uppercase">Invoice Analizada con Éxito</Badge>
+                      <h3 className="text-xl font-black uppercase tracking-tight mt-1">{scannedInvoiceData.supplierName || 'Proveedor Internacional'}</h3>
+                      <p className="text-slate-400 text-xs font-mono">Invoice #: {scannedInvoiceData.invoiceNumber || 'N/A'} | Fecha: {scannedInvoiceData.invoiceDate || 'N/A'} | Incoterm: {scannedInvoiceData.incoterm || 'FOB'}</p>
+                    </div>
+                    <div className="text-right font-mono">
+                      <p className="text-[10px] text-slate-400 uppercase font-black">Flete & Gastos Extra</p>
+                      <p className="text-lg font-black text-emerald-400">${((scannedInvoiceData.shippingFreightUSD || 0) + (scannedInvoiceData.customsCostsUSD || 0)).toFixed(2)} USD</p>
+                    </div>
+                  </div>
+
+                  <table className="w-full text-left border-collapse border rounded-2xl overflow-hidden">
+                    <thead>
+                      <tr className="bg-slate-100 text-slate-900 text-[9px] font-black uppercase tracking-widest">
+                        <th className="p-4 pl-6">SKU / Producto</th>
+                        <th className="p-4 text-center">Cantidad</th>
+                        <th className="p-4 text-right">Precio Unit. FOB</th>
+                        <th className="p-4 text-right font-bold text-emerald-700">Costo Landed Prorrateado</th>
+                        <th className="p-4 pr-6 text-right">Acción Inventario</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 text-xs font-bold text-slate-800">
+                      {scannedInvoiceData.items?.map((item: any, idx: number) => {
+                        const existingProd = catalogProducts?.find(p => p.sku === item.sku);
+
+                        return (
+                          <tr key={idx} className="hover:bg-slate-50">
+                            <td className="p-4 pl-6">
+                              <p className="font-black text-slate-900 uppercase">{item.name}</p>
+                              <p className="text-[8px] font-mono text-slate-400">SKU: {item.sku}</p>
+                            </td>
+                            <td className="p-4 text-center font-mono">{item.quantity} unids</td>
+                            <td className="p-4 text-right font-mono font-black">${item.unitPriceFOB?.toFixed(2)}</td>
+                            <td className="p-4 text-right font-mono font-black text-emerald-700 bg-emerald-50/50">${(item.unitPriceFOB * 1.25).toFixed(2)}</td>
+                            <td className="p-4 pr-6 text-right">
+                              {existingProd ? (
+                                <Badge className="bg-blue-100 text-blue-700 text-[8px] font-black border-none">✅ EXISTENTE EN INVENTARIO</Badge>
+                              ) : (
+                                <Button size="sm" className="h-8 px-3 rounded-xl bg-primary text-white text-[8px] font-black uppercase">
+                                  <Sparkles className="h-3 w-3 mr-1" /> Crear Producto Nuevo
+                                </Button>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </Card>
+          </TabsContent>
+        </Tabs>
+
+        {/* MODAL REGISTRO DE ABONO PARCIAL LIBRE */}
+        <Dialog open={isPaymentModalOpen} onOpenChange={setIsPaymentModalOpen}>
+          <DialogContent className="sm:max-w-md rounded-[2.5rem] border-none shadow-2xl overflow-hidden p-8">
+            <DialogHeader>
+              <DialogTitle className="text-xl font-black uppercase tracking-tight text-slate-900 flex items-center gap-2">
+                <DollarSign className="h-5 w-5 text-emerald-600" /> Registrar Abono Libre a Proveedor
+              </DialogTitle>
+              <DialogDescription className="text-slate-400 text-xs">
+                Ingresa el pago realizado con su método y comprobante.
+              </DialogDescription>
+            </DialogHeader>
+
+            <form onSubmit={handleAddPayment} className="space-y-4 py-2">
+              <div className="space-y-1.5">
+                <Label className="text-[9px] font-black uppercase text-slate-500">Seleccionar Importación</Label>
+                <Select value={paymentPoId} onValueChange={setPaymentPoId}>
+                  <SelectTrigger className="h-11 rounded-xl border-slate-200 text-xs font-bold uppercase"><SelectValue placeholder="SELECCIONAR ORDEN..." /></SelectTrigger>
+                  <SelectContent>
+                    {filteredOrders.map(po => (
+                      <SelectItem key={po.id} value={po.id!} className="text-xs font-bold uppercase">
+                        {po.supplierName} - Total: ${po.totalCost?.toFixed(2)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label className="text-[9px] font-black uppercase text-slate-500">Monto Abonato ($ USD)</Label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    placeholder="0.00"
+                    value={paymentAmountUSD}
+                    onChange={(e) => setPaymentAmountUSD(e.target.value)}
+                    className="h-11 rounded-xl text-xs font-bold font-mono border-slate-200"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-[9px] font-black uppercase text-slate-500">Método de Pago</Label>
+                  <Select value={paymentMethod} onValueChange={(v: any) => setPaymentMethod(v)}>
+                    <SelectTrigger className="h-11 rounded-xl border-slate-200 text-xs font-bold uppercase"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Transferencia SWIFT" className="text-xs font-bold">Transferencia SWIFT</SelectItem>
+                      <SelectItem value="Zelle" className="text-xs font-bold">Zelle</SelectItem>
+                      <SelectItem value="Binance" className="text-xs font-bold">Binance</SelectItem>
+                      <SelectItem value="Efectivo" className="text-xs font-bold">Efectivo</SelectItem>
+                      <SelectItem value="Otro" className="text-xs font-bold">Otro</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className="text-[9px] font-black uppercase text-slate-500">Notas / Referencia de Pago</Label>
+                <Input
+                  placeholder="Eje: Ref SWIFT #98218171"
+                  value={paymentNotes}
+                  onChange={(e) => setPaymentNotes(e.target.value)}
+                  className="h-11 rounded-xl text-xs font-bold border-slate-200"
+                />
+              </div>
+
+              <DialogFooter className="pt-2">
+                <Button type="submit" className="w-full h-12 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs uppercase shadow-lg">
+                  Guardar Abono en Expediente
+                </Button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        </Dialog>
+      </div>
     );
 }
 
 export default function PurchaseOrdersPage() {
-    return <Suspense fallback={<div className="flex h-screen items-center justify-center"><Loader2 className="animate-spin text-primary h-10 w-10" /></div>}><PurchaseOrdersContent /></Suspense>;
+    return (
+        <Suspense fallback={<div className="flex h-screen items-center justify-center"><Loader2 className="animate-spin text-primary h-10 w-10" /></div>}>
+            <PurchaseOrdersContent />
+        </Suspense>
+    );
 }

@@ -294,13 +294,22 @@ export interface Supplier extends Auditable {
   website?: string;
 }
 
+export interface SupplierPayment {
+  id: string;
+  amountUSD: number;
+  date: string;
+  paymentMethod: 'Transferencia SWIFT' | 'Zelle' | 'Binance' | 'Efectivo' | 'Otro';
+  receiptUrl?: string;
+  notes?: string;
+}
+
 export interface PurchaseOrder extends Auditable {
     supplierId: string;
     supplierName: string;
     originCountry: string;
     originCity: string;
     transportMode: 'Marítimo' | 'Aéreo';
-    status: 'Pendiente' | 'En Tránsito' | 'Aduana' | 'Recibido' | 'Cancelado';
+    status: 'Cotizando/Alibaba' | 'En Fabricación' | 'En Tránsito' | 'Aduana' | 'Recibido' | 'Cancelado' | 'Pendiente';
     items: PurchaseOrderItem[];
     totalCost: number;
     estimatedArrival?: Timestamp | null;
@@ -318,6 +327,14 @@ export interface PurchaseOrder extends Auditable {
     downPaymentStatus?: 'Pendiente' | 'Pagado';
     balancePaymentAmount?: number;
     balancePaymentStatus?: 'Pendiente' | 'Pagado';
+    // NUEVOS CAMPOS IMPORTACIONES PRO & ALIBABA RADAR
+    paymentMode?: 'standard_30_70' | 'free_installments';
+    paymentsList?: SupplierPayment[];
+    totalPaidUSD?: number;
+    pendingBalanceUSD?: number;
+    leadTimeDays?: number;
+    quotationDate?: string;
+    isStaleQuoteAlert?: boolean;
 }
 
 export interface PurchaseOrderItem {
