@@ -52,31 +52,13 @@ export function ExecutiveMetricsSuite({ orders }: ExecutiveMetricsSuiteProps) {
     const [customModalLabel, setCustomModalLabel] = useState<string>('');
     const [auditMode, setAuditMode] = useState<'ventas' | 'cobranzas' | 'despachos' | 'cancelaciones' | 'pendientes'>('ventas');
     const [paymentMethodFilter, setPaymentMethodFilter] = useState<'todos' | 'cash' | 'bcv' | 'zelle'>('todos');
+    const [modalPeriod, setModalPeriod] = useState<'today' | '7d' | '30d' | 'this_month' | 'last_month' | '6m' | 'custom'>('this_month');
 
-    const openAuditForType = (type: 'ventas' | 'cobranzas' | 'despachos' | 'cancelaciones' | 'pendientes', customOrders?: Order[], customLabel?: string) => {
+    const openAuditForType = (type: 'ventas' | 'cobranzas' | 'despachos' | 'cancelaciones' | 'pendientes', customOrders?: Order[], customLabel?: string, targetPeriod?: any) => {
         setAuditMode(type);
-        const VALID_SALES_STATUSES = ['Entregado', 'Completado', 'Despachado', 'Pagado', 'Aprobado', 'En Preparación'];
-        const baseList = customOrders || orders || [];
-        
-        let filtered: Order[] = [];
-        if (type === 'cobranzas') {
-            filtered = baseList.filter(o => (o.amountPaid && o.amountPaid > 0) || o.status === 'Pagado');
-            setCustomModalLabel(customLabel || '🟢 Auditoría de Cobranzas Cash Efectivas');
-        } else if (type === 'despachos') {
-            filtered = baseList.filter(o => ['Despachado', 'Entregado', 'Completado'].includes(o.status));
-            setCustomModalLabel(customLabel || '🚚 Auditoría de Pedidos Despachados');
-        } else if (type === 'cancelaciones') {
-            filtered = baseList.filter(o => o.status === 'Cancelado');
-            setCustomModalLabel(customLabel || '🚨 Auditoría de Pedidos Cancelados');
-        } else if (type === 'pendientes') {
-            filtered = baseList.filter(o => (o.totalAmount || 0) - (o.amountPaid || 0) > 0.05);
-            setCustomModalLabel(customLabel || '🟡 Auditoría de Cartera por Cobrar (Crédito)');
-        } else {
-            filtered = baseList.filter(o => VALID_SALES_STATUSES.includes(o.status));
-            setCustomModalLabel(customLabel || '🔵 Auditoría de Ventas Comerciales');
-        }
-        
-        setSelectedBarOrders(filtered);
+        setModalPeriod(targetPeriod || (customOrders ? 'custom' : period));
+        setCustomModalLabel(customLabel || '');
+        setSelectedBarOrders(customOrders || null);
         setIsAuditModalOpen(true);
     };
 
@@ -97,8 +79,55 @@ export function ExecutiveMetricsSuite({ orders }: ExecutiveMetricsSuiteProps) {
             : type === 'cancelaciones' ? payload.cancelledOrders
             : payload.salesOrders || payload.periodOrders;
 
-        openAuditForType(type, customOrders, `${type === 'cobranzas' ? '🟢 Cobranzas Cash' : type === 'despachos' ? '🚚 Despachados' : type === 'cancelaciones' ? '🚨 Cancelados' : '🔵 Ventas'}: ${clickedLabel}`);
+        openAuditForType(type, customOrders, `${type === 'cobranzas' ? '🟢 Cobranzas Cash' : type === 'despachos' ? '🚚 Despachados' : type === 'cancelaciones' ? '🚨 Cancelados' : '🔵 Ventas'}: ${clickedLabel}`, 'custom');
     };
+
+    const modalFilteredOrders = useMemo(() => {
+        const VALID_SALES_STATUSES = ['Entregado', 'Completado', 'Despachado', 'Pagado', 'Aprobado', 'En Preparación'];
+        let baseList: Order[] = [];
+
+        if (modalPeriod === 'custom' && selectedBarOrders) {
+            baseList = selectedBarOrders;
+        } else {
+            const now = new Date();
+            const currentMonth = now.getMonth();
+            const currentYear = now.getFullYear();
+            baseList = (orders || []).filter(o => {
+                const oDate = convertToDate(o.receptionDate || o.approvalDate || o.createdAt || o.orderDate);
+                if (modalPeriod === 'today') {
+                    return oDate.getDate() === now.getDate() && oDate.getMonth() === currentMonth && oDate.getFullYear() === currentYear;
+                }
+                if (modalPeriod === '7d') {
+                    const start7d = new Date();
+                    start7d.setDate(now.getDate() - 7);
+                    return oDate >= start7d;
+                }
+                if (modalPeriod === 'this_month') {
+                    return oDate.getMonth() === currentMonth && oDate.getFullYear() === currentYear;
+                }
+                if (modalPeriod === 'last_month') {
+                    const lastM = currentMonth === 0 ? 11 : currentMonth - 1;
+                    const lastY = currentMonth === 0 ? currentYear - 1 : currentYear;
+                    return oDate.getMonth() === lastM && oDate.getFullYear() === lastY;
+                }
+                return true;
+            });
+        }
+
+        if (auditMode === 'cobranzas') {
+            baseList = baseList.filter(o => (o.amountPaid && o.amountPaid > 0) || o.status === 'Pagado');
+        } else if (auditMode === 'despachos') {
+            baseList = baseList.filter(o => ['Despachado', 'Entregado', 'Completado'].includes(o.status));
+        } else if (auditMode === 'cancelaciones') {
+            baseList = baseList.filter(o => o.status === 'Cancelado');
+        } else if (auditMode === 'pendientes') {
+            baseList = baseList.filter(o => (o.totalAmount || 0) - (o.amountPaid || 0) > 0.05);
+        } else {
+            baseList = baseList.filter(o => VALID_SALES_STATUSES.includes(o.status));
+        }
+
+        return baseList;
+    }, [modalPeriod, selectedBarOrders, orders, auditMode]);
 
     // Procesamiento y agrupación de datos
     const metricsData = useMemo(() => {
@@ -491,9 +520,40 @@ export function ExecutiveMetricsSuite({ orders }: ExecutiveMetricsSuiteProps) {
                         </DialogDescription>
                     </DialogHeader>
 
+                    {/* BARRA DE FILTROS DE PERÍODOS INTERNA EN LA MODAL */}
+                    <div className="flex flex-wrap items-center gap-1.5 bg-slate-50 p-2 rounded-2xl border border-slate-100 my-2">
+                        <span className="text-[8px] font-black uppercase text-slate-400 mr-1 pl-1">Filtrar Periodo:</span>
+                        {[
+                            { id: 'today', label: '☀️ Hoy' },
+                            { id: '7d', label: '⚡ 7 Días' },
+                            { id: 'this_month', label: '🗓️ Mes Actual' },
+                            { id: 'last_month', label: '📅 Mes Anterior' },
+                            { id: '6m', label: '🌐 6 Meses' },
+                        ].map(p => (
+                            <button
+                                key={p.id}
+                                type="button"
+                                onClick={() => setModalPeriod(p.id as any)}
+                                className={cn(
+                                    "px-2.5 py-1 rounded-xl text-[8px] font-black uppercase tracking-wider transition-all border cursor-pointer",
+                                    modalPeriod === p.id 
+                                        ? "bg-slate-900 text-white border-slate-900 shadow-sm" 
+                                        : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+                                )}
+                            >
+                                {p.label}
+                            </button>
+                        ))}
+                        {modalPeriod === 'custom' && (
+                            <Badge className="bg-primary text-white text-[8px] font-black uppercase px-2.5 py-1 rounded-xl ml-auto border-none">
+                                📍 {customModalLabel || 'Selección del Gráfico'}
+                            </Badge>
+                        )}
+                    </div>
+
                     {/* METRICAS SUMMARY DEL PERIODO DE LA MODAL ADAPTADAS AL MODO */}
                     {(() => {
-                        const activeList = selectedBarOrders || orders || [];
+                        const activeList = modalFilteredOrders;
                         const mSales = activeList.reduce((sum, o) => {
                             if (auditMode === 'cobranzas') {
                                 return sum + (o.status === 'Pagado' ? (o.totalAmount || 0) : (o.amountPaid || 0));
@@ -588,7 +648,7 @@ export function ExecutiveMetricsSuite({ orders }: ExecutiveMetricsSuiteProps) {
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100 text-xs font-bold text-slate-800">
-                                {(selectedBarOrders || orders || [])
+                                {modalFilteredOrders
                                     .filter(o => {
                                         const term = auditSearchTerm.toLowerCase().trim();
                                         if (term) {
