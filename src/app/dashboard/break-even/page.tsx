@@ -3,8 +3,8 @@
 import React, { useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useCollection, useFirestore, useMemoFirebase, useUser, useDoc } from '@/firebase';
-import { collection, query, limit, doc } from 'firebase/firestore';
-import type { Product, FinancialSettings, Order } from '@/lib/definitions';
+import { collection, query, limit, doc, collectionGroup } from 'firebase/firestore';
+import type { Product, FinancialSettings, Order, OrderItem } from '@/lib/definitions';
 import { useFinance } from '@/context/FinanceContext';
 import { calculateMultiProductBreakEven, type ExpenseItem } from '@/lib/breakEvenEngine';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -71,6 +71,12 @@ export default function BreakEvenPage() {
   const ordersQuery = useMemoFirebase(() => (firestore && canManage ? query(collection(firestore, 'orders'), limit(200)) : null), [firestore, canManage]);
   const { data: monthOrders } = useCollection<Order>(ordersQuery);
 
+  const orderItemsQuery = useMemoFirebase(
+    () => (firestore && canManage ? query(collectionGroup(firestore, 'orderItems'), limit(1500)) : null),
+    [firestore, canManage]
+  );
+  const { data: allOrderItems } = useCollection<OrderItem>(orderItemsQuery);
+
   // FORMULARIO DE NUEVO GASTO
   const [newConcept, setNewConcept] = useState('');
   const [newCategory, setNewCategory] = useState<ExpenseItem['category']>('Nómina');
@@ -103,6 +109,18 @@ export default function BreakEvenPage() {
       ]
     };
 
+    // Mapeo de unidades por pedido desde la subcolección orderItems de Firestore
+    const unitsByOrderMap: Record<string, number> = {};
+    if (allOrderItems && Array.isArray(allOrderItems)) {
+      allOrderItems.forEach(item => {
+        const qty = Number(item.quantity || 1);
+        const orderId = (item as any).orderId || (item as any).ref?.parent?.parent?.id;
+        if (orderId) {
+          unitsByOrderMap[orderId] = (unitsByOrderMap[orderId] || 0) + qty;
+        }
+      });
+    }
+
     const now = new Date();
     const currentMonth = now.getMonth();
     const currentYear = now.getFullYear();
@@ -122,10 +140,18 @@ export default function BreakEvenPage() {
     monthOrders.forEach(o => {
       if (o.status !== 'Cancelado' && o.status !== 'Rechazado') {
         const amount = Number(o.totalAmount || 0);
-        let units = 0;
-        const orderItems = (o as any).items;
-        if (orderItems && Array.isArray(orderItems)) {
-          orderItems.forEach((i: any) => { units += Number(i.quantity || 0); });
+        
+        // Resolver unidades exactas del pedido
+        let units = unitsByOrderMap[o.id] || 0;
+        if (units === 0 && (o as any).packageCount) {
+          units = Number((o as any).packageCount);
+        }
+        if (units === 0 && (o as any).items && Array.isArray((o as any).items)) {
+          (o as any).items.forEach((i: any) => { units += Number(i.quantity || 1); });
+        }
+        // Fallback estimado si las unidades son 0 pero existe facturación ($)
+        if (units === 0 && amount > 0) {
+          units = Math.max(1, Math.round(amount / 35));
         }
 
         salesTotalAllTimeUSD += amount;
@@ -165,7 +191,6 @@ export default function BreakEvenPage() {
             unitsWeek += units;
           }
         } else {
-          // Si no tiene fecha válida, contar en el mes por defecto
           salesMonthUSD += amount;
           unitsMonth += units;
         }
@@ -188,7 +213,7 @@ export default function BreakEvenPage() {
       unitsTotalAllTime,
       weeklyBreakdown
     };
-  }, [monthOrders]);
+  }, [monthOrders, allOrderItems]);
 
   // EJECUCIÓN DEL MOTOR FINANCIERO REACTIVO CON CÁLCULO DE MIX AUTOMÁTICO POR VENTAS REALES
   const calculation = useMemo(() => {
@@ -200,9 +225,10 @@ export default function BreakEvenPage() {
       customSalesMix,
       actualSalesMetrics.salesMonthUSD,
       actualSalesMetrics.unitsMonth,
-      monthOrders || undefined
+      monthOrders || undefined,
+      allOrderItems || undefined
     );
-  }, [catalogProducts, expenses, targetProfitUSD, globalSettings, customSalesMix, actualSalesMetrics, monthOrders]);
+  }, [catalogProducts, expenses, targetProfitUSD, globalSettings, customSalesMix, actualSalesMetrics, monthOrders, allOrderItems]);
 
   const { items, summary } = calculation;
 

@@ -1,4 +1,4 @@
-import type { Product, FinancialSettings, Order } from './definitions';
+import type { Product, FinancialSettings, Order, OrderItem } from './definitions';
 import { calculatePricingTier, DEFAULT_BCV_RATE } from './pricing';
 
 export interface ExpenseItem {
@@ -54,7 +54,8 @@ export function calculateMultiProductBreakEven(
   customMixOverrides?: Record<string, number>, // Overrides opcionales
   actualMonthSalesUSD: number = 0,
   actualMonthUnits: number = 0,
-  ordersHistory?: Order[]
+  ordersHistory?: Order[],
+  allOrderItems?: OrderItem[]
 ): { items: ProductBreakEvenCalculation[]; summary: BreakEvenSummary } {
   const bcvRate = globalSettings?.bcvRate || DEFAULT_BCV_RATE;
   const safeTargetProfit = Math.max(0, targetProfitUSD || 0);
@@ -101,11 +102,22 @@ export function calculateMultiProductBreakEven(
   const unitsSoldMap: Record<string, number> = {};
   let totalHistoricalUnitsSold = 0;
 
-  // Sumar ventas reales desde el historial de órdenes de Firestore si están presentes
-  if (ordersHistory && Array.isArray(ordersHistory)) {
+  // A) Si se pasaron los orderItems de la subcolección de Firestore:
+  if (allOrderItems && Array.isArray(allOrderItems) && allOrderItems.length > 0) {
+    allOrderItems.forEach(item => {
+      const pId = item.productId;
+      const qty = Number(item.quantity || 0);
+      if (pId && qty > 0) {
+        unitsSoldMap[pId] = (unitsSoldMap[pId] || 0) + qty;
+        totalHistoricalUnitsSold += qty;
+      }
+    });
+  }
+  // B) Fallback: Si las órdenes traen `items` o `orderItems` embebidos:
+  else if (ordersHistory && Array.isArray(ordersHistory)) {
     ordersHistory.forEach(o => {
       if (o.status !== 'Cancelado' && o.status !== 'Rechazado') {
-        const orderItems = (o as any).items;
+        const orderItems = (o as any).items || (o as any).orderItems;
         if (orderItems && Array.isArray(orderItems)) {
           orderItems.forEach((item: any) => {
             const pId = item.productId || item.product?.id;
