@@ -48,6 +48,22 @@ export function ExecutiveMetricsSuite({ orders }: ExecutiveMetricsSuiteProps) {
     const [isAuditModalOpen, setIsAuditModalOpen] = useState(false);
     const [auditSearchTerm, setAuditSearchTerm] = useState('');
     const [selectedOrderForSheet, setSelectedOrderForSheet] = useState<Order | null>(null);
+    const [selectedBarOrders, setSelectedBarOrders] = useState<Order[] | null>(null);
+    const [customModalLabel, setCustomModalLabel] = useState<string>('');
+
+    const handleBarClick = (entry: any) => {
+        if (!entry) return;
+        const clickedLabel = entry.name || entry.payload?.name || 'Periodo Seleccionado';
+        const clickedOrders = entry.periodOrders || entry.payload?.periodOrders;
+        if (clickedOrders && clickedOrders.length > 0) {
+            setSelectedBarOrders(clickedOrders);
+            setCustomModalLabel(`⚡ Desglose de Ventas: ${clickedLabel}`);
+        } else {
+            setSelectedBarOrders(null);
+            setCustomModalLabel('');
+        }
+        setIsAuditModalOpen(true);
+    };
 
     // Procesamiento y agrupación de datos
     const metricsData = useMemo(() => {
@@ -152,7 +168,8 @@ export function ExecutiveMetricsSuite({ orders }: ExecutiveMetricsSuiteProps) {
                 cancelaciones: cancelledCount,
                 pedidosTotales: ordersCount,
                 ticketPromedio: avgTicket,
-                tasaCancelacion: cancelRate
+                tasaCancelacion: cancelRate,
+                periodOrders: periodOrders
             };
         });
 
@@ -290,8 +307,8 @@ export function ExecutiveMetricsSuite({ orders }: ExecutiveMetricsSuiteProps) {
                                         formatter={(val: any, name: any) => [`$${Number(val).toLocaleString()}`, name === 'ventas' ? 'Ventas Comercial' : 'Cobranzas Cash']}
                                     />
                                     <Legend wrapperStyle={{ fontSize: '10px', fontWeight: 900, textTransform: 'uppercase', paddingTop: '10px' }} />
-                                    <Bar dataKey="ventas" name="ventas" fill="#3b82f6" radius={[6, 6, 0, 0]} />
-                                    <Bar dataKey="cobranzas" name="cobranzas" fill="#10b981" radius={[6, 6, 0, 0]} />
+                                    <Bar dataKey="ventas" name="ventas" fill="#3b82f6" radius={[6, 6, 0, 0]} onClick={handleBarClick} className="cursor-pointer hover:opacity-80 transition-opacity" />
+                                    <Bar dataKey="cobranzas" name="cobranzas" fill="#10b981" radius={[6, 6, 0, 0]} onClick={handleBarClick} className="cursor-pointer hover:opacity-80 transition-opacity" />
                                 </BarChart>
                             </ResponsiveContainer>
                         </div>
@@ -317,8 +334,8 @@ export function ExecutiveMetricsSuite({ orders }: ExecutiveMetricsSuiteProps) {
                                         formatter={(val: any, name: any) => [`${val} Unid.`, name === 'despachos' ? 'Despachados / Entregados' : 'Cancelaciones']}
                                     />
                                     <Legend wrapperStyle={{ fontSize: '10px', fontWeight: 900, textTransform: 'uppercase', paddingTop: '10px' }} />
-                                    <Bar dataKey="despachos" name="despachos" fill="#38bdf8" radius={[6, 6, 0, 0]} />
-                                    <Bar dataKey="cancelaciones" name="cancelaciones" fill="#f43f5e" radius={[6, 6, 0, 0]} />
+                                    <Bar dataKey="despachos" name="despachos" fill="#38bdf8" radius={[6, 6, 0, 0]} onClick={handleBarClick} className="cursor-pointer hover:opacity-80 transition-opacity" />
+                                    <Bar dataKey="cancelaciones" name="cancelaciones" fill="#f43f5e" radius={[6, 6, 0, 0]} onClick={handleBarClick} className="cursor-pointer hover:opacity-80 transition-opacity" />
                                 </BarChart>
                             </ResponsiveContainer>
                         </div>
@@ -330,7 +347,7 @@ export function ExecutiveMetricsSuite({ orders }: ExecutiveMetricsSuiteProps) {
                     <div className="space-y-4">
                         <div className="flex items-center justify-between">
                             <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-300 flex items-center gap-2">
-                                <TableIcon className="h-3.5 w-3.5 text-primary" /> Matriz Comparativa de Métricas Globales de la App
+                                <TableIcon className="h-3.5 w-3.5 text-primary" /> Matriz Comparativa de Métricas Globales de la App (Haz clic en una fila para auditar)
                             </h3>
                         </div>
                         <div className="max-h-[300px] overflow-y-auto custom-scrollbar border border-white/10 rounded-2xl">
@@ -348,7 +365,7 @@ export function ExecutiveMetricsSuite({ orders }: ExecutiveMetricsSuiteProps) {
                                 </thead>
                                 <tbody className="divide-y divide-white/5 text-[10px] font-mono font-bold">
                                     {metricsData.matrixRows.map((row, idx) => (
-                                        <tr key={idx} className="hover:bg-white/5 transition-colors">
+                                        <tr key={idx} onClick={() => handleBarClick(row)} className="hover:bg-white/10 transition-colors cursor-pointer">
                                             <td className="p-3 pl-6 font-black uppercase text-white tracking-widest">{row.name}</td>
                                             <td className="p-3 text-right font-black text-white">${row.ventas.toLocaleString()}</td>
                                             <td className="p-3 text-right font-black text-emerald-400">${row.cobranzas.toLocaleString()}</td>
@@ -374,36 +391,44 @@ export function ExecutiveMetricsSuite({ orders }: ExecutiveMetricsSuiteProps) {
                                 Auditoría de Ventas B2B
                             </Badge>
                             <span className="text-[10px] font-black font-mono text-slate-400">
-                                Periodo: {period === 'today' ? '☀️ HOY' : period === '7d' ? '⚡ ÚLTIMOS 7 DÍAS' : period === 'this_month' ? '🗓️ MES ACTUAL (AGOSTO)' : period === 'last_month' ? '📅 MES ANTERIOR' : '🌐 6 MESES'}
+                                {customModalLabel || (period === 'today' ? '☀️ HOY' : period === '7d' ? '⚡ ÚLTIMOS 7 DÍAS' : period === 'this_month' ? '🗓️ MES ACTUAL (AGOSTO)' : period === 'last_month' ? '📅 MES ANTERIOR' : '🌐 6 MESES')}
                             </span>
                         </div>
                         <DialogTitle className="text-2xl font-black uppercase tracking-tight text-slate-900 flex items-center gap-2">
-                            <BarChart3 className="h-6 w-6 text-primary" /> Desglose Detallado de Ventas
+                            <BarChart3 className="h-6 w-6 text-primary" /> {customModalLabel || 'Desglose Detallado de Ventas'}
                         </DialogTitle>
                         <DialogDescription className="text-slate-500 text-xs">
-                            Listado completo de pedidos registrados en el periodo seleccionado con conversión oficial a Bs. BCV.
+                            Listado completo de pedidos registrados en el elemento seleccionado con conversión oficial a Bs. BCV.
                         </DialogDescription>
                     </DialogHeader>
 
-                    {/* METRICAS SUMMARY DEL PERIODO */}
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-50 p-4 rounded-2xl border border-slate-100 my-2">
-                        <div>
-                            <span className="text-[8px] font-black uppercase text-slate-400">Total Facturado USD</span>
-                            <p className="text-lg font-black text-slate-900 font-mono">${metricsData.totals.sales.toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
-                        </div>
-                        <div>
-                            <span className="text-[8px] font-black uppercase text-slate-400">Equivalente Bs. BCV</span>
-                            <p className="text-lg font-black text-slate-700 font-mono">Bs. {(metricsData.totals.sales * 65.50).toLocaleString('es-VE', { minimumFractionDigits: 2 })}</p>
-                        </div>
-                        <div>
-                            <span className="text-[8px] font-black uppercase text-slate-400">Pedidos Totales</span>
-                            <p className="text-lg font-black text-blue-700 font-mono">{metricsData.totals.totalOrders} pedidos</p>
-                        </div>
-                        <div>
-                            <span className="text-[8px] font-black uppercase text-slate-400">Ticket Promedio</span>
-                            <p className="text-lg font-black text-emerald-700 font-mono">${Math.round(metricsData.totals.avgTicket).toLocaleString()}</p>
-                        </div>
-                    </div>
+                    {/* METRICAS SUMMARY DEL PERIODO DE LA MODAL */}
+                    {(() => {
+                        const activeList = selectedBarOrders || orders || [];
+                        const mSales = activeList.reduce((sum, o) => sum + (o.totalAmount || 0), 0);
+                        const mCount = activeList.length;
+                        const mAvg = mCount > 0 ? mSales / mCount : 0;
+                        return (
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-50 p-4 rounded-2xl border border-slate-100 my-2">
+                                <div>
+                                    <span className="text-[8px] font-black uppercase text-slate-400">Total Facturado USD</span>
+                                    <p className="text-lg font-black text-slate-900 font-mono">${mSales.toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
+                                </div>
+                                <div>
+                                    <span className="text-[8px] font-black uppercase text-slate-400">Equivalente Bs. BCV</span>
+                                    <p className="text-lg font-black text-slate-700 font-mono">Bs. {(mSales * 65.50).toLocaleString('es-VE', { minimumFractionDigits: 2 })}</p>
+                                </div>
+                                <div>
+                                    <span className="text-[8px] font-black uppercase text-slate-400">Pedidos Totales</span>
+                                    <p className="text-lg font-black text-blue-700 font-mono">{mCount} pedidos</p>
+                                </div>
+                                <div>
+                                    <span className="text-[8px] font-black uppercase text-slate-400">Ticket Promedio</span>
+                                    <p className="text-lg font-black text-emerald-700 font-mono">${Math.round(mAvg).toLocaleString()}</p>
+                                </div>
+                            </div>
+                        );
+                    })()}
 
                     {/* BARRA DE BÚSQUEDA DENTRO DE LA MODAL */}
                     <div className="relative my-2">
@@ -430,7 +455,7 @@ export function ExecutiveMetricsSuite({ orders }: ExecutiveMetricsSuiteProps) {
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100 text-xs font-bold text-slate-800">
-                                {(orders || [])
+                                {(selectedBarOrders || orders || [])
                                     .filter(o => {
                                         const term = auditSearchTerm.toLowerCase().trim();
                                         if (!term) return true;
