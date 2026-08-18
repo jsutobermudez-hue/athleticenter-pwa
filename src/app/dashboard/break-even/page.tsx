@@ -86,21 +86,108 @@ export default function BreakEvenPage() {
   const [isBreakEvenDetailModalOpen, setIsBreakEvenDetailModalOpen] = useState(false);
   const [isProgressModalOpen, setIsProgressModalOpen] = useState(false);
 
-  // CÁLCULO DE VENTAS REALES REGISTRADAS ESTE MES
-  const actualMonthMetrics = useMemo(() => {
-    if (!monthOrders) return { salesUSD: 0, units: 0 };
-    let salesUSD = 0;
-    let units = 0;
+  // CÁLCULO DE VENTAS REALES REGISTRADAS (MES, SEMANA, HISTÓRICO Y SEMANAS INDIVIDUALES)
+  const actualSalesMetrics = useMemo(() => {
+    if (!monthOrders) return { 
+      salesMonthUSD: 0, 
+      unitsMonth: 0, 
+      salesWeekUSD: 0, 
+      unitsWeek: 0,
+      salesTotalAllTimeUSD: 0,
+      unitsTotalAllTime: 0,
+      weeklyBreakdown: [
+        { name: 'Semana 1 (Días 1 - 7)', salesUSD: 0, units: 0 },
+        { name: 'Semana 2 (Días 8 - 14)', salesUSD: 0, units: 0 },
+        { name: 'Semana 3 (Días 15 - 21)', salesUSD: 0, units: 0 },
+        { name: 'Semana 4 (Días 22 - Fin de Mes)', salesUSD: 0, units: 0 }
+      ]
+    };
+
+    const now = new Date();
+    const currentMonth = now.getMonth();
+    const currentYear = now.getFullYear();
+    const startOfWeek = new Date(now);
+    startOfWeek.setDate(now.getDate() - 7);
+
+    let salesMonthUSD = 0;
+    let unitsMonth = 0;
+    let salesWeekUSD = 0;
+    let unitsWeek = 0;
+    let salesTotalAllTimeUSD = 0;
+    let unitsTotalAllTime = 0;
+
+    const weeklyMap = { 1: 0, 2: 0, 3: 0, 4: 0 };
+    const weeklyUnitsMap = { 1: 0, 2: 0, 3: 0, 4: 0 };
+
     monthOrders.forEach(o => {
       if (o.status !== 'Cancelado' && o.status !== 'Rechazado') {
-        salesUSD += o.totalAmount || 0;
+        const amount = Number(o.totalAmount || 0);
+        let units = 0;
         const orderItems = (o as any).items;
         if (orderItems && Array.isArray(orderItems)) {
-          orderItems.forEach((i: any) => { units += i.quantity || 0; });
+          orderItems.forEach((i: any) => { units += Number(i.quantity || 0); });
+        }
+
+        salesTotalAllTimeUSD += amount;
+        unitsTotalAllTime += units;
+
+        // Extraer fecha del pedido
+        let orderDate: Date | null = null;
+        if (o.orderDate) {
+          if (typeof (o.orderDate as any).toDate === 'function') {
+            orderDate = (o.orderDate as any).toDate();
+          } else if ((o.orderDate as any).seconds) {
+            orderDate = new Date((o.orderDate as any).seconds * 1000);
+          } else {
+            orderDate = new Date(o.orderDate as any);
+          }
+        }
+
+        if (orderDate && !isNaN(orderDate.getTime())) {
+          // Filtrar por Mes Actual
+          if (orderDate.getMonth() === currentMonth && orderDate.getFullYear() === currentYear) {
+            salesMonthUSD += amount;
+            unitsMonth += units;
+
+            const day = orderDate.getDate();
+            let weekNum: 1 | 2 | 3 | 4 = 1;
+            if (day > 21) weekNum = 4;
+            else if (day > 14) weekNum = 3;
+            else if (day > 7) weekNum = 2;
+
+            weeklyMap[weekNum] += amount;
+            weeklyUnitsMap[weekNum] += units;
+          }
+
+          // Filtrar por Semana Actual (últimos 7 días)
+          if (orderDate >= startOfWeek) {
+            salesWeekUSD += amount;
+            unitsWeek += units;
+          }
+        } else {
+          // Si no tiene fecha válida, contar en el mes por defecto
+          salesMonthUSD += amount;
+          unitsMonth += units;
         }
       }
     });
-    return { salesUSD, units };
+
+    const weeklyBreakdown = [
+      { name: 'Semana 1 (Días 1 - 7)', salesUSD: weeklyMap[1], units: weeklyUnitsMap[1] },
+      { name: 'Semana 2 (Días 8 - 14)', salesUSD: weeklyMap[2], units: weeklyUnitsMap[2] },
+      { name: 'Semana 3 (Días 15 - 21)', salesUSD: weeklyMap[3], units: weeklyUnitsMap[3] },
+      { name: 'Semana 4 (Días 22 - Fin de Mes)', salesUSD: weeklyMap[4], units: weeklyUnitsMap[4] }
+    ];
+
+    return {
+      salesMonthUSD,
+      unitsMonth,
+      salesWeekUSD,
+      unitsWeek,
+      salesTotalAllTimeUSD,
+      unitsTotalAllTime,
+      weeklyBreakdown
+    };
   }, [monthOrders]);
 
   // EJECUCIÓN DEL MOTOR FINANCIERO REACTIVO CON CÁLCULO DE MIX AUTOMÁTICO POR VENTAS REALES
@@ -111,11 +198,11 @@ export default function BreakEvenPage() {
       targetProfitUSD,
       globalSettings,
       customSalesMix,
-      actualMonthMetrics.salesUSD,
-      actualMonthMetrics.units,
+      actualSalesMetrics.salesMonthUSD,
+      actualSalesMetrics.unitsMonth,
       monthOrders || undefined
     );
-  }, [catalogProducts, expenses, targetProfitUSD, globalSettings, customSalesMix, actualMonthMetrics, monthOrders]);
+  }, [catalogProducts, expenses, targetProfitUSD, globalSettings, customSalesMix, actualSalesMetrics, monthOrders]);
 
   const { items, summary } = calculation;
 
@@ -261,7 +348,7 @@ export default function BreakEvenPage() {
           </div>
         </Card>
 
-        {/* TARJETA 4: PROGRESO REAL DEL MES */}
+        {/* TARJETA 4: PROGRESO REAL & RITMO DE VENTAS (MES Y SEMANA) */}
         <Card 
           onClick={() => setIsProgressModalOpen(true)}
           className="border-none shadow-xl rounded-[2rem] bg-white p-6 flex flex-col justify-between relative overflow-hidden border border-slate-100 cursor-pointer hover:scale-[1.02] hover:shadow-2xl transition-all duration-300 group"
@@ -272,15 +359,16 @@ export default function BreakEvenPage() {
                 Progreso Real del Mes <ArrowUpRight className="h-3 w-3 opacity-0 group-hover:opacity-100 transition-opacity" />
               </p>
               <h3 className="text-3xl font-black tracking-tight text-slate-900 mt-1">{summary.breakEvenProgressPercent}%</h3>
-              <p className="text-[9px] font-bold text-slate-500 uppercase">${actualMonthMetrics.salesUSD.toLocaleString('en-US')} Vendidos</p>
+              <p className="text-[9px] font-bold text-slate-500 uppercase">${actualSalesMetrics.salesMonthUSD.toLocaleString('en-US')} Vendidos Este Mes</p>
             </div>
             <div className="p-3 rounded-2xl bg-slate-100 text-slate-700 group-hover:bg-primary group-hover:text-white transition-colors"><BarChart3 className="h-6 w-6" /></div>
           </div>
-          <div className="space-y-1.5 mt-4">
+
+          <div className="space-y-2 mt-3">
             <Progress value={summary.breakEvenProgressPercent} className="h-2 bg-slate-100" />
-            <div className="flex justify-between text-[8px] font-black uppercase text-slate-400">
-              <span>{actualMonthMetrics.units} Unidades Reales</span>
-              <span className="group-hover:text-primary transition-colors">VER PEDIDOS ➔</span>
+            <div className="grid grid-cols-2 gap-1 text-[8px] font-black uppercase text-slate-500 font-mono">
+              <span className="bg-slate-50 p-1 rounded-md">📅 Semana: ${actualSalesMetrics.salesWeekUSD.toLocaleString('en-US')}</span>
+              <span className="bg-slate-50 p-1 rounded-md text-right">🗓️ Mes: ${actualSalesMetrics.salesMonthUSD.toLocaleString('en-US')}</span>
             </div>
           </div>
         </Card>
@@ -649,32 +737,66 @@ export default function BreakEvenPage() {
         </DialogContent>
       </Dialog>
 
-      {/* MODAL 4: DETALLE DE PROGRESO REAL Y VENTAS REGISTRADAS */}
+      {/* MODAL 4: DETALLE DE PROGRESO REAL, VENTAS SEMANALES Y MENSUALES */}
       <Dialog open={isProgressModalOpen} onOpenChange={setIsProgressModalOpen}>
-        <DialogContent className="sm:max-w-lg rounded-[2.5rem] border-none shadow-2xl overflow-hidden p-8">
+        <DialogContent className="sm:max-w-xl rounded-[2.5rem] border-none shadow-2xl overflow-hidden p-8">
           <DialogHeader className="space-y-2">
             <DialogTitle className="text-xl font-black uppercase tracking-tight text-slate-900 flex items-center gap-2">
-              <BarChart3 className="h-5 w-5 text-primary" /> Auditoría de Ventas Reales del Mes
+              <BarChart3 className="h-5 w-5 text-primary" /> Auditoría y Ritmo de Ventas (Semanal / Mensual)
             </DialogTitle>
             <DialogDescription className="text-xs text-slate-500 font-medium">
-              Origen de datos: Colección <code>orders</code> en Firestore (Pedidos procesados este mes).
+              Origen de datos: Pedidos procesados en la colección <code>orders</code> de Firestore.
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-4 py-4">
-            <div className="p-4 rounded-2xl bg-slate-900 text-white flex justify-between items-center">
-              <div>
-                <span className="text-[8px] font-black uppercase text-primary tracking-widest">Total Ventas Registradas</span>
-                <h3 className="text-2xl font-black text-white">${actualMonthMetrics.salesUSD.toLocaleString('en-US')} USD</h3>
+          <div className="space-y-5 py-4">
+            {/* TARJETAS RESUMEN: MES, SEMANA E HISTÓRICO */}
+            <div className="grid grid-cols-3 gap-3">
+              <div className="p-3.5 rounded-2xl bg-blue-50 border border-blue-100 text-center">
+                <span className="text-[8px] font-black uppercase text-blue-600">Ventas Este Mes</span>
+                <h4 className="text-base font-black text-blue-900 font-mono mt-0.5">${actualSalesMetrics.salesMonthUSD.toLocaleString('en-US')}</h4>
+                <span className="text-[8px] font-bold text-blue-700 font-mono">{actualSalesMetrics.unitsMonth} Unids</span>
               </div>
-              <Badge className="bg-emerald-500 text-white font-mono text-[10px] border-none">
-                {actualMonthMetrics.units} Unidades Reales
-              </Badge>
+
+              <div className="p-3.5 rounded-2xl bg-emerald-50 border border-emerald-100 text-center">
+                <span className="text-[8px] font-black uppercase text-emerald-600">Últimos 7 Días</span>
+                <h4 className="text-base font-black text-emerald-900 font-mono mt-0.5">${actualSalesMetrics.salesWeekUSD.toLocaleString('en-US')}</h4>
+                <span className="text-[8px] font-bold text-emerald-700 font-mono">{actualSalesMetrics.unitsWeek} Unids</span>
+              </div>
+
+              <div className="p-3.5 rounded-2xl bg-purple-50 border border-purple-100 text-center">
+                <span className="text-[8px] font-black uppercase text-purple-600">Total Histórico</span>
+                <h4 className="text-base font-black text-purple-900 font-mono mt-0.5">${actualSalesMetrics.salesTotalAllTimeUSD.toLocaleString('en-US')}</h4>
+                <span className="text-[8px] font-bold text-purple-700 font-mono">{actualSalesMetrics.unitsTotalAllTime} Unids</span>
+              </div>
             </div>
 
-            <p className="text-xs text-slate-500 font-medium">
-              Has cubierto el <strong className="text-slate-900">{summary.breakEvenProgressPercent}%</strong> de la meta requerida para estar en punto de equilibrio y generar la ganancia deseada.
-            </p>
+            {/* TABLA DE DESGLOSE POR SEMANAS DEL MES */}
+            <div className="space-y-2">
+              <h4 className="text-xs font-black uppercase text-slate-700 tracking-wider">Desglose por Semanas del Mes Corriente</h4>
+              <div className="rounded-2xl border border-slate-100 overflow-hidden">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-900 text-white text-[8px] font-black uppercase tracking-widest">
+                    <tr>
+                      <th className="p-3 pl-4">Semana</th>
+                      <th className="p-3 text-center">Unidades</th>
+                      <th className="p-3 text-right">Monto ($ USD)</th>
+                      <th className="p-3 pr-4 text-right">Monto (Bs. BCV)</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 font-bold text-slate-800">
+                    {actualSalesMetrics.weeklyBreakdown.map((w, idx) => (
+                      <tr key={idx} className="hover:bg-slate-50">
+                        <td className="p-3 pl-4 font-black uppercase text-slate-900">{w.name}</td>
+                        <td className="p-3 text-center font-mono">{w.units} unids</td>
+                        <td className="p-3 text-right font-mono font-black text-emerald-700">${w.salesUSD.toLocaleString('en-US', { minimumFractionDigits: 2 })}</td>
+                        <td className="p-3 pr-4 text-right font-mono font-black text-slate-600">Bs. {(w.salesUSD * summary.bcvRate).toLocaleString('es-VE', { minimumFractionDigits: 2 })}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
           </div>
 
           <DialogFooter className="gap-2">
