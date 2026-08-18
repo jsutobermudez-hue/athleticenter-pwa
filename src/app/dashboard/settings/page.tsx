@@ -37,6 +37,7 @@ import {
 } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Label } from '@/components/ui/label';
+import { Badge } from '@/components/ui/badge';
 import type { CompanyProfile as CompanyProfileType, FinancialSettings } from '@/lib/definitions';
 import { Input } from '@/components/ui/input';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
@@ -107,11 +108,74 @@ function PerformanceWidget() {
 }
 
 function DeviceLinkingWidget() {
+    const { user } = useUser();
+    const firestore = useFirestore();
+    const { toast } = useToast();
+    const [swStatus, setSwStatus] = useState<string>('cargando');
+    const [permissionStatus, setPermissionStatus] = useState<string>('cargando');
+    const [isSubscribing, setIsSubscribing] = useState(false);
+
+    useEffect(() => {
+        if (typeof window !== 'undefined') {
+            checkServiceWorkerStatus().then(status => setSwStatus(status));
+            if ('Notification' in window && window.Notification) {
+                setPermissionStatus(window.Notification.permission);
+            } else {
+                setPermissionStatus('unsupported');
+            }
+        }
+    }, []);
+
+    const handleEnablePush = async () => {
+        if (!user || !firestore) return;
+        setIsSubscribing(true);
+        try {
+            await initializePushNotifications(user.uid, firestore);
+            if ('Notification' in window && window.Notification) {
+                setPermissionStatus(window.Notification.permission);
+            }
+            const status = await checkServiceWorkerStatus();
+            setSwStatus(status);
+            toast({ title: "Suscripción Push Sincronizada", description: "Tu dispositivo recibirá alertas nativas en tiempo real." });
+        } catch (e: any) {
+            toast({ variant: 'destructive', title: "Error en Vinculación", description: e?.message || "No se pudo otorgar permiso nativo." });
+        } finally {
+            setIsSubscribing(false);
+        }
+    };
+
     return (
         <Card className="terminal-card">
-            <CardHeader className="py-6 px-8 border-b bg-slate-50"><CardTitle className="text-xs font-black uppercase tracking-[0.3em] flex items-center gap-3 text-primary"><Smartphone className="h-4 w-4" /> Dispositivo</CardTitle></CardHeader>
+            <CardHeader className="py-6 px-8 border-b bg-slate-50">
+                <CardTitle className="text-xs font-black uppercase tracking-[0.3em] flex items-center gap-3 text-primary">
+                    <Smartphone className="h-4 w-4" /> Dispositivo PWA & Notificaciones Push
+                </CardTitle>
+            </CardHeader>
             <CardContent className="p-8 space-y-4">
-                <p className="text-xs text-slate-500 font-medium">Terminal PWA vinculada con cifrado de sesión seguro.</p>
+                <div className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border">
+                    <span className="text-[10px] font-black uppercase text-slate-500">Service Worker:</span>
+                    <Badge className={cn("text-[9px] font-black uppercase", swStatus === 'active' ? "bg-emerald-600 text-white" : "bg-rose-600 text-white")}>
+                        {swStatus === 'active' ? '🟢 Activo' : '🔴 Inactivo'}
+                    </Badge>
+                </div>
+                <div className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border">
+                    <span className="text-[10px] font-black uppercase text-slate-500">Permisos de Notificación:</span>
+                    <Badge className={cn(
+                        "text-[9px] font-black uppercase", 
+                        permissionStatus === 'granted' ? "bg-emerald-600 text-white" : 
+                        permissionStatus === 'denied' ? "bg-rose-600 text-white" : "bg-amber-500 text-white"
+                    )}>
+                        {permissionStatus === 'granted' ? '🟢 Concedido' : permissionStatus === 'denied' ? '🔴 Bloqueado' : '🟡 Pendiente'}
+                    </Badge>
+                </div>
+                <Button 
+                    onClick={handleEnablePush} 
+                    disabled={isSubscribing}
+                    className="w-full h-12 rounded-xl font-black uppercase text-[10px] tracking-widest bg-slate-900 text-white hover:bg-slate-800"
+                >
+                    {isSubscribing ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Zap className="h-4 w-4 mr-2 text-amber-400" />} 
+                    RE-VINCULAR NOTIFICACIONES PUSH
+                </Button>
             </CardContent>
         </Card>
     );

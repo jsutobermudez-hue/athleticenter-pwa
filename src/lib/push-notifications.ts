@@ -58,11 +58,11 @@ export async function initializePushNotifications(userId: string, firestore: Fir
     await navigator.serviceWorker.ready;
     
     // Solo pedir permisos si es necesario
-    if (window.Notification && window.Notification.permission === 'default') {
+    if (typeof window !== 'undefined' && 'Notification' in window && window.Notification && window.Notification.permission === 'default') {
         await window.Notification.requestPermission();
     }
 
-    if (window.Notification.permission === 'granted') {
+    if (typeof window !== 'undefined' && 'Notification' in window && window.Notification && window.Notification.permission === 'granted') {
         await subscribeUserToPush(registration, userId, firestore);
     }
   } catch (error: any) {
