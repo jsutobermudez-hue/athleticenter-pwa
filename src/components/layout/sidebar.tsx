@@ -71,7 +71,7 @@ const mandoItems: MenuItem[] = [
 const comercialItems: MenuItem[] = [
   { href: '/dashboard/clients', label: 'Clientes', icon: Users, roles: ['superadmin', 'gerencia', 'admin', 'ventas'] },
   { href: '/dashboard/quotes', label: 'Cotizaciones', icon: ClipboardList, roles: ['superadmin', 'gerencia', 'admin', 'ventas', 'cliente'] },
-  { href: '/dashboard/orders', label: 'Pedidos', icon: ShoppingCart, roles: ['superadmin', 'gerencia', 'admin', 'ventas', 'deposito', 'cliente'] },
+  { href: '/dashboard/orders', label: 'Ventas y Pedidos', icon: ShoppingCart, roles: ['superadmin', 'gerencia', 'admin', 'ventas', 'deposito', 'cliente'] },
 ];
 
 // --- GRUPO 3: CADENA DE SUMINISTRO (LOGÍSTICA) ---

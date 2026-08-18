@@ -71,6 +71,7 @@ export default function AdminOrdersView() {
     
     const [queryLimit, setQueryLimit] = useState(100);
     const [activeTab, setActiveTab] = useState<'todos' | 'comercial' | 'operativo' | 'logistica' | 'cobranzas' | 'archivo'>('todos');
+    const [dateFilter, setDateFilter] = useState<'todos' | 'today' | '7d' | 'this_month' | 'last_month'>('todos');
 
     const canListAll = useMemo(() => 
         currentUser && ['superadmin', 'admin', 'gerencia', 'deposito'].includes(currentUser.role),
@@ -136,11 +137,42 @@ export default function AdminOrdersView() {
         if (!allOrders) return initial;
         
         const term = searchTerm.toLowerCase().trim();
+        const now = new Date();
+        const currentMonth = now.getMonth();
+        const currentYear = now.getFullYear();
+
         const filtered = allOrders.filter(o => {
             const matchesSearch = o.id.toLowerCase().includes(term) || o.customerName.toLowerCase().includes(term) || (o.customerRif || '').toLowerCase().includes(term) || (o.trackingNumber || '').toLowerCase().includes(term);
             const matchesStatus = statusFilter === 'todos' || o.status === statusFilter;
             const matchesSalesperson = salespersonFilter === 'todos' || o.salespersonName === salespersonFilter;
-            return matchesSearch && matchesStatus && matchesSalesperson;
+            
+            let matchesDate = true;
+            if (dateFilter !== 'todos') {
+                let oDate: Date | null = null;
+                const rawDate = o.orderDate || o.createdAt || o.approvalDate;
+                if (rawDate) {
+                    if (typeof (rawDate as any).toDate === 'function') oDate = (rawDate as any).toDate();
+                    else if ((rawDate as any).seconds) oDate = new Date((rawDate as any).seconds * 1000);
+                    else oDate = new Date(rawDate as any);
+                }
+                if (oDate && !isNaN(oDate.getTime())) {
+                    if (dateFilter === 'today') {
+                        matchesDate = oDate.getDate() === now.getDate() && oDate.getMonth() === currentMonth && oDate.getFullYear() === currentYear;
+                    } else if (dateFilter === '7d') {
+                        const start7d = new Date();
+                        start7d.setDate(now.getDate() - 7);
+                        matchesDate = oDate >= start7d;
+                    } else if (dateFilter === 'this_month') {
+                        matchesDate = oDate.getMonth() === currentMonth && oDate.getFullYear() === currentYear;
+                    } else if (dateFilter === 'last_month') {
+                        const lastM = currentMonth === 0 ? 11 : currentMonth - 1;
+                        const lastY = currentMonth === 0 ? currentYear - 1 : currentYear;
+                        matchesDate = oDate.getMonth() === lastM && oDate.getFullYear() === lastY;
+                    }
+                }
+            }
+
+            return matchesSearch && matchesStatus && matchesSalesperson && matchesDate;
         });
 
         filtered.forEach(order => {
@@ -163,7 +195,7 @@ export default function AdminOrdersView() {
             }
         });
         return initial;
-    }, [allOrders, searchTerm, statusFilter, salespersonFilter]);
+    }, [allOrders, searchTerm, statusFilter, salespersonFilter, dateFilter]);
 
     if (!canListAll) return <div className="p-12 text-center opacity-40 italic font-black uppercase tracking-widest text-[10px]">Acceso restringido a Gerencia y Logística.</div>;
 
@@ -260,16 +292,43 @@ export default function AdminOrdersView() {
                 ))}
             </div>
 
-            {/* Barra de Filtros y Ordenamiento */}
+            {/* Barra de Filtros y Ordenamiento con Selector de Periodo */}
             <Card className="border-none shadow-sm rounded-2xl overflow-hidden bg-white mx-1 sm:mx-2">
-                <CardContent className="p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 items-end">
-                    <div className="space-y-1">
-                        <Label className="text-[8px] font-black uppercase tracking-widest text-slate-400">Búsqueda Táctica</Label>
-                        <div className="relative">
-                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-                            <Input placeholder="REF / CLIENTE / RIF / GUÍA..." className="pl-9 h-10 text-[10px] font-bold uppercase rounded-xl border-none bg-slate-50 shadow-inner" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}/>
-                        </div>
+                <CardContent className="p-4 space-y-4">
+                    {/* FILTROS RÁPIDOS DE PERÍODOS DE VENTA */}
+                    <div className="flex flex-wrap items-center gap-2 pb-2 border-b border-slate-100">
+                        <span className="text-[9px] font-black uppercase tracking-widest text-slate-400 mr-1">Periodo:</span>
+                        {[
+                            { id: 'todos', label: '🌐 Todo el Histórico' },
+                            { id: 'today', label: '☀️ Hoy' },
+                            { id: '7d', label: '⚡ Últimos 7 Días' },
+                            { id: 'this_month', label: '🗓️ Mes Actual' },
+                            { id: 'last_month', label: '📅 Mes Anterior' },
+                        ].map(p => (
+                            <button
+                                key={p.id}
+                                type="button"
+                                onClick={() => setDateFilter(p.id as any)}
+                                className={cn(
+                                    "px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer border",
+                                    dateFilter === p.id 
+                                        ? "bg-slate-900 text-white border-slate-900 shadow-sm" 
+                                        : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100"
+                                )}
+                            >
+                                {p.label}
+                            </button>
+                        ))}
                     </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 items-end">
+                        <div className="space-y-1">
+                            <Label className="text-[8px] font-black uppercase tracking-widest text-slate-400">Búsqueda Táctica</Label>
+                            <div className="relative">
+                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                                <Input placeholder="REF / CLIENTE / RIF / GUÍA..." className="pl-9 h-10 text-[10px] font-bold uppercase rounded-xl border-none bg-slate-50 shadow-inner" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}/>
+                            </div>
+                        </div>
 
                     {uniqueSalespeople.length > 0 && (
                         <div className="space-y-1">
@@ -324,6 +383,7 @@ export default function AdminOrdersView() {
                                 <SortAsc className="h-3.5 w-3.5 mr-1" /> ASC
                             </Button>
                         </div>
+                    </div>
                     </div>
                 </CardContent>
             </Card>

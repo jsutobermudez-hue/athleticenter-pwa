@@ -22,6 +22,12 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
+import { Search, Eye, ShoppingCart, CheckCircle2 } from 'lucide-react';
+import { OrderSheetController } from '@/app/dashboard/orders/OrderSheetController';
+
 interface ExecutiveMetricsSuiteProps {
     orders: Order[] | null;
 }
@@ -35,8 +41,13 @@ const convertToDate = (value: any): Date => {
 };
 
 export function ExecutiveMetricsSuite({ orders }: ExecutiveMetricsSuiteProps) {
-    const [period, setPeriod] = useState<'7d' | '30d' | '6m'>('6m');
+    const [period, setPeriod] = useState<'today' | '7d' | '30d' | 'this_month' | 'last_month' | '6m'>('this_month');
     const [activeTab, setActiveTab] = useState<'comparative' | 'logistics' | 'matrix'>('comparative');
+
+    // ESTADO MODAL INTERACTIVA DE DESGLOSE DE VENTAS (DRILL-DOWN)
+    const [isAuditModalOpen, setIsAuditModalOpen] = useState(false);
+    const [auditSearchTerm, setAuditSearchTerm] = useState('');
+    const [selectedOrderForSheet, setSelectedOrderForSheet] = useState<Order | null>(null);
 
     // Procesamiento y agrupación de datos
     const metricsData = useMemo(() => {
@@ -47,7 +58,12 @@ export function ExecutiveMetricsSuite({ orders }: ExecutiveMetricsSuiteProps) {
 
         let periodsList: { dateLabel: string; start: Date; end: Date; rawDate: Date }[] = [];
 
-        if (period === '7d') {
+        if (period === 'today') {
+            const day = startOfDay(now);
+            const end = new Date(day);
+            end.setHours(23, 59, 59, 999);
+            periodsList = [{ dateLabel: 'HOY', start: day, end: end, rawDate: day }];
+        } else if (period === '7d') {
             periodsList = Array.from({ length: 7 }, (_, i) => {
                 const day = startOfDay(subDays(now, 6 - i));
                 const end = new Date(day);
@@ -59,6 +75,14 @@ export function ExecutiveMetricsSuite({ orders }: ExecutiveMetricsSuiteProps) {
                     rawDate: day
                 };
             });
+        } else if (period === 'this_month') {
+            const mStart = new Date(now.getFullYear(), now.getMonth(), 1);
+            const mEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+            periodsList = [{ dateLabel: format(now, 'MMMM yyyy', { locale: es }).toUpperCase(), start: mStart, end: mEnd, rawDate: mStart }];
+        } else if (period === 'last_month') {
+            const mStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+            const mEnd = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
+            periodsList = [{ dateLabel: format(mStart, 'MMMM yyyy', { locale: es }).toUpperCase(), start: mStart, end: mEnd, rawDate: mStart }];
         } else if (period === '30d') {
             periodsList = Array.from({ length: 30 }, (_, i) => {
                 const day = startOfDay(subDays(now, 29 - i));
@@ -192,19 +216,28 @@ export function ExecutiveMetricsSuite({ orders }: ExecutiveMetricsSuiteProps) {
                         ))}
                     </div>
 
-                    {/* Selector de Períodos de Análisis */}
-                    <div className="flex bg-white/5 border border-white/10 p-1 rounded-xl gap-1">
-                        {(['7d', '30d', '6m'] as const).map(p => (
+                    {/* Selector de Períodos de Análisis Explícitos */}
+                    <div className="flex flex-wrap items-center bg-white/5 border border-white/10 p-1 rounded-xl gap-1">
+                        {[
+                            { id: 'today', label: '☀️ Hoy' },
+                            { id: '7d', label: '⚡ 7 Días' },
+                            { id: 'this_month', label: '🗓️ Mes Actual' },
+                            { id: 'last_month', label: '📅 Mes Anterior' },
+                            { id: '6m', label: '🌐 6 Meses' },
+                        ].map(p => (
                             <button
-                                key={p}
+                                key={p.id}
                                 type="button"
-                                onClick={() => setPeriod(p)}
+                                onClick={() => {
+                                    setPeriod(p.id as any);
+                                    setIsAuditModalOpen(true);
+                                }}
                                 className={cn(
-                                    "px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all",
-                                    period === p ? "bg-white text-slate-900 font-black shadow-sm" : "text-slate-400 hover:text-white"
+                                    "px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer",
+                                    period === p.id ? "bg-white text-slate-900 font-black shadow-sm" : "text-slate-400 hover:text-white hover:bg-white/5"
                                 )}
                             >
-                                {p === '7d' ? '7D' : p === '30d' ? '30D' : '6M'}
+                                {p.label}
                             </button>
                         ))}
                     </div>
@@ -212,10 +245,13 @@ export function ExecutiveMetricsSuite({ orders }: ExecutiveMetricsSuiteProps) {
             </CardHeader>
 
             <CardContent className="p-6 sm:p-8 space-y-6">
-                {/* BANNER KPI DE RESUMEN GLOBAL */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 bg-white/5 p-4 rounded-2xl border border-white/5">
+                {/* BANNER KPI DE RESUMEN GLOBAL INTERACTIVO (1-CLIC) */}
+                <div 
+                    onClick={() => setIsAuditModalOpen(true)}
+                    className="grid grid-cols-2 sm:grid-cols-4 gap-4 bg-white/5 p-4 rounded-2xl border border-white/5 cursor-pointer hover:bg-white/10 hover:border-white/20 transition-all group"
+                >
                     <div className="space-y-0.5">
-                        <span className="text-[8px] font-black uppercase tracking-widest text-slate-400 block">Ventas Entregadas</span>
+                        <span className="text-[8px] font-black uppercase tracking-widest text-slate-400 block group-hover:text-primary transition-colors">Ventas Entregadas (Clic Auditar)</span>
                         <p className="text-lg sm:text-xl font-black text-white tracking-tighter">${metricsData.totals.sales.toLocaleString()}</p>
                     </div>
                     <div className="space-y-0.5">
@@ -328,6 +364,123 @@ export function ExecutiveMetricsSuite({ orders }: ExecutiveMetricsSuiteProps) {
                     </div>
                 )}
             </CardContent>
+
+            {/* MODAL EJECUTIVA FLOTANTE DE AUDITORÍA Y DESGLOSE DE VENTAS DEL PERIODO (DRILL-DOWN) */}
+            <Dialog open={isAuditModalOpen} onOpenChange={setIsAuditModalOpen}>
+                <DialogContent className="sm:max-w-4xl rounded-[2.5rem] border-none shadow-2xl overflow-hidden p-8 bg-white text-slate-900">
+                    <DialogHeader className="space-y-2 border-b pb-4">
+                        <div className="flex items-center justify-between">
+                            <Badge className="bg-primary text-white font-black text-[9px] uppercase tracking-widest px-3 py-1">
+                                Auditoría de Ventas B2B
+                            </Badge>
+                            <span className="text-[10px] font-black font-mono text-slate-400">
+                                Periodo: {period === 'today' ? '☀️ HOY' : period === '7d' ? '⚡ ÚLTIMOS 7 DÍAS' : period === 'this_month' ? '🗓️ MES ACTUAL (AGOSTO)' : period === 'last_month' ? '📅 MES ANTERIOR' : '🌐 6 MESES'}
+                            </span>
+                        </div>
+                        <DialogTitle className="text-2xl font-black uppercase tracking-tight text-slate-900 flex items-center gap-2">
+                            <BarChart3 className="h-6 w-6 text-primary" /> Desglose Detallado de Ventas
+                        </DialogTitle>
+                        <DialogDescription className="text-slate-500 text-xs">
+                            Listado completo de pedidos registrados en el periodo seleccionado con conversión oficial a Bs. BCV.
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    {/* METRICAS SUMMARY DEL PERIODO */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-50 p-4 rounded-2xl border border-slate-100 my-2">
+                        <div>
+                            <span className="text-[8px] font-black uppercase text-slate-400">Total Facturado USD</span>
+                            <p className="text-lg font-black text-slate-900 font-mono">${metricsData.totals.sales.toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
+                        </div>
+                        <div>
+                            <span className="text-[8px] font-black uppercase text-slate-400">Equivalente Bs. BCV</span>
+                            <p className="text-lg font-black text-slate-700 font-mono">Bs. {(metricsData.totals.sales * 65.50).toLocaleString('es-VE', { minimumFractionDigits: 2 })}</p>
+                        </div>
+                        <div>
+                            <span className="text-[8px] font-black uppercase text-slate-400">Pedidos Totales</span>
+                            <p className="text-lg font-black text-blue-700 font-mono">{metricsData.totals.totalOrders} pedidos</p>
+                        </div>
+                        <div>
+                            <span className="text-[8px] font-black uppercase text-slate-400">Ticket Promedio</span>
+                            <p className="text-lg font-black text-emerald-700 font-mono">${Math.round(metricsData.totals.avgTicket).toLocaleString()}</p>
+                        </div>
+                    </div>
+
+                    {/* BARRA DE BÚSQUEDA DENTRO DE LA MODAL */}
+                    <div className="relative my-2">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+                        <Input
+                            placeholder="BUSCAR CLIENTE, VENDEDOR O PEDIDO..."
+                            value={auditSearchTerm}
+                            onChange={(e) => setAuditSearchTerm(e.target.value)}
+                            className="pl-9 h-10 text-[10px] font-bold uppercase bg-slate-50 border-none rounded-xl"
+                        />
+                    </div>
+
+                    {/* TABLA DE PEDIDOS DESGLOSADOS */}
+                    <div className="max-h-[360px] overflow-y-auto custom-scrollbar border border-slate-100 rounded-2xl">
+                        <table className="w-full text-left border-collapse">
+                            <thead className="bg-slate-900 text-white text-[9px] font-black uppercase tracking-widest sticky top-0 z-10">
+                                <tr>
+                                    <th className="p-3 pl-6">Cliente / Pedido</th>
+                                    <th className="p-3">Vendedor</th>
+                                    <th className="p-3 text-center">Estado</th>
+                                    <th className="p-3 text-right">Monto ($ USD)</th>
+                                    <th className="p-3 text-right">Monto (Bs. BCV)</th>
+                                    <th className="p-3 pr-6 text-right">Acción</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100 text-xs font-bold text-slate-800">
+                                {(orders || [])
+                                    .filter(o => {
+                                        const term = auditSearchTerm.toLowerCase().trim();
+                                        if (!term) return true;
+                                        return (
+                                            (o.customerName || '').toLowerCase().includes(term) ||
+                                            (o.salespersonName || '').toLowerCase().includes(term) ||
+                                            (o.id || '').toLowerCase().includes(term)
+                                        );
+                                    })
+                                    .map((o, idx) => (
+                                        <tr key={o.id || idx} className="hover:bg-slate-50 transition-colors">
+                                            <td className="p-3 pl-6">
+                                                <p className="font-black text-slate-900 uppercase leading-tight">{o.customerName || 'Cliente General'}</p>
+                                                <p className="text-[8px] font-mono text-slate-400">ID: {o.id?.slice(0, 8)}</p>
+                                            </td>
+                                            <td className="p-3 text-slate-600 font-medium text-[10px]">{o.salespersonName || 'Directo'}</td>
+                                            <td className="p-3 text-center">
+                                                <Badge variant="outline" className="text-[8px] font-black uppercase border-slate-200 text-slate-700 px-2 py-0.5">
+                                                    {o.status}
+                                                </Badge>
+                                            </td>
+                                            <td className="p-3 text-right font-mono font-black text-emerald-700">${(o.totalAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td>
+                                            <td className="p-3 text-right font-mono font-black text-slate-600">Bs. {((o.totalAmount || 0) * 65.50).toLocaleString('es-VE', { minimumFractionDigits: 2 })}</td>
+                                            <td className="p-3 pr-6 text-right">
+                                                <Button
+                                                    size="sm"
+                                                    variant="ghost"
+                                                    onClick={() => {
+                                                        setSelectedOrderForSheet(o);
+                                                    }}
+                                                    className="h-8 px-3 rounded-xl text-[8px] font-black uppercase text-primary hover:bg-primary/10"
+                                                >
+                                                    <Eye className="h-3 w-3 mr-1" /> Ver Detalle
+                                                </Button>
+                                            </td>
+                                        </tr>
+                                    ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </DialogContent>
+            </Dialog>
+
+            {/* FICHA DE DETALLE COMPLETO DEL PEDIDO */}
+            {selectedOrderForSheet && (
+                <OrderSheetController
+                    order={selectedOrderForSheet}
+                    onOpenChange={(open) => !open && setSelectedOrderForSheet(null)}
+                />
+            )}
         </Card>
     );
 }

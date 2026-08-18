@@ -50,7 +50,7 @@ function OrdersPageContent() {
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between px-2">
                     <div className="space-y-1">
                         <h1 className="text-5xl font-black uppercase tracking-tighter text-slate-900">
-                            {isAdminView ? 'Gestión de Pedidos' : 'Mis Pedidos'}
+                            {isAdminView ? 'Gestión de Ventas y Pedidos' : 'Mis Ventas y Pedidos'}
                         </h1>
                         <p className="text-muted-foreground font-medium italic text-sm">Administra y realiza seguimiento a todos los pedidos comerciales.</p>
                     </div>

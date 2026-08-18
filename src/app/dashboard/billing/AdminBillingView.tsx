@@ -51,6 +51,7 @@ export function AdminBillingView() {
   const [statusFilter, setStatusFilter] = useState('todos');
   const [salespersonFilter, setSalespersonFilter] = useState('todos');
   const [agingFilter, setAgingFilter] = useState('todos');
+  const [dateFilter, setDateFilter] = useState<'todos' | 'today' | '7d' | 'this_month' | 'last_month'>('todos');
   const [searchInput, setSearchInput] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
@@ -154,6 +155,40 @@ export function AdminBillingView() {
       });
     }
 
+    if (dateFilter !== 'todos') {
+      const now = new Date();
+      const currentMonth = now.getMonth();
+      const currentYear = now.getFullYear();
+      items = items.filter(i => {
+        let iDate: Date | null = null;
+        if ((i as any).issueDate) iDate = new Date((i as any).issueDate);
+        else if (i.creditStartDate) iDate = i.creditStartDate instanceof Date ? i.creditStartDate : new Date(i.creditStartDate);
+        else if (i.createdAt) {
+          if (i.createdAt instanceof Date) iDate = i.createdAt;
+          else if ((i.createdAt as any).seconds) iDate = new Date((i.createdAt as any).seconds * 1000);
+          else iDate = new Date(i.createdAt as any);
+        }
+        if (!iDate || isNaN(iDate.getTime())) return true;
+        if (dateFilter === 'today') {
+          return iDate.getDate() === now.getDate() && iDate.getMonth() === currentMonth && iDate.getFullYear() === currentYear;
+        }
+        if (dateFilter === '7d') {
+          const start7d = new Date();
+          start7d.setDate(now.getDate() - 7);
+          return iDate >= start7d;
+        }
+        if (dateFilter === 'this_month') {
+          return iDate.getMonth() === currentMonth && iDate.getFullYear() === currentYear;
+        }
+        if (dateFilter === 'last_month') {
+          const lastM = currentMonth === 0 ? 11 : currentMonth - 1;
+          const lastY = currentMonth === 0 ? currentYear - 1 : currentYear;
+          return iDate.getMonth() === lastM && iDate.getFullYear() === lastY;
+        }
+        return true;
+      });
+    }
+
     if (searchTerm) {
         const term = searchTerm.toLowerCase().trim();
         items = items.filter(i => 
@@ -163,7 +198,7 @@ export function AdminBillingView() {
         );
     }
     return items;
-  }, [allInvoices, statusFilter, salespersonFilter, agingFilter, searchTerm]);
+  }, [allInvoices, statusFilter, salespersonFilter, agingFilter, dateFilter, searchTerm]);
 
   const filteredMetrics = useMemo(() => {
     const totalRemaining = filteredInvoices.reduce((sum, inv) => sum + inv.remainingBalance, 0);
@@ -217,6 +252,32 @@ export function AdminBillingView() {
       <div className="flex flex-col gap-6 w-full">
         {/* BARRA DE FILTROS AVANZADOS MULTIDIMENSIONAL */}
         <div className="flex flex-col gap-4 border-b border-slate-200 pb-6 px-2">
+            {/* FILTROS RÁPIDOS DE PERÍODOS DE VENTA */}
+            <div className="flex flex-wrap items-center gap-2 pb-2">
+                <span className="text-[9px] font-black uppercase tracking-widest text-slate-400 mr-1">Periodo Facturado:</span>
+                {[
+                    { id: 'todos', label: '🌐 Todo el Histórico' },
+                    { id: 'today', label: '☀️ Hoy' },
+                    { id: '7d', label: '⚡ Últimos 7 Días' },
+                    { id: 'this_month', label: '🗓️ Mes Actual' },
+                    { id: 'last_month', label: '📅 Mes Anterior' },
+                ].map(p => (
+                    <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => setDateFilter(p.id as any)}
+                        className={cn(
+                            "px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer border",
+                            dateFilter === p.id 
+                                ? "bg-slate-900 text-white border-slate-900 shadow-sm" 
+                                : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100"
+                        )}
+                    >
+                        {p.label}
+                    </button>
+                ))}
+            </div>
+
             <div className="flex flex-wrap items-center gap-3 w-full">
                 <form onSubmit={handleExecuteSearch} className="flex flex-1 min-w-[300px] items-center gap-2">
                     <div className="relative flex-1">
