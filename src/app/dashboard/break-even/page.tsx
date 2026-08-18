@@ -699,7 +699,7 @@ export default function BreakEvenPage() {
                   <th className="p-4 pl-8">Producto / SKU</th>
                   <th className="p-4 text-right">Costo Landed ($)</th>
                   <th className="p-4 text-right">Precio Cash</th>
-                  <th className="p-4 text-right">Margen Neto Unit</th>
+                  <th className="p-4 text-right font-bold text-emerald-300">Margen Neto ($ / % Ganancia)</th>
                   <th className="p-4 text-center">% Mix Participación</th>
                   <th className="p-4 text-center font-bold text-amber-300">Unidades Req / Mes</th>
                   <th className="p-4 text-center text-blue-300">Avance Mes (Vend / Req)</th>
@@ -756,9 +756,25 @@ export default function BreakEvenPage() {
 
                       <td className="p-4 text-right font-mono font-black text-blue-700">${item.priceCashUSD.toFixed(2)}</td>
 
-                      <td className="p-4 text-right font-mono font-black text-emerald-600">
-                        +${item.netProfitUSD.toFixed(2)}
-                        <span className="block text-[8px] text-slate-400 font-mono">({item.netMarginPercent.toFixed(1)}%)</span>
+                      <td className="p-4 text-right font-mono font-black">
+                        {item.landedCost === 0 ? (
+                          <div className="flex flex-col items-end gap-0.5">
+                            <span className="text-slate-400">+$0.00</span>
+                            <span className="text-[8px] font-black text-rose-500 font-sans">0.0% Ganancia</span>
+                          </div>
+                        ) : (
+                          <div className="flex flex-col items-end gap-0.5">
+                            <span className="text-emerald-600 text-sm">+${item.netProfitUSD.toFixed(2)}</span>
+                            <Badge className={cn(
+                              "text-[8px] font-black font-mono border-none px-1.5 py-0",
+                              item.netMarginPercent >= 25 ? "bg-emerald-100 text-emerald-800" :
+                              item.netMarginPercent >= 10 ? "bg-amber-100 text-amber-800" :
+                              "bg-rose-100 text-rose-800"
+                            )}>
+                              {item.netMarginPercent.toFixed(1)}% Ganancia Neta
+                            </Badge>
+                          </div>
+                        )}
                       </td>
 
                       <td className="p-4 text-center">
