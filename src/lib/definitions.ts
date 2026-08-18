@@ -213,6 +213,7 @@ export interface FinancialSettings {
   overdueBlockDays: number;
   historicalDilutionFactor: number;
   stripeEnabled: boolean;
+  targetProfitUSD?: number;
 }
 
 export interface OrderItem {
