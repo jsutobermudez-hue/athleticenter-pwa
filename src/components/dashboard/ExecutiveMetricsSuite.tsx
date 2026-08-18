@@ -321,6 +321,34 @@ export function ExecutiveMetricsSuite({ orders }: ExecutiveMetricsSuiteProps) {
         return Math.min(100, Math.round((metricsData.totals.cash / metricsData.totals.sales) * 100));
     }, [metricsData]);
 
+    const dsoDays = useMemo(() => {
+        if (!orders || orders.length === 0) return 12;
+        const paidOrders = orders.filter(o => getEffectiveCashReceived(o) > 0);
+        if (paidOrders.length === 0) return 14;
+        const now = new Date();
+        const totalDays = paidOrders.reduce((sum, o) => {
+            const oDate = convertToDate(o.receptionDate || o.approvalDate || o.createdAt || o.orderDate);
+            const diffTime = Math.abs(now.getTime() - oDate.getTime());
+            const diffDays = Math.max(1, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
+            return sum + Math.min(diffDays, 45);
+        }, 0);
+        return Math.round(totalDays / paidOrders.length) || 12;
+    }, [orders]);
+
+    const moraStats = useMemo(() => {
+        if (!orders || orders.length === 0) return { overduePercent: 0, count: 0 };
+        const creditOrders = orders.filter(o => (o.totalAmount || 0) - getEffectiveCashReceived(o) > 0.05);
+        if (creditOrders.length === 0) return { overduePercent: 0, count: 0 };
+        const now = new Date();
+        const overdue = creditOrders.filter(o => {
+            const oDate = convertToDate(o.receptionDate || o.approvalDate || o.createdAt || o.orderDate);
+            const diffDays = Math.ceil((now.getTime() - oDate.getTime()) / (1000 * 60 * 60 * 24));
+            return diffDays > 15;
+        });
+        const overduePercent = Math.round((overdue.length / creditOrders.length) * 100);
+        return { overduePercent, count: overdue.length };
+    }, [orders]);
+
     return (
         <Card className="border-none shadow-2xl rounded-[2.5rem] bg-slate-900 text-white overflow-hidden animate-in fade-in duration-500">
             <CardHeader className="p-6 sm:p-8 pb-4 flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-white/10">
@@ -391,30 +419,50 @@ export function ExecutiveMetricsSuite({ orders }: ExecutiveMetricsSuiteProps) {
                         className="space-y-0.5 cursor-pointer hover:bg-white/10 p-2 rounded-xl transition-all group"
                     >
                         <span className="text-[8px] font-black uppercase tracking-widest text-slate-400 block group-hover:text-primary transition-colors">Ventas Entregadas (Clic Auditar)</span>
-                        <p className="text-lg sm:text-xl font-black text-white tracking-tighter">${metricsData.totals.sales.toLocaleString()}</p>
+                        <div className="flex items-baseline justify-between gap-1">
+                            <p className="text-lg sm:text-xl font-black text-white tracking-tighter">${metricsData.totals.sales.toLocaleString()}</p>
+                            <Badge variant="outline" className="text-[7px] font-black border-slate-700 text-slate-300 px-1 py-0 font-mono">
+                                Tick: ${Math.round(metricsData.totals.avgTicket || 0)}
+                            </Badge>
+                        </div>
                     </div>
                     <div 
                         onClick={() => openAuditForType('cobranzas')}
                         className="space-y-0.5 cursor-pointer hover:bg-white/10 p-2 rounded-xl transition-all group"
                     >
                         <span className="text-[8px] font-black uppercase tracking-widest text-emerald-400 block group-hover:text-emerald-300 transition-colors">Cobranzas Cash (Clic Auditar)</span>
-                        <p className="text-lg sm:text-xl font-black text-emerald-400 tracking-tighter">${metricsData.totals.cash.toLocaleString()}</p>
+                        <div className="flex items-baseline justify-between gap-1">
+                            <p className="text-lg sm:text-xl font-black text-emerald-400 tracking-tighter">${metricsData.totals.cash.toLocaleString()}</p>
+                            <Badge variant="outline" className="text-[7px] font-black border-emerald-500/30 text-emerald-400 px-1 py-0 font-mono">
+                                DSO: {dsoDays}d
+                            </Badge>
+                        </div>
                     </div>
                     <div 
                         onClick={() => openAuditForType('pendientes')}
                         className="space-y-0.5 cursor-pointer hover:bg-white/10 p-2 rounded-xl transition-all group"
                     >
                         <span className="text-[8px] font-black uppercase tracking-widest text-amber-400 block group-hover:text-amber-300 transition-colors">Por Cobrar (Crédito)</span>
-                        <p className="text-lg sm:text-xl font-black text-amber-400 tracking-tighter">${metricsData.totals.pending.toLocaleString()}</p>
+                        <div className="flex items-baseline justify-between gap-1">
+                            <p className="text-lg sm:text-xl font-black text-amber-400 tracking-tighter">${metricsData.totals.pending.toLocaleString()}</p>
+                            <Badge variant="outline" className={cn(
+                                "text-[7px] font-black px-1 py-0 font-mono",
+                                moraStats.overduePercent > 20 ? "border-rose-500/40 text-rose-400 bg-rose-500/10" : "border-amber-500/30 text-amber-400"
+                            )}>
+                                Mora: {moraStats.overduePercent}%
+                            </Badge>
+                        </div>
                     </div>
                     <div 
                         onClick={() => openAuditForType('cobranzas')}
                         className="space-y-0.5 cursor-pointer hover:bg-white/10 p-2 rounded-xl transition-all group"
                     >
                         <span className="text-[8px] font-black uppercase tracking-widest text-cyan-400 block group-hover:text-cyan-300 transition-colors">Efectividad Cobro</span>
-                        <div className="flex items-baseline gap-2">
+                        <div className="flex items-baseline justify-between gap-1">
                             <p className="text-lg sm:text-xl font-black text-cyan-400 tracking-tighter">{efficiencyRate}%</p>
-                            <Badge variant="outline" className="text-[7px] font-black border-cyan-500/30 text-cyan-400 px-1 py-0">Recaudación</Badge>
+                            <Badge variant="outline" className="text-[7px] font-black border-cyan-500/30 text-cyan-400 px-1 py-0">
+                                {efficiencyRate >= 80 ? '🟢 Óptimo' : efficiencyRate >= 50 ? '🟡 Regular' : '🔴 Bajo'}
+                            </Badge>
                         </div>
                     </div>
                 </div>
