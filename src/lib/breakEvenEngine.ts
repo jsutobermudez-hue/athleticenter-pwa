@@ -1,4 +1,4 @@
-import type { Product, FinancialSettings } from './definitions';
+import type { Product, FinancialSettings, Order } from './definitions';
 import { calculatePricingTier, DEFAULT_BCV_RATE } from './pricing';
 
 export interface ExpenseItem {
@@ -18,7 +18,9 @@ export interface ProductBreakEvenCalculation {
   priceListBCV: number;
   netProfitUSD: number;
   netMarginPercent: number;
-  salesMixPercent: number; // % Participación en la mezcla de ventas
+  historicalUnitsSold: number; // Unidades vendidas reales acumuladas
+  salesMixPercent: number; // % Participación automático basado en ventas o custom
+  isAutoMix: boolean; // Indica si fue calculado automáticamente por historial
   requiredUnitsMonth: number; // Unidades exactas que se deben vender al mes
   requiredRevenueUSDMonth: number; // Ventas requeridas en $ USD al mes
   requiredRevenueVESMonth: number; // Ventas requeridas en Bs. BCV al mes
@@ -38,20 +40,21 @@ export interface BreakEvenSummary {
   actualMonthSalesUSD: number;
   actualMonthUnits: number;
   breakEvenProgressPercent: number;
+  totalHistoricalUnitsSold: number;
 }
 
 /**
- * MOTOR DE CÁLCULO DE PUNTO DE EQUILIBRIO MULTIPRODUCTO
- * Integra las fórmulas de pricing.ts, comisiones de Tesorería (15%), Overhead (10%) y Dólar BCV.
+ * MOTOR DE CÁLCULO DE PUNTO DE EQUILIBRIO MULTIPRODUCTO CON MIX AUTOMÁTICO POR VENTAS REALES
  */
 export function calculateMultiProductBreakEven(
   products: Product[],
   expenses: ExpenseItem[],
   targetProfitUSD: number,
   globalSettings?: FinancialSettings | null,
-  customMixOverrides?: Record<string, number>, // Custom overrides por SKU / ID
+  customMixOverrides?: Record<string, number>, // Overrides opcionales
   actualMonthSalesUSD: number = 0,
-  actualMonthUnits: number = 0
+  actualMonthUnits: number = 0,
+  ordersHistory?: Order[]
 ): { items: ProductBreakEvenCalculation[]; summary: BreakEvenSummary } {
   const bcvRate = globalSettings?.bcvRate || DEFAULT_BCV_RATE;
   const safeTargetProfit = Math.max(0, targetProfitUSD || 0);
@@ -88,12 +91,36 @@ export function calculateMultiProductBreakEven(
         bcvRate,
         actualMonthSalesUSD,
         actualMonthUnits,
-        breakEvenProgressPercent: 0
+        breakEvenProgressPercent: 0,
+        totalHistoricalUnitsSold: 0
       }
     };
   }
 
-  // 2. CALCULAR MARGEN DE CONTRIBUCIÓN NETO DE CADA PRODUCTO USANDO PRICING.TS
+  // 2. CÁLCULO DE UNIDADES HISTÓRICAS REALES VENDIDAS POR PRODUCTO
+  const unitsSoldMap: Record<string, number> = {};
+  let totalHistoricalUnitsSold = 0;
+
+  // Sumar ventas reales desde el historial de órdenes de Firestore si están presentes
+  if (ordersHistory && Array.isArray(ordersHistory)) {
+    ordersHistory.forEach(o => {
+      if (o.status !== 'Cancelado' && o.status !== 'Rechazado') {
+        const orderItems = (o as any).items;
+        if (orderItems && Array.isArray(orderItems)) {
+          orderItems.forEach((item: any) => {
+            const pId = item.productId || item.product?.id;
+            const qty = Number(item.quantity || 0);
+            if (pId && qty > 0) {
+              unitsSoldMap[pId] = (unitsSoldMap[pId] || 0) + qty;
+              totalHistoricalUnitsSold += qty;
+            }
+          });
+        }
+      }
+    });
+  }
+
+  // 3. CALCULAR MARGEN DE CONTRIBUCIÓN NETO Y MEZCLA DE VENTAS AUTOMÁTICA
   const tempItems = validProducts.map(p => {
     const calc = calculatePricingTier((p as any).pricing || { costLanded: p.cost, targetPriceUSD: p.price }, globalSettings);
     const landedCost = calc.landedCost || p.cost || 0;
@@ -103,9 +130,30 @@ export function calculateMultiProductBreakEven(
     const netMarginPercent = calc.netMarginPercent || (priceCashUSD > 0 ? (netProfitUSD / priceCashUSD) * 100 : 0);
     const contributionMarginRatio = priceCashUSD > 0 ? netProfitUSD / priceCashUSD : 0;
 
-    // Participación en el mix: si existe override manual se usa, de lo contrario distribución equitativa por defecto
-    const overrideMix = customMixOverrides && customMixOverrides[p.id!] !== undefined ? customMixOverrides[p.id!] : undefined;
-    const salesMixPercent = overrideMix !== undefined ? overrideMix : (100 / count);
+    // Unidades vendidas acumuladas (desde las órdenes o desde el campo totalSold del producto)
+    const historicalUnitsSold = unitsSoldMap[p.id!] !== undefined
+      ? unitsSoldMap[p.id!]
+      : Number(p.totalSold || 0);
+
+    // DETERMINAR EL % MIX
+    let salesMixPercent = 0;
+    let isAutoMix = true;
+
+    // A) Si el usuario definió un override manual explícito en pantalla:
+    if (customMixOverrides && customMixOverrides[p.id!] !== undefined) {
+      salesMixPercent = customMixOverrides[p.id!];
+      isAutoMix = false;
+    } 
+    // B) Si hay historial de ventas acumuladas reales en la empresa:
+    else if (totalHistoricalUnitsSold > 0 && historicalUnitsSold > 0) {
+      salesMixPercent = (historicalUnitsSold / totalHistoricalUnitsSold) * 100;
+      isAutoMix = true;
+    } 
+    // C) Si es un producto nuevo sin historial, se asigna distribución equitativa (100 / N)
+    else {
+      salesMixPercent = 100 / count;
+      isAutoMix = true;
+    }
 
     return {
       product: p,
@@ -115,27 +163,29 @@ export function calculateMultiProductBreakEven(
       netProfitUSD,
       netMarginPercent,
       contributionMarginRatio,
-      salesMixPercent
+      historicalUnitsSold,
+      salesMixPercent,
+      isAutoMix
     };
   });
 
-  // 3. NORMALIZAR EL % MIX PARA QUE LA SUMA SEA EXACTAMENTE 100%
+  // 4. NORMALIZAR EL % MIX PARA QUE LA SUMA SEA EXACTAMENTE 100%
   const totalMixSum = tempItems.reduce((acc, curr) => acc + curr.salesMixPercent, 0);
   const normalizedMixFactor = totalMixSum > 0 ? 100 / totalMixSum : 1;
 
-  // 4. CALCULAR MARGEN DE CONTRIBUCIÓN PONDERADO (MCP)
+  // 5. CALCULAR MARGEN DE CONTRIBUCIÓN PONDERADO (MCP)
   let weightedContributionMargin = 0;
   tempItems.forEach(item => {
     const normalizedMix = (item.salesMixPercent * normalizedMixFactor) / 100;
     weightedContributionMargin += item.netProfitUSD * normalizedMix;
   });
 
-  // 5. CALCULAR PUNTO DE EQUILIBRIO EN UNIDADES TOTALES
+  // 6. CALCULAR PUNTO DE EQUILIBRIO EN UNIDADES TOTALES
   const totalRequiredUnits = weightedContributionMargin > 0
     ? Math.ceil(totalFixedCostsPlusTarget / weightedContributionMargin)
     : 0;
 
-  // 6. DISTRIBUIR UNIDADES Y FACTURACIÓN REQUERIDA POR PRODUCTO
+  // 7. DISTRIBUIR UNIDADES Y FACTURACIÓN REQUERIDA POR PRODUCTO
   let totalRequiredRevenueUSD = 0;
 
   const items: ProductBreakEvenCalculation[] = tempItems.map(item => {
@@ -155,7 +205,9 @@ export function calculateMultiProductBreakEven(
       priceListBCV: item.priceListBCV,
       netProfitUSD: item.netProfitUSD,
       netMarginPercent: item.netMarginPercent,
+      historicalUnitsSold: item.historicalUnitsSold,
       salesMixPercent: normalizedMixPercent,
+      isAutoMix: item.isAutoMix,
       requiredUnitsMonth,
       requiredRevenueUSDMonth,
       requiredRevenueVESMonth,
@@ -182,7 +234,8 @@ export function calculateMultiProductBreakEven(
       bcvRate,
       actualMonthSalesUSD,
       actualMonthUnits,
-      breakEvenProgressPercent
+      breakEvenProgressPercent,
+      totalHistoricalUnitsSold
     }
   };
 }

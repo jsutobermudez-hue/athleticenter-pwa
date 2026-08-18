@@ -96,7 +96,7 @@ export default function BreakEvenPage() {
     return { salesUSD, units };
   }, [monthOrders]);
 
-  // EJECUCIÓN DEL MOTOR FINANCIERO REACTIVO
+  // EJECUCIÓN DEL MOTOR FINANCIERO REACTIVO CON CÁLCULO DE MIX AUTOMÁTICO POR VENTAS REALES
   const calculation = useMemo(() => {
     return calculateMultiProductBreakEven(
       catalogProducts || [],
@@ -105,9 +105,10 @@ export default function BreakEvenPage() {
       globalSettings,
       customSalesMix,
       actualMonthMetrics.salesUSD,
-      actualMonthMetrics.units
+      actualMonthMetrics.units,
+      monthOrders || undefined
     );
-  }, [catalogProducts, expenses, targetProfitUSD, globalSettings, customSalesMix, actualMonthMetrics]);
+  }, [catalogProducts, expenses, targetProfitUSD, globalSettings, customSalesMix, actualMonthMetrics, monthOrders]);
 
   const { items, summary } = calculation;
 
@@ -427,14 +428,19 @@ export default function BreakEvenPage() {
                   </td>
 
                   <td className="p-4 text-center">
-                    <div className="flex items-center justify-center gap-1">
-                      <Input
-                        type="number"
-                        value={item.salesMixPercent}
-                        onChange={(e) => updateProductSalesMix(item.product.id!, Number(e.target.value))}
-                        className="h-8 w-16 text-center font-black font-mono text-xs bg-slate-50 border-slate-200 rounded-xl"
-                      />
-                      <span className="text-[10px] font-black text-slate-400">%</span>
+                    <div className="flex flex-col items-center justify-center gap-1">
+                      <div className="flex items-center justify-center gap-1">
+                        <Input
+                          type="number"
+                          value={item.salesMixPercent}
+                          onChange={(e) => updateProductSalesMix(item.product.id!, Number(e.target.value))}
+                          className="h-8 w-16 text-center font-black font-mono text-xs bg-slate-50 border-slate-200 rounded-xl"
+                        />
+                        <span className="text-[10px] font-black text-slate-400">%</span>
+                      </div>
+                      <Badge variant="outline" className={cn("text-[7px] font-mono border-none px-1.5 py-0.5", item.isAutoMix ? "bg-emerald-50 text-emerald-600" : "bg-purple-50 text-purple-600")}>
+                        {item.isAutoMix ? `🤖 Auto (${item.historicalUnitsSold} vend.)` : '✏️ Manual'}
+                      </Badge>
                     </div>
                   </td>
 
