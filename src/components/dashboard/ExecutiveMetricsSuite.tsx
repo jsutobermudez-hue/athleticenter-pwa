@@ -75,10 +75,20 @@ export function ExecutiveMetricsSuite({ orders }: ExecutiveMetricsSuiteProps) {
         let periodsList: { dateLabel: string; start: Date; end: Date; rawDate: Date }[] = [];
 
         if (period === 'today') {
-            const day = startOfDay(now);
-            const end = new Date(day);
-            end.setHours(23, 59, 59, 999);
-            periodsList = [{ dateLabel: 'HOY', start: day, end: end, rawDate: day }];
+            const base = startOfDay(now);
+            const blocks = [
+                { label: '00-06h', startH: 0, endH: 5 },
+                { label: '06-12h', startH: 6, endH: 11 },
+                { label: '12-18h', startH: 12, endH: 17 },
+                { label: '18-24h', startH: 18, endH: 23 },
+            ];
+            periodsList = blocks.map(b => {
+                const s = new Date(base);
+                s.setHours(b.startH, 0, 0, 0);
+                const e = new Date(base);
+                e.setHours(b.endH, 59, 59, 999);
+                return { dateLabel: b.label, start: s, end: e, rawDate: s };
+            });
         } else if (period === '7d') {
             periodsList = Array.from({ length: 7 }, (_, i) => {
                 const day = startOfDay(subDays(now, 6 - i));
@@ -323,7 +333,7 @@ export function ExecutiveMetricsSuite({ orders }: ExecutiveMetricsSuiteProps) {
                         </div>
                         <div className="h-[280px] w-full pt-4">
                             <ResponsiveContainer width="100%" height="100%">
-                                <BarChart data={metricsData.chartPoints} margin={{ top: 10, right: 10, left: -15, bottom: 0 }}>
+                                <BarChart data={metricsData.chartPoints} maxBarSize={50} barCategoryGap="25%" margin={{ top: 10, right: 10, left: -15, bottom: 0 }}>
                                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.05)" />
                                     <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 9, fontWeight: 900, fill: '#94a3b8' }} />
                                     <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 9, fontWeight: 900, fill: '#94a3b8' }} tickFormatter={(v) => `$${v}`} />
@@ -350,7 +360,7 @@ export function ExecutiveMetricsSuite({ orders }: ExecutiveMetricsSuiteProps) {
                         </div>
                         <div className="h-[280px] w-full pt-4">
                             <ResponsiveContainer width="100%" height="100%">
-                                <BarChart data={metricsData.chartPoints} margin={{ top: 10, right: 10, left: -15, bottom: 0 }}>
+                                <BarChart data={metricsData.chartPoints} maxBarSize={50} barCategoryGap="25%" margin={{ top: 10, right: 10, left: -15, bottom: 0 }}>
                                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.05)" />
                                     <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 9, fontWeight: 900, fill: '#94a3b8' }} />
                                     <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 9, fontWeight: 900, fill: '#94a3b8' }} />
