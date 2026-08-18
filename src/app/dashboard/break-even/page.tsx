@@ -3,7 +3,7 @@
 import React, { useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useCollection, useFirestore, useMemoFirebase, useUser, useDoc } from '@/firebase';
-import { collection, query, limit, doc, collectionGroup } from 'firebase/firestore';
+import { collection, query, limit, doc, collectionGroup, updateDoc } from 'firebase/firestore';
 import type { Product, FinancialSettings, Order, OrderItem } from '@/lib/definitions';
 import { useFinance } from '@/context/FinanceContext';
 import { calculateMultiProductBreakEven, type ExpenseItem } from '@/lib/breakEvenEngine';
@@ -82,15 +82,32 @@ export default function BreakEvenPage() {
   const [newCategory, setNewCategory] = useState<ExpenseItem['category']>('Nómina');
   const [newAmountUSD, setNewAmountUSD] = useState<string>('');
   const [newIsFixed, setNewIsFixed] = useState(true);
-
-  // FILTRO BÚSQUEDA DATA GRID
+  // FILTROS Y VISTAS DE LA MATRIX MULTIPRODUCTO
   const [searchTerm, setSearchTerm] = useState('');
+  const [selectedDiscipline, setSelectedDiscipline] = useState('TODAS');
+  const [selectedBrand, setSelectedBrand] = useState('TODAS');
+  const [viewMode, setViewMode] = useState<'product' | 'discipline'>('product');
 
   // MODALES INTERACTIVOS DE LAS TARJETAS KPI
   const [isExpensesModalOpen, setIsExpensesModalOpen] = useState(false);
   const [isScenarioModalOpen, setIsScenarioModalOpen] = useState(false);
   const [isBreakEvenDetailModalOpen, setIsBreakEvenDetailModalOpen] = useState(false);
   const [isProgressModalOpen, setIsProgressModalOpen] = useState(false);
+
+  // HANDLER ACTUALIZAR COSTO LANDED DIRECTO EN LA MATRIZ
+  const handleUpdateLandedCost = async (productId: string, newCost: number) => {
+    if (!firestore || isNaN(newCost) || newCost < 0) return;
+    try {
+      const docRef = doc(firestore, 'products', productId);
+      await updateDoc(docRef, { cost: newCost });
+      toast({ title: 'Costo Landed Guardado', description: `Nuevo costo actualizado a $${newCost.toFixed(2)} USD.` });
+    } catch (e) {
+      console.error("Error al actualizar costo landed:", e);
+      toast({ variant: 'destructive', title: 'Error', description: 'No se pudo guardar el costo.' });
+    }
+  };
+
+
 
   // CÁLCULO DE VENTAS REALES REGISTRADAS (MES, SEMANA, HISTÓRICO Y SEMANAS INDIVIDUALES)
   const actualSalesMetrics = useMemo(() => {
@@ -232,6 +249,89 @@ export default function BreakEvenPage() {
 
   const { items, summary } = calculation;
 
+  // DISCIPLINAS Y MARCAS DISPONIBLES
+  const availableDisciplines = useMemo(() => {
+    if (!items) return ['TODAS'];
+    const set = new Set<string>();
+    items.forEach(i => {
+      const d = i.product.discipline || i.product.category;
+      if (d) set.add(d);
+    });
+    return ['TODAS', ...Array.from(set)];
+  }, [items]);
+
+  const availableBrands = useMemo(() => {
+    if (!items) return ['TODAS'];
+    const set = new Set<string>();
+    items.forEach(i => {
+      if (i.product.brand) set.add(i.product.brand);
+    });
+    return ['TODAS', ...Array.from(set)];
+  }, [items]);
+
+  // FILTRADO AVANZADO DE ITEMS
+  const filteredItems = useMemo(() => {
+    let list = items;
+    if (selectedDiscipline !== 'TODAS') {
+      list = list.filter(i => (i.product.discipline || i.product.category) === selectedDiscipline);
+    }
+    if (selectedBrand !== 'TODAS') {
+      list = list.filter(i => i.product.brand === selectedBrand);
+    }
+    const term = searchTerm.toLowerCase().trim();
+    if (term) {
+      list = list.filter(i => 
+        i.product.name.toLowerCase().includes(term) ||
+        (i.product.sku || '').toLowerCase().includes(term) ||
+        (i.product.brand || '').toLowerCase().includes(term)
+      );
+    }
+    return list;
+  }, [items, searchTerm, selectedDiscipline, selectedBrand]);
+
+  // VISTA AGRUPADA POR DISCIPLINA / DEPORTE
+  const groupedByDiscipline = useMemo(() => {
+    const map: Record<string, {
+      discipline: string;
+      productCount: number;
+      totalRequiredUnits: number;
+      totalRequiredRevenueUSD: number;
+      totalRequiredRevenueVES: number;
+      totalHistoricalUnitsSold: number;
+      avgLandedCost: number;
+      avgCashPrice: number;
+    }> = {};
+
+    filteredItems.forEach(item => {
+      const disc = item.product.discipline || item.product.category || 'Otros';
+      if (!map[disc]) {
+        map[disc] = {
+          discipline: disc,
+          productCount: 0,
+          totalRequiredUnits: 0,
+          totalRequiredRevenueUSD: 0,
+          totalRequiredRevenueVES: 0,
+          totalHistoricalUnitsSold: 0,
+          avgLandedCost: 0,
+          avgCashPrice: 0,
+        };
+      }
+      map[disc].productCount += 1;
+      map[disc].totalRequiredUnits += item.requiredUnitsMonth;
+      map[disc].totalRequiredRevenueUSD += item.requiredRevenueUSDMonth;
+      map[disc].totalRequiredRevenueVES += item.requiredRevenueVESMonth;
+      map[disc].totalHistoricalUnitsSold += item.historicalUnitsSold;
+      map[disc].avgLandedCost += item.landedCost;
+      map[disc].avgCashPrice += item.priceCashUSD;
+    });
+
+    return Object.values(map).map(g => ({
+      ...g,
+      avgLandedCost: g.productCount > 0 ? g.avgLandedCost / g.productCount : 0,
+      avgCashPrice: g.productCount > 0 ? g.avgCashPrice / g.productCount : 0,
+    }));
+  }, [filteredItems]);
+
   // HANDLER AGREGAR GASTO
   const handleAddExpense = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -251,17 +351,6 @@ export default function BreakEvenPage() {
     setNewAmountUSD('');
     toast({ title: 'Gasto Registrado', description: `Se añadió "${newConcept}" por $${amount} USD.` });
   };
-
-  // FILTRADO EN DATA GRID
-  const filteredItems = useMemo(() => {
-    const term = searchTerm.toLowerCase().trim();
-    if (!term) return items;
-    return items.filter(i => 
-      i.product.name.toLowerCase().includes(term) ||
-      (i.product.sku || '').toLowerCase().includes(term) ||
-      (i.product.brand || '').toLowerCase().includes(term)
-    );
-  }, [items, searchTerm]);
 
   if (isUserLoading || isLoadingProducts || isLoadingFinance) {
     return <div className="flex h-screen items-center justify-center"><RefreshCw className="animate-spin text-primary h-10 w-10" /></div>;
@@ -519,108 +608,251 @@ export default function BreakEvenPage() {
         </Card>
       </div>
 
-      {/* 3. DATA GRID MULTIPRODUCTO DINÁMICO */}
+      {/* 3. DATA GRID MULTIPRODUCTO DINÁMICO & RESUMEN DE DISCIPLINAS */}
       <Card className="border-none shadow-2xl rounded-[2.5rem] bg-white overflow-hidden">
-        <CardHeader className="bg-slate-50/50 py-5 px-8 border-b flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-          <div>
-            <CardTitle className="text-xs font-black uppercase tracking-[0.3em] text-slate-900 flex items-center gap-2">
-              <Boxes className="h-5 w-5 text-primary" /> Matrix Multiproducto: Ventas Requeridas por Artículo ({filteredItems.length})
-            </CardTitle>
-            <p className="text-[10px] text-slate-400 font-medium uppercase mt-0.5">Recálculo reactivo según la meta de ganancia y estructura de gastos.</p>
+        <CardHeader className="bg-slate-50/50 py-6 px-8 border-b space-y-4">
+          <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
+            <div>
+              <CardTitle className="text-sm font-black uppercase tracking-[0.3em] text-slate-900 flex items-center gap-2">
+                <Boxes className="h-5 w-5 text-primary" /> Matrix Multiproducto: Ventas Requeridas ({filteredItems.length} Artículos)
+              </CardTitle>
+              <p className="text-[10px] text-slate-400 font-medium uppercase mt-0.5">Recálculo reactivo según la meta de ganancia, costos landed y estructura de gastos.</p>
+            </div>
+
+            {/* CONMUTADOR DE VISTA: POR PRODUCTO VS AGRUPADO POR DISCIPLINA */}
+            <div className="flex items-center gap-2 p-1.5 bg-slate-200/60 rounded-2xl">
+              <Button
+                type="button"
+                size="sm"
+                variant={viewMode === 'product' ? 'default' : 'ghost'}
+                onClick={() => setViewMode('product')}
+                className={cn("h-8 px-4 rounded-xl text-[9px] font-black uppercase border-none", viewMode === 'product' ? "bg-slate-900 text-white shadow-md" : "text-slate-600")}
+              >
+                <Boxes className="h-3.5 w-3.5 mr-1" /> Por Producto
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant={viewMode === 'discipline' ? 'default' : 'ghost'}
+                onClick={() => setViewMode('discipline')}
+                className={cn("h-8 px-4 rounded-xl text-[9px] font-black uppercase border-none", viewMode === 'discipline' ? "bg-slate-900 text-white shadow-md" : "text-slate-600")}
+              >
+                <PieChart className="h-3.5 w-3.5 mr-1" /> Agrupado por Deporte
+              </Button>
+            </div>
           </div>
 
-          <div className="flex items-center gap-3 w-full sm:w-auto">
-            <div className="relative flex-1 sm:w-64">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
-              <Input
-                placeholder="BUSCAR PRODUCTO / SKU..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-9 h-10 text-[10px] font-bold uppercase bg-slate-50 border-none rounded-xl"
-              />
+          {/* BARRA DE FILTROS AVANZADOS: DISCIPLINAS Y MARCAS */}
+          <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-slate-200/60">
+            <div className="flex items-center gap-1.5 overflow-x-auto max-w-full pb-1">
+              <span className="text-[8px] font-black uppercase text-slate-400 mr-1">Disciplina:</span>
+              {availableDisciplines.map((d, i) => (
+                <Badge
+                  key={i}
+                  onClick={() => setSelectedDiscipline(d)}
+                  className={cn(
+                    "cursor-pointer text-[8px] font-black uppercase border-none px-3 py-1 transition-all rounded-xl",
+                    selectedDiscipline === d ? "bg-primary text-white shadow-sm" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                  )}
+                >
+                  {d}
+                </Badge>
+              ))}
             </div>
-            <Button variant="outline" size="sm" onClick={resetMixToDefault} className="h-10 text-[9px] font-black uppercase border-slate-200 rounded-xl">
-              <RefreshCw className="h-3.5 w-3.5 mr-1" /> Reset % Mix
-            </Button>
+
+            <div className="flex items-center gap-3 w-full sm:w-auto">
+              <div className="flex items-center gap-1.5">
+                <span className="text-[8px] font-black uppercase text-slate-400">Marca:</span>
+                <Select value={selectedBrand} onValueChange={setSelectedBrand}>
+                  <SelectTrigger className="h-9 text-[10px] font-bold uppercase rounded-xl border-slate-200 w-32"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {availableBrands.map((b, idx) => (
+                      <SelectItem key={idx} value={b} className="text-xs uppercase font-bold">{b}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="relative flex-1 sm:w-56">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+                <Input
+                  placeholder="BUSCAR PRODUCTO / SKU..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="pl-9 h-9 text-[10px] font-bold uppercase bg-slate-50 border-none rounded-xl"
+                />
+              </div>
+
+              <Button variant="outline" size="sm" onClick={resetMixToDefault} className="h-9 text-[9px] font-black uppercase border-slate-200 rounded-xl">
+                <RefreshCw className="h-3.5 w-3.5 mr-1" /> Reset % Mix
+              </Button>
+            </div>
           </div>
         </CardHeader>
 
         <CardContent className="p-0 overflow-x-auto">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="bg-slate-900 text-white text-[9px] font-black uppercase tracking-widest">
-                <th className="p-4 pl-8">Producto / SKU</th>
-                <th className="p-4 text-right">Costo Landed</th>
-                <th className="p-4 text-right">Precio Cash</th>
-                <th className="p-4 text-right">Margen Neto Unit</th>
-                <th className="p-4 text-center">% Mix Participación</th>
-                <th className="p-4 text-center font-bold text-amber-300">Unidades Req / Mes</th>
-                <th className="p-4 text-right font-bold text-emerald-300">Ventas Req ($ USD)</th>
-                <th className="p-4 text-right">Ventas Req (Bs. BCV)</th>
-                <th className="p-4 pr-8 text-right">Acción</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 text-xs font-bold text-slate-800">
-              {filteredItems.map((item, idx) => (
-                <tr key={item.product.id || idx} className="hover:bg-slate-50/80 transition-colors">
-                  <td className="p-4 pl-8">
-                    <div className="space-y-0.5">
-                      <p className="font-black text-slate-900 uppercase leading-tight">{item.product.name}</p>
-                      <p className="text-[8px] font-mono text-slate-400">SKU: {item.product.sku} | Marca: {item.product.brand || 'N/A'}</p>
-                    </div>
-                  </td>
-
-                  <td className="p-4 text-right font-mono font-black text-slate-700">${item.landedCost.toFixed(2)}</td>
-                  <td className="p-4 text-right font-mono font-black text-blue-700">${item.priceCashUSD.toFixed(2)}</td>
-
-                  <td className="p-4 text-right font-mono font-black text-emerald-600">
-                    +${item.netProfitUSD.toFixed(2)}
-                    <span className="block text-[8px] text-slate-400 font-mono">({item.netMarginPercent.toFixed(1)}%)</span>
-                  </td>
-
-                  <td className="p-4 text-center">
-                    <div className="flex flex-col items-center justify-center gap-1">
-                      <div className="flex items-center justify-center gap-1">
-                        <Input
-                          type="number"
-                          value={item.salesMixPercent}
-                          onChange={(e) => updateProductSalesMix(item.product.id!, Number(e.target.value))}
-                          className="h-8 w-16 text-center font-black font-mono text-xs bg-slate-50 border-slate-200 rounded-xl"
-                        />
-                        <span className="text-[10px] font-black text-slate-400">%</span>
-                      </div>
-                      <Badge variant="outline" className={cn("text-[7px] font-mono border-none px-1.5 py-0.5", item.isAutoMix ? "bg-emerald-50 text-emerald-600" : "bg-purple-50 text-purple-600")}>
-                        {item.isAutoMix ? `🤖 Auto (${item.historicalUnitsSold} vend.)` : '✏️ Manual'}
-                      </Badge>
-                    </div>
-                  </td>
-
-                  <td className="p-4 text-center font-mono font-black text-amber-600 bg-amber-50/50">
-                    <span className="text-sm">{item.requiredUnitsMonth}</span> <span className="text-[8px] uppercase">unid</span>
-                  </td>
-
-                  <td className="p-4 text-right font-mono font-black text-emerald-700 bg-emerald-50/30">
-                    ${item.requiredRevenueUSDMonth.toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                  </td>
-
-                  <td className="p-4 text-right font-mono font-black text-slate-600">
-                    Bs. {item.requiredRevenueVESMonth.toLocaleString('es-VE', { minimumFractionDigits: 2 })}
-                  </td>
-
-                  <td className="p-4 pr-8 text-right">
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => router.push(`/dashboard/inventory/pricing-calculator?sku=${item.product.sku}`)}
-                      className="h-8 px-3 rounded-xl text-[8px] font-black uppercase text-primary hover:bg-primary/10"
-                    >
-                      <Zap className="h-3 w-3 mr-1" /> Calculadora Smart
-                    </Button>
-                  </td>
+          {viewMode === 'product' ? (
+            /* VISTA 1: TABLA MULTIPRODUCTO INDIVIDUAL CON EDICIÓN DE COSTO LANDED */
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-slate-900 text-white text-[9px] font-black uppercase tracking-widest">
+                  <th className="p-4 pl-8">Producto / SKU</th>
+                  <th className="p-4 text-right">Costo Landed ($)</th>
+                  <th className="p-4 text-right">Precio Cash</th>
+                  <th className="p-4 text-right">Margen Neto Unit</th>
+                  <th className="p-4 text-center">% Mix Participación</th>
+                  <th className="p-4 text-center font-bold text-amber-300">Unidades Req / Mes</th>
+                  <th className="p-4 text-center text-blue-300">Avance Mes (Vend / Req)</th>
+                  <th className="p-4 text-right font-bold text-emerald-300">Ventas Req ($ USD)</th>
+                  <th className="p-4 text-right">Ventas Req (Bs. BCV)</th>
+                  <th className="p-4 pr-8 text-right">Acción</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y divide-slate-100 text-xs font-bold text-slate-800">
+                {filteredItems.map((item, idx) => {
+                  const productProgressPct = item.requiredUnitsMonth > 0
+                    ? Math.min(100, Math.round((item.historicalUnitsSold / item.requiredUnitsMonth) * 100))
+                    : 0;
+
+                  return (
+                    <tr key={item.product.id || idx} className="hover:bg-slate-50/80 transition-colors">
+                      <td className="p-4 pl-8">
+                        <div className="space-y-0.5">
+                          <p className="font-black text-slate-900 uppercase leading-tight">{item.product.name}</p>
+                          <div className="flex items-center gap-2">
+                            <span className="text-[8px] font-mono text-slate-400">SKU: {item.product.sku} | Marca: {item.product.brand || 'N/A'}</span>
+                            {item.product.discipline && (
+                              <Badge variant="outline" className="text-[7px] font-black border-slate-200 text-slate-500 uppercase px-1 py-0">{item.product.discipline}</Badge>
+                            )}
+                          </div>
+                        </div>
+                      </td>
+
+                      {/* EDICIÓN DIRECTA DE COSTO LANDED EN LA CELDA */}
+                      <td className="p-4 text-right">
+                        <div className="flex flex-col items-end gap-1">
+                          <div className="flex items-center justify-end gap-1">
+                            <span className="text-[10px] font-black text-slate-400">$</span>
+                            <Input
+                              type="number"
+                              defaultValue={item.landedCost}
+                              onBlur={(e) => {
+                                const val = parseFloat(e.target.value);
+                                if (!isNaN(val) && val !== item.landedCost) {
+                                  handleUpdateLandedCost(item.product.id!, val);
+                                }
+                              }}
+                              className={cn(
+                                "h-8 w-20 text-right font-black font-mono text-xs rounded-xl",
+                                item.landedCost === 0 ? "bg-rose-50 border-rose-300 text-rose-600 font-bold" : "bg-slate-50 border-slate-200 text-slate-800"
+                              )}
+                            />
+                          </div>
+                          {item.landedCost === 0 && (
+                            <Badge className="bg-rose-500 text-white text-[7px] font-black border-none px-1.5 py-0">⚠️ SIN COSTO</Badge>
+                          )}
+                        </div>
+                      </td>
+
+                      <td className="p-4 text-right font-mono font-black text-blue-700">${item.priceCashUSD.toFixed(2)}</td>
+
+                      <td className="p-4 text-right font-mono font-black text-emerald-600">
+                        +${item.netProfitUSD.toFixed(2)}
+                        <span className="block text-[8px] text-slate-400 font-mono">({item.netMarginPercent.toFixed(1)}%)</span>
+                      </td>
+
+                      <td className="p-4 text-center">
+                        <div className="flex flex-col items-center justify-center gap-1">
+                          <div className="flex items-center justify-center gap-1">
+                            <Input
+                              type="number"
+                              value={item.salesMixPercent}
+                              onChange={(e) => updateProductSalesMix(item.product.id!, Number(e.target.value))}
+                              className="h-8 w-16 text-center font-black font-mono text-xs bg-slate-50 border-slate-200 rounded-xl"
+                            />
+                            <span className="text-[10px] font-black text-slate-400">%</span>
+                          </div>
+                          <Badge variant="outline" className={cn("text-[7px] font-mono border-none px-1.5 py-0.5", item.isAutoMix ? "bg-emerald-50 text-emerald-600" : "bg-purple-50 text-purple-600")}>
+                            {item.isAutoMix ? `🤖 Auto (${item.historicalUnitsSold} vend.)` : '✏️ Manual'}
+                          </Badge>
+                        </div>
+                      </td>
+
+                      <td className="p-4 text-center font-mono font-black text-amber-600 bg-amber-50/50">
+                        <span className="text-sm">{item.requiredUnitsMonth}</span> <span className="text-[8px] uppercase">unid</span>
+                      </td>
+
+                      {/* COLUMNA DE AVANCE DEL MES POR PRODUCTO */}
+                      <td className="p-4 text-center bg-blue-50/20">
+                        <div className="space-y-1 w-28 mx-auto">
+                          <div className="flex justify-between text-[8px] font-black font-mono text-slate-700">
+                            <span>{item.historicalUnitsSold} / {item.requiredUnitsMonth}</span>
+                            <span>{productProgressPct}%</span>
+                          </div>
+                          <Progress value={productProgressPct} className="h-1.5 bg-slate-100" />
+                        </div>
+                      </td>
+
+                      <td className="p-4 text-right font-mono font-black text-emerald-700 bg-emerald-50/30">
+                        ${item.requiredRevenueUSDMonth.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                      </td>
+
+                      <td className="p-4 text-right font-mono font-black text-slate-600">
+                        Bs. {item.requiredRevenueVESMonth.toLocaleString('es-VE', { minimumFractionDigits: 2 })}
+                      </td>
+
+                      <td className="p-4 pr-8 text-right">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => router.push(`/dashboard/inventory/pricing-calculator?sku=${item.product.sku}`)}
+                          className="h-8 px-3 rounded-xl text-[8px] font-black uppercase text-primary hover:bg-primary/10"
+                        >
+                          <Zap className="h-3 w-3 mr-1" /> Calculadora Smart
+                        </Button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          ) : (
+            /* VISTA 2: TABLA AGRUPADA POR DISCIPLINA / DEPORTE */
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-slate-900 text-white text-[9px] font-black uppercase tracking-widest">
+                  <th className="p-4 pl-8">Disciplina Deportiva</th>
+                  <th className="p-4 text-center">Catálogo (Artículos)</th>
+                  <th className="p-4 text-right">Costo Promed. ($)</th>
+                  <th className="p-4 text-right">Precio Promed. ($)</th>
+                  <th className="p-4 text-center font-bold text-amber-300">Unidades Totales Req</th>
+                  <th className="p-4 text-right font-bold text-emerald-300">Facturación Req ($ USD)</th>
+                  <th className="p-4 text-right">Facturación Req (Bs. BCV)</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 text-xs font-bold text-slate-800">
+                {groupedByDiscipline.map((g, idx) => (
+                  <tr key={idx} className="hover:bg-slate-50 transition-colors">
+                    <td className="p-4 pl-8 font-black uppercase text-slate-900 flex items-center gap-2">
+                      <Badge className="bg-primary text-white font-mono text-[9px] border-none">{g.discipline}</Badge>
+                    </td>
+                    <td className="p-4 text-center font-mono">{g.productCount} artículos</td>
+                    <td className="p-4 text-right font-mono font-black text-slate-700">${g.avgLandedCost.toFixed(2)}</td>
+                    <td className="p-4 text-right font-mono font-black text-blue-700">${g.avgCashPrice.toFixed(2)}</td>
+                    <td className="p-4 text-center font-mono font-black text-amber-600 bg-amber-50/50">
+                      <span className="text-sm">{g.totalRequiredUnits}</span> <span className="text-[8px] uppercase">unids</span>
+                    </td>
+                    <td className="p-4 text-right font-mono font-black text-emerald-700 bg-emerald-50/30">
+                      ${g.totalRequiredRevenueUSD.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                    </td>
+                    <td className="p-4 text-right font-mono font-black text-slate-600">
+                      Bs. {g.totalRequiredRevenueVES.toLocaleString('es-VE', { minimumFractionDigits: 2 })}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </CardContent>
       </Card>
 
