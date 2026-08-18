@@ -6,7 +6,8 @@ import type { Order } from '@/lib/definitions';
 import { format, subDays, startOfDay, isSameDay } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { TrendingUp, DollarSign } from 'lucide-react';
+import { TrendingUp, DollarSign, Activity } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 
 interface SalesTrendChartProps {
@@ -14,8 +15,19 @@ interface SalesTrendChartProps {
   isLoading?: boolean;
 }
 
+const getEffectiveCashReceived = (o: Order): number => {
+  if (!o) return 0;
+  if (typeof o.totalCashReceived === 'number' && o.totalCashReceived > 0) return o.totalCashReceived;
+  if (typeof o.amountPaid === 'number' && o.amountPaid > 0) return o.amountPaid;
+  const altPaid = (o as any).paidAmount || (o as any).totalPaid || (o as any).montoPagado;
+  if (typeof altPaid === 'number' && altPaid > 0) return altPaid;
+  if (o.status === 'Pagado' || (o as any).isPaid === true || (o as any).paymentStatus === 'Pagado') return o.totalAmount || 0;
+  return 0;
+};
+
 export function SalesTrendChart({ orders, isLoading = false }: SalesTrendChartProps) {
   const [period, setPeriod] = useState<'7d' | '30d' | '6m'>('7d');
+  const [viewMode, setViewMode] = useState<'comparative' | 'sales' | 'cash'>('comparative');
 
   const chartData = useMemo(() => {
     if (!orders) return [];
@@ -28,32 +40,40 @@ export function SalesTrendChart({ orders, isLoading = false }: SalesTrendChartPr
       const days = Array.from({ length: 7 }, (_, i) => startOfDay(subDays(now, 6 - i)));
       return days.map(day => {
         const dayOrders = orders.filter(order => {
-          if (!VALID_SALES_STATUSES.includes(order.status)) return false;
           const orderDate = getDate(order.receptionDate || order.approvalDate || order.createdAt || order.orderDate);
           return isSameDay(orderDate, day);
         });
 
-        const totalRevenue = dayOrders.reduce((sum, order) => sum + (order.totalAmount || 0), 0);
+        const salesTotal = dayOrders
+          .filter(order => VALID_SALES_STATUSES.includes(order.status))
+          .reduce((sum, order) => sum + (order.totalAmount || 0), 0);
+
+        const cashTotal = dayOrders.reduce((sum, order) => sum + getEffectiveCashReceived(order), 0);
 
         return {
           name: format(day, 'dd/MM'),
-          monto: totalRevenue,
+          ventas: salesTotal,
+          cobranzas: cashTotal,
         };
       });
     } else if (period === '30d') {
       const days = Array.from({ length: 30 }, (_, i) => startOfDay(subDays(now, 29 - i)));
       return days.map(day => {
         const dayOrders = orders.filter(order => {
-          if (!VALID_SALES_STATUSES.includes(order.status)) return false;
           const orderDate = getDate(order.receptionDate || order.approvalDate || order.createdAt || order.orderDate);
           return isSameDay(orderDate, day);
         });
 
-        const totalRevenue = dayOrders.reduce((sum, order) => sum + (order.totalAmount || 0), 0);
+        const salesTotal = dayOrders
+          .filter(order => VALID_SALES_STATUSES.includes(order.status))
+          .reduce((sum, order) => sum + (order.totalAmount || 0), 0);
+
+        const cashTotal = dayOrders.reduce((sum, order) => sum + getEffectiveCashReceived(order), 0);
 
         return {
           name: format(day, 'dd/MM'),
-          monto: totalRevenue,
+          ventas: salesTotal,
+          cobranzas: cashTotal,
         };
       });
     } else {
@@ -69,20 +89,32 @@ export function SalesTrendChart({ orders, isLoading = false }: SalesTrendChartPr
         const mEnd = new Date(m.getFullYear(), m.getMonth() + 1, 0, 23, 59, 59, 999);
 
         const monthOrders = orders.filter(order => {
-          if (!VALID_SALES_STATUSES.includes(order.status)) return false;
           const orderDate = getDate(order.receptionDate || order.approvalDate || order.createdAt || order.orderDate);
           return orderDate >= mStart && orderDate <= mEnd;
         });
 
-        const totalRevenue = monthOrders.reduce((sum, order) => sum + (order.totalAmount || 0), 0);
+        const salesTotal = monthOrders
+          .filter(order => VALID_SALES_STATUSES.includes(order.status))
+          .reduce((sum, order) => sum + (order.totalAmount || 0), 0);
+
+        const cashTotal = monthOrders.reduce((sum, order) => sum + getEffectiveCashReceived(order), 0);
 
         return {
           name: format(m, 'MMM', { locale: es }).toUpperCase(),
-          monto: totalRevenue,
+          ventas: salesTotal,
+          cobranzas: cashTotal,
         };
       });
     }
   }, [orders, period]);
+
+  const totals = useMemo(() => {
+    const totalSales = chartData.reduce((sum, d) => sum + d.ventas, 0);
+    const totalCash = chartData.reduce((sum, d) => sum + d.cobranzas, 0);
+    const divisor = period === '7d' ? 7 : period === '30d' ? 30 : 180;
+    const dailyAvg = Math.round(totalSales / divisor);
+    return { totalSales, totalCash, dailyAvg };
+  }, [chartData, period]);
 
   if (isLoading || !orders) {
     return (
@@ -95,48 +127,83 @@ export function SalesTrendChart({ orders, isLoading = false }: SalesTrendChartPr
     );
   }
 
-  const currentTotal = chartData.reduce((sum, d) => sum + d.monto, 0);
-
   return (
     <Card className="border-none shadow-xl rounded-[2.5rem] bg-white overflow-hidden relative group animate-in fade-in duration-500">
       <CardHeader className="p-8 pb-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 space-y-0">
         <div className="space-y-1">
           <CardTitle className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-400 flex items-center gap-2">
-            <TrendingUp className="h-4 w-4 text-primary" /> Tendencia de Ventas
+            <TrendingUp className="h-4 w-4 text-primary" /> Tendencia de Ventas vs Cobranzas
           </CardTitle>
-          <div className="flex bg-slate-100 border border-slate-200/50 rounded-xl p-1 gap-1 mt-2">
-            {(['7d', '30d', '6m'] as const).map((p) => (
-              <button
-                key={p}
-                type="button"
-                onClick={() => setPeriod(p)}
-                className={cn(
-                  "px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all",
-                  period === p 
-                    ? "bg-primary text-white shadow-sm" 
-                    : "text-slate-500 hover:text-slate-800"
-                )}
-              >
-                {p === '7d' ? '7D' : p === '30d' ? '30D' : '6M'}
-              </button>
-            ))}
+          <div className="flex flex-wrap items-center gap-2 mt-2">
+            {/* SELECTOR DE PERÍODO */}
+            <div className="flex bg-slate-100 border border-slate-200/50 rounded-xl p-1 gap-1">
+              {(['7d', '30d', '6m'] as const).map((p) => (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => setPeriod(p)}
+                  className={cn(
+                    "px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all",
+                    period === p 
+                      ? "bg-primary text-white shadow-sm" 
+                      : "text-slate-500 hover:text-slate-800"
+                  )}
+                >
+                  {p === '7d' ? '7D' : p === '30d' ? '30D' : '6M'}
+                </button>
+              ))}
+            </div>
+
+            {/* SELECTOR DE VISTA DUAL (COMPARATIVO) */}
+            <div className="flex bg-slate-100 border border-slate-200/50 rounded-xl p-1 gap-1">
+              {[
+                { id: 'comparative', label: '📊 Dual' },
+                { id: 'sales', label: '🔵 Ventas' },
+                { id: 'cash', label: '🟢 Cash' },
+              ].map((v) => (
+                <button
+                  key={v.id}
+                  type="button"
+                  onClick={() => setViewMode(v.id as any)}
+                  className={cn(
+                    "px-2.5 py-1 rounded-lg text-[8px] font-black uppercase tracking-wider transition-all",
+                    viewMode === v.id
+                      ? "bg-slate-900 text-white shadow-sm"
+                      : "text-slate-500 hover:text-slate-800"
+                  )}
+                >
+                  {v.label}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
+
         <div className="text-left sm:text-right shrink-0">
-          <p className="text-2xl font-black tracking-tighter text-slate-900 leading-none">${currentTotal.toLocaleString()}</p>
+          <div className="flex items-baseline gap-2">
+            <p className="text-2xl font-black tracking-tighter text-slate-900 leading-none">${totals.totalSales.toLocaleString()}</p>
+            <Badge variant="outline" className="text-[7px] font-black border-slate-200 text-slate-600 px-1.5 py-0 font-mono">
+              Prom: ${totals.dailyAvg.toLocaleString()}/día
+            </Badge>
+          </div>
           <span className="text-[8px] font-black text-emerald-500 uppercase tracking-widest block mt-1.5">
-            {period === '7d' ? 'Semana Activa' : period === '30d' ? 'Mes Activo' : 'Semestre Activo'}
+            Cobranza Cash: ${totals.totalCash.toLocaleString()}
           </span>
         </div>
       </CardHeader>
+
       <CardContent className="px-6 pb-6 pt-0">
         <div className="h-[240px] w-full">
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
               <defs>
-                <linearGradient id="colorMonto" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.4}/>
+                <linearGradient id="colorVentas" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.35}/>
                   <stop offset="95%" stopColor="#3b82f6" stopOpacity={0.0}/>
+                </linearGradient>
+                <linearGradient id="colorCobranzas" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#10b981" stopOpacity={0.4}/>
+                  <stop offset="95%" stopColor="#10b981" stopOpacity={0.0}/>
                 </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
@@ -162,17 +229,32 @@ export function SalesTrendChart({ orders, isLoading = false }: SalesTrendChartPr
                   fontSize: '11px',
                   fontWeight: 900
                 }}
-                formatter={(value: any) => [`$${Number(value).toLocaleString()}`, 'Venta']}
-                labelFormatter={(label) => `Día: ${label}`}
+                formatter={(value: any, name: any) => [
+                  `$${Number(value).toLocaleString()} (Bs. ${(Number(value) * 65.50).toLocaleString('es-VE', { maximumFractionDigits: 0 })})`,
+                  name === 'ventas' ? '🔵 Ventas' : '🟢 Cobranzas Cash'
+                ]}
+                labelFormatter={(label) => `Periodo: ${label}`}
               />
-              <Area 
-                type="monotone" 
-                dataKey="monto" 
-                stroke="#3b82f6" 
-                strokeWidth={3} 
-                fillOpacity={1} 
-                fill="url(#colorMonto)" 
-              />
+              {(viewMode === 'comparative' || viewMode === 'sales') && (
+                <Area 
+                  type="monotone" 
+                  dataKey="ventas" 
+                  stroke="#3b82f6" 
+                  strokeWidth={3} 
+                  fillOpacity={1} 
+                  fill="url(#colorVentas)" 
+                />
+              )}
+              {(viewMode === 'comparative' || viewMode === 'cash') && (
+                <Area 
+                  type="monotone" 
+                  dataKey="cobranzas" 
+                  stroke="#10b981" 
+                  strokeWidth={3} 
+                  fillOpacity={1} 
+                  fill="url(#colorCobranzas)" 
+                />
+              )}
             </AreaChart>
           </ResponsiveContainer>
         </div>
@@ -180,3 +262,4 @@ export function SalesTrendChart({ orders, isLoading = false }: SalesTrendChartPr
     </Card>
   );
 }
+
