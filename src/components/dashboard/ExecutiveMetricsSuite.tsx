@@ -50,19 +50,53 @@ export function ExecutiveMetricsSuite({ orders }: ExecutiveMetricsSuiteProps) {
     const [selectedOrderForSheet, setSelectedOrderForSheet] = useState<Order | null>(null);
     const [selectedBarOrders, setSelectedBarOrders] = useState<Order[] | null>(null);
     const [customModalLabel, setCustomModalLabel] = useState<string>('');
+    const [auditMode, setAuditMode] = useState<'ventas' | 'cobranzas' | 'despachos' | 'cancelaciones' | 'pendientes'>('ventas');
+
+    const openAuditForType = (type: 'ventas' | 'cobranzas' | 'despachos' | 'cancelaciones' | 'pendientes', customOrders?: Order[], customLabel?: string) => {
+        setAuditMode(type);
+        const VALID_SALES_STATUSES = ['Entregado', 'Completado', 'Despachado', 'Pagado', 'Aprobado', 'En Preparación'];
+        const baseList = customOrders || orders || [];
+        
+        let filtered: Order[] = [];
+        if (type === 'cobranzas') {
+            filtered = baseList.filter(o => (o.amountPaid && o.amountPaid > 0) || o.status === 'Pagado');
+            setCustomModalLabel(customLabel || '🟢 Auditoría de Cobranzas Cash Efectivas');
+        } else if (type === 'despachos') {
+            filtered = baseList.filter(o => ['Despachado', 'Entregado', 'Completado'].includes(o.status));
+            setCustomModalLabel(customLabel || '🚚 Auditoría de Pedidos Despachados');
+        } else if (type === 'cancelaciones') {
+            filtered = baseList.filter(o => o.status === 'Cancelado');
+            setCustomModalLabel(customLabel || '🚨 Auditoría de Pedidos Cancelados');
+        } else if (type === 'pendientes') {
+            filtered = baseList.filter(o => (o.totalAmount || 0) - (o.amountPaid || 0) > 0.05);
+            setCustomModalLabel(customLabel || '🟡 Auditoría de Cartera por Cobrar (Crédito)');
+        } else {
+            filtered = baseList.filter(o => VALID_SALES_STATUSES.includes(o.status));
+            setCustomModalLabel(customLabel || '🔵 Auditoría de Ventas Comerciales');
+        }
+        
+        setSelectedBarOrders(filtered);
+        setIsAuditModalOpen(true);
+    };
 
     const handleBarClick = (entry: any) => {
         if (!entry) return;
         const clickedLabel = entry.name || entry.payload?.name || 'Periodo Seleccionado';
-        const clickedOrders = entry.periodOrders || entry.payload?.periodOrders;
-        if (clickedOrders && clickedOrders.length > 0) {
-            setSelectedBarOrders(clickedOrders);
-            setCustomModalLabel(`⚡ Desglose de Ventas: ${clickedLabel}`);
-        } else {
-            setSelectedBarOrders(null);
-            setCustomModalLabel('');
-        }
-        setIsAuditModalOpen(true);
+        const dataKey = entry.dataKey || (entry.tooltipPayload && entry.tooltipPayload[0]?.dataKey) || 'ventas';
+        const payload = entry.payload || entry;
+        
+        let type: 'ventas' | 'cobranzas' | 'despachos' | 'cancelaciones' = 'ventas';
+        if (dataKey === 'cobranzas') type = 'cobranzas';
+        else if (dataKey === 'despachos') type = 'despachos';
+        else if (dataKey === 'cancelaciones') type = 'cancelaciones';
+        else type = 'ventas';
+
+        const customOrders = type === 'cobranzas' ? payload.cashOrders 
+            : type === 'despachos' ? payload.dispatchedOrders
+            : type === 'cancelaciones' ? payload.cancelledOrders
+            : payload.salesOrders || payload.periodOrders;
+
+        openAuditForType(type, customOrders, `${type === 'cobranzas' ? '🟢 Cobranzas Cash' : type === 'despachos' ? '🚚 Despachados' : type === 'cancelaciones' ? '🚨 Cancelados' : '🔵 Ventas'}: ${clickedLabel}`);
     };
 
     // Procesamiento y agrupación de datos
@@ -280,10 +314,7 @@ export function ExecutiveMetricsSuite({ orders }: ExecutiveMetricsSuiteProps) {
                             <button
                                 key={p.id}
                                 type="button"
-                                onClick={() => {
-                                    setPeriod(p.id as any);
-                                    setIsAuditModalOpen(true);
-                                }}
+                                onClick={() => setPeriod(p.id as any)}
                                 className={cn(
                                     "px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer",
                                     period === p.id ? "bg-white text-slate-900 font-black shadow-sm" : "text-slate-400 hover:text-white hover:bg-white/5"
@@ -298,24 +329,33 @@ export function ExecutiveMetricsSuite({ orders }: ExecutiveMetricsSuiteProps) {
 
             <CardContent className="p-6 sm:p-8 space-y-6">
                 {/* BANNER KPI DE RESUMEN GLOBAL INTERACTIVO (1-CLIC) */}
-                <div 
-                    onClick={() => setIsAuditModalOpen(true)}
-                    className="grid grid-cols-2 sm:grid-cols-4 gap-4 bg-white/5 p-4 rounded-2xl border border-white/5 cursor-pointer hover:bg-white/10 hover:border-white/20 transition-all group"
-                >
-                    <div className="space-y-0.5">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 bg-white/5 p-4 rounded-2xl border border-white/5">
+                    <div 
+                        onClick={() => openAuditForType('ventas')}
+                        className="space-y-0.5 cursor-pointer hover:bg-white/10 p-2 rounded-xl transition-all group"
+                    >
                         <span className="text-[8px] font-black uppercase tracking-widest text-slate-400 block group-hover:text-primary transition-colors">Ventas Entregadas (Clic Auditar)</span>
                         <p className="text-lg sm:text-xl font-black text-white tracking-tighter">${metricsData.totals.sales.toLocaleString()}</p>
                     </div>
-                    <div className="space-y-0.5">
-                        <span className="text-[8px] font-black uppercase tracking-widest text-emerald-400 block">Cobranzas Cash</span>
+                    <div 
+                        onClick={() => openAuditForType('cobranzas')}
+                        className="space-y-0.5 cursor-pointer hover:bg-white/10 p-2 rounded-xl transition-all group"
+                    >
+                        <span className="text-[8px] font-black uppercase tracking-widest text-emerald-400 block group-hover:text-emerald-300 transition-colors">Cobranzas Cash (Clic Auditar)</span>
                         <p className="text-lg sm:text-xl font-black text-emerald-400 tracking-tighter">${metricsData.totals.cash.toLocaleString()}</p>
                     </div>
-                    <div className="space-y-0.5">
-                        <span className="text-[8px] font-black uppercase tracking-widest text-amber-400 block">Por Cobrar (Crédito)</span>
+                    <div 
+                        onClick={() => openAuditForType('pendientes')}
+                        className="space-y-0.5 cursor-pointer hover:bg-white/10 p-2 rounded-xl transition-all group"
+                    >
+                        <span className="text-[8px] font-black uppercase tracking-widest text-amber-400 block group-hover:text-amber-300 transition-colors">Por Cobrar (Crédito)</span>
                         <p className="text-lg sm:text-xl font-black text-amber-400 tracking-tighter">${metricsData.totals.pending.toLocaleString()}</p>
                     </div>
-                    <div className="space-y-0.5">
-                        <span className="text-[8px] font-black uppercase tracking-widest text-cyan-400 block">Efectividad Cobro</span>
+                    <div 
+                        onClick={() => openAuditForType('cobranzas')}
+                        className="space-y-0.5 cursor-pointer hover:bg-white/10 p-2 rounded-xl transition-all group"
+                    >
+                        <span className="text-[8px] font-black uppercase tracking-widest text-cyan-400 block group-hover:text-cyan-300 transition-colors">Efectividad Cobro</span>
                         <div className="flex items-baseline gap-2">
                             <p className="text-lg sm:text-xl font-black text-cyan-400 tracking-tighter">{efficiencyRate}%</p>
                             <Badge variant="outline" className="text-[7px] font-black border-cyan-500/30 text-cyan-400 px-1 py-0">Recaudación</Badge>
@@ -422,8 +462,17 @@ export function ExecutiveMetricsSuite({ orders }: ExecutiveMetricsSuiteProps) {
                 <DialogContent className="sm:max-w-4xl rounded-[2.5rem] border-none shadow-2xl overflow-hidden p-8 bg-white text-slate-900">
                     <DialogHeader className="space-y-2 border-b pb-4">
                         <div className="flex items-center justify-between">
-                            <Badge className="bg-primary text-white font-black text-[9px] uppercase tracking-widest px-3 py-1">
-                                Auditoría de Ventas B2B
+                            <Badge className={cn(
+                                "font-black text-[9px] uppercase tracking-widest px-3 py-1",
+                                auditMode === 'cobranzas' ? "bg-emerald-600 text-white" :
+                                auditMode === 'pendientes' ? "bg-amber-600 text-white" :
+                                auditMode === 'cancelaciones' ? "bg-rose-600 text-white" :
+                                auditMode === 'despachos' ? "bg-sky-600 text-white" : "bg-primary text-white"
+                            )}>
+                                {auditMode === 'cobranzas' ? 'Auditoría de Cobranzas Cash' :
+                                 auditMode === 'pendientes' ? 'Auditoría de Cartera por Cobrar' :
+                                 auditMode === 'cancelaciones' ? 'Auditoría de Cancelaciones' :
+                                 auditMode === 'despachos' ? 'Auditoría Logística de Despachos' : 'Auditoría de Ventas Comerciales'}
                             </Badge>
                             <span className="text-[10px] font-black font-mono text-slate-400">
                                 {customModalLabel || (period === 'today' ? '☀️ HOY' : period === '7d' ? '⚡ ÚLTIMOS 7 DÍAS' : period === 'this_month' ? '🗓️ MES ACTUAL (AGOSTO)' : period === 'last_month' ? '📅 MES ANTERIOR' : '🌐 6 MESES')}
@@ -433,20 +482,34 @@ export function ExecutiveMetricsSuite({ orders }: ExecutiveMetricsSuiteProps) {
                             <BarChart3 className="h-6 w-6 text-primary" /> {customModalLabel || 'Desglose Detallado de Ventas'}
                         </DialogTitle>
                         <DialogDescription className="text-slate-500 text-xs">
-                            Listado completo de pedidos registrados en el elemento seleccionado con conversión oficial a Bs. BCV.
+                            {auditMode === 'cobranzas' 
+                                ? 'Consolidado de cobranzas cash en efectivo, transferencias y Zelle conciliados en el sistema.'
+                                : auditMode === 'pendientes'
+                                ? 'Expedientes con saldo pendiente por cobrar en cartera comercial.'
+                                : 'Listado completo de pedidos registrados en el elemento seleccionado con conversión oficial a Bs. BCV.'}
                         </DialogDescription>
                     </DialogHeader>
 
-                    {/* METRICAS SUMMARY DEL PERIODO DE LA MODAL */}
+                    {/* METRICAS SUMMARY DEL PERIODO DE LA MODAL ADAPTADAS AL MODO */}
                     {(() => {
                         const activeList = selectedBarOrders || orders || [];
-                        const mSales = activeList.reduce((sum, o) => sum + (o.totalAmount || 0), 0);
+                        const mSales = activeList.reduce((sum, o) => {
+                            if (auditMode === 'cobranzas') {
+                                return sum + (o.status === 'Pagado' ? (o.totalAmount || 0) : (o.amountPaid || 0));
+                            }
+                            if (auditMode === 'pendientes') {
+                                return sum + Math.max(0, (o.totalAmount || 0) - (o.amountPaid || 0));
+                            }
+                            return sum + (o.totalAmount || 0);
+                        }, 0);
                         const mCount = activeList.length;
                         const mAvg = mCount > 0 ? mSales / mCount : 0;
                         return (
                             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-50 p-4 rounded-2xl border border-slate-100 my-2">
                                 <div>
-                                    <span className="text-[8px] font-black uppercase text-slate-400">Total Facturado USD</span>
+                                    <span className="text-[8px] font-black uppercase text-slate-400">
+                                        {auditMode === 'cobranzas' ? 'Total Cobrado USD' : auditMode === 'pendientes' ? 'Total por Cobrar USD' : 'Total Facturado USD'}
+                                    </span>
                                     <p className="text-lg font-black text-slate-900 font-mono">${mSales.toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
                                 </div>
                                 <div>
@@ -454,11 +517,15 @@ export function ExecutiveMetricsSuite({ orders }: ExecutiveMetricsSuiteProps) {
                                     <p className="text-lg font-black text-slate-700 font-mono">Bs. {(mSales * 65.50).toLocaleString('es-VE', { minimumFractionDigits: 2 })}</p>
                                 </div>
                                 <div>
-                                    <span className="text-[8px] font-black uppercase text-slate-400">Pedidos Totales</span>
-                                    <p className="text-lg font-black text-blue-700 font-mono">{mCount} pedidos</p>
+                                    <span className="text-[8px] font-black uppercase text-slate-400">
+                                        {auditMode === 'cobranzas' ? 'Cobros Efectuados' : auditMode === 'pendientes' ? 'Cuentas Pendientes' : 'Pedidos Totales'}
+                                    </span>
+                                    <p className="text-lg font-black text-blue-700 font-mono">{mCount} expedientes</p>
                                 </div>
                                 <div>
-                                    <span className="text-[8px] font-black uppercase text-slate-400">Ticket Promedio</span>
+                                    <span className="text-[8px] font-black uppercase text-slate-400">
+                                        {auditMode === 'cobranzas' ? 'Cobro Promedio' : auditMode === 'pendientes' ? 'Deuda Promedio' : 'Ticket Promedio'}
+                                    </span>
                                     <p className="text-lg font-black text-emerald-700 font-mono">${Math.round(mAvg).toLocaleString()}</p>
                                 </div>
                             </div>
@@ -476,7 +543,7 @@ export function ExecutiveMetricsSuite({ orders }: ExecutiveMetricsSuiteProps) {
                         />
                     </div>
 
-                    {/* TABLA DE PEDIDOS DESGLOSADOS */}
+                    {/* TABLA DE PEDIDOS DESGLOSADOS ADAPTADA AL MODO */}
                     <div className="max-h-[360px] overflow-y-auto custom-scrollbar border border-slate-100 rounded-2xl">
                         <table className="w-full text-left border-collapse">
                             <thead className="bg-slate-900 text-white text-[9px] font-black uppercase tracking-widest sticky top-0 z-10">
@@ -484,8 +551,12 @@ export function ExecutiveMetricsSuite({ orders }: ExecutiveMetricsSuiteProps) {
                                     <th className="p-3 pl-6">Cliente / Pedido</th>
                                     <th className="p-3">Vendedor</th>
                                     <th className="p-3 text-center">Estado</th>
-                                    <th className="p-3 text-right">Monto ($ USD)</th>
-                                    <th className="p-3 text-right">Monto (Bs. BCV)</th>
+                                    <th className="p-3 text-right">
+                                        {auditMode === 'cobranzas' ? 'Monto Cobrado ($ Cash)' : auditMode === 'pendientes' ? 'Saldo Pendiente ($ USD)' : 'Monto ($ USD)'}
+                                    </th>
+                                    <th className="p-3 text-right">
+                                        {auditMode === 'cobranzas' ? 'Monto Cobrado (Bs. BCV)' : auditMode === 'pendientes' ? 'Saldo Pendiente (Bs. BCV)' : 'Monto (Bs. BCV)'}
+                                    </th>
                                     <th className="p-3 pr-6 text-right">Acción</th>
                                 </tr>
                             </thead>
@@ -500,34 +571,45 @@ export function ExecutiveMetricsSuite({ orders }: ExecutiveMetricsSuiteProps) {
                                             (o.id || '').toLowerCase().includes(term)
                                         );
                                     })
-                                    .map((o, idx) => (
-                                        <tr key={o.id || idx} className="hover:bg-slate-50 transition-colors">
-                                            <td className="p-3 pl-6">
-                                                <p className="font-black text-slate-900 uppercase leading-tight">{o.customerName || 'Cliente General'}</p>
-                                                <p className="text-[8px] font-mono text-slate-400">ID: {o.id?.slice(0, 8)}</p>
-                                            </td>
-                                            <td className="p-3 text-slate-600 font-medium text-[10px]">{o.salespersonName || 'Directo'}</td>
-                                            <td className="p-3 text-center">
-                                                <Badge variant="outline" className="text-[8px] font-black uppercase border-slate-200 text-slate-700 px-2 py-0.5">
-                                                    {o.status}
-                                                </Badge>
-                                            </td>
-                                            <td className="p-3 text-right font-mono font-black text-emerald-700">${(o.totalAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td>
-                                            <td className="p-3 text-right font-mono font-black text-slate-600">Bs. {((o.totalAmount || 0) * 65.50).toLocaleString('es-VE', { minimumFractionDigits: 2 })}</td>
-                                            <td className="p-3 pr-6 text-right">
-                                                <Button
-                                                    size="sm"
-                                                    variant="ghost"
-                                                    onClick={() => {
-                                                        setSelectedOrderForSheet(o);
-                                                    }}
-                                                    className="h-8 px-3 rounded-xl text-[8px] font-black uppercase text-primary hover:bg-primary/10"
-                                                >
-                                                    <Eye className="h-3 w-3 mr-1" /> Ver Detalle
-                                                </Button>
-                                            </td>
-                                        </tr>
-                                    ))}
+                                    .map((o, idx) => {
+                                        const rowVal = auditMode === 'cobranzas' 
+                                            ? (o.status === 'Pagado' ? (o.totalAmount || 0) : (o.amountPaid || 0))
+                                            : auditMode === 'pendientes'
+                                            ? Math.max(0, (o.totalAmount || 0) - (o.amountPaid || 0))
+                                            : (o.totalAmount || 0);
+
+                                        return (
+                                            <tr key={o.id || idx} className="hover:bg-slate-50 transition-colors">
+                                                <td className="p-3 pl-6">
+                                                    <p className="font-black text-slate-900 uppercase leading-tight">{o.customerName || 'Cliente General'}</p>
+                                                    <p className="text-[8px] font-mono text-slate-400">ID: {o.id?.slice(0, 8)}</p>
+                                                </td>
+                                                <td className="p-3 text-slate-600 font-medium text-[10px]">{o.salespersonName || 'Directo'}</td>
+                                                <td className="p-3 text-center">
+                                                    <Badge variant="outline" className={cn(
+                                                        "text-[8px] font-black uppercase px-2 py-0.5 border-slate-200",
+                                                        auditMode === 'cobranzas' ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "text-slate-700"
+                                                    )}>
+                                                        {auditMode === 'cobranzas' ? (o.status === 'Pagado' ? 'Pagado Total' : 'Abono Parcial') : o.status}
+                                                    </Badge>
+                                                </td>
+                                                <td className="p-3 text-right font-mono font-black text-emerald-700">${rowVal.toLocaleString('en-US', { minimumFractionDigits: 2 })}</td>
+                                                <td className="p-3 text-right font-mono font-black text-slate-600">Bs. {(rowVal * 65.50).toLocaleString('es-VE', { minimumFractionDigits: 2 })}</td>
+                                                <td className="p-3 pr-6 text-right">
+                                                    <Button
+                                                        size="sm"
+                                                        variant="ghost"
+                                                        onClick={() => {
+                                                            setSelectedOrderForSheet(o);
+                                                        }}
+                                                        className="h-8 px-3 rounded-xl text-[8px] font-black uppercase text-primary hover:bg-primary/10"
+                                                    >
+                                                        <Eye className="h-3 w-3 mr-1" /> Ver Detalle
+                                                    </Button>
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
                             </tbody>
                         </table>
                     </div>
