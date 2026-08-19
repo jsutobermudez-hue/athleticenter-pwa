@@ -48,7 +48,7 @@ const COLORS: { [key: string]: string } = {
 
 export function OrderStatusChart({ orders, isLoading = false }: OrderStatusChartProps) {
   const firestore = useFirestore();
-  const settingsRef = useMemoFirebase(() => firestore ? doc(firestore, 'financialSettings', 'main') : null, [firestore]);
+  const settingsRef = useMemoFirebase(() => firestore ? doc(firestore, 'system', 'financials') : null, [firestore]);
   const { data: globalSettings } = useDoc<FinancialSettings>(settingsRef);
   const bcvRate = globalSettings?.bcvRate || 65.50;
 
