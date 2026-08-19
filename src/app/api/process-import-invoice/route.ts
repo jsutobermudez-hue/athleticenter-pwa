@@ -6,12 +6,14 @@ export const maxDuration = 60;
 
 const INVOICE_SYSTEM_PROMPT = `
 Eres un Auditor de Procura Logística e Importaciones Internacionales experto para Athleticenter PRO.
-Tu tarea es analizar minuciosamente el Invoice (Factura Comercial, Packing List o Proforma) adjunto emitido por un proveedor internacional (China, Panamá, EEUU, etc.) en cualquier formato (Excel, PDF, Imagen o Texto).
+Tu tarea es analizar minuciosamente el Invoice (Factura Comercial, Packing List, Proforma o Contrato de Compra) adjunto emitido por un proveedor internacional (China, Guangzhou, Yiwu, Shenzhen, Panamá, EEUU, etc.) en cualquier idioma (Inglés, Chino, Español) y formato (Excel, PDF, Imagen, CSV o Texto).
 
-REGLAS DE EXTRACCIÓN ESTRICTAS:
-1. Extrae la información ejecutiva del Invoice y todos sus ítems de productos deportivos importados.
-2. Si el archivo es una Hoja de Cálculo Excel, lee las columnas correspondientes a SKU, Descripción, Cantidad, Precio Unitario FOB y CBM.
-3. Devuelve la respuesta ESTRICTAMENTE en formato JSON plano sin bloques de código Markdown (SIN \`\`\`json, SIN comillas de código), con la siguiente estructura:
+REGLAS DE EXTRACCIÓN Y TRADUCCIÓN ESTRICTAS:
+1. Extrae la información ejecutiva del Invoice y todos los ítems de productos importados.
+2. Si el contenido contiene texto o nombres de productos en Chino o Inglés, traduce las descripciones y nombres de productos al Español comercial claro para Athleticenter.
+3. Si el SKU no viene explícito en el Invoice, genera un código SKU sugerido limpio basado en la disciplina, marca y modelo (ejemplo: B-MOLTEN-GL7).
+4. Asegúrate de que los números de cantidad, precio unitario FOB y CBM sean valores numéricos puros (sin símbolos de moneda $ o comas decimales europeas).
+5. Devuelve la respuesta ESTRICTAMENTE en formato JSON plano con la siguiente estructura exacta:
 
 {
   "supplierName": "Guangzhou Sport Goods Co., Ltd.",
@@ -106,7 +108,7 @@ export async function POST(req: NextRequest) {
       ];
     }
 
-    // LLAMADA A LA API DE GEMINI 2.5 FLASH
+    // LLAMADA A LA API DE GEMINI 2.5 FLASH CON RESPUESTA STRICT JSON
     const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
 
     const geminiPayload = {
@@ -120,6 +122,7 @@ export async function POST(req: NextRequest) {
       generationConfig: {
         temperature: 0.1, // Respuesta determinística y precisa
         maxOutputTokens: 8192,
+        responseMimeType: "application/json",
       },
     };
 
@@ -141,10 +144,11 @@ export async function POST(req: NextRequest) {
     const resData = await response.json();
     const rawText = resData.candidates?.[0]?.content?.parts?.[0]?.text || '';
 
-    // LIMPIAR Y FORMATEAR JSON
+    // LIMPIAR Y FORMATEAR JSON ROBUSTO
     let cleanJson = rawText.trim();
-    if (cleanJson.startsWith('```')) {
-      cleanJson = cleanJson.replace(/^```(json)?\n?/, '').replace(/\n?```$/, '');
+    const jsonMatch = cleanJson.match(/```(?:json)?\s*([\s\S]*?)\s*```/) || cleanJson.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      cleanJson = jsonMatch[1] || jsonMatch[0];
     }
 
     let parsedInvoice = null;
@@ -152,10 +156,17 @@ export async function POST(req: NextRequest) {
       parsedInvoice = JSON.parse(cleanJson);
     } catch (parseErr) {
       console.error('Error parseando JSON de Gemini:', cleanJson);
-      return NextResponse.json(
-        { success: false, error: 'No se pudo interpretar el JSON extraído del Invoice.', rawOutput: rawText },
-        { status: 500 }
-      );
+      try {
+        const sanitized = cleanJson
+          .replace(/,\s*([\}\]])/g, '$1') // eliminar comas sobrantes al final de objetos o arrays
+          .replace(/[\u0000-\u001F\u007F-\u009F]/g, ''); // eliminar caracteres de control no imprimibles
+        parsedInvoice = JSON.parse(sanitized);
+      } catch (secondErr) {
+        return NextResponse.json(
+          { success: false, error: 'No se pudo interpretar el JSON extraído del Invoice.', rawOutput: rawText },
+          { status: 500 }
+        );
+      }
     }
 
     return NextResponse.json({
