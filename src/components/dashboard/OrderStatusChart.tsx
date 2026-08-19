@@ -302,10 +302,10 @@ export function OrderStatusChart({ orders, isLoading = false }: OrderStatusChart
             disabled={isExportingPDF}
             variant="outline"
             className="h-9 px-3 rounded-2xl border-slate-200 text-slate-700 hover:bg-slate-50 font-black text-[9px] uppercase tracking-wider flex items-center gap-1.5 shadow-sm"
-            title="Imprimir o Descargar Informe en PDF"
+            title="Imprimir Gráfico Visual y Reporte PDF"
           >
             {isExportingPDF ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Printer className="h-3.5 w-3.5 text-primary" />}
-            <span className="hidden sm:inline">PDF</span>
+            <span className="inline">🖨️ Imprimir Gráfico</span>
           </Button>
         </div>
       </CardHeader>

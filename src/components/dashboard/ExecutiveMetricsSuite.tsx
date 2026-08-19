@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useMemo } from 'react';
-import type { Order } from '@/lib/definitions';
+import type { Order, FinancialSettings } from '@/lib/definitions';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { ResponsiveContainer, BarChart, Bar, AreaChart, Area, XAxis, YAxis, Tooltip, Legend, CartesianGrid } from 'recharts';
@@ -18,7 +18,9 @@ import {
     Layers,
     ArrowUpRight,
     PieChart,
-    Calendar
+    Calendar,
+    Printer,
+    Loader2
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -27,6 +29,9 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Search, Eye, ShoppingCart, CheckCircle2 } from 'lucide-react';
 import { OrderSheetController } from '@/app/dashboard/orders/OrderSheetController';
+import { captureSvgAsPng } from '@/lib/chart-pdf-exporter';
+import { doc } from 'firebase/firestore';
+import { useDoc, useFirestore, useMemoFirebase } from '@/firebase';
 
 interface ExecutiveMetricsSuiteProps {
     orders: Order[] | null;
@@ -63,8 +68,14 @@ const isCashOrder = (o: Order): boolean => {
 };
 
 export function ExecutiveMetricsSuite({ orders }: ExecutiveMetricsSuiteProps) {
+    const firestore = useFirestore();
+    const settingsRef = useMemoFirebase(() => firestore ? doc(firestore, 'system', 'financials') : null, [firestore]);
+    const { data: globalSettings } = useDoc<FinancialSettings>(settingsRef);
+    const bcvRate = globalSettings?.bcvRate || 65.50;
+
     const [period, setPeriod] = useState<'today' | '7d' | '30d' | 'this_month' | 'last_month' | '6m'>('this_month');
     const [activeTab, setActiveTab] = useState<'comparative' | 'logistics' | 'matrix'>('comparative');
+    const [isExportingPDF, setIsExportingPDF] = useState(false);
 
     // ESTADO MODAL INTERACTIVA DE DESGLOSE DE VENTAS (DRILL-DOWN)
     const [isAuditModalOpen, setIsAuditModalOpen] = useState(false);
@@ -99,57 +110,64 @@ export function ExecutiveMetricsSuite({ orders }: ExecutiveMetricsSuiteProps) {
         const customOrders = type === 'cobranzas' ? payload.cashOrders 
             : type === 'despachos' ? payload.dispatchedOrders
             : type === 'cancelaciones' ? payload.cancelledOrders
-            : payload.salesOrders || payload.periodOrders;
+            : payload.salesOrders;
 
-        openAuditForType(type, customOrders, `${type === 'cobranzas' ? '🟢 Cobranzas Cash' : type === 'despachos' ? '🚚 Despachados' : type === 'cancelaciones' ? '🚨 Cancelados' : '🔵 Ventas'}: ${clickedLabel}`, 'custom');
+        openAuditForType(type, customOrders, `${clickedLabel} (${dataKey.toUpperCase()})`);
     };
 
-    const modalFilteredOrders = useMemo(() => {
-        const VALID_SALES_STATUSES = ['Entregado', 'Completado', 'Despachado', 'Pagado', 'Aprobado', 'En Preparación'];
-        let baseList: Order[] = [];
+    const filteredAuditOrders = useMemo(() => {
+        if (!orders) return [];
+        let baseList: Order[] = selectedBarOrders ? [...selectedBarOrders] : [];
 
-        if (modalPeriod === 'custom' && selectedBarOrders) {
-            baseList = selectedBarOrders;
-        } else {
+        if (!selectedBarOrders) {
             const now = new Date();
-            const currentMonth = now.getMonth();
-            const currentYear = now.getFullYear();
-            baseList = (orders || []).filter(o => {
-                const oDate = convertToDate((o as any).lastPaymentDate || o.updatedAt || o.receptionDate || o.approvalDate || o.createdAt || o.orderDate);
+            const VALID_SALES_STATUSES = ['Entregado', 'Completado', 'Despachado', 'Pagado', 'Aprobado', 'En Preparación'];
+
+            baseList = orders.filter(o => {
+                const oDate = convertToDate(o.receptionDate || o.approvalDate || o.createdAt || o.orderDate);
+                
                 if (modalPeriod === 'today') {
-                    return oDate.getDate() === now.getDate() && oDate.getMonth() === currentMonth && oDate.getFullYear() === currentYear;
+                    return isSameDay(oDate, now);
+                } else if (modalPeriod === '7d') {
+                    return oDate >= startOfDay(subDays(now, 6));
+                } else if (modalPeriod === '30d') {
+                    return oDate >= startOfDay(subDays(now, 29));
+                } else if (modalPeriod === 'this_month') {
+                    return oDate.getMonth() === now.getMonth() && oDate.getFullYear() === now.getFullYear();
+                } else if (modalPeriod === 'last_month') {
+                    const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+                    return oDate.getMonth() === lastMonth.getMonth() && oDate.getFullYear() === lastMonth.getFullYear();
+                } else if (modalPeriod === '6m') {
+                    return oDate >= startOfDay(subDays(now, 180));
                 }
-                if (modalPeriod === '7d') {
-                    const start7d = new Date();
-                    start7d.setDate(now.getDate() - 7);
-                    return oDate >= start7d;
-                }
-                if (modalPeriod === 'this_month') {
-                    return oDate.getMonth() === currentMonth && oDate.getFullYear() === currentYear;
-                }
-                if (modalPeriod === 'last_month') {
-                    const lastM = currentMonth === 0 ? 11 : currentMonth - 1;
-                    const lastY = currentMonth === 0 ? currentYear - 1 : currentYear;
-                    return oDate.getMonth() === lastM && oDate.getFullYear() === lastY;
-                }
+                return true;
+            });
+
+            if (auditMode === 'ventas') {
+                baseList = baseList.filter(o => VALID_SALES_STATUSES.includes(o.status));
+            } else if (auditMode === 'cobranzas') {
+                baseList = baseList.filter(o => isCashOrder(o));
+            } else if (auditMode === 'despachos') {
+                baseList = baseList.filter(o => ['Despachado', 'Entregado', 'Completado'].includes(o.status));
+            } else if (auditMode === 'cancelaciones') {
+                baseList = baseList.filter(o => ['Cancelado', 'Rechazado'].includes(o.status));
+            } else if (auditMode === 'pendientes') {
+                baseList = baseList.filter(o => (o.totalAmount || 0) - getEffectiveCashReceived(o) > 0.05 && o.status !== 'Cancelado' && o.status !== 'Borrador');
+            }
+        }
+
+        if (paymentMethodFilter !== 'todos') {
+            baseList = baseList.filter(o => {
+                const method = (o as any).paymentMethod?.toLowerCase() || '';
+                if (paymentMethodFilter === 'cash') return method.includes('efectivo') || method.includes('usd') || method.includes('cash');
+                if (paymentMethodFilter === 'bcv') return method.includes('transferencia') || method.includes('bolivares') || method.includes('bcv') || method.includes('pago movil');
+                if (paymentMethodFilter === 'zelle') return method.includes('zelle') || method.includes('paypal') || method.includes('binance');
                 return true;
             });
         }
 
-        if (auditMode === 'cobranzas') {
-            baseList = baseList.filter(o => isCashOrder(o));
-        } else if (auditMode === 'despachos') {
-            baseList = baseList.filter(o => ['Despachado', 'Entregado', 'Completado'].includes(o.status));
-        } else if (auditMode === 'cancelaciones') {
-            baseList = baseList.filter(o => o.status === 'Cancelado');
-        } else if (auditMode === 'pendientes') {
-            baseList = baseList.filter(o => Math.max(0, (o.totalAmount || 0) - getEffectiveCashReceived(o)) > 0.05);
-        } else {
-            baseList = baseList.filter(o => VALID_SALES_STATUSES.includes(o.status));
-        }
-
         return baseList;
-    }, [modalPeriod, selectedBarOrders, orders, auditMode]);
+    }, [modalPeriod, selectedBarOrders, orders, auditMode, paymentMethodFilter]);
 
     // Procesamiento y agrupación de datos
     const metricsData = useMemo(() => {
@@ -220,29 +238,16 @@ export function ExecutiveMetricsSuite({ orders }: ExecutiveMetricsSuiteProps) {
                 end: new Date(year, month, w.endDay, 23, 59, 59, 999),
                 rawDate: new Date(year, month, w.startDay)
             }));
-        } else if (period === '30d') {
-            periodsList = Array.from({ length: 30 }, (_, i) => {
-                const day = startOfDay(subDays(now, 29 - i));
-                const end = new Date(day);
-                end.setHours(23, 59, 59, 999);
-                return {
-                    dateLabel: format(day, 'dd/MM'),
-                    start: day,
-                    end: end,
-                    rawDate: day
-                };
-            });
         } else {
+            // 6 Meses
             periodsList = Array.from({ length: 6 }, (_, i) => {
-                const d = new Date();
-                d.setMonth(now.getMonth() - (5 - i));
-                const mStart = new Date(d.getFullYear(), d.getMonth(), 1);
-                const mEnd = new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59, 999);
+                const mDate = new Date(now.getFullYear(), now.getMonth() - (5 - i), 1);
+                const mEnd = new Date(mDate.getFullYear(), mDate.getMonth() + 1, 0, 23, 59, 59, 999);
                 return {
-                    dateLabel: format(d, 'MMM', { locale: es }).toUpperCase(),
-                    start: mStart,
+                    dateLabel: format(mDate, 'MMM', { locale: es }).toUpperCase(),
+                    start: mDate,
                     end: mEnd,
-                    rawDate: d
+                    rawDate: mDate
                 };
             });
         }
@@ -255,24 +260,25 @@ export function ExecutiveMetricsSuite({ orders }: ExecutiveMetricsSuiteProps) {
 
         const chartPoints = periodsList.map(p => {
             const periodOrders = orders.filter(o => {
-                const oDate = convertToDate((o as any).lastPaymentDate || o.updatedAt || o.receptionDate || o.approvalDate || o.createdAt || o.orderDate);
-                return oDate >= p.start && oDate <= p.end;
+                const d = convertToDate(o.receptionDate || o.approvalDate || o.createdAt || o.orderDate);
+                return d >= p.start && d <= p.end;
             });
 
             const salesOrders = periodOrders.filter(o => VALID_SALES_STATUSES.includes(o.status));
             const salesTotal = salesOrders.reduce((sum, o) => sum + (o.totalAmount || 0), 0);
-            
+
             const cashOrders = periodOrders.filter(o => isCashOrder(o));
-            const cashTotal = periodOrders.reduce((sum, o) => sum + getEffectiveCashReceived(o), 0);
+            const cashTotal = cashOrders.reduce((sum, o) => sum + getEffectiveCashReceived(o), 0);
 
             const dispatchedOrders = periodOrders.filter(o => ['Despachado', 'Entregado', 'Completado'].includes(o.status));
-            const cancelledOrders = periodOrders.filter(o => o.status === 'Cancelado');
             const dispatchedCount = dispatchedOrders.length;
+
+            const cancelledOrders = periodOrders.filter(o => ['Cancelado', 'Rechazado'].includes(o.status));
             const cancelledCount = cancelledOrders.length;
-            const ordersCount = periodOrders.length;
-            const pendingBalance = Math.max(0, salesTotal - cashTotal);
-            const avgTicket = ordersCount > 0 ? salesTotal / ordersCount : 0;
-            const cancelRate = ordersCount > 0 ? (cancelledCount / ordersCount) * 100 : 0;
+
+            const ordersCount = salesOrders.length;
+            const avgTicket = ordersCount > 0 ? Math.round(salesTotal / ordersCount) : 0;
+            const cancelRate = (dispatchedCount + cancelledCount) > 0 ? Math.round((cancelledCount / (dispatchedCount + cancelledCount)) * 100) : 0;
 
             globalSales += salesTotal;
             globalCash += cashTotal;
@@ -284,7 +290,6 @@ export function ExecutiveMetricsSuite({ orders }: ExecutiveMetricsSuiteProps) {
                 name: p.dateLabel,
                 ventas: salesTotal,
                 cobranzas: cashTotal,
-                saldoPendiente: pendingBalance,
                 despachos: dispatchedCount,
                 cancelaciones: cancelledCount,
                 pedidosTotales: ordersCount,
@@ -349,6 +354,99 @@ export function ExecutiveMetricsSuite({ orders }: ExecutiveMetricsSuiteProps) {
         return { overduePercent, count: overdue.length };
     }, [orders]);
 
+    const handleExportPDF = async () => {
+        setIsExportingPDF(true);
+        try {
+            const jsPDF = (await import('jspdf')).default;
+            const autoTable = (await import('jspdf-autotable')).default;
+
+            const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+            const activeTabLabel = activeTab === 'comparative' ? 'VENTAS VS COBRANZAS' : activeTab === 'logistics' ? 'DESPACHOS VS CANCELACIONES' : 'MATRIZ GLOBAL APP';
+            const periodLabel = period === 'today' ? 'Hoy' : period === '7d' ? 'Últimos 7 Días' : period === 'this_month' ? 'Mes Actual' : period === 'last_month' ? 'Mes Anterior' : '6 Meses';
+
+            // Header Corporativo Slate-900
+            doc.setFillColor(15, 23, 42);
+            doc.rect(0, 0, 210, 26, 'F');
+
+            doc.setTextColor(255, 255, 255);
+            doc.setFontSize(13);
+            doc.setFont('helvetica', 'bold');
+            doc.text('ATHLETICENTER - SUITE DE ANALÍTICA EJECUTIVA', 14, 11);
+
+            doc.setFontSize(8);
+            doc.setFont('helvetica', 'normal');
+            doc.text(`Vista: ${activeTabLabel} | Período: ${periodLabel.toUpperCase()} | Tasa BCV: Bs. ${bcvRate.toFixed(2)} / USD | Fecha: ${new Date().toLocaleDateString('es-VE')}`, 14, 19);
+
+            // Resumen de Métricas
+            doc.setFillColor(248, 250, 252);
+            doc.roundedRect(14, 31, 182, 20, 3, 3, 'F');
+            doc.setDrawColor(226, 232, 240);
+            doc.roundedRect(14, 31, 182, 20, 3, 3, 'S');
+
+            doc.setTextColor(15, 23, 42);
+            doc.setFontSize(9);
+            doc.setFont('helvetica', 'bold');
+            doc.text(`VENTAS ENTREGADAS: $${metricsData.totals.sales.toLocaleString('en-US', { minimumFractionDigits: 2 })}`, 18, 39);
+            doc.text(`COBRANZA CASH REAL: $${metricsData.totals.cash.toLocaleString('en-US', { minimumFractionDigits: 2 })}`, 18, 46);
+
+            doc.text(`POR COBRAR (CRÉDITO): $${metricsData.totals.pending.toLocaleString('en-US', { minimumFractionDigits: 2 })}`, 115, 39);
+            doc.text(`EFECTIVIDAD DE COBRO: ${efficiencyRate}% COBRADO`, 115, 46);
+
+            // Captura e Inserción de Imagen Visual del Gráfico
+            const chartImage = await captureSvgAsPng('executive-metrics-suite-chart-container');
+            let tableStartY = 56;
+
+            if (chartImage) {
+                doc.setFontSize(8);
+                doc.setFont('helvetica', 'bold');
+                doc.setTextColor(71, 85, 105);
+                doc.text('REPRESENTACIÓN GRÁFICA COMPARATIVA EN TIEMPO REAL:', 14, 57);
+
+                doc.addImage(chartImage, 'PNG', 14, 60, 182, 60);
+                tableStartY = 125;
+            }
+
+            const tableRows = metricsData.chartPoints.map((d: any) => {
+                const diff = d.ventas - d.cobranzas;
+                const bcvEquiv = d.cobranzas * bcvRate;
+                return [
+                    d.name,
+                    `$${d.ventas.toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
+                    `$${d.cobranzas.toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
+                    `$${diff.toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
+                    `Bs. ${bcvEquiv.toLocaleString('es-VE', { minimumFractionDigits: 2 })}`
+                ];
+            });
+
+            autoTable(doc, {
+                startY: tableStartY,
+                head: [['Período / Semana', 'Ventas ($ USD)', 'Cobranzas ($ USD)', 'Brecha ($ USD)', 'Equiv. BCV (Bs.)']],
+                body: [
+                    ...tableRows,
+                    [
+                        'TOTAL GENERAL', 
+                        `$${metricsData.totals.sales.toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
+                        `$${metricsData.totals.cash.toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
+                        `$${metricsData.totals.pending.toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
+                        `Bs. ${(metricsData.totals.cash * bcvRate).toLocaleString('es-VE', { minimumFractionDigits: 2 })}`
+                    ]
+                ],
+                headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255], fontSize: 8, fontStyle: 'bold', halign: 'center' },
+                bodyStyles: { fontSize: 8, halign: 'center' },
+                footStyles: { fillColor: [30, 41, 59], textColor: [255, 255, 255], fontSize: 9, fontStyle: 'bold', halign: 'center' },
+                theme: 'grid'
+            });
+
+            doc.autoPrint();
+            const pdfBlob = doc.output('bloburl');
+            window.open(pdfBlob, '_blank');
+        } catch (e) {
+            console.error('Error generating Executive PDF:', e);
+        } finally {
+            setIsExportingPDF(false);
+        }
+    };
+
     return (
         <Card className="border-none shadow-2xl rounded-[2.5rem] bg-slate-900 text-white overflow-hidden animate-in fade-in duration-500">
             <CardHeader className="p-6 sm:p-8 pb-4 flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-white/10">
@@ -408,6 +506,18 @@ export function ExecutiveMetricsSuite({ orders }: ExecutiveMetricsSuiteProps) {
                             </button>
                         ))}
                     </div>
+
+                    {/* BOTÓN DE IMPRESIÓN DE GRÁFICO VISUAL EN PDF */}
+                    <Button
+                        onClick={handleExportPDF}
+                        disabled={isExportingPDF}
+                        variant="outline"
+                        className="h-8 px-3 rounded-xl border-white/20 bg-white/10 text-white hover:bg-white/20 font-black text-[9px] uppercase tracking-wider flex items-center gap-1.5 shadow-sm"
+                        title="Imprimir Gráfico Visual y Reporte PDF"
+                    >
+                        {isExportingPDF ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Printer className="h-3.5 w-3.5 text-primary" />}
+                        <span>🖨️ Imprimir Gráfico</span>
+                    </Button>
                 </div>
             </CardHeader>
 
@@ -453,14 +563,11 @@ export function ExecutiveMetricsSuite({ orders }: ExecutiveMetricsSuiteProps) {
                             </Badge>
                         </div>
                     </div>
-                    <div 
-                        onClick={() => openAuditForType('cobranzas')}
-                        className="space-y-0.5 cursor-pointer hover:bg-white/10 p-2 rounded-xl transition-all group"
-                    >
-                        <span className="text-[8px] font-black uppercase tracking-widest text-cyan-400 block group-hover:text-cyan-300 transition-colors">Efectividad Cobro</span>
+                    <div className="space-y-0.5 p-2">
+                        <span className="text-[8px] font-black uppercase tracking-widest text-sky-400 block">Efectividad Cobro</span>
                         <div className="flex items-baseline justify-between gap-1">
-                            <p className="text-lg sm:text-xl font-black text-cyan-400 tracking-tighter">{efficiencyRate}%</p>
-                            <Badge variant="outline" className="text-[7px] font-black border-cyan-500/30 text-cyan-400 px-1 py-0">
+                            <p className="text-lg sm:text-xl font-black text-sky-400 tracking-tighter">{efficiencyRate}%</p>
+                            <Badge variant="outline" className="text-[7px] font-black border-sky-500/30 text-sky-400 px-1 py-0 font-mono">
                                 {efficiencyRate >= 80 ? '🟢 Óptimo' : efficiencyRate >= 50 ? '🟡 Regular' : '🔴 Bajo'}
                             </Badge>
                         </div>
@@ -475,7 +582,7 @@ export function ExecutiveMetricsSuite({ orders }: ExecutiveMetricsSuiteProps) {
                                 <TrendingUp className="h-3.5 w-3.5 text-primary" /> Curva Comparativa: Ventas Comerciales ($) vs. Cobranzas Cash ($)
                             </h3>
                         </div>
-                        <div className="h-[280px] w-full pt-4">
+                        <div id="executive-metrics-suite-chart-container" className="h-[280px] w-full pt-4">
                             <ResponsiveContainer width="100%" height="100%">
                                 <BarChart data={metricsData.chartPoints} maxBarSize={50} barCategoryGap="25%" margin={{ top: 10, right: 10, left: -15, bottom: 0 }}>
                                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.05)" />
@@ -502,7 +609,7 @@ export function ExecutiveMetricsSuite({ orders }: ExecutiveMetricsSuiteProps) {
                                 <Truck className="h-3.5 w-3.5 text-sky-400" /> Rendimiento Logístico: Pedidos Despachados vs. Cancelaciones
                             </h3>
                         </div>
-                        <div className="h-[280px] w-full pt-4">
+                        <div id="executive-metrics-suite-chart-container" className="h-[280px] w-full pt-4">
                             <ResponsiveContainer width="100%" height="100%">
                                 <BarChart data={metricsData.chartPoints} maxBarSize={50} barCategoryGap="25%" margin={{ top: 10, right: 10, left: -15, bottom: 0 }}>
                                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.05)" />
@@ -521,37 +628,46 @@ export function ExecutiveMetricsSuite({ orders }: ExecutiveMetricsSuiteProps) {
                     </div>
                 )}
 
-                {/* VISTA 3: MATRIZ DE MÉTRICAS GLOBALES (TABLA INTERACTIVA DE LA APP) */}
+                {/* VISTA 3: MATRIZ GLOBAL APP (TABLA RESUMEN GENERAL) */}
                 {activeTab === 'matrix' && (
                     <div className="space-y-4">
                         <div className="flex items-center justify-between">
                             <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-300 flex items-center gap-2">
-                                <TableIcon className="h-3.5 w-3.5 text-primary" /> Matriz Comparativa de Métricas Globales de la App (Haz clic en una fila para auditar)
+                                <TableIcon className="h-3.5 w-3.5 text-emerald-400" /> Matriz Consolidada por Sub-Periodos Auditados
                             </h3>
                         </div>
-                        <div className="max-h-[300px] overflow-y-auto custom-scrollbar border border-white/10 rounded-2xl">
-                            <table className="w-full text-left border-collapse">
-                                <thead className="bg-white/10 sticky top-0 z-10">
+                        <div className="overflow-x-auto border border-white/10 rounded-2xl">
+                            <table className="w-full text-left text-xs font-medium text-slate-300 border-collapse">
+                                <thead className="bg-white/5 text-[9px] font-black uppercase tracking-widest text-slate-400 border-b border-white/10">
                                     <tr>
-                                        <th className="p-3 pl-6 text-[8px] font-black uppercase tracking-widest text-slate-300">Período / Fecha</th>
-                                        <th className="p-3 text-[8px] font-black uppercase tracking-widest text-slate-300 text-right">Ventas Totales ($)</th>
-                                        <th className="p-3 text-[8px] font-black uppercase tracking-widest text-emerald-400 text-right">Cobranzas Cash ($)</th>
-                                        <th className="p-3 text-[8px] font-black uppercase tracking-widest text-amber-400 text-right">Por Cobrar ($)</th>
-                                        <th className="p-3 text-[8px] font-black uppercase tracking-widest text-slate-300 text-center">Despachos (#)</th>
-                                        <th className="p-3 text-[8px] font-black uppercase tracking-widest text-rose-400 text-center">Cancelados (#)</th>
-                                        <th className="p-3 pr-6 text-[8px] font-black uppercase tracking-widest text-slate-300 text-right">Ticket Prom. ($)</th>
+                                        <th className="p-3.5 pl-6">Sub-Periodo</th>
+                                        <th className="p-3.5 text-right">Ventas ($ USD)</th>
+                                        <th className="p-3.5 text-right text-emerald-400">Cobranza ($ USD)</th>
+                                        <th className="p-3.5 text-right text-amber-400">Brecha / Deuda ($)</th>
+                                        <th className="p-3.5 text-center">Despachos</th>
+                                        <th className="p-3.5 text-center text-rose-400">Cancelaciones</th>
+                                        <th className="p-3.5 pr-6 text-right">Acción</th>
                                     </tr>
                                 </thead>
-                                <tbody className="divide-y divide-white/5 text-[10px] font-mono font-bold">
+                                <tbody className="divide-y divide-white/5 font-mono text-[11px]">
                                     {metricsData.matrixRows.map((row, idx) => (
-                                        <tr key={idx} onClick={() => handleBarClick(row)} className="hover:bg-white/10 transition-colors cursor-pointer">
-                                            <td className="p-3 pl-6 font-black uppercase text-white tracking-widest">{row.name}</td>
-                                            <td className="p-3 text-right font-black text-white">${row.ventas.toLocaleString()}</td>
-                                            <td className="p-3 text-right font-black text-emerald-400">${row.cobranzas.toLocaleString()}</td>
-                                            <td className="p-3 text-right font-black text-amber-400">${row.saldoPendiente.toLocaleString()}</td>
-                                            <td className="p-3 text-center text-sky-400 font-black">{row.despachos}</td>
-                                            <td className="p-3 text-center text-rose-400 font-black">{row.cancelaciones}</td>
-                                            <td className="p-3 pr-6 text-right font-black text-slate-300">${Math.round(row.ticketPromedio).toLocaleString()}</td>
+                                        <tr key={idx} className="hover:bg-white/5 transition-colors">
+                                            <td className="p-3.5 pl-6 font-sans font-bold text-white uppercase">{row.name}</td>
+                                            <td className="p-3.5 text-right font-black text-white">${row.ventas.toLocaleString()}</td>
+                                            <td className="p-3.5 text-right font-black text-emerald-400">${row.cobranzas.toLocaleString()}</td>
+                                            <td className="p-3.5 text-right font-black text-amber-400">${(row.ventas - row.cobranzas).toLocaleString()}</td>
+                                            <td className="p-3.5 text-center font-bold text-sky-300">{row.despachos} unid.</td>
+                                            <td className="p-3.5 text-center font-bold text-rose-400">{row.cancelaciones} unid.</td>
+                                            <td className="p-3.5 pr-6 text-right">
+                                                <Button 
+                                                    size="sm" 
+                                                    variant="ghost" 
+                                                    onClick={() => openAuditForType('ventas', row.periodOrders, `Detalle ${row.name}`)}
+                                                    className="h-7 px-2.5 rounded-lg text-[9px] font-black uppercase text-primary hover:bg-primary/20"
+                                                >
+                                                    <Eye className="h-3 w-3 mr-1" /> Auditar
+                                                </Button>
+                                            </td>
                                         </tr>
                                     ))}
                                 </tbody>
@@ -561,150 +677,59 @@ export function ExecutiveMetricsSuite({ orders }: ExecutiveMetricsSuiteProps) {
                 )}
             </CardContent>
 
-            {/* MODAL EJECUTIVA FLOTANTE DE AUDITORÍA Y DESGLOSE DE VENTAS DEL PERIODO (DRILL-DOWN) */}
+            {/* MODAL INTERACTIVA DE AUDITORÍA DRILL-DOWN */}
             <Dialog open={isAuditModalOpen} onOpenChange={setIsAuditModalOpen}>
                 <DialogContent className="sm:max-w-4xl rounded-[2.5rem] border-none shadow-2xl overflow-hidden p-8 bg-white text-slate-900">
                     <DialogHeader className="space-y-2 border-b pb-4">
                         <div className="flex items-center justify-between">
-                            <Badge className={cn(
-                                "font-black text-[9px] uppercase tracking-widest px-3 py-1",
-                                auditMode === 'cobranzas' ? "bg-emerald-600 text-white" :
-                                auditMode === 'pendientes' ? "bg-amber-600 text-white" :
-                                auditMode === 'cancelaciones' ? "bg-rose-600 text-white" :
-                                auditMode === 'despachos' ? "bg-sky-600 text-white" : "bg-primary text-white"
-                            )}>
-                                {auditMode === 'cobranzas' ? 'Auditoría de Cobranzas Cash' :
-                                 auditMode === 'pendientes' ? 'Auditoría de Cartera por Cobrar' :
-                                 auditMode === 'cancelaciones' ? 'Auditoría de Cancelaciones' :
-                                 auditMode === 'despachos' ? 'Auditoría Logística de Despachos' : 'Auditoría de Ventas Comerciales'}
+                            <Badge className="bg-primary text-white font-black text-[9px] uppercase tracking-widest px-3 py-1">
+                                Auditoría Táctica Genkit
                             </Badge>
-                            <span className="text-[10px] font-black font-mono text-slate-400">
-                                {customModalLabel || (period === 'today' ? '☀️ HOY' : period === '7d' ? '⚡ ÚLTIMOS 7 DÍAS' : period === 'this_month' ? '🗓️ MES ACTUAL (AGOSTO)' : period === 'last_month' ? '📅 MES ANTERIOR' : '🌐 6 MESES')}
-                            </span>
+                            <Badge variant="outline" className="border-slate-300 text-slate-700 font-mono text-[9px] uppercase px-3">
+                                {filteredAuditOrders.length} Expedientes
+                            </Badge>
                         </div>
                         <DialogTitle className="text-2xl font-black uppercase tracking-tight text-slate-900 flex items-center gap-2">
-                            <BarChart3 className="h-6 w-6 text-primary" /> {customModalLabel || 'Desglose Detallado de Ventas'}
+                            <ShoppingCart className="h-6 w-6 text-primary" /> 
+                            {customModalLabel ? customModalLabel : `Desglose de Expedientes: ${auditMode.toUpperCase()}`}
                         </DialogTitle>
                         <DialogDescription className="text-slate-500 text-xs">
-                            {auditMode === 'cobranzas' 
-                                ? 'Consolidado de cobranzas cash en efectivo, transferencias y Zelle conciliados en el sistema.'
-                                : auditMode === 'pendientes'
-                                ? 'Expedientes con saldo pendiente por cobrar en cartera comercial.'
-                                : 'Listado completo de pedidos registrados en el elemento seleccionado con conversión oficial a Bs. BCV.'}
+                            Listado completo de facturas y pedidos auditados con conversión oficial a Bs. BCV.
                         </DialogDescription>
                     </DialogHeader>
 
-                    {/* BARRA DE FILTROS DE PERÍODOS INTERNA EN LA MODAL */}
-                    <div className="flex flex-wrap items-center gap-1.5 bg-slate-50 p-2 rounded-2xl border border-slate-100 my-2">
-                        <span className="text-[8px] font-black uppercase text-slate-400 mr-1 pl-1">Filtrar Periodo:</span>
-                        {[
-                            { id: 'today', label: '☀️ Hoy' },
-                            { id: '7d', label: '⚡ 7 Días' },
-                            { id: 'this_month', label: '🗓️ Mes Actual' },
-                            { id: 'last_month', label: '📅 Mes Anterior' },
-                            { id: '6m', label: '🌐 6 Meses' },
-                        ].map(p => (
-                            <button
-                                key={p.id}
-                                type="button"
-                                onClick={() => setModalPeriod(p.id as any)}
-                                className={cn(
-                                    "px-2.5 py-1 rounded-xl text-[8px] font-black uppercase tracking-wider transition-all border cursor-pointer",
-                                    modalPeriod === p.id 
-                                        ? "bg-slate-900 text-white border-slate-900 shadow-sm" 
-                                        : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
-                                )}
-                            >
-                                {p.label}
-                            </button>
-                        ))}
-                        {modalPeriod === 'custom' && (
-                            <Badge className="bg-primary text-white text-[8px] font-black uppercase px-2.5 py-1 rounded-xl ml-auto border-none">
-                                📍 {customModalLabel || 'Selección del Gráfico'}
-                            </Badge>
-                        )}
-                    </div>
-
-                    {/* METRICAS SUMMARY DEL PERIODO DE LA MODAL ADAPTADAS AL MODO */}
-                    {(() => {
-                        const activeList = modalFilteredOrders;
-                        const mSales = activeList.reduce((sum, o) => {
-                            if (auditMode === 'cobranzas') {
-                                return sum + (o.status === 'Pagado' ? (o.totalAmount || 0) : (o.amountPaid || 0));
-                            }
-                            if (auditMode === 'pendientes') {
-                                return sum + Math.max(0, (o.totalAmount || 0) - (o.amountPaid || 0));
-                            }
-                            return sum + (o.totalAmount || 0);
-                        }, 0);
-                        const mCount = activeList.length;
-                        const mAvg = mCount > 0 ? mSales / mCount : 0;
-                        return (
-                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-50 p-4 rounded-2xl border border-slate-100 my-2">
-                                <div>
-                                    <span className="text-[8px] font-black uppercase text-slate-400">
-                                        {auditMode === 'cobranzas' ? 'Total Cobrado USD' : auditMode === 'pendientes' ? 'Total por Cobrar USD' : 'Total Facturado USD'}
-                                    </span>
-                                    <p className="text-lg font-black text-slate-900 font-mono">${mSales.toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
-                                </div>
-                                <div>
-                                    <span className="text-[8px] font-black uppercase text-slate-400">Equivalente Bs. BCV</span>
-                                    <p className="text-lg font-black text-slate-700 font-mono">Bs. {(mSales * 65.50).toLocaleString('es-VE', { minimumFractionDigits: 2 })}</p>
-                                </div>
-                                <div>
-                                    <span className="text-[8px] font-black uppercase text-slate-400">
-                                        {auditMode === 'cobranzas' ? 'Cobros Efectuados' : auditMode === 'pendientes' ? 'Cuentas Pendientes' : 'Pedidos Totales'}
-                                    </span>
-                                    <p className="text-lg font-black text-blue-700 font-mono">{mCount} expedientes</p>
-                                </div>
-                                <div>
-                                    <span className="text-[8px] font-black uppercase text-slate-400">
-                                        {auditMode === 'cobranzas' ? 'Cobro Promedio' : auditMode === 'pendientes' ? 'Deuda Promedio' : 'Ticket Promedio'}
-                                    </span>
-                                    <p className="text-lg font-black text-emerald-700 font-mono">${Math.round(mAvg).toLocaleString()}</p>
-                                </div>
-                            </div>
-                        );
-                    })()}
-
-                    {/* BARRA DE BÚSQUEDA Y FILTRO DE MÉTODOS DENTRO DE LA MODAL */}
-                    <div className="flex flex-col sm:flex-row items-center gap-2 my-2">
+                    <div className="flex flex-col sm:flex-row items-center gap-3 my-2">
                         <div className="relative flex-1 w-full">
                             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
                             <Input
-                                placeholder="BUSCAR CLIENTE, VENDEDOR O PEDIDO..."
+                                placeholder="BUSCAR CLIENTE, VENDEDOR O ID..."
                                 value={auditSearchTerm}
                                 onChange={(e) => setAuditSearchTerm(e.target.value)}
                                 className="pl-9 h-10 text-[10px] font-bold uppercase bg-slate-50 border-none rounded-xl"
                             />
                         </div>
-                        {auditMode === 'cobranzas' && (
-                            <div className="flex flex-wrap items-center gap-1 bg-slate-100 p-1 rounded-xl">
-                                {[
-                                    { id: 'todos', label: '💵 Todos' },
-                                    { id: 'cash', label: '💵 Cash USD' },
-                                    { id: 'bcv', label: '🇻🇪 Bolívares BCV' },
-                                    { id: 'zelle', label: '🏦 Zelle' },
-                                ].map(m => (
-                                    <button
-                                        key={m.id}
-                                        type="button"
-                                        onClick={() => setPaymentMethodFilter(m.id as any)}
-                                        className={cn(
-                                            "px-2.5 py-1.5 rounded-lg text-[8px] font-black uppercase tracking-wider transition-all border",
-                                            paymentMethodFilter === m.id
-                                                ? "bg-emerald-700 text-white border-emerald-700 shadow-sm"
-                                                : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
-                                        )}
-                                    >
-                                        {m.label}
-                                    </button>
-                                ))}
-                            </div>
-                        )}
+                        <div className="flex bg-slate-100 p-1 rounded-xl gap-1 w-full sm:w-auto overflow-x-auto">
+                            {[
+                                { id: 'todos', label: 'Todos' },
+                                { id: 'cash', label: '💵 Divisas/Cash' },
+                                { id: 'bcv', label: '🇻🇪 Bolívares BCV' },
+                                { id: 'zelle', label: '⚡ Zelle/USDT' },
+                            ].map(f => (
+                                <button
+                                    key={f.id}
+                                    type="button"
+                                    onClick={() => setPaymentMethodFilter(f.id as any)}
+                                    className={cn(
+                                        "px-2.5 py-1 rounded-lg text-[8px] font-black uppercase tracking-wider transition-all whitespace-nowrap",
+                                        paymentMethodFilter === f.id ? "bg-slate-900 text-white shadow-sm" : "text-slate-500 hover:text-slate-900"
+                                    )}
+                                >
+                                    {f.label}
+                                </button>
+                            ))}
+                        </div>
                     </div>
 
-                    {/* TABLA DE PEDIDOS DESGLOSADOS ADAPTADA AL MODO */}
                     <div className="max-h-[360px] overflow-y-auto custom-scrollbar border border-slate-100 rounded-2xl">
                         <table className="w-full text-left border-collapse">
                             <thead className="bg-slate-900 text-white text-[9px] font-black uppercase tracking-widest sticky top-0 z-10">
@@ -712,85 +737,59 @@ export function ExecutiveMetricsSuite({ orders }: ExecutiveMetricsSuiteProps) {
                                     <th className="p-3 pl-6">Cliente / Pedido</th>
                                     <th className="p-3">Vendedor</th>
                                     <th className="p-3 text-center">Estado</th>
-                                    <th className="p-3 text-right">
-                                        {auditMode === 'cobranzas' ? 'Monto Cobrado ($ Cash)' : auditMode === 'pendientes' ? 'Saldo Pendiente ($ USD)' : 'Monto ($ USD)'}
-                                    </th>
-                                    <th className="p-3 text-right">
-                                        {auditMode === 'cobranzas' ? 'Monto Cobrado (Bs. BCV)' : auditMode === 'pendientes' ? 'Saldo Pendiente (Bs. BCV)' : 'Monto (Bs. BCV)'}
-                                    </th>
+                                    <th className="p-3 text-right">Monto ($ USD)</th>
+                                    <th className="p-3 text-right">Monto (Bs. BCV)</th>
                                     <th className="p-3 pr-6 text-right">Acción</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100 text-xs font-bold text-slate-800">
-                                {modalFilteredOrders
+                                {filteredAuditOrders
                                     .filter(o => {
                                         const term = auditSearchTerm.toLowerCase().trim();
-                                        if (term) {
-                                            const matchesTerm = (
-                                                (o.customerName || '').toLowerCase().includes(term) ||
-                                                (o.salespersonName || '').toLowerCase().includes(term) ||
-                                                (o.id || '').toLowerCase().includes(term)
-                                            );
-                                            if (!matchesTerm) return false;
-                                        }
-                                        if (auditMode === 'cobranzas' && paymentMethodFilter !== 'todos') {
-                                            const pMethod = ((o as any).paymentMethod || (o as any).paymentType || (o as any).paymentChannel || '').toLowerCase();
-                                            if (paymentMethodFilter === 'cash' && !pMethod.includes('efectivo') && !pMethod.includes('cash')) return false;
-                                            if (paymentMethodFilter === 'bcv' && !pMethod.includes('bcv') && !pMethod.includes('bolivar') && !pMethod.includes('pago movil') && !pMethod.includes('transferencia')) return false;
-                                            if (paymentMethodFilter === 'zelle' && !pMethod.includes('zelle') && !pMethod.includes('swift')) return false;
-                                        }
-                                        return true;
-                                    })
-                                    .map((o, idx) => {
-                                        const rowVal = auditMode === 'cobranzas' 
-                                            ? (o.status === 'Pagado' ? (o.totalAmount || 0) : (o.amountPaid || 0))
-                                            : auditMode === 'pendientes'
-                                            ? Math.max(0, (o.totalAmount || 0) - (o.amountPaid || 0))
-                                            : (o.totalAmount || 0);
-
+                                        if (!term) return true;
                                         return (
-                                            <tr key={o.id || idx} className="hover:bg-slate-50 transition-colors">
-                                                <td className="p-3 pl-6">
-                                                    <p className="font-black text-slate-900 uppercase leading-tight">{o.customerName || 'Cliente General'}</p>
-                                                    <p className="text-[8px] font-mono text-slate-400">ID: {o.id?.slice(0, 8)}</p>
-                                                </td>
-                                                <td className="p-3 text-slate-600 font-medium text-[10px]">{o.salespersonName || 'Directo'}</td>
-                                                <td className="p-3 text-center">
-                                                    <Badge variant="outline" className={cn(
-                                                        "text-[8px] font-black uppercase px-2 py-0.5 border-slate-200",
-                                                        auditMode === 'cobranzas' ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "text-slate-700"
-                                                    )}>
-                                                        {auditMode === 'cobranzas' ? (o.status === 'Pagado' ? 'Pagado Total' : 'Abono Parcial') : o.status}
-                                                    </Badge>
-                                                </td>
-                                                <td className="p-3 text-right font-mono font-black text-emerald-700">${rowVal.toLocaleString('en-US', { minimumFractionDigits: 2 })}</td>
-                                                <td className="p-3 text-right font-mono font-black text-slate-600">Bs. {(rowVal * 65.50).toLocaleString('es-VE', { minimumFractionDigits: 2 })}</td>
-                                                <td className="p-3 pr-6 text-right">
-                                                    <Button
-                                                        size="sm"
-                                                        variant="ghost"
-                                                        onClick={() => {
-                                                            setSelectedOrderForSheet(o);
-                                                        }}
-                                                        className="h-8 px-3 rounded-xl text-[8px] font-black uppercase text-primary hover:bg-primary/10"
-                                                    >
-                                                        <Eye className="h-3 w-3 mr-1" /> Ver Detalle
-                                                    </Button>
-                                                </td>
-                                            </tr>
+                                            (o.customerName || '').toLowerCase().includes(term) ||
+                                            (o.salespersonName || '').toLowerCase().includes(term) ||
+                                            (o.id || '').toLowerCase().includes(term)
                                         );
-                                    })}
+                                    })
+                                    .map((o, idx) => (
+                                        <tr key={o.id || idx} className="hover:bg-slate-50 transition-colors">
+                                            <td className="p-3 pl-6">
+                                                <p className="font-black text-slate-900 uppercase leading-tight">{o.customerName || 'Cliente General'}</p>
+                                                <p className="text-[8px] font-mono text-slate-400">ID: {o.id?.slice(0, 8)}</p>
+                                            </td>
+                                            <td className="p-3 text-slate-600 font-medium text-[10px]">{o.salespersonName || 'Directo'}</td>
+                                            <td className="p-3 text-center">
+                                                <Badge variant="outline" className="text-[8px] font-black uppercase border-slate-200 text-slate-700 px-2 py-0.5">
+                                                    {o.status}
+                                                </Badge>
+                                            </td>
+                                            <td className="p-3 text-right font-mono font-black text-emerald-700">${(o.totalAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td>
+                                            <td className="p-3 text-right font-mono font-black text-slate-600">Bs. {((o.totalAmount || 0) * bcvRate).toLocaleString('es-VE', { minimumFractionDigits: 2 })}</td>
+                                            <td className="p-3 pr-6 text-right">
+                                                <Button
+                                                    size="sm"
+                                                    variant="ghost"
+                                                    onClick={() => setSelectedOrderForSheet(o)}
+                                                    className="h-8 px-3 rounded-xl text-[8px] font-black uppercase text-primary hover:bg-primary/10"
+                                                >
+                                                    <Eye className="h-3 w-3 mr-1" /> Detalle
+                                                </Button>
+                                            </td>
+                                        </tr>
+                                    ))}
                             </tbody>
                         </table>
                     </div>
                 </DialogContent>
             </Dialog>
 
-            {/* FICHA DE DETALLE COMPLETO DEL PEDIDO */}
+            {/* CONTROLES SHEET DETALLE */}
             {selectedOrderForSheet && (
-                <OrderSheetController
-                    order={selectedOrderForSheet}
-                    onOpenChange={(open) => !open && setSelectedOrderForSheet(null)}
+                <OrderSheetController 
+                    order={selectedOrderForSheet} 
+                    onOpenChange={(open) => !open && setSelectedOrderForSheet(null)} 
                 />
             )}
         </Card>
