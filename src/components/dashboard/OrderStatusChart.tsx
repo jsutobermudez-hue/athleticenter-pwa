@@ -39,11 +39,11 @@ interface OrderStatusChartProps {
 }
 
 const COLORS: { [key: string]: string } = {
-  'Completados': '#10b981',    // Emerald
-  'En Preparación': '#3b82f6',   // Blue
+  'Pagados': '#10b981',          // Emerald Green
+  'En Preparación': '#2563eb',   // Primary Blue Athleticenter
   'Despachados': '#6366f1',      // Indigo
-  'Pendientes': '#eab308',       // Amber
-  'En Verificación': '#06b6d4',  // Cyan
+  'En Verificación': '#0284c7',  // Sky Blue
+  'Pendientes': '#f59e0b',       // Warm Amber
 };
 
 export function OrderStatusChart({ orders, isLoading = false }: OrderStatusChartProps) {
@@ -262,16 +262,6 @@ export function OrderStatusChart({ orders, isLoading = false }: OrderStatusChart
           <div className="bg-slate-100 p-1 rounded-2xl flex items-center gap-1">
             <button
               type="button"
-              onClick={() => setActiveTab('funnel')}
-              className={cn(
-                "px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all",
-                activeTab === 'funnel' ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-900"
-              )}
-            >
-              ⚡ Embudo
-            </button>
-            <button
-              type="button"
               onClick={() => setActiveTab('chart')}
               className={cn(
                 "px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all",
@@ -279,6 +269,16 @@ export function OrderStatusChart({ orders, isLoading = false }: OrderStatusChart
               )}
             >
               📊 Gráfico
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('funnel')}
+              className={cn(
+                "px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all",
+                activeTab === 'funnel' ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-900"
+              )}
+            >
+              ⚡ Embudo
             </button>
           </div>
 
