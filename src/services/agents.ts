@@ -98,3 +98,63 @@ export async function executeChurnPrevention() {
         return { success: false, error: e.message };
     }
 }
+
+export async function executeWeeklySalespersonReceivablesSummary() {
+    try {
+        const { firestore } = initializeFirebaseServer();
+        const { collection, getDocs, query, limit } = await import('firebase/firestore');
+        const { getEffectiveCashReceived } = await import('@/lib/billing');
+
+        const ordersSnap = await getDocs(query(collection(firestore, 'orders'), limit(300)));
+        const VALID_SALES = ['Entregado', 'Completado', 'Despachado', 'Pagado', 'Aprobado', 'En Preparación', 'En Verificación', 'Pendiente'];
+
+        const salesMap: Record<string, { id: string; name: string; pendingTotalUSD: number; moraCount: number; ordersCount: number }> = {};
+
+        ordersSnap.docs.forEach(d => {
+            const o = d.data();
+            if (o.status === 'Cancelado' || o.status === 'Rechazado') return;
+            if (!VALID_SALES.includes(o.status)) return;
+
+            const total = Number(o.totalAmount || 0);
+            const paid = getEffectiveCashReceived(o as any);
+            const pending = Math.max(0, total - paid);
+
+            if (pending > 0.05) {
+                const sName = o.salespersonName || o.vendedor || 'Venta Directa / Oficina Central';
+                const sId = o.salespersonId || 'direct_sales';
+
+                if (!salesMap[sName]) {
+                    salesMap[sName] = { id: sId, name: sName, pendingTotalUSD: 0, moraCount: 0, ordersCount: 0 };
+                }
+
+                salesMap[sName].pendingTotalUSD += pending;
+                salesMap[sName].ordersCount += 1;
+            }
+        });
+
+        const salespeople = Object.values(salesMap);
+
+        // Crear notificaciones internas y links de descarga
+        for (const sp of salespeople) {
+            const pdfUrl = `/api/reports/salesperson-receivables-pdf?salespersonId=${encodeURIComponent(sp.id)}&salespersonName=${encodeURIComponent(sp.name)}`;
+            await createAppNotifications(firestore, {
+                category: 'Facturación',
+                title: `📊 Resumen Semanal de Cartera: ${sp.name}`,
+                message: `Tienes $${sp.pendingTotalUSD.toFixed(2)} USD en ${sp.ordersCount} expedientes por cobrar. Descarga tu Estado de Cartera en PDF.`,
+                link: pdfUrl,
+                initiatorId: 'weekly_receivables_agent',
+                roles: ['admin', 'gerencia', 'superadmin', 'ventas']
+            });
+        }
+
+        return {
+            success: true,
+            salespeopleNotified: salespeople.length,
+            summary: salespeople.map(s => ({ vendedor: s.name, totalPorCobrar: `$${s.pendingTotalUSD.toFixed(2)}` }))
+        };
+    } catch (e: any) {
+        console.error("[Agent Service] Weekly Salesperson Receivables failed:", e.message);
+        return { success: false, error: e.message };
+    }
+}
+

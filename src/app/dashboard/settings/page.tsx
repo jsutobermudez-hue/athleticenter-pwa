@@ -76,6 +76,7 @@ function SettingsContent() {
       <div className="grid gap-8 grid-cols-1 lg:grid-cols-2 items-start">
          <PerformanceWidget />
          <DeviceLinkingWidget />
+         <AutomatedNotificationsControlWidget />
          {isAdmin && <CompanyProfileWidget />}
          {isAdmin && <TreasuryCentralLinkWidget />}
          <NotificationTestWidget />
@@ -251,6 +252,111 @@ function TreasuryCentralLinkWidget() {
                     </Link>
                 </Button>
             </CardFooter>
+        </Card>
+    );
+}
+
+function AutomatedNotificationsControlWidget() {
+    const { toast } = useToast();
+    const [isRunningAgent, setIsRunningAgent] = useState(false);
+    const [enabledTriggers, setEnabledTriggers] = useState({
+        weeklySalesperson: true,
+        earlyDiscount: true,
+        invoiceDueDate: true,
+        dispatchTracking: true,
+        restockAlert: true,
+        churnPrevention: true
+    });
+
+    const handleRunWeeklyReport = async () => {
+        setIsRunningAgent(true);
+        try {
+            const { executeWeeklySalespersonReceivablesSummary } = await import('@/services/agents');
+            const res = await executeWeeklySalespersonReceivablesSummary();
+            if (res.success) {
+                toast({
+                    title: "📊 Reporte Semanal de Cartera Generado",
+                    description: `Se emitieron ${res.salespeopleNotified} resúmenes ejecutivos con enlaces a PDF.`
+                });
+            } else {
+                toast({ variant: 'destructive', title: "Fallo", description: res.error });
+            }
+        } catch (err: any) {
+            toast({ variant: 'destructive', title: "Error", description: err.message });
+        } finally {
+            setIsRunningAgent(false);
+        }
+    };
+
+    return (
+        <Card className="terminal-card lg:col-span-2">
+            <CardHeader className="py-6 px-8 border-b bg-slate-50 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <div>
+                    <CardTitle className="text-xs font-black uppercase tracking-[0.3em] flex items-center gap-3 text-primary">
+                        <Zap className="h-4 w-4 text-amber-500" /> Centro de Control de Notificaciones Automáticas
+                    </CardTitle>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">
+                        Gatillos multicanal automáticos (WhatsApp, Push PWA y Correo Electrónico)
+                    </p>
+                </div>
+                <Button 
+                    onClick={handleRunWeeklyReport} 
+                    disabled={isRunningAgent}
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white font-black text-[10px] uppercase tracking-wider h-11 px-5 rounded-2xl shadow-md flex items-center gap-2"
+                >
+                    {isRunningAgent ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                    Prueba: Generar Reporte Semanal Vendedores
+                </Button>
+            </CardHeader>
+            <CardContent className="p-8 grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                    <div className="space-y-0.5">
+                        <Label className="text-xs font-black uppercase tracking-tight text-slate-900">📊 Reporte Semanal Cartera Vendedores (Lunes 8:00 AM)</Label>
+                        <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Genera PDF individual + enlace WhatsApp + Push + Email</p>
+                    </div>
+                    <Switch checked={enabledTriggers.weeklySalesperson} onCheckedChange={(v) => setEnabledTriggers(prev => ({ ...prev, weeklySalesperson: v }))} />
+                </div>
+
+                <div className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                    <div className="space-y-0.5">
+                        <Label className="text-xs font-black uppercase tracking-tight text-slate-900">🏷️ Incentivo Pronto Pago (10% OFF en 7D)</Label>
+                        <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Recordatorios en día de emisión y día 5 de crédito</p>
+                    </div>
+                    <Switch checked={enabledTriggers.earlyDiscount} onCheckedChange={(v) => setEnabledTriggers(prev => ({ ...prev, earlyDiscount: v }))} />
+                </div>
+
+                <div className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                    <div className="space-y-0.5">
+                        <Label className="text-xs font-black uppercase tracking-tight text-slate-900">⏰ Recordatorio Preventivo Vencimiento (-2 Días)</Label>
+                        <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Alerta 48h antes de vencimiento para prevenir mora</p>
+                    </div>
+                    <Switch checked={enabledTriggers.invoiceDueDate} onCheckedChange={(v) => setEnabledTriggers(prev => ({ ...prev, invoiceDueDate: v }))} />
+                </div>
+
+                <div className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                    <div className="space-y-0.5">
+                        <Label className="text-xs font-black uppercase tracking-tight text-slate-900">🚚 Guía y Tracking de Despacho (MRW/Tealca/Zoom)</Label>
+                        <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Envío instantáneo de número de guía al cliente</p>
+                    </div>
+                    <Switch checked={enabledTriggers.dispatchTracking} onCheckedChange={(v) => setEnabledTriggers(prev => ({ ...prev, dispatchTracking: v }))} />
+                </div>
+
+                <div className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                    <div className="space-y-0.5">
+                        <Label className="text-xs font-black uppercase tracking-tight text-slate-900">⚽ Re-stock y Novedades de Balones</Label>
+                        <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Notifica llegada de importaciones e inventario estrella</p>
+                    </div>
+                    <Switch checked={enabledTriggers.restockAlert} onCheckedChange={(v) => setEnabledTriggers(prev => ({ ...prev, restockAlert: v }))} />
+                </div>
+
+                <div className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                    <div className="space-y-0.5">
+                        <Label className="text-xs font-black uppercase tracking-tight text-slate-900">🛒 Reactivación Anti-Churn (+10 Días sin comprar)</Label>
+                        <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Oferta relámpago a clientes B2B inactivos</p>
+                    </div>
+                    <Switch checked={enabledTriggers.churnPrevention} onCheckedChange={(v) => setEnabledTriggers(prev => ({ ...prev, churnPrevention: v }))} />
+                </div>
+            </CardContent>
         </Card>
     );
 }

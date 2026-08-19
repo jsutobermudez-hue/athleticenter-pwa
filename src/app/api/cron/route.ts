@@ -6,13 +6,14 @@ import {
     executeSavingsAlert, 
     executeStockOutPredictor, 
     executeLogisticsAudit, 
-    executeChurnPrevention 
+    executeChurnPrevention,
+    executeWeeklySalespersonReceivablesSummary
 } from '@/services/agents';
 
 export const dynamic = 'force-dynamic';
 
 /**
- * ENDPOINT DE AUTOMATIZACIÓN v6.0 (FASE 4: BLINDAJE BCV)
+ * ENDPOINT DE AUTOMATIZACIÓN v6.0 (FASE 4: BLINDAJE BCV Y NOTIFICACIONES MULTICANAL)
  * Orquestador maestro de procesos autónomos de la terminal.
  */
 export async function GET(request: Request) {
@@ -25,7 +26,7 @@ export async function GET(request: Request) {
     return new Response('Unauthorized', { status: 401 });
   }
 
-  console.log("[Cron] Iniciando Ciclo de Inteligencia Autónoma y Blindaje BCV...");
+  console.log("[Cron] Iniciando Ciclo de Inteligencia Autónoma y Notificaciones Multicanal...");
 
   try {
     const results = await Promise.allSettled([
@@ -34,11 +35,12 @@ export async function GET(request: Request) {
         executeSavingsAlert(),
         executeStockOutPredictor(),
         executeLogisticsAudit(),
-        executeChurnPrevention()
+        executeChurnPrevention(),
+        executeWeeklySalespersonReceivablesSummary()
     ]);
 
     const summary = results.map((r, i) => ({
-        agent: ['BCV_Sync', 'Billing', 'Savings', 'StockOut', 'Logistics', 'Churn'][i],
+        agent: ['BCV_Sync', 'Billing', 'Savings', 'StockOut', 'Logistics', 'Churn', 'WeeklySalespersonReceivables'][i],
         status: r.status,
         data: r.status === 'fulfilled' ? r.value : null,
         error: r.status === 'rejected' ? r.reason : null
