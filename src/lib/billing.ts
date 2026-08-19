@@ -15,14 +15,49 @@ export function getEffectiveCashReceived(o: Order): number {
 export const CUTOFF_DISCOUNT_DATE = new Date('2026-08-02T00:00:00.000Z');
 
 /**
- * Retorna el Porcentaje de Descuento Comercial Base aplicado a la Orden.
- * 1. Si el pedido tiene congelado `order.appliedDiscountPercent`, usa ese valor (Resistencia a Cambios Futuros).
- * 2. Si no tiene valor congelado:
- *    - Pedidos creados ANTES del 02/08/2026 -> 35% de Descuento Comercial
- *    - Pedidos creados el 02/08/2026 o DESPUÉS -> 25% de Descuento Comercial
+ * LISTA DE MÉTODOS DE PAGO EN DIVISAS VÁLIDOS PARA EL DESCUENTO DE CONTADO/PRONTO PAGO
  */
-export function getOrderCommercialDiscountPercent(order: Order, defaultCurrentDiscount: number = 25): number {
+export const FOREIGN_CURRENCY_PAYMENT_METHODS = [
+    'Efectivo USD',
+    'Efectivo $',
+    'Zelle',
+    'Transferencia USD',
+    'Banesco Panamá',
+    'Mercantil Panamá',
+    'Cuenta Custodia USD',
+    'Binance / USDT',
+    'PayPal',
+    'Wire Transfer USD',
+    'Divisas'
+];
+
+export function isForeignCurrencyPaymentMethod(method?: string): boolean {
+    if (!method) return true; // Por defecto asumimos divisas en cotizaciones/órdenes estándar en USD
+    const normalized = method.trim().toLowerCase();
+    
+    // Si contiene bolivares, bcv, pago movil -> Es VES
+    if (normalized.includes('bcv') || normalized.includes('pago móvil') || normalized.includes('pago movil') || normalized.includes('ves') || normalized.includes('bolivar')) {
+        return false;
+    }
+    return true;
+}
+
+/**
+ * Retorna el Porcentaje de Descuento Comercial Base aplicado a la Orden.
+ * 1. Si el pago es en Bolívares (VES/BCV) -> 0% Descuento Divisas (Se liquida a Precio Lista BCV).
+ * 2. Si es en Divisas (Efectivo USD, Zelle, Banesco Panamá, Binance, etc.):
+ *    - Si el pedido tiene congelado `order.appliedDiscountPercent`, usa ese valor.
+ *    - Pedidos creados ANTES del 02/08/2026 -> 35% de Descuento Divisas
+ *    - Pedidos creados el 02/08/2026 o DESPUÉS -> 25% de Descuento Divisas
+ */
+export function getOrderCommercialDiscountPercent(order: Order, paymentMethod?: string, defaultCurrentDiscount: number = 25): number {
     if (!order) return defaultCurrentDiscount;
+
+    // Si se especifica un método de pago en Bolívares, no aplica descuento de contado en divisas
+    if (paymentMethod && !isForeignCurrencyPaymentMethod(paymentMethod)) {
+        return 0;
+    }
+
     if (typeof (order as any).appliedDiscountPercent === 'number') {
         return (order as any).appliedDiscountPercent;
     }
@@ -37,10 +72,10 @@ export function getOrderCommercialDiscountPercent(order: Order, defaultCurrentDi
     if (isNaN(orderDate.getTime())) return defaultCurrentDiscount;
 
     if (orderDate.getTime() < CUTOFF_DISCOUNT_DATE.getTime()) {
-        return 35; // 35% de descuento histórico previo al 2 de Agosto de 2026
+        return 35; // 35% de descuento histórico en Divisas previo al 2 de Agosto de 2026
     }
     
-    return defaultCurrentDiscount; // 25% activo desde el 2 de Agosto de 2026
+    return defaultCurrentDiscount; // 25% activo en Divisas desde el 2 de Agosto de 2026
 }
 
 export function getInvoiceFromOrder(order: Order): Invoice | null {
