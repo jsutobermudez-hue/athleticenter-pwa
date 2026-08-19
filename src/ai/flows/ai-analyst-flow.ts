@@ -821,7 +821,7 @@ const getGlobalSalesMetrics = ai.defineTool(
   async () => {
     try {
       const { firestore } = initializeFirebaseServer();
-      const ordersSnap = await getDocs(query(collection(firestore, 'orders'), limit(200)));
+      const ordersSnap = await getDocs(query(collection(firestore, 'orders'), limit(300)));
 
       const VALID_SALES = ['Entregado', 'Completado', 'Despachado', 'Pagado', 'Aprobado', 'En Preparación'];
       let totalSales = 0;
@@ -831,20 +831,27 @@ const getGlobalSalesMetrics = ai.defineTool(
       ordersSnap.docs.forEach(d => {
         const o = d.data();
         const amount = Number(o.totalAmount || 0);
-        const paid = Number(o.amountPaid || 0);
+        
+        let paid = 0;
+        if (typeof o.totalCashReceived === 'number' && o.totalCashReceived > 0) paid = o.totalCashReceived;
+        else if (typeof o.amountPaid === 'number' && o.amountPaid > 0) paid = o.amountPaid;
+        else if (typeof o.paidAmount === 'number' && o.paidAmount > 0) paid = o.paidAmount;
+        else if (o.status === 'Pagado' || o.isPaid === true || o.paymentStatus === 'Pagado') paid = amount;
+
         const status = o.status || 'Pendiente';
 
         if (VALID_SALES.includes(status)) {
           totalSales += amount;
-          if (status === 'Pagado') totalCash += amount;
-          else {
+          if (status === 'Pagado' || paid >= (amount - 0.05)) {
+            totalCash += amount;
+          } else {
             totalCash += paid;
             totalPending += Math.max(0, amount - paid);
           }
         }
       });
 
-      const totalOrders = ordersSnap.docs.length || 1;
+      const totalOrders = ordersSnap.docs.filter(d => VALID_SALES.includes(d.data().status)).length || 1;
       return {
         resumen: {
           ventasTotalesUSD: `$${totalSales.toFixed(2)}`,

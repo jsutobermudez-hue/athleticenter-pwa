@@ -152,19 +152,13 @@ export function AIReportingHub() {
         let exportData = data;
         let exportNarrative = rawContent;
 
-        // Si data está vacía, recopilar tablas y análisis narrativos de los mensajes del asistente en el chat
-        if (!exportData || exportData.length === 0) {
-            for (let i = messages.length - 1; i >= 0; i--) {
-                const m = messages[i];
-                if (m.role === 'assistant') {
-                    if (m.data && m.data.length > 0 && (!exportData || exportData.length === 0)) {
-                        exportData = m.data;
-                    }
-                    if (m.content && !m.content.includes('Necesito que especifiques')) {
-                        exportNarrative = exportNarrative 
-                          ? `${m.content}\n\n${exportNarrative}` 
-                          : m.content;
-                    }
+        // Si exportNarrative o exportData no están definidos, obtenerlos del último mensaje del asistente sin duplicar
+        if (!exportNarrative || exportNarrative.trim() === '') {
+            const lastAssistantMsg = [...messages].reverse().find(m => m.role === 'assistant' && m.content && !m.content.includes('Necesito que especifiques'));
+            if (lastAssistantMsg) {
+                exportNarrative = lastAssistantMsg.content;
+                if (!exportData || exportData.length === 0) {
+                    exportData = lastAssistantMsg.data;
                 }
             }
         }
