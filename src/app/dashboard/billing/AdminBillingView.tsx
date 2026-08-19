@@ -43,6 +43,9 @@ import { OrderSheetController } from '../orders/OrderSheetController';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { DashboardMetricCard } from '@/components/dashboard/DashboardMetricCard';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
+import { Printer, Send } from 'lucide-react';
 
 export function AdminBillingView() {
   const firestore = useFirestore();
@@ -56,6 +59,7 @@ export function AdminBillingView() {
   const [searchInput, setSearchInput] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+  const [isExportingPDF, setIsExportingPDF] = useState(false);
   
   const isGlobalStaff = useMemo(() => currentUser && ['admin', 'superadmin', 'gerencia', 'deposito'].includes(currentUser.role), [currentUser]);
 
@@ -264,6 +268,79 @@ export function AdminBillingView() {
     document.body.removeChild(link);
   };
 
+  const exportInvoicesToPDF = () => {
+    if (!filteredInvoices || filteredInvoices.length === 0) return;
+    setIsExportingPDF(true);
+    try {
+      const bcvRate = 65.50;
+      const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+      doc.setFillColor(15, 23, 42);
+      doc.rect(0, 0, 210, 34, 'F');
+      doc.setFontSize(15);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(255, 255, 255);
+      doc.text('ATHLETICENTER PRO C.A.', 14, 15);
+      doc.setFontSize(9);
+      doc.text('INFORME AUDITADO DE FACTURACIÓN Y COBRANZAS', 14, 22);
+      doc.setFontSize(7);
+      doc.setFont('helvetica', 'normal');
+      doc.text(`TASA OFICIAL BCV: Bs. ${bcvRate.toFixed(2)} / USD  •  EMISIÓN: ${format(new Date(), 'dd/MM/yyyy HH:mm')}`, 14, 28);
+      
+      const filterDetails = `Estado: ${statusFilter.toUpperCase()} | Vendedor: ${salespersonFilter === 'todos' ? 'TODOS' : salespersonFilter} | Antigüedad: ${agingFilter.toUpperCase()} | Período: ${dateFilter.toUpperCase()}`;
+      doc.setFillColor(241, 245, 249);
+      doc.roundedRect(14, 37, 182, 9, 2, 2, 'F');
+      doc.setFontSize(7);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(51, 65, 85);
+      doc.text(`FILTROS EN PANTALLA: ${filterDetails}`, 18, 43);
+      
+      doc.setFillColor(248, 250, 252);
+      doc.roundedRect(14, 50, 58, 18, 3, 3, 'F');
+      doc.roundedRect(76, 50, 58, 18, 3, 3, 'F');
+      doc.roundedRect(138, 50, 58, 18, 3, 3, 'F');
+      doc.setFontSize(7);
+      doc.setTextColor(15, 23, 42);
+      doc.text('EXPEDIENTES FILTRADOS', 18, 55);
+      doc.setFontSize(11);
+      doc.text(`${filteredInvoices.length}`, 18, 64);
+      doc.setFontSize(7);
+      doc.setTextColor(37, 99, 235);
+      doc.text('TOTAL FACTURADO ($)', 80, 55);
+      doc.setFontSize(10);
+      doc.text(`$${totalFilteredSalesUSD.toLocaleString('en-US', { minimumFractionDigits: 2 })}`, 80, 64);
+      doc.setFontSize(7);
+      doc.setTextColor(225, 29, 72);
+      doc.text('SALDO PENDIENTE ($ USD)', 142, 55);
+      doc.setFontSize(10);
+      doc.text(`$${totalFilteredPendingUSD.toLocaleString('en-US', { minimumFractionDigits: 2 })}`, 142, 64);
+      
+      const tableRows = filteredInvoices.map(i => [
+        `#${i.id.substring(0, 8).toUpperCase()}`,
+        i.customerName || 'Cliente General',
+        i.salespersonName || 'Directo',
+        i.statusText || i.status,
+        `$${i.amountTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
+        `$${i.remainingBalance.toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
+        `Bs. ${(i.remainingBalance * bcvRate).toLocaleString('es-VE', { minimumFractionDigits: 2 })}`
+      ]);
+      autoTable(doc, {
+        startY: 72,
+        head: [['EXPEDIENTE', 'CLIENTE / RAZÓN SOCIAL', 'VENDEDOR', 'ESTADO COBRO', 'TOTAL ($)', 'SALDO PEND. ($)', 'SALDO PEND. (Bs BCV)']],
+        body: tableRows,
+        styles: { fontSize: 7.5, cellPadding: 2.5, font: 'helvetica' },
+        headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255], fontStyle: 'bold' },
+        alternateRowStyles: { fillColor: [248, 250, 252] }
+      });
+      doc.autoPrint();
+      window.open(doc.output('bloburl'), '_blank');
+    } catch (e) { console.error(e); } finally { setIsExportingPDF(false); }
+  };
+
+  const handleSendSalespersonPDFReport = () => {
+    if (salespersonFilter === 'todos') return;
+    window.open(`/api/reports/salesperson-receivables-pdf?salespersonId=${salespersonFilter}`, '_blank');
+  };
+
   if (isUserLoading || !currentUser) return <div className="flex h-screen items-center justify-center"><Loader2 className="h-10 w-10 animate-spin text-primary" /></div>;
 
   return (
@@ -277,12 +354,16 @@ export function AdminBillingView() {
           <Badge variant="outline" className="bg-emerald-50 text-emerald-800 border-emerald-200 text-[10px] font-black uppercase px-3 py-1.5 rounded-xl flex items-center gap-1.5 shadow-sm">
             <span>💱 Tasa Oficial BCV: Bs. 65.50 / USD</span>
           </Badge>
-          <Button
-            onClick={exportInvoicesToCSV}
-            variant="outline"
-            className="h-9 px-4 rounded-xl border-slate-200 bg-white hover:bg-slate-50 text-slate-900 text-[9px] font-black uppercase tracking-wider shadow-sm flex items-center gap-1.5"
-          >
-            <Download className="h-3.5 w-3.5 text-primary" /> Exportar a Excel
+          <Button onClick={exportInvoicesToPDF} disabled={isExportingPDF} className="h-9 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-[9px] font-black uppercase tracking-wider shadow-md flex items-center gap-1.5">
+            {isExportingPDF ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Printer className="h-3.5 w-3.5 text-emerald-400" />} Imprimir PDF
+          </Button>
+          {salespersonFilter !== 'todos' && (
+            <Button onClick={handleSendSalespersonPDFReport} className="h-9 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-[9px] font-black uppercase tracking-wider shadow-md flex items-center gap-1.5">
+              <Send className="h-3.5 w-3.5" /> Enviar PDF a Vendedor
+            </Button>
+          )}
+          <Button onClick={exportInvoicesToCSV} variant="outline" className="h-9 px-4 rounded-xl border-slate-200 bg-white hover:bg-slate-50 text-slate-900 text-[9px] font-black uppercase tracking-wider shadow-sm flex items-center gap-1.5">
+            <Download className="h-3.5 w-3.5 text-primary" /> Excel
           </Button>
         </div>
       </header>
