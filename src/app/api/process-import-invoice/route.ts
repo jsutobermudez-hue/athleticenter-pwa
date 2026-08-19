@@ -13,7 +13,7 @@ REGLAS DE EXTRACCIÓN Y TRADUCCIÓN ESTRICTAS:
 2. Si el contenido contiene texto o nombres de productos en Chino o Inglés, traduce las descripciones y nombres de productos al Español comercial claro para Athleticenter.
 3. Si el SKU no viene explícito en el Invoice, genera un código SKU sugerido limpio basado en la disciplina, marca y modelo (ejemplo: B-MOLTEN-GL7).
 4. Asegúrate de que los números de cantidad, precio unitario FOB y CBM sean valores numéricos puros (sin símbolos de moneda $ o comas decimales europeas).
-5. Devuelve la respuesta ESTRICTAMENTE en formato JSON plano con la siguiente estructura exacta:
+5. Devuelve la respuesta ESTRICTAMENTE en formato JSON plano con la siguiente estructura exacta (SIN comentarios, SIN markdown extra):
 
 {
   "supplierName": "Guangzhou Sport Goods Co., Ltd.",
@@ -63,7 +63,7 @@ export async function POST(req: NextRequest) {
     const fileName = file.name.toLowerCase();
     const fileBuffer = Buffer.from(await file.arrayBuffer());
 
-    let contentsForGemini: any[] = [];
+    let fileParts: any[] = [];
 
     // CASO 1: HOJA DE CÁLCULO EXCEL O CSV
     if (fileName.endsWith('.xlsx') || fileName.endsWith('.xls') || fileName.endsWith('.csv')) {
@@ -74,13 +74,11 @@ export async function POST(req: NextRequest) {
         workbook.SheetNames.forEach((sheetName) => {
           const worksheet = workbook.Sheets[sheetName];
           const csvText = XLSX.utils.sheet_to_csv(worksheet);
-          fullExcelText += `--- HOJA: ${sheetName} ---\n${csvText}\n\n`;
+          const jsonRows = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
+          fullExcelText += `--- HOJA: ${sheetName} ---\nmatriz_csv:\n${csvText}\n\nmatriz_json:\n${JSON.stringify(jsonRows)}\n\n`;
         });
 
-        contentsForGemini = [
-          INVOICE_SYSTEM_PROMPT,
-          fullExcelText
-        ];
+        fileParts = [{ text: fullExcelText }];
       } catch (excelErr) {
         console.error('Error al procesar archivo Excel:', excelErr);
         return NextResponse.json(
@@ -97,8 +95,7 @@ export async function POST(req: NextRequest) {
       if (fileName.endsWith('.pdf')) mimeType = 'application/pdf';
 
       const base64Data = fileBuffer.toString('base64');
-      contentsForGemini = [
-        INVOICE_SYSTEM_PROMPT,
+      fileParts = [
         {
           inlineData: {
             mimeType,
@@ -108,41 +105,57 @@ export async function POST(req: NextRequest) {
       ];
     }
 
-    // LLAMADA A LA API DE GEMINI 2.5 FLASH CON RESPUESTA STRICT JSON
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+    const modelsToTry = [
+      'gemini-2.5-flash',
+      'gemini-1.5-flash'
+    ];
 
-    const geminiPayload = {
-      contents: [
-        {
-          parts: contentsForGemini.map((item) =>
-            typeof item === 'string' ? { text: item } : item
-          ),
-        },
-      ],
-      generationConfig: {
-        temperature: 0.1, // Respuesta determinística y precisa
-        maxOutputTokens: 8192,
-        responseMimeType: "application/json",
-      },
-    };
+    let rawText = '';
+    let lastError: any = null;
 
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(geminiPayload),
-    });
+    for (const modelName of modelsToTry) {
+      try {
+        const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [
+              {
+                role: 'user',
+                parts: [
+                  { text: INVOICE_SYSTEM_PROMPT },
+                  ...fileParts
+                ]
+              }
+            ],
+            generationConfig: {
+              temperature: 0.1,
+              maxOutputTokens: 8192
+            }
+          }),
+        });
 
-    if (!response.ok) {
-      const errText = await response.text();
-      console.error('Error en API Gemini:', errText);
+        if (response.ok) {
+          const resData = await response.json();
+          rawText = resData.candidates?.[0]?.content?.parts?.[0]?.text || '';
+          if (rawText.trim().length > 0) break;
+        } else {
+          const errText = await response.text();
+          console.warn(`[Invoice Scanner API] Fallo con modelo ${modelName}:`, errText);
+          lastError = errText;
+        }
+      } catch (err) {
+        lastError = err;
+      }
+    }
+
+    if (!rawText || rawText.trim().length === 0) {
       return NextResponse.json(
-        { success: false, error: `Error en servidor Gemini AI (${response.status}): ${errText}` },
+        { success: false, error: `No se pudo obtener respuesta de la IA. Detalle: ${typeof lastError === 'string' ? lastError : lastError?.message || 'Fallo de conexión'}` },
         { status: 500 }
       );
     }
-
-    const resData = await response.json();
-    const rawText = resData.candidates?.[0]?.content?.parts?.[0]?.text || '';
 
     // LIMPIAR Y FORMATEAR JSON ROBUSTO
     let cleanJson = rawText.trim();
@@ -151,22 +164,43 @@ export async function POST(req: NextRequest) {
       cleanJson = jsonMatch[1] || jsonMatch[0];
     }
 
-    let parsedInvoice = null;
+    let parsedInvoice: any = null;
     try {
       parsedInvoice = JSON.parse(cleanJson);
     } catch (parseErr) {
-      console.error('Error parseando JSON de Gemini:', cleanJson);
+      console.error('Error parseando JSON inicial de Gemini:', cleanJson);
       try {
         const sanitized = cleanJson
-          .replace(/,\s*([\}\]])/g, '$1') // eliminar comas sobrantes al final de objetos o arrays
-          .replace(/[\u0000-\u001F\u007F-\u009F]/g, ''); // eliminar caracteres de control no imprimibles
+          .replace(/,\s*([\}\]])/g, '$1') // Eliminar comas colgantes antes de } o ]
+          .replace(/[\u0000-\u001F\u007F-\u009F]/g, ' ') // Eliminar caracteres de control invisibles
+          .replace(/\r?\n|\r/g, ' '); // Reemplazar saltos de línea dentro de cadenas por espacios
         parsedInvoice = JSON.parse(sanitized);
       } catch (secondErr) {
         return NextResponse.json(
-          { success: false, error: 'No se pudo interpretar el JSON extraído del Invoice.', rawOutput: rawText },
+          { 
+            success: false, 
+            error: `No se pudo interpretar la estructura JSON del Invoice. (${(parseErr as any)?.message || 'Sintaxis no válida'})`,
+            rawOutput: rawText.substring(0, 500)
+          },
           { status: 500 }
         );
       }
+    }
+
+    // NORMALIZAR ESTRUCTURA DE SALIDA
+    if (parsedInvoice && !Array.isArray(parsedInvoice.items) && Array.isArray(parsedInvoice.productos)) {
+      parsedInvoice.items = parsedInvoice.productos;
+    }
+
+    if (!parsedInvoice || !Array.isArray(parsedInvoice.items)) {
+      return NextResponse.json(
+        { 
+          success: false, 
+          error: 'El formato de Invoice procesado no contiene una lista válida de ítems o productos.', 
+          rawOutput: rawText.substring(0, 500) 
+        },
+        { status: 500 }
+      );
     }
 
     return NextResponse.json({
