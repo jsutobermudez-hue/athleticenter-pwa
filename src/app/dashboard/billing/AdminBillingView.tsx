@@ -47,10 +47,18 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { Printer, Send } from 'lucide-react';
 
+import { doc } from 'firebase/firestore';
+import { useDoc } from '@/firebase';
+import type { FinancialSettings } from '@/lib/definitions';
+
 export function AdminBillingView() {
   const firestore = useFirestore();
   const searchParams = useSearchParams();
   const { profile: currentUser, isUserLoading } = useUser();
+
+  const settingsRef = useMemoFirebase(() => firestore ? doc(firestore, 'financialSettings', 'main') : null, [firestore]);
+  const { data: globalSettings } = useDoc<FinancialSettings>(settingsRef);
+  const bcvRate = globalSettings?.bcvRate || 65.50;
 
   const [statusFilter, setStatusFilter] = useState('todos');
   const [salespersonFilter, setSalespersonFilter] = useState('todos');
@@ -272,7 +280,6 @@ export function AdminBillingView() {
     if (!filteredInvoices || filteredInvoices.length === 0) return;
     setIsExportingPDF(true);
     try {
-      const bcvRate = 65.50;
       const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
       doc.setFillColor(15, 23, 42);
       doc.rect(0, 0, 210, 34, 'F');
@@ -352,7 +359,7 @@ export function AdminBillingView() {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Badge variant="outline" className="bg-emerald-50 text-emerald-800 border-emerald-200 text-[10px] font-black uppercase px-3 py-1.5 rounded-xl flex items-center gap-1.5 shadow-sm">
-            <span>💱 Tasa Oficial BCV: Bs. 65.50 / USD</span>
+            <span>💱 Tasa Oficial BCV: Bs. {bcvRate.toFixed(2)} / USD</span>
           </Badge>
           <Button onClick={exportInvoicesToPDF} disabled={isExportingPDF} className="h-9 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-[9px] font-black uppercase tracking-wider shadow-md flex items-center gap-1.5">
             {isExportingPDF ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Printer className="h-3.5 w-3.5 text-emerald-400" />} Imprimir PDF

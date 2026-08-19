@@ -29,13 +29,17 @@ import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { format } from 'date-fns';
 
+import { doc } from 'firebase/firestore';
+import { useDoc, useFirestore, useMemoFirebase } from '@/firebase';
+import type { FinancialSettings } from '@/lib/definitions';
+
 interface OrderStatusChartProps {
   orders: Order[] | null;
   isLoading?: boolean;
 }
 
-const COLORS = {
-  'Pagados': '#10b981',          // Emerald
+const COLORS: { [key: string]: string } = {
+  'Completados': '#10b981',    // Emerald
   'En Preparación': '#3b82f6',   // Blue
   'Despachados': '#6366f1',      // Indigo
   'Pendientes': '#eab308',       // Amber
@@ -43,14 +47,17 @@ const COLORS = {
 };
 
 export function OrderStatusChart({ orders, isLoading = false }: OrderStatusChartProps) {
+  const firestore = useFirestore();
+  const settingsRef = useMemoFirebase(() => firestore ? doc(firestore, 'financialSettings', 'main') : null, [firestore]);
+  const { data: globalSettings } = useDoc<FinancialSettings>(settingsRef);
+  const bcvRate = globalSettings?.bcvRate || 65.50;
+
   const [selectedStatusFilter, setSelectedStatusFilter] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedOrderForSheet, setSelectedOrderForSheet] = useState<Order | null>(null);
   const [activeTab, setActiveTab] = useState<'chart' | 'funnel'>('funnel');
   const [isExportingPDF, setIsExportingPDF] = useState(false);
-
-  const bcvRate = 65.50;
 
   // Clasificación por embudo operativo
   const funnelData = useMemo(() => {

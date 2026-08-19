@@ -82,9 +82,18 @@ function DashboardMetricCard({
   );
 }
 
+import { doc } from 'firebase/firestore';
+import { useDoc } from '@/firebase';
+import type { FinancialSettings } from '@/lib/definitions';
+
 export default function AdminOrdersView() {
     const firestore = useFirestore();
     const { profile: currentUser } = useUser();
+
+    const settingsRef = useMemoFirebase(() => firestore ? doc(firestore, 'financialSettings', 'main') : null, [firestore]);
+    const { data: globalSettings } = useDoc<FinancialSettings>(settingsRef);
+    const bcvRate = globalSettings?.bcvRate || 65.50;
+
     const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
     const [searchTerm, setSearchTerm] = useState('');
     const [statusFilter, setStatusFilter] = useState<OrderStatus | 'todos'>('todos');
@@ -233,7 +242,6 @@ export default function AdminOrdersView() {
 
     const exportOrdersToCSV = () => {
         if (!filteredOrders || filteredOrders.length === 0) return;
-        const bcvRate = 65.50;
         const headers = ['Pedido ID', 'Cliente', 'Asesor Comercial', 'Estado', 'Monto USD', 'Monto Bs (BCV)'];
         const rows = filteredOrders.map(o => [
             o.id,
@@ -258,7 +266,6 @@ export default function AdminOrdersView() {
         if (!filteredOrders || filteredOrders.length === 0) return;
         setIsExportingPDF(true);
         try {
-            const bcvRate = 65.50;
             const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
 
             doc.setFillColor(15, 23, 42);
