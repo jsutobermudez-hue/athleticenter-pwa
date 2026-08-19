@@ -89,12 +89,16 @@ export function OrderCard({ order, onSelect }: { order: Order; onSelect: (order:
             <MessageCircle className="h-3.5 w-3.5" /> WhatsApp
           </Button>
           <Button 
-            variant="ghost" 
-            size="icon" 
-            onClick={() => onSelect(order)}
-            className="h-8 w-8 rounded-xl text-slate-400 group-hover:text-primary transition-colors"
+            variant="outline" 
+            size="sm" 
+            onClick={(e) => {
+              e.stopPropagation();
+              onSelect(order);
+            }}
+            className="h-8 px-2 rounded-xl border-slate-200 text-slate-700 hover:bg-slate-50 text-[9px] font-black uppercase tracking-wider"
+            title="Ver Expediente Completo"
           >
-            <Eye className="h-4 w-4" />
+            <Eye className="h-3.5 w-3.5 mr-1 text-primary" /> Detalle
           </Button>
         </div>
       </div>
