@@ -56,7 +56,7 @@ export function OrderStatusChart({ orders, isLoading = false }: OrderStatusChart
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedOrderForSheet, setSelectedOrderForSheet] = useState<Order | null>(null);
-  const [activeTab, setActiveTab] = useState<'chart' | 'funnel'>('funnel');
+  const [activeTab, setActiveTab] = useState<'chart' | 'funnel'>('chart');
   const [isExportingPDF, setIsExportingPDF] = useState(false);
 
   // Clasificación por embudo operativo
@@ -111,6 +111,10 @@ export function OrderStatusChart({ orders, isLoading = false }: OrderStatusChart
 
   const filteredOrdersForModal = useMemo(() => {
     if (!orders || !selectedStatusFilter) return orders || [];
+    const targetBucket = chartData.find(c => c.name === selectedStatusFilter);
+    if (targetBucket && targetBucket.orders && targetBucket.orders.length > 0) {
+      return targetBucket.orders;
+    }
     if (selectedStatusFilter.includes('Pagados') || selectedStatusFilter === 'Completado') {
       return orders.filter(o => ['Pagado', 'Completado', 'Entregado'].includes(o.status));
     }
@@ -123,11 +127,8 @@ export function OrderStatusChart({ orders, isLoading = false }: OrderStatusChart
     if (selectedStatusFilter.includes('Verificación')) {
       return orders.filter(o => ['En Verificación'].includes(o.status));
     }
-    if (selectedStatusFilter.includes('Pendientes') || selectedStatusFilter === 'Pendiente') {
-      return orders.filter(o => ['Pendiente', 'Borrador'].includes(o.status));
-    }
-    return orders;
-  }, [orders, selectedStatusFilter]);
+    return orders.filter(o => !['Pagado', 'Completado', 'Entregado', 'Aprobado', 'En Preparación', 'Despachado', 'En Verificación'].includes(o.status));
+  }, [orders, selectedStatusFilter, chartData]);
 
   // Generador e Impresor de Reportes PDF Oficiales
   const handleExportPDF = (filterTargetName?: string) => {
