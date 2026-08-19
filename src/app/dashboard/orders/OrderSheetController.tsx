@@ -168,6 +168,22 @@ export function OrderSheetController({ order, onOpenChange }: { order: Order, on
             toast({ variant: 'destructive', title: 'Error al anular', description: error.message });
         }
     };
+
+    const handleDeleteOrder = async () => {
+        if (!order || !currentUser || !firestore) return;
+        if (!window.confirm(`⚠️ ATENCIÓN: ¿Deseas eliminar FÍSICAMENTE de la base de datos el pedido #${order.id}? Esta acción destruirá el registro duplicado definitivamente.`)) return;
+
+        try {
+            const { deleteDoc } = await import('firebase/firestore');
+            const orderRef = doc(firestore, 'orders', order.id);
+            await deleteDoc(orderRef);
+
+            toast({ title: 'Pedido Eliminado', description: `El pedido #${order.id} fue eliminado permanentemente de la base de datos.` });
+            handleSuccessClose();
+        } catch (error: any) {
+            toast({ variant: 'destructive', title: 'Error al eliminar', description: error.message });
+        }
+    };
     
     if (!currentUser) return null;
 
@@ -188,6 +204,7 @@ export function OrderSheetController({ order, onOpenChange }: { order: Order, on
                     }
                 }}
                 onCancelOrder={handleCancelOrder}
+                onDeleteOrder={handleDeleteOrder}
                 onRequestCancellation={() => {}}
                 onCertifyStockRestoration={handleCertifyStockRestoration}
                 isRestoringStock={isRestoringStock}

@@ -42,7 +42,8 @@ import {
   DollarSign,
   Send,
   AlertTriangle,
-  Package
+  Package,
+  Trash2
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { generateOrderPDF, generatePickingListPDF, generatePackageLabelsPDF } from '@/lib/pdf-generator';
@@ -64,6 +65,7 @@ interface OrderDetailsSheetProps {
     onOpenChange: (open: boolean) => void;
     onActionTrigger: (action: 'edit' | 'status' | 'approve') => void;
     onCancelOrder: () => void;
+    onDeleteOrder?: () => void;
     onRequestCancellation: () => void;
     onCertifyStockRestoration: () => void;
     isRestoringStock?: boolean;
@@ -89,6 +91,7 @@ export function OrderDetailsSheet({
     onOpenChange, 
     onActionTrigger,
     onCancelOrder,
+    onDeleteOrder,
     onRequestCancellation,
     onCertifyStockRestoration,
     isRestoringStock = false,
@@ -661,6 +664,16 @@ export function OrderDetailsSheet({
                                 >
                                     {isCanceling || isRequestingCancellation ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : isCancellationPending ? <Clock className="mr-2 h-4 w-4" /> : <XCircle className="mr-2 h-4 w-4" />}
                                     {isCancellationPending ? "ANULACIÓN EN TRÁMITE" : "ANULAR ESTE PEDIDO"}
+                                </Button>
+                            )}
+
+                            {isAdmin && onDeleteOrder && (
+                                <Button 
+                                    variant="destructive" 
+                                    onClick={(e) => { e.preventDefault(); onDeleteOrder(); }} 
+                                    className="w-full h-12 bg-rose-600 hover:bg-rose-700 text-white font-black uppercase text-[10px] tracking-widest rounded-2xl shadow-lg mt-2 flex items-center justify-center gap-2"
+                                >
+                                    <Trash2 className="h-4 w-4" /> ELIMINAR PEDIDO DUPLICADO DE LA BD
                                 </Button>
                             )}
                         </div>
