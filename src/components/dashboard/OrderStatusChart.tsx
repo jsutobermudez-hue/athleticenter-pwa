@@ -31,6 +31,7 @@ import { format } from 'date-fns';
 
 import { doc } from 'firebase/firestore';
 import { useDoc, useFirestore, useMemoFirebase } from '@/firebase';
+import { captureSvgAsPng } from '@/lib/chart-pdf-exporter';
 import type { FinancialSettings } from '@/lib/definitions';
 
 interface OrderStatusChartProps {
@@ -131,7 +132,7 @@ export function OrderStatusChart({ orders, isLoading = false }: OrderStatusChart
   }, [orders, selectedStatusFilter, chartData]);
 
   // Generador e Impresor de Reportes PDF Oficiales
-  const handleExportPDF = (filterTargetName?: string) => {
+  const handleExportPDF = async (filterTargetName?: string) => {
     setIsExportingPDF(true);
     try {
       const targetOrders = filterTargetName ? filteredOrdersForModal : (orders || []);
@@ -183,6 +184,20 @@ export function OrderStatusChart({ orders, isLoading = false }: OrderStatusChart
       doc.setFontSize(10);
       doc.text(`Bs. ${(sumUSD * bcvRate).toLocaleString('es-VE', { minimumFractionDigits: 2 })}`, 142, 52);
 
+      // Captura e Inserción del Gráfico Visual si está disponible
+      const chartImage = await captureSvgAsPng('order-status-chart-container');
+      let tableStartY = 64;
+
+      if (chartImage && !filterTargetName) {
+        doc.setFontSize(8);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(71, 85, 105);
+        doc.text('REPRESENTACIÓN GRÁFICA DE DISTRIBUCIÓN:', 14, 63);
+
+        doc.addImage(chartImage, 'PNG', 14, 66, 182, 55);
+        tableStartY = 126;
+      }
+
       // Filas para la tabla
       const tableRows = targetOrders.map(o => [
         `#${o.id?.slice(0, 8)}`,
@@ -194,7 +209,7 @@ export function OrderStatusChart({ orders, isLoading = false }: OrderStatusChart
       ]);
 
       autoTable(doc, {
-        startY: 64,
+        startY: tableStartY,
         head: [['Nº PEDIDO', 'CLIENTE / RAZÓN SOCIAL', 'VENDEDOR', 'ESTADO LOGÍSTICO', 'MONTO ($ USD)', 'MONTO (Bs. BCV)']],
         body: tableRows.length > 0 ? tableRows : [['-', 'Sin pedidos en este filtro', '-', '-', '$0.00', 'Bs. 0.00']],
         styles: { fontSize: 8, cellPadding: 3, font: 'helvetica' },
@@ -385,7 +400,7 @@ export function OrderStatusChart({ orders, isLoading = false }: OrderStatusChart
         ) : (
           /* GRÁFICO CIRCULAR DE DONA */
           <>
-            <div className="h-[180px] w-full relative flex items-center justify-center">
+            <div id="order-status-chart-container" className="h-[180px] w-full relative flex items-center justify-center">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <Pie

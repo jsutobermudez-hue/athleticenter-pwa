@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { doc } from 'firebase/firestore';
 import { useDoc, useFirestore, useMemoFirebase } from '@/firebase';
+import { captureSvgAsPng } from '@/lib/chart-pdf-exporter';
 
 interface SalesTrendChartProps {
   orders: Order[] | null;
@@ -155,26 +156,40 @@ export function SalesTrendChart({ orders, isLoading = false }: SalesTrendChartPr
       doc.setTextColor(255, 255, 255);
       doc.setFontSize(13);
       doc.setFont('helvetica', 'bold');
-      doc.text('ATHLETICENTER - INFORME DE TENDENCIA DE VENTAS VS COBRANZAS', 14, 11);
+      doc.text('ATHLETICENTER - INFORME VISUAL DE TENDENCIA DE VENTAS VS COBRANZAS', 14, 11);
 
       doc.setFontSize(8);
       doc.setFont('helvetica', 'normal');
-      doc.text(`Período Auditado: ${periodLabel.toUpperCase()} | Tasa Oficial BCV: Bs. ${bcvRate.toFixed(2)} / USD | Fecha de Emisión: ${new Date().toLocaleDateString('es-VE')}`, 14, 19);
+      doc.text(`Período Auditado: ${periodLabel.toUpperCase()} | Tasa Oficial BCV: Bs. ${bcvRate.toFixed(2)} / USD | Fecha: ${new Date().toLocaleDateString('es-VE')}`, 14, 19);
 
       // Resumen de Métricas Ejecutivas
       doc.setFillColor(248, 250, 252);
-      doc.roundedRect(14, 32, 182, 22, 3, 3, 'F');
+      doc.roundedRect(14, 31, 182, 20, 3, 3, 'F');
       doc.setDrawColor(226, 232, 240);
-      doc.roundedRect(14, 32, 182, 22, 3, 3, 'S');
+      doc.roundedRect(14, 31, 182, 20, 3, 3, 'S');
 
       doc.setTextColor(15, 23, 42);
       doc.setFontSize(9);
       doc.setFont('helvetica', 'bold');
-      doc.text(`TOTAL VENTAS FACTURADAS: $${totals.totalSales.toLocaleString('en-US', { minimumFractionDigits: 2 })}`, 20, 41);
-      doc.text(`COBRANZA CASH REAL: $${totals.totalCash.toLocaleString('en-US', { minimumFractionDigits: 2 })}`, 20, 48);
+      doc.text(`TOTAL VENTAS FACTURADAS: $${totals.totalSales.toLocaleString('en-US', { minimumFractionDigits: 2 })}`, 18, 39);
+      doc.text(`COBRANZA CASH REAL: $${totals.totalCash.toLocaleString('en-US', { minimumFractionDigits: 2 })}`, 18, 46);
 
-      doc.text(`PROMEDIO DIARIO: $${totals.dailyAvg.toLocaleString('en-US')}/día`, 115, 41);
-      doc.text(`EFICIENCIA DE RECAUDACIÓN: ${totals.efficiencyRate}% COBRADO`, 115, 48);
+      doc.text(`PROMEDIO: $${totals.dailyAvg.toLocaleString('en-US')}/día`, 115, 39);
+      doc.text(`EFICIENCIA: ${totals.efficiencyRate}% COBRADO`, 115, 46);
+
+      // Captura e inserción de la Imagen Visual del Gráfico
+      const chartImage = await captureSvgAsPng('sales-trend-chart-container');
+      let tableStartY = 56;
+
+      if (chartImage) {
+        doc.setFontSize(8);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(71, 85, 105);
+        doc.text('REPRESENTACIÓN GRÁFICA VISUAL:', 14, 57);
+
+        doc.addImage(chartImage, 'PNG', 14, 60, 182, 60);
+        tableStartY = 125;
+      }
 
       // Tabla Cuadrada Desglose por Período
       const tableRows = chartData.map(d => {
@@ -197,7 +212,7 @@ export function SalesTrendChart({ orders, isLoading = false }: SalesTrendChartPr
       const totalBcvStr = `Bs. ${(totals.totalCash * bcvRate).toLocaleString('es-VE', { minimumFractionDigits: 2 })}`;
 
       autoTable(doc, {
-        startY: 60,
+        startY: tableStartY,
         head: [['Período', 'Ventas ($ USD)', 'Cobranzas ($ USD)', 'Brecha ($ USD)', '% Eficiencia', 'Equiv. BCV (Bs.)']],
         body: [
           ...tableRows,
@@ -295,16 +310,16 @@ export function SalesTrendChart({ orders, isLoading = false }: SalesTrendChartPr
               ))}
             </div>
 
-            {/* BOTÓN DE IMPRESIÓN PDF */}
+            {/* BOTÓN DE IMPRESIÓN DE GRÁFICO VISUAL EN PDF */}
             <Button
               onClick={handleExportPDF}
               disabled={isExportingPDF}
               variant="outline"
               className="h-7 px-2.5 rounded-lg border-slate-200 text-slate-700 hover:bg-slate-50 font-black text-[9px] uppercase tracking-wider flex items-center gap-1 shadow-sm"
-              title="Imprimir Reporte PDF de Tendencias"
+              title="Imprimir Gráfico Visual y Reporte PDF"
             >
               {isExportingPDF ? <Loader2 className="h-3 w-3 animate-spin" /> : <Printer className="h-3 w-3 text-primary" />}
-              <span>PDF</span>
+              <span>🖨️ Imprimir Gráfico</span>
             </Button>
           </div>
         </div>
@@ -328,7 +343,7 @@ export function SalesTrendChart({ orders, isLoading = false }: SalesTrendChartPr
       </CardHeader>
 
       <CardContent className="px-6 pb-6 pt-0">
-        <div className="h-[240px] w-full">
+        <div id="sales-trend-chart-container" className="h-[240px] w-full">
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
               <defs>
