@@ -235,6 +235,7 @@ export default function AdminDashboard() {
                     title="Venta Realizada" 
                     value={`$${stats.revenue.toLocaleString('en-US', { maximumFractionDigits: 0 })}`} 
                     subtitle="Recaudación Efectiva" 
+                    tooltip="Total acumulado de ventas facturadas y cobradas efectivamente con dinero ingresado en caja."
                     icon={TrendingUp} iconBg="bg-emerald-50" iconColor="text-emerald-500" 
                     onClick={() => router.push('/dashboard/billing')}
                 />
@@ -242,6 +243,7 @@ export default function AdminDashboard() {
                     title="Cuentas por Cobrar" 
                     value={`$${stats.totalDebts.toLocaleString('en-US', { maximumFractionDigits: 0 })}`} 
                     subtitle="Deuda Activa Clientes" 
+                    tooltip="Monto total pendiente por cobrar a clientes con créditos activos o abonos pendientes."
                     icon={DollarSign} iconBg="bg-rose-50" iconColor="text-rose-500" 
                     alert={stats.totalDebts > 0}
                     onClick={() => router.push('/dashboard/billing?status=pendientes')}
@@ -251,6 +253,7 @@ export default function AdminDashboard() {
                     title="Valor del Inventario" 
                     value={`$${stats.inventoryValuation.toLocaleString('en-US', { maximumFractionDigits: 0 })}`} 
                     subtitle="Activos en Almacén" 
+                    tooltip="Valoración económica total de las mercancías físicamente disponibles en almacén a precio de catálogo."
                     icon={Boxes} iconBg="bg-blue-50" iconColor="text-blue-500" 
                     onClick={() => router.push('/dashboard/inventory')}
                 />
@@ -258,6 +261,7 @@ export default function AdminDashboard() {
                     title="Importación en Tránsito" 
                     value={`$${stats.inTransitValuation.toLocaleString('en-US', { maximumFractionDigits: 0 })}`} 
                     subtitle="Lotes Marítimos/Aéreos" 
+                    tooltip="Costo acumulado de órdenes de compra a proveedores actualmente en envío marítimo o aéreo."
                     icon={Globe} iconBg="bg-indigo-50" iconColor="text-indigo-500" 
                     onClick={() => router.push('/dashboard/purchase-orders')}
                 />

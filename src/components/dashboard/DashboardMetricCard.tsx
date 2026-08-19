@@ -3,8 +3,14 @@
 import React from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import { ArrowUpRight, X } from 'lucide-react';
+import { ArrowUpRight, X, Info } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 
 interface MetricCardProps {
     title: string;
@@ -19,17 +25,18 @@ interface MetricCardProps {
     isLoading?: boolean;
     trend?: string;
     isActive?: boolean;
+    tooltip?: string;
 }
 
 /**
- * COMPONENTE ÚNICO DE MÉTRICAS v1.0
- * Unificado para evitar errores de duplicación durante la publicación.
+ * COMPONENTE ÚNICO DE MÉTRICAS v1.1
+ * Con soporte para Tooltips explicativos en Hover.
  */
 export function DashboardMetricCard({ 
     title, value, subtitle, icon: Icon, iconBg, iconColor, 
-    onClick, onIconClick, alert = false, isLoading = false, trend, isActive = false 
+    onClick, onIconClick, alert = false, isLoading = false, trend, isActive = false, tooltip 
 }: MetricCardProps) {
-    return (
+    const content = (
         <Card 
             className={cn(
                 "border-none shadow-xl rounded-[2rem] bg-white group transition-all relative overflow-hidden",
@@ -42,7 +49,10 @@ export function DashboardMetricCard({
             <CardContent className="p-8">
                 <div className="flex justify-between items-start">
                     <div className="space-y-2 flex-1">
-                        <p className={cn("text-[10px] font-black uppercase tracking-[0.2em]", isActive ? "text-primary" : "text-slate-400")}>{title}</p>
+                        <div className="flex items-center gap-1.5">
+                          <p className={cn("text-[10px] font-black uppercase tracking-[0.2em]", isActive ? "text-primary" : "text-slate-400")}>{title}</p>
+                          {tooltip && <Info className="h-3 w-3 text-slate-300 group-hover:text-primary transition-colors" />}
+                        </div>
                         {isLoading ? (
                             <Skeleton className="h-8 w-24 rounded-lg bg-slate-100" />
                         ) : (
@@ -77,5 +87,23 @@ export function DashboardMetricCard({
                 )}
             </CardContent>
         </Card>
+    );
+
+    if (!tooltip) return content;
+
+    return (
+        <TooltipProvider delayDuration={150}>
+            <Tooltip>
+                <TooltipTrigger asChild>
+                    {content}
+                </TooltipTrigger>
+                <TooltipContent 
+                    side="top" 
+                    className="bg-slate-900 text-white font-mono text-[10px] font-black max-w-xs p-3 rounded-xl border-none shadow-2xl space-y-1"
+                >
+                    <p className="font-bold tracking-tight text-white leading-snug">💡 {tooltip}</p>
+                </TooltipContent>
+            </Tooltip>
+        </TooltipProvider>
     );
 }
