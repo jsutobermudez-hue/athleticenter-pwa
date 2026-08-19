@@ -13,7 +13,8 @@ REGLAS DE EXTRACCIÓN Y TRADUCCIÓN ESTRICTAS:
 2. Si el contenido contiene texto o nombres de productos en Chino o Inglés, traduce las descripciones y nombres de productos al Español comercial claro para Athleticenter.
 3. Si el SKU no viene explícito en el Invoice, genera un código SKU sugerido limpio basado en la disciplina, marca y modelo (ejemplo: B-MOLTEN-GL7).
 4. Asegúrate de que los números de cantidad, precio unitario FOB y CBM sean valores numéricos puros (sin símbolos de moneda $ o comas decimales europeas).
-5. Devuelve la respuesta ESTRICTAMENTE en formato JSON plano con la siguiente estructura exacta (SIN comentarios, SIN markdown extra):
+5. NUNCA uses comillas dobles (") dentro de los valores de texto de nombres o descripciones (ejemplo: usa 'Talla 7' o '7 pulg' en lugar de '7"').
+6. Devuelve la respuesta ESTRICTAMENTE en formato JSON plano con la siguiente estructura exacta:
 
 {
   "supplierName": "Guangzhou Sport Goods Co., Ltd.",
@@ -39,6 +40,74 @@ REGLAS DE EXTRACCIÓN Y TRADUCCIÓN ESTRICTAS:
   ]
 }
 `;
+
+function tryRepairJson(jsonStr: string): any {
+  if (!jsonStr || jsonStr.trim().length === 0) return null;
+
+  // 1. Intentar parseo directo
+  try {
+    return JSON.parse(jsonStr);
+  } catch (_) {}
+
+  // 2. Limpieza de comas colgantes y caracteres de control
+  let sanitized = jsonStr
+    .replace(/,\s*([\}\]])/g, '$1')
+    .replace(/[\u0000-\u001F\u007F-\u009F]/g, ' ')
+    .replace(/\r?\n|\r/g, ' ');
+
+  try {
+    return JSON.parse(sanitized);
+  } catch (_) {}
+
+  // 3. Reparación de JSON truncado o corchetes/llaves no cerradas
+  let openBrackets = 0;
+  let openBraces = 0;
+  let inString = false;
+  let isEscaped = false;
+
+  for (let i = 0; i < sanitized.length; i++) {
+    const char = sanitized[i];
+    if (isEscaped) {
+      isEscaped = false;
+      continue;
+    }
+    if (char === '\\') {
+      isEscaped = true;
+      continue;
+    }
+    if (char === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (!inString) {
+      if (char === '[') openBrackets++;
+      if (char === ']') openBrackets = Math.max(0, openBrackets - 1);
+      if (char === '{') openBraces++;
+      if (char === '}') openBraces = Math.max(0, openBraces - 1);
+    }
+  }
+
+  if (inString) {
+    sanitized += '"';
+  }
+
+  sanitized = sanitized.trim().replace(/,\s*$/, '');
+
+  while (openBrackets > 0) {
+    sanitized += ']';
+    openBrackets--;
+  }
+  while (openBraces > 0) {
+    sanitized += '}';
+    openBraces--;
+  }
+
+  try {
+    return JSON.parse(sanitized);
+  } catch (_) {}
+
+  return null;
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -131,7 +200,8 @@ export async function POST(req: NextRequest) {
             ],
             generationConfig: {
               temperature: 0.1,
-              maxOutputTokens: 8192
+              maxOutputTokens: 8192,
+              responseMimeType: "application/json"
             }
           }),
         });
@@ -157,34 +227,24 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // LIMPIAR Y FORMATEAR JSON ROBUSTO
+    // LIMPIAR Y FORMATEAR JSON CON AUTORREPARACIÓN
     let cleanJson = rawText.trim();
     const jsonMatch = cleanJson.match(/```(?:json)?\s*([\s\S]*?)\s*```/) || cleanJson.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
       cleanJson = jsonMatch[1] || jsonMatch[0];
     }
 
-    let parsedInvoice: any = null;
-    try {
-      parsedInvoice = JSON.parse(cleanJson);
-    } catch (parseErr) {
-      console.error('Error parseando JSON inicial de Gemini:', cleanJson);
-      try {
-        const sanitized = cleanJson
-          .replace(/,\s*([\}\]])/g, '$1') // Eliminar comas colgantes antes de } o ]
-          .replace(/[\u0000-\u001F\u007F-\u009F]/g, ' ') // Eliminar caracteres de control invisibles
-          .replace(/\r?\n|\r/g, ' '); // Reemplazar saltos de línea dentro de cadenas por espacios
-        parsedInvoice = JSON.parse(sanitized);
-      } catch (secondErr) {
-        return NextResponse.json(
-          { 
-            success: false, 
-            error: `No se pudo interpretar la estructura JSON del Invoice. (${(parseErr as any)?.message || 'Sintaxis no válida'})`,
-            rawOutput: rawText.substring(0, 500)
-          },
-          { status: 500 }
-        );
-      }
+    let parsedInvoice = tryRepairJson(cleanJson);
+
+    if (!parsedInvoice) {
+      return NextResponse.json(
+        { 
+          success: false, 
+          error: 'No se pudo estructurar el JSON del Invoice. Por favor reintenta con una versión en Excel o PDF más clara.',
+          rawOutput: rawText.substring(0, 500)
+        },
+        { status: 500 }
+      );
     }
 
     // NORMALIZAR ESTRUCTURA DE SALIDA
