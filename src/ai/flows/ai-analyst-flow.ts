@@ -810,25 +810,68 @@ const getQuoteToOrderConversion = ai.defineTool(
   }
 );
 
+function parseDateFilter(days?: number, startDateStr?: string, endDateStr?: string): { start: Date; end: Date; label: string } {
+    const end = new Date();
+    end.setHours(23, 59, 59, 999);
+
+    if (startDateStr) {
+        const start = new Date(startDateStr);
+        start.setHours(0, 0, 0, 0);
+        let endD = end;
+        if (endDateStr) {
+            endD = new Date(endDateStr);
+            endD.setHours(23, 59, 59, 999);
+        }
+        return { start, end: endD, label: `${startDateStr} al ${endDateStr || 'Hoy'}` };
+    }
+
+    const numDays = days && days > 0 ? days : 180;
+    const start = new Date();
+    start.setDate(end.getDate() - numDays);
+    start.setHours(0, 0, 0, 0);
+
+    const label = numDays === 1 ? 'Hoy' 
+      : numDays === 7 ? 'Últimos 7 Días' 
+      : numDays === 30 ? 'Últimos 30 Días' 
+      : numDays === 90 ? 'Últimos 90 Días' 
+      : `Últimos ${numDays} Días`;
+
+    return { start, end, label };
+}
+
 // 14. MÉTRICAS GLOBALES DE VENTAS
 const getGlobalSalesMetrics = ai.defineTool(
   {
     name: 'getGlobalSalesMetrics',
-    description: 'Calcula las ventas totales globales en USD, dinero cobrado en efectivo, saldo pendiente por cobrar, ticket promedio y conteo por estado.',
-    inputSchema: z.object({ days: z.number().optional().default(180) }),
+    description: 'Calcula las ventas totales globales en USD, dinero cobrado en efectivo, saldo pendiente por cobrar, ticket promedio y conteo por estado para un período de días específico (days, startDate, endDate).',
+    inputSchema: z.object({ 
+      days: z.number().optional().describe('Número de días a evaluar (ej. 30, 90, 180)'),
+      startDate: z.string().optional().describe('Fecha inicio YYYY-MM-DD'),
+      endDate: z.string().optional().describe('Fecha fin YYYY-MM-DD')
+    }),
     outputSchema: z.any(),
   },
-  async () => {
+  async (input) => {
     try {
       const { firestore } = initializeFirebaseServer();
-      const ordersSnap = await getDocs(query(collection(firestore, 'orders'), limit(300)));
+      const ordersSnap = await getDocs(query(collection(firestore, 'orders'), limit(500)));
+
+      const dateFilter = parseDateFilter(input?.days, input?.startDate, input?.endDate);
 
       const VALID_SALES = ['Entregado', 'Completado', 'Despachado', 'Pagado', 'Aprobado', 'En Preparación'];
       let totalSales = 0;
       let totalCash = 0;
       let totalPending = 0;
 
-      ordersSnap.docs.forEach(d => {
+      const filteredDocs = ordersSnap.docs.filter(d => {
+        const o = d.data();
+        const rawDate = o.lastPaymentDate || o.updatedAt || o.receptionDate || o.approvalDate || o.createdAt || o.orderDate;
+        if (!rawDate) return true;
+        const dDate = typeof rawDate.toDate === 'function' ? rawDate.toDate() : new Date(rawDate);
+        return dDate >= dateFilter.start && dDate <= dateFilter.end;
+      });
+
+      filteredDocs.forEach(d => {
         const o = d.data();
         const amount = Number(o.totalAmount || 0);
         
@@ -851,14 +894,18 @@ const getGlobalSalesMetrics = ai.defineTool(
         }
       });
 
-      const totalOrders = ordersSnap.docs.filter(d => VALID_SALES.includes(d.data().status)).length || 1;
+      const validOrdersCount = filteredDocs.filter(d => VALID_SALES.includes(d.data().status)).length || 1;
       return {
+        periodoEvaluado: dateFilter.label,
+        fechaInicio: dateFilter.start.toLocaleDateString('es-ES'),
+        fechaFin: dateFilter.end.toLocaleDateString('es-ES'),
         resumen: {
+          periodo: dateFilter.label,
           ventasTotalesUSD: `$${totalSales.toFixed(2)}`,
           cobranzasEfectivoUSD: `$${totalCash.toFixed(2)}`,
           saldoPorCobrarUSD: `$${totalPending.toFixed(2)}`,
-          ticketPromedioUSD: `$${(totalSales / totalOrders).toFixed(2)}`,
-          totalPedidosProcesados: totalOrders
+          ticketPromedioUSD: `$${(totalSales / validOrdersCount).toFixed(2)}`,
+          totalPedidosProcesados: validOrdersCount
         }
       };
     } catch (e: any) {
@@ -911,18 +958,31 @@ const getTopProductsAndRankings = ai.defineTool(
 const getSalespeoplePerformance = ai.defineTool(
   {
     name: 'getSalespeoplePerformance',
-    description: 'Analiza el rendimiento del equipo de ventas reales, total colocado en USD por vendedor real y comisiones.',
-    inputSchema: z.object({}),
+    description: 'Analiza el rendimiento del equipo de ventas reales, total colocado en USD por vendedor real y comisiones para un período de días específico (days, startDate, endDate).',
+    inputSchema: z.object({ 
+      days: z.number().optional().describe('Número de días a evaluar (ej. 30, 90, 180)'),
+      startDate: z.string().optional().describe('Fecha inicio YYYY-MM-DD'),
+      endDate: z.string().optional().describe('Fecha fin YYYY-MM-DD')
+    }),
     outputSchema: z.any(),
   },
-  async () => {
+  async (input) => {
     try {
       const { firestore } = initializeFirebaseServer();
-      const ordersSnap = await getDocs(query(collection(firestore, 'orders'), limit(150)));
+      const ordersSnap = await getDocs(query(collection(firestore, 'orders'), limit(400)));
+      const dateFilter = parseDateFilter(input?.days, input?.startDate, input?.endDate);
 
       const salesMap: Record<string, { vendedor: string; totalVentasUSD: number; pedidosCount: number }> = {};
 
-      ordersSnap.docs.forEach(d => {
+      const filteredDocs = ordersSnap.docs.filter(d => {
+        const o = d.data();
+        const rawDate = o.receptionDate || o.approvalDate || o.createdAt || o.orderDate;
+        if (!rawDate) return true;
+        const dDate = typeof rawDate.toDate === 'function' ? rawDate.toDate() : new Date(rawDate);
+        return dDate >= dateFilter.start && dDate <= dateFilter.end;
+      });
+
+      filteredDocs.forEach(d => {
         const data = d.data();
         const name = extractSalespersonName(data);
         const amount = Number(data.totalAmount || 0);
@@ -934,13 +994,13 @@ const getSalespeoplePerformance = ai.defineTool(
 
       const result = Object.values(salesMap).map(v => ({
         vendedor: v.vendedor,
+        periodoEvaluado: dateFilter.label,
         totalVentasUSD: `$${v.totalVentasUSD.toFixed(2)}`,
         pedidosColocados: v.pedidosCount,
         comisionGeneradaUSD: `$${(v.totalVentasUSD * 0.05).toFixed(2)}`
       }));
 
-      result.sort((a, b) => parseFloat(b.totalVentasUSD.replace('$', '')) - parseFloat(a.totalVentasUSD.replace('$', '')));
-      return result;
+      return result.sort((a, b) => parseFloat(b.totalVentasUSD.replace('$', '')) - parseFloat(a.totalVentasUSD.replace('$', '')));
     } catch (e: any) {
       console.error("Error in getSalespeoplePerformance:", e);
       return [];
@@ -1263,6 +1323,7 @@ export const aiAnalystFlow = ai.defineFlow(
           1. Queda ESTRICTAMENTE PROHIBIDO inventar o simular nombres de vendedores (ej. NO inventar "Juan Paz", "María García", "Pedro Martínez"), clientes, montos o productos (ej. NO inventar "Tacos Adidas", "Ultraboost" si no existen en la base de datos).
           2. Debes basar el 100% de tus nombres, tablas, métricas y análisis en los datos reales retornados por la llamada a las herramientas de Firestore.
           3. Si una herramienta devuelve un arreglo vacío o no hay vendedores/productos registrados para el criterio consultado, DEBES DECLARAR EXPRESAMENTE: "No existen registros de [vendedores/productos/compras] registrados en la base de datos oficial para este parámetro."
+          4. CLARIDAD ABSOLUTA EN RANGOS DE FECHA: Siempre que el usuario solicite métricas, informes, rendimiento de vendedores o ventas filtradas por tiempo (ej. "hoy", "este mes", "mes anterior", "últimos 30 días", "últimos 90 días" o fechas específicas), DEBES enviar el parámetro de días o rango de fechas correspondiente a la herramienta (ej. days: 30) y declarar SIEMPRE al inicio de tu respuesta el rango exacto evaluado (ej. "📅 Período Evaluado: Últimos 30 Días").
           
           INSTRUCCIONES CLAVE DE HERRAMIENTAS:
           1. Si preguntan por alertas autónomas o salud crítica del negocio, usa 'getAutonomousExecutiveAlertsEngine'.
