@@ -9,6 +9,8 @@ import { Search, DollarSign, Receipt, CheckCircle2, ChevronRight, CreditCard } f
 import { OrderSheetController } from '@/app/dashboard/orders/OrderSheetController';
 import { cn } from '@/lib/utils';
 
+import { getEffectiveCashReceived } from '@/lib/billing';
+
 interface PaidInvoicesCardProps {
     orders: Order[] | null;
 }
@@ -31,14 +33,14 @@ export function PaidInvoicesCard({ orders }: PaidInvoicesCardProps) {
     const [searchQuery, setSearchQuery] = useState('');
     const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
 
-    // Filtrar únicamente órdenes pagadas o con pagos parciales mayores a 0
+    // Filtrar únicamente órdenes pagadas o con abonos/pagos recibidos mayores a 0
     const paidOrders = useMemo(() => {
         if (!orders) return [];
         return orders
-            .filter(o => o.status === 'Pagado' || (o.amountPaid && o.amountPaid > 0))
+            .filter(o => getEffectiveCashReceived(o) > 0)
             .sort((a, b) => {
-                const dateA = convertToDate(a.updatedAt || a.receptionDate || a.createdAt || a.orderDate);
-                const dateB = convertToDate(b.updatedAt || b.receptionDate || b.createdAt || b.orderDate);
+                const dateA = convertToDate((a as any).lastPaymentDate || a.updatedAt || a.receptionDate || a.createdAt || a.orderDate);
+                const dateB = convertToDate((b as any).lastPaymentDate || b.updatedAt || b.receptionDate || b.createdAt || b.orderDate);
                 return dateB.getTime() - dateA.getTime();
             });
     }, [orders]);
@@ -54,9 +56,9 @@ export function PaidInvoicesCard({ orders }: PaidInvoicesCardProps) {
         );
     }, [paidOrders, searchQuery]);
 
-    // Total recabado en dólares
+    // Total recabado en dólares de abonos y liquidaciones
     const totalCashCollected = useMemo(() => {
-        return paidOrders.reduce((sum, o) => sum + (o.amountPaid || o.totalAmount || 0), 0);
+        return paidOrders.reduce((sum, o) => sum + getEffectiveCashReceived(o), 0);
     }, [paidOrders]);
 
     return (
@@ -110,8 +112,8 @@ export function PaidInvoicesCard({ orders }: PaidInvoicesCardProps) {
                                 </thead>
                                 <tbody className="divide-y divide-slate-100">
                                     {filteredInvoices.map((o) => {
-                                        const dateStr = formatDate(o.updatedAt || o.receptionDate || o.createdAt || o.orderDate);
-                                        const amountPaid = o.amountPaid || o.totalAmount || 0;
+                                        const dateStr = formatDate((o as any).lastPaymentDate || o.updatedAt || o.receptionDate || o.createdAt || o.orderDate);
+                                        const amountPaid = getEffectiveCashReceived(o);
                                         const isFullPaid = o.status === 'Pagado' || (amountPaid >= o.totalAmount - 0.05);
 
                                         return (
