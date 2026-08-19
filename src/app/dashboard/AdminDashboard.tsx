@@ -37,6 +37,7 @@ import { LiveActivityFeed } from '@/components/dashboard/LiveActivityFeed';
 import { SalespersonRankingCard } from '@/components/dashboard/SalespersonRankingCard';
 import { PaidInvoicesCard } from '@/components/dashboard/PaidInvoicesCard';
 import { ExecutiveMetricsSuite } from '@/components/dashboard/ExecutiveMetricsSuite';
+import { ReceivablesAuditModal } from '@/components/dashboard/ReceivablesAuditModal';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -55,6 +56,7 @@ export default function AdminDashboard() {
     // Estados de selección para vistas detalladas
     const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
     const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+    const [isReceivablesModalOpen, setIsReceivablesModalOpen] = useState<boolean>(false);
 
     // Conversor instantáneo BCV
     const [usdAmountInput, setUsdAmountInput] = useState<string>('100');
@@ -242,7 +244,8 @@ export default function AdminDashboard() {
                     subtitle="Deuda Activa Clientes" 
                     icon={DollarSign} iconBg="bg-rose-50" iconColor="text-rose-500" 
                     alert={stats.totalDebts > 0}
-                    onClick={() => router.push('/dashboard/billing')}
+                    onClick={() => router.push('/dashboard/billing?status=pendientes')}
+                    onIconClick={() => setIsReceivablesModalOpen(true)}
                 />
                 <DashboardMetricCard 
                     title="Valor del Inventario" 
@@ -450,6 +453,13 @@ export default function AdminDashboard() {
                 canManageInventory={!!canManageInventory}
                 canDelete={false}
                 onDelete={() => {}}
+            />
+
+            <ReceivablesAuditModal
+                isOpen={isReceivablesModalOpen}
+                onClose={() => setIsReceivablesModalOpen(false)}
+                orders={orders}
+                onSelectOrder={(o) => setSelectedOrder(o)}
             />
         </div>
     );

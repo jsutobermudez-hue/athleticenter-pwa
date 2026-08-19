@@ -14,6 +14,7 @@ interface MetricCardProps {
     iconBg?: string;
     iconColor?: string;
     onClick?: () => void;
+    onIconClick?: (e: React.MouseEvent) => void;
     alert?: boolean;
     isLoading?: boolean;
     trend?: string;
@@ -26,7 +27,7 @@ interface MetricCardProps {
  */
 export function DashboardMetricCard({ 
     title, value, subtitle, icon: Icon, iconBg, iconColor, 
-    onClick, alert = false, isLoading = false, trend, isActive = false 
+    onClick, onIconClick, alert = false, isLoading = false, trend, isActive = false 
 }: MetricCardProps) {
     return (
         <Card 
@@ -52,10 +53,20 @@ export function DashboardMetricCard({
                         )}
                         {subtitle && <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest">{subtitle}</p>}
                     </div>
-                    <div className={cn(
-                        "p-4 rounded-2xl shadow-sm transition-transform group-hover:rotate-12", 
-                        isActive ? "bg-primary text-white" : cn(iconBg, iconColor)
-                    )}>
+                    <div 
+                        onClick={(e) => {
+                            if (onIconClick) {
+                                e.stopPropagation();
+                                onIconClick(e);
+                            }
+                        }}
+                        className={cn(
+                            "p-4 rounded-2xl shadow-sm transition-transform group-hover:rotate-12", 
+                            isActive ? "bg-primary text-white" : cn(iconBg, iconColor),
+                            onIconClick && "cursor-pointer hover:scale-110 active:scale-95 shadow-md"
+                        )}
+                        title={onIconClick ? "Abrir Auditoría Táctica In-Situ" : undefined}
+                    >
                         {isActive ? <X className="h-6 w-6" /> : (Icon && <Icon className="h-6 w-6" />)}
                     </div>
                 </div>
