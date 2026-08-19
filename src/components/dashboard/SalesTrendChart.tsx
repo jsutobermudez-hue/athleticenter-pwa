@@ -2,13 +2,15 @@
 
 import React, { useMemo, useState } from 'react';
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
-import type { Order } from '@/lib/definitions';
+import type { Order, FinancialSettings } from '@/lib/definitions';
 import { format, subDays, startOfDay, isSameDay } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { TrendingUp, DollarSign, Activity } from 'lucide-react';
+import { TrendingUp, DollarSign, Activity, CheckCircle2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
+import { doc } from 'firebase/firestore';
+import { useDoc, useFirestore, useMemoFirebase } from '@/firebase';
 
 interface SalesTrendChartProps {
   orders: Order[] | null;
@@ -25,7 +27,26 @@ const getEffectiveCashReceived = (o: Order): number => {
   return 0;
 };
 
+const getDate = (ts: any): Date | null => {
+  if (!ts) return null;
+  if (typeof ts.toDate === 'function') return ts.toDate();
+  if (ts.seconds) return new Date(ts.seconds * 1000);
+  const d = new Date(ts);
+  return isNaN(d.getTime()) ? null : d;
+};
+
+// Fecha de emisión/aprobación para la curva de Ventas
+const getSalesDate = (o: Order): Date | null => getDate(o.receptionDate || o.approvalDate || o.createdAt || o.orderDate);
+
+// Fecha real de cobranza para la curva de Cash
+const getCashDate = (o: Order): Date | null => getDate((o as any).paidAt || o.updatedAt || o.approvalDate || o.receptionDate || o.createdAt || o.orderDate);
+
 export function SalesTrendChart({ orders, isLoading = false }: SalesTrendChartProps) {
+  const firestore = useFirestore();
+  const settingsRef = useMemoFirebase(() => firestore ? doc(firestore, 'system', 'financials') : null, [firestore]);
+  const { data: globalSettings } = useDoc<FinancialSettings>(settingsRef);
+  const bcvRate = globalSettings?.bcvRate || 65.50;
+
   const [period, setPeriod] = useState<'7d' | '30d' | '6m'>('7d');
   const [viewMode, setViewMode] = useState<'comparative' | 'sales' | 'cash'>('comparative');
 
@@ -34,21 +55,20 @@ export function SalesTrendChart({ orders, isLoading = false }: SalesTrendChartPr
 
     const now = new Date();
     const VALID_SALES_STATUSES = ['Entregado', 'Completado', 'Despachado', 'Pagado', 'Aprobado', 'En Preparación'];
-    const getDate = (ts: any) => ts ? (typeof ts.toDate === 'function' ? ts.toDate() : new Date(ts)) : new Date(0);
 
     if (period === '7d') {
       const days = Array.from({ length: 7 }, (_, i) => startOfDay(subDays(now, 6 - i)));
       return days.map(day => {
-        const dayOrders = orders.filter(order => {
-          const orderDate = getDate(order.receptionDate || order.approvalDate || order.createdAt || order.orderDate);
-          return isSameDay(orderDate, day);
-        });
+        const salesTotal = orders.filter(order => {
+          const sDate = getSalesDate(order);
+          return sDate && isSameDay(sDate, day) && VALID_SALES_STATUSES.includes(order.status);
+        }).reduce((sum, order) => sum + (order.totalAmount || 0), 0);
 
-        const salesTotal = dayOrders
-          .filter(order => VALID_SALES_STATUSES.includes(order.status))
-          .reduce((sum, order) => sum + (order.totalAmount || 0), 0);
-
-        const cashTotal = dayOrders.reduce((sum, order) => sum + getEffectiveCashReceived(order), 0);
+        const cashTotal = orders.filter(order => {
+          const cDate = getCashDate(order);
+          const cash = getEffectiveCashReceived(order);
+          return cDate && isSameDay(cDate, day) && cash > 0;
+        }).reduce((sum, order) => sum + getEffectiveCashReceived(order), 0);
 
         return {
           name: format(day, 'dd/MM'),
@@ -59,16 +79,16 @@ export function SalesTrendChart({ orders, isLoading = false }: SalesTrendChartPr
     } else if (period === '30d') {
       const days = Array.from({ length: 30 }, (_, i) => startOfDay(subDays(now, 29 - i)));
       return days.map(day => {
-        const dayOrders = orders.filter(order => {
-          const orderDate = getDate(order.receptionDate || order.approvalDate || order.createdAt || order.orderDate);
-          return isSameDay(orderDate, day);
-        });
+        const salesTotal = orders.filter(order => {
+          const sDate = getSalesDate(order);
+          return sDate && isSameDay(sDate, day) && VALID_SALES_STATUSES.includes(order.status);
+        }).reduce((sum, order) => sum + (order.totalAmount || 0), 0);
 
-        const salesTotal = dayOrders
-          .filter(order => VALID_SALES_STATUSES.includes(order.status))
-          .reduce((sum, order) => sum + (order.totalAmount || 0), 0);
-
-        const cashTotal = dayOrders.reduce((sum, order) => sum + getEffectiveCashReceived(order), 0);
+        const cashTotal = orders.filter(order => {
+          const cDate = getCashDate(order);
+          const cash = getEffectiveCashReceived(order);
+          return cDate && isSameDay(cDate, day) && cash > 0;
+        }).reduce((sum, order) => sum + getEffectiveCashReceived(order), 0);
 
         return {
           name: format(day, 'dd/MM'),
@@ -88,16 +108,16 @@ export function SalesTrendChart({ orders, isLoading = false }: SalesTrendChartPr
         const mStart = new Date(m.getFullYear(), m.getMonth(), 1);
         const mEnd = new Date(m.getFullYear(), m.getMonth() + 1, 0, 23, 59, 59, 999);
 
-        const monthOrders = orders.filter(order => {
-          const orderDate = getDate(order.receptionDate || order.approvalDate || order.createdAt || order.orderDate);
-          return orderDate >= mStart && orderDate <= mEnd;
-        });
+        const salesTotal = orders.filter(order => {
+          const sDate = getSalesDate(order);
+          return sDate && sDate >= mStart && sDate <= mEnd && VALID_SALES_STATUSES.includes(order.status);
+        }).reduce((sum, order) => sum + (order.totalAmount || 0), 0);
 
-        const salesTotal = monthOrders
-          .filter(order => VALID_SALES_STATUSES.includes(order.status))
-          .reduce((sum, order) => sum + (order.totalAmount || 0), 0);
-
-        const cashTotal = monthOrders.reduce((sum, order) => sum + getEffectiveCashReceived(order), 0);
+        const cashTotal = orders.filter(order => {
+          const cDate = getCashDate(order);
+          const cash = getEffectiveCashReceived(order);
+          return cDate && cDate >= mStart && cDate <= mEnd && cash > 0;
+        }).reduce((sum, order) => sum + getEffectiveCashReceived(order), 0);
 
         return {
           name: format(m, 'MMM', { locale: es }).toUpperCase(),
@@ -113,7 +133,8 @@ export function SalesTrendChart({ orders, isLoading = false }: SalesTrendChartPr
     const totalCash = chartData.reduce((sum, d) => sum + d.cobranzas, 0);
     const divisor = period === '7d' ? 7 : period === '30d' ? 30 : 180;
     const dailyAvg = Math.round(totalSales / divisor);
-    return { totalSales, totalCash, dailyAvg };
+    const efficiencyRate = totalSales > 0 ? Math.min(100, Math.round((totalCash / totalSales) * 100)) : 0;
+    return { totalSales, totalCash, dailyAvg, efficiencyRate };
   }, [chartData, period]);
 
   if (isLoading || !orders) {
@@ -181,14 +202,19 @@ export function SalesTrendChart({ orders, isLoading = false }: SalesTrendChartPr
 
         <div className="text-left sm:text-right shrink-0">
           <div className="flex items-baseline gap-2">
-            <p className="text-2xl font-black tracking-tighter text-slate-900 leading-none">${totals.totalSales.toLocaleString()}</p>
+            <p className="text-2xl font-black tracking-tighter text-slate-900 leading-none">${totals.totalSales.toLocaleString('en-US', { minimumFractionDigits: 0 })}</p>
             <Badge variant="outline" className="text-[7px] font-black border-slate-200 text-slate-600 px-1.5 py-0 font-mono">
-              Prom: ${totals.dailyAvg.toLocaleString()}/día
+              Prom: ${totals.dailyAvg.toLocaleString('en-US', { minimumFractionDigits: 0 })}/día
             </Badge>
           </div>
-          <span className="text-[8px] font-black text-emerald-500 uppercase tracking-widest block mt-1.5">
-            Cobranza Cash: ${totals.totalCash.toLocaleString()}
-          </span>
+          <div className="flex items-center sm:justify-end gap-2 mt-1.5">
+            <span className="text-[8px] font-black text-emerald-600 uppercase tracking-widest">
+              Cobranza Cash: ${totals.totalCash.toLocaleString('en-US', { minimumFractionDigits: 0 })}
+            </span>
+            <Badge variant="secondary" className="bg-emerald-50 text-emerald-700 font-black text-[8px] border-emerald-200/60 rounded-md">
+              {totals.efficiencyRate}% Cobrado
+            </Badge>
+          </div>
         </div>
       </CardHeader>
 
@@ -230,8 +256,8 @@ export function SalesTrendChart({ orders, isLoading = false }: SalesTrendChartPr
                   fontWeight: 900
                 }}
                 formatter={(value: any, name: any) => [
-                  `$${Number(value).toLocaleString()} (Bs. ${(Number(value) * 65.50).toLocaleString('es-VE', { maximumFractionDigits: 0 })})`,
-                  name === 'ventas' ? '🔵 Ventas' : '🟢 Cobranzas Cash'
+                  `$${Number(value).toLocaleString('en-US', { minimumFractionDigits: 2 })} (Bs. ${(Number(value) * bcvRate).toLocaleString('es-VE', { minimumFractionDigits: 2 })})`,
+                  name === 'ventas' ? '🔵 Ventas Facturadas' : '🟢 Cobranzas Realizadas'
                 ]}
                 labelFormatter={(label) => `Periodo: ${label}`}
               />
@@ -262,4 +288,3 @@ export function SalesTrendChart({ orders, isLoading = false }: SalesTrendChartPr
     </Card>
   );
 }
-
