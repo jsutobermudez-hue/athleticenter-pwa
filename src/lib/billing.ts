@@ -12,10 +12,37 @@ export function getEffectiveCashReceived(o: Order): number {
     return 0;
 }
 
+export const CUTOFF_DISCOUNT_DATE = new Date('2026-08-02T00:00:00.000Z');
+
 /**
- * UTILIDAD UNIVERSAL DE FACTURACIÓN v183.0.0
- * Centraliza el cálculo de vencimientos, descuentos y saldos para UI y Agentes IA.
+ * Retorna el Porcentaje de Descuento Comercial Base aplicado a la Orden.
+ * 1. Si el pedido tiene congelado `order.appliedDiscountPercent`, usa ese valor (Resistencia a Cambios Futuros).
+ * 2. Si no tiene valor congelado:
+ *    - Pedidos creados ANTES del 02/08/2026 -> 35% de Descuento Comercial
+ *    - Pedidos creados el 02/08/2026 o DESPUÉS -> 25% de Descuento Comercial
  */
+export function getOrderCommercialDiscountPercent(order: Order, defaultCurrentDiscount: number = 25): number {
+    if (!order) return defaultCurrentDiscount;
+    if (typeof (order as any).appliedDiscountPercent === 'number') {
+        return (order as any).appliedDiscountPercent;
+    }
+    
+    const rawDate = order.createdAt || order.orderDate || order.receptionDate;
+    if (!rawDate) return defaultCurrentDiscount;
+
+    const orderDate = typeof (rawDate as any).toDate === 'function' 
+        ? (rawDate as Timestamp).toDate() 
+        : new Date(rawDate as any);
+
+    if (isNaN(orderDate.getTime())) return defaultCurrentDiscount;
+
+    if (orderDate.getTime() < CUTOFF_DISCOUNT_DATE.getTime()) {
+        return 35; // 35% de descuento histórico previo al 2 de Agosto de 2026
+    }
+    
+    return defaultCurrentDiscount; // 25% activo desde el 2 de Agosto de 2026
+}
+
 export function getInvoiceFromOrder(order: Order): Invoice | null {
     if (!['Entregado', 'En Verificación', 'Pagado', 'Despachado', 'Completado', 'En Preparación', 'Aprobado'].includes(order.status)) {
         return null;
@@ -39,6 +66,7 @@ export function getInvoiceFromOrder(order: Order): Invoice | null {
     const remainingDays = differenceInDays(dueDate, today);
     const amountPaid = getEffectiveCashReceived(order);
     const remainingBalance = Math.max(0, order.totalAmount - amountPaid);
+    const commercialDiscountPercent = getOrderCommercialDiscountPercent(order);
 
     let status: Invoice['status'] = 'Por Vencer';
     let statusText = `Vence en ${remainingDays} días`;
@@ -78,8 +106,9 @@ export function getInvoiceFromOrder(order: Order): Invoice | null {
         statusText: statusText,
         remainingCreditDays: remainingDays,
         discountPercentage: discount,
+        commercialDiscountPercentage: commercialDiscountPercent,
         currency: 'USD',
         createdAt: (order.createdAt || rawDate) as Timestamp,
         creditStartDate: creditStartDate,
-    }
+    } as any;
 }
