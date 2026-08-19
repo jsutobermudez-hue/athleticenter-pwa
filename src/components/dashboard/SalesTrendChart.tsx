@@ -6,8 +6,9 @@ import type { Order, FinancialSettings } from '@/lib/definitions';
 import { format, subDays, startOfDay, isSameDay } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { TrendingUp, DollarSign, Activity, CheckCircle2 } from 'lucide-react';
+import { TrendingUp, DollarSign, Activity, CheckCircle2, Printer, Loader2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { doc } from 'firebase/firestore';
 import { useDoc, useFirestore, useMemoFirebase } from '@/firebase';
@@ -49,6 +50,7 @@ export function SalesTrendChart({ orders, isLoading = false }: SalesTrendChartPr
 
   const [period, setPeriod] = useState<'7d' | '30d' | '6m'>('7d');
   const [viewMode, setViewMode] = useState<'comparative' | 'sales' | 'cash'>('comparative');
+  const [isExportingPDF, setIsExportingPDF] = useState(false);
 
   const chartData = useMemo(() => {
     if (!orders) return [];
@@ -137,6 +139,101 @@ export function SalesTrendChart({ orders, isLoading = false }: SalesTrendChartPr
     return { totalSales, totalCash, dailyAvg, efficiencyRate };
   }, [chartData, period]);
 
+  const handleExportPDF = async () => {
+    setIsExportingPDF(true);
+    try {
+      const jsPDF = (await import('jspdf')).default;
+      const autoTable = (await import('jspdf-autotable')).default;
+
+      const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+      const periodLabel = period === '7d' ? 'Últimos 7 Días' : period === '30d' ? 'Últimos 30 Días' : 'Últimos 6 Meses';
+
+      // Header Corporativo
+      doc.setFillColor(15, 23, 42); // Slate-900
+      doc.rect(0, 0, 210, 26, 'F');
+
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(13);
+      doc.setFont('helvetica', 'bold');
+      doc.text('ATHLETICENTER - INFORME DE TENDENCIA DE VENTAS VS COBRANZAS', 14, 11);
+
+      doc.setFontSize(8);
+      doc.setFont('helvetica', 'normal');
+      doc.text(`Período Auditado: ${periodLabel.toUpperCase()} | Tasa Oficial BCV: Bs. ${bcvRate.toFixed(2)} / USD | Fecha de Emisión: ${new Date().toLocaleDateString('es-VE')}`, 14, 19);
+
+      // Resumen de Métricas Ejecutivas
+      doc.setFillColor(248, 250, 252);
+      doc.roundedRect(14, 32, 182, 22, 3, 3, 'F');
+      doc.setDrawColor(226, 232, 240);
+      doc.roundedRect(14, 32, 182, 22, 3, 3, 'S');
+
+      doc.setTextColor(15, 23, 42);
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'bold');
+      doc.text(`TOTAL VENTAS FACTURADAS: $${totals.totalSales.toLocaleString('en-US', { minimumFractionDigits: 2 })}`, 20, 41);
+      doc.text(`COBRANZA CASH REAL: $${totals.totalCash.toLocaleString('en-US', { minimumFractionDigits: 2 })}`, 20, 48);
+
+      doc.text(`PROMEDIO DIARIO: $${totals.dailyAvg.toLocaleString('en-US')}/día`, 115, 41);
+      doc.text(`EFICIENCIA DE RECAUDACIÓN: ${totals.efficiencyRate}% COBRADO`, 115, 48);
+
+      // Tabla Cuadrada Desglose por Período
+      const tableRows = chartData.map(d => {
+        const bcvEquiv = d.cobranzas * bcvRate;
+        const diff = d.ventas - d.cobranzas;
+        const eff = d.ventas > 0 ? Math.min(100, Math.round((d.cobranzas / d.ventas) * 100)) : 0;
+        return [
+          d.name,
+          `$${d.ventas.toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
+          `$${d.cobranzas.toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
+          `$${diff.toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
+          `${eff}%`,
+          `Bs. ${bcvEquiv.toLocaleString('es-VE', { minimumFractionDigits: 2 })}`
+        ];
+      });
+
+      const totalVentasStr = `$${totals.totalSales.toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
+      const totalCashStr = `$${totals.totalCash.toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
+      const totalDiffStr = `$${(totals.totalSales - totals.totalCash).toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
+      const totalBcvStr = `Bs. ${(totals.totalCash * bcvRate).toLocaleString('es-VE', { minimumFractionDigits: 2 })}`;
+
+      autoTable(doc, {
+        startY: 60,
+        head: [['Período', 'Ventas ($ USD)', 'Cobranzas ($ USD)', 'Brecha ($ USD)', '% Eficiencia', 'Equiv. BCV (Bs.)']],
+        body: [
+          ...tableRows,
+          ['TOTAL GENERAL', totalVentasStr, totalCashStr, totalDiffStr, `${totals.efficiencyRate}%`, totalBcvStr]
+        ],
+        headStyles: {
+          fillColor: [15, 23, 42],
+          textColor: [255, 255, 255],
+          fontSize: 8,
+          fontStyle: 'bold',
+          halign: 'center'
+        },
+        bodyStyles: {
+          fontSize: 8,
+          halign: 'center'
+        },
+        footStyles: {
+          fillColor: [30, 41, 59],
+          textColor: [255, 255, 255],
+          fontSize: 9,
+          fontStyle: 'bold',
+          halign: 'center'
+        },
+        theme: 'grid'
+      });
+
+      doc.autoPrint();
+      const pdfBlob = doc.output('bloburl');
+      window.open(pdfBlob, '_blank');
+    } catch (e) {
+      console.error('Error generating PDF:', e);
+    } finally {
+      setIsExportingPDF(false);
+    }
+  };
+
   if (isLoading || !orders) {
     return (
       <Card className="border-none shadow-xl rounded-[2.5rem] bg-white h-[350px] flex items-center justify-center">
@@ -197,6 +294,18 @@ export function SalesTrendChart({ orders, isLoading = false }: SalesTrendChartPr
                 </button>
               ))}
             </div>
+
+            {/* BOTÓN DE IMPRESIÓN PDF */}
+            <Button
+              onClick={handleExportPDF}
+              disabled={isExportingPDF}
+              variant="outline"
+              className="h-7 px-2.5 rounded-lg border-slate-200 text-slate-700 hover:bg-slate-50 font-black text-[9px] uppercase tracking-wider flex items-center gap-1 shadow-sm"
+              title="Imprimir Reporte PDF de Tendencias"
+            >
+              {isExportingPDF ? <Loader2 className="h-3 w-3 animate-spin" /> : <Printer className="h-3 w-3 text-primary" />}
+              <span>PDF</span>
+            </Button>
           </div>
         </div>
 
