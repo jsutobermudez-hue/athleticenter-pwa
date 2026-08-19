@@ -115,7 +115,7 @@ export function ExecutiveMetricsSuite({ orders }: ExecutiveMetricsSuiteProps) {
             const currentMonth = now.getMonth();
             const currentYear = now.getFullYear();
             baseList = (orders || []).filter(o => {
-                const oDate = convertToDate(o.receptionDate || o.approvalDate || o.createdAt || o.orderDate);
+                const oDate = convertToDate((o as any).lastPaymentDate || o.updatedAt || o.receptionDate || o.approvalDate || o.createdAt || o.orderDate);
                 if (modalPeriod === 'today') {
                     return oDate.getDate() === now.getDate() && oDate.getMonth() === currentMonth && oDate.getFullYear() === currentYear;
                 }
@@ -255,7 +255,7 @@ export function ExecutiveMetricsSuite({ orders }: ExecutiveMetricsSuiteProps) {
 
         const chartPoints = periodsList.map(p => {
             const periodOrders = orders.filter(o => {
-                const oDate = convertToDate(o.receptionDate || o.approvalDate || o.createdAt || o.orderDate);
+                const oDate = convertToDate((o as any).lastPaymentDate || o.updatedAt || o.receptionDate || o.approvalDate || o.createdAt || o.orderDate);
                 return oDate >= p.start && oDate <= p.end;
             });
 

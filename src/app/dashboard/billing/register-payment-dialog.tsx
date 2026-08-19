@@ -160,7 +160,7 @@ export function ConfirmPaymentDialog({ order }: { order: Order }) {
         const currentOrder = orderSnap.data() as Order;
         if (currentOrder.status === 'Pagado') throw new Error("Esta factura ya ha sido liquidada.");
 
-        const currentPaid = currentOrder.amountPaid || 0;
+        const currentPaid = (currentOrder.totalCashReceived ?? currentOrder.amountPaid ?? 0);
         
         const baseAbono = reportedPayment?.baseAmount || data.amount;
         const actualCash = reportedPayment?.amount || data.amount; 
@@ -182,10 +182,17 @@ export function ConfirmPaymentDialog({ order }: { order: Order }) {
 
         transaction.set(paymentRef, cleanPaymentPayload, { merge: true });
 
+        const nextStatus = isFullyPaid 
+          ? 'Pagado' 
+          : (currentOrder.status === 'En Verificación' ? 'Entregado' : currentOrder.status);
+
         transaction.update(orderRef, { 
             amountPaid: newTotalPaid,
-            totalCashReceived: increment(actualCash),
-            status: isFullyPaid ? 'Pagado' : 'Entregado',
+            totalCashReceived: newTotalPaid,
+            paidAmount: newTotalPaid,
+            status: nextStatus,
+            paymentStatus: isFullyPaid ? 'Pagado' : 'Abono Parcial',
+            lastPaymentDate: serverTimestamp(),
             updatedAt: serverTimestamp()
         });
 
