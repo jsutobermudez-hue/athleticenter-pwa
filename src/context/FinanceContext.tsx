@@ -39,6 +39,7 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
   const [expenses, setExpenses] = useState<ExpenseItem[]>([]);
   const [targetProfitUSD, setTargetProfitUSDState] = useState<number>(3000);
   const [customSalesMix, setCustomSalesMix] = useState<Record<string, number>>({});
+  const hasSeededRef = React.useRef(false);
 
   const settingsRef = useMemoFirebase(() => (firestore && canManage ? doc(firestore, 'system', 'financials') : null), [firestore, canManage]);
   const { data: globalSettings } = useDoc<FinancialSettings>(settingsRef);
@@ -46,12 +47,20 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
   const expensesQuery = useMemoFirebase(() => (firestore && canManage ? query(collection(firestore, 'expenses'), limit(100)) : null), [firestore, canManage]);
   const { data: firestoreExpenses, isLoading: isLoadingExpenses } = useCollection<ExpenseItem>(expensesQuery);
 
-  // Inicializar gastos en Firestore si la colección está vacía
+  // Sincronizar gastos desde la colección en tiempo real deduplicando estrictamente por ID
   useEffect(() => {
     if (firestoreExpenses && firestoreExpenses.length > 0) {
-      setExpenses(firestoreExpenses);
-    } else if (firestoreExpenses && firestoreExpenses.length === 0 && firestore && canManage) {
-      // Cargar gastos por defecto iniciales
+      const uniqueMap = new Map<string, ExpenseItem>();
+      firestoreExpenses.forEach((exp, idx) => {
+        const uniqueKey = exp.id || `idx-${idx}-${exp.concept}`;
+        if (!uniqueMap.has(uniqueKey)) {
+          uniqueMap.set(uniqueKey, { ...exp, id: uniqueKey });
+        }
+      });
+      setExpenses(Array.from(uniqueMap.values()));
+    } else if (firestoreExpenses && firestoreExpenses.length === 0 && firestore && canManage && !hasSeededRef.current) {
+      hasSeededRef.current = true;
+      // Cargar gastos por defecto iniciales una sola vez
       DEFAULT_INITIAL_EXPENSES.forEach(async (exp) => {
         try {
           await addDoc(collection(firestore, 'expenses'), exp);
@@ -71,10 +80,11 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
   const addExpense = useCallback(async (expense: Omit<ExpenseItem, 'id'>) => {
     if (!firestore) return;
     try {
-      const ref = await addDoc(collection(firestore, 'expenses'), expense);
-      setExpenses(prev => [...prev, { ...expense, id: ref.id }]);
+      await addDoc(collection(firestore, 'expenses'), expense);
+      // No modificamos setExpenses manualmente; useCollection refresca la lista automáticamente en tiempo real
     } catch (e) {
       console.error("Error al agregar gasto:", e);
+      throw e;
     }
   }, [firestore]);
 
@@ -83,7 +93,6 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
     try {
       const docRef = doc(firestore, 'expenses', id);
       await updateDoc(docRef, updated);
-      setExpenses(prev => prev.map(e => e.id === id ? { ...e, ...updated } : e));
     } catch (e) {
       console.error("Error al actualizar gasto:", e);
     }
@@ -94,7 +103,6 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
     try {
       const docRef = doc(firestore, 'expenses', id);
       await deleteDoc(docRef);
-      setExpenses(prev => prev.filter(e => e.id !== id));
     } catch (e) {
       console.error("Error al eliminar gasto:", e);
     }

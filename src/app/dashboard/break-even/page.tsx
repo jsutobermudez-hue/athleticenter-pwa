@@ -37,7 +37,8 @@ import {
     RefreshCw,
     Search,
     ShieldCheck,
-    FileText
+    FileText,
+    Loader2
 } from 'lucide-react';
 
 export const dynamic = 'force-dynamic';
@@ -82,6 +83,8 @@ export default function BreakEvenPage() {
   const [newCategory, setNewCategory] = useState<ExpenseItem['category']>('Nómina');
   const [newAmountUSD, setNewAmountUSD] = useState<string>('');
   const [newIsFixed, setNewIsFixed] = useState(true);
+  const [isSubmittingExpense, setIsSubmittingExpense] = useState(false);
+
   // FILTROS Y VISTAS DE LA MATRIX MULTIPRODUCTO
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedDiscipline, setSelectedDiscipline] = useState('TODAS');
@@ -93,6 +96,35 @@ export default function BreakEvenPage() {
   const [isScenarioModalOpen, setIsScenarioModalOpen] = useState(false);
   const [isBreakEvenDetailModalOpen, setIsBreakEvenDetailModalOpen] = useState(false);
   const [isProgressModalOpen, setIsProgressModalOpen] = useState(false);
+
+  // HANDLER AGREGAR GASTO CON PROTECCIÓN ANTI-DOBLE CLIC
+  const handleAddExpense = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (isSubmittingExpense) return;
+    const amount = parseFloat(newAmountUSD);
+    if (!newConcept.trim() || isNaN(amount) || amount <= 0) {
+      toast({ variant: 'destructive', title: 'Datos Inválidos', description: 'Ingresa un concepto y monto válido.' });
+      return;
+    }
+
+    setIsSubmittingExpense(true);
+    try {
+      await addExpense({
+        concept: newConcept.trim(),
+        category: newCategory,
+        amountUSD: amount,
+        isFixed: newIsFixed,
+        periodicity: 'mensual'
+      });
+      setNewConcept('');
+      setNewAmountUSD('');
+      toast({ title: 'Gasto Registrado', description: `Se añadió "${newConcept}" por $${amount} USD.` });
+    } catch (err: any) {
+      toast({ variant: 'destructive', title: 'Error al Guardar', description: err?.message || 'No se pudo guardar el gasto.' });
+    } finally {
+      setIsSubmittingExpense(false);
+    }
+  };
 
   // HANDLER ACTUALIZAR COSTO LANDED DIRECTO EN LA MATRIZ
   const handleUpdateLandedCost = async (productId: string, newCost: number) => {
@@ -332,26 +364,6 @@ export default function BreakEvenPage() {
     }));
   }, [filteredItems]);
 
-  // HANDLER AGREGAR GASTO
-  const handleAddExpense = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const amount = parseFloat(newAmountUSD);
-    if (!newConcept.trim() || isNaN(amount) || amount <= 0) {
-      toast({ variant: 'destructive', title: 'Datos Inválidos', description: 'Ingresa un concepto y monto válido.' });
-      return;
-    }
-    await addExpense({
-      concept: newConcept.trim(),
-      category: newCategory,
-      amountUSD: amount,
-      isFixed: newIsFixed,
-      periodicity: 'mensual'
-    });
-    setNewConcept('');
-    setNewAmountUSD('');
-    toast({ title: 'Gasto Registrado', description: `Se añadió "${newConcept}" por $${amount} USD.` });
-  };
-
   if (isUserLoading || isLoadingProducts || isLoadingFinance) {
     return <div className="flex h-screen items-center justify-center"><RefreshCw className="animate-spin text-primary h-10 w-10" /></div>;
   }
@@ -556,8 +568,20 @@ export default function BreakEvenPage() {
                 </Button>
               </div>
 
-              <Button type="submit" className="w-full h-12 rounded-xl bg-primary hover:bg-primary/90 text-white font-black text-xs uppercase shadow-lg">
-                <Plus className="h-4 w-4 mr-2" /> Agregar a Estructura de Costos
+              <Button 
+                type="submit" 
+                disabled={isSubmittingExpense} 
+                className="w-full h-12 rounded-xl bg-primary hover:bg-primary/90 text-white font-black text-xs uppercase shadow-lg flex items-center justify-center gap-2"
+              >
+                {isSubmittingExpense ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" /> Guardando Gasto...
+                  </>
+                ) : (
+                  <>
+                    <Plus className="h-4 w-4" /> Agregar a Estructura de Costos
+                  </>
+                )}
               </Button>
             </form>
           </CardContent>
