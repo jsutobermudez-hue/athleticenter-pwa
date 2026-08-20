@@ -8,11 +8,80 @@ import { format } from 'date-fns';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Activity, ShieldAlert, Clock } from 'lucide-react';
+import { Activity, ShieldAlert, Clock, ArrowUpRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { Button } from '@/components/ui/button';
+import { useRouter } from 'next/navigation';
+
+const formatAuditAction = (action: string) => {
+  const normalized = (action || '').toUpperCase();
+
+  if (normalized.includes('MASS_PRICE_UPDATE')) {
+    return {
+      title: '🏷️ Actualización Masiva de Precios',
+      description: 'Modificación general de precios en catálogo de productos',
+      badge: 'Precios',
+      badgeClass: 'bg-rose-500/20 text-rose-400 border-rose-500/30'
+    };
+  }
+  if (normalized.includes('ROLLBACK_PRICE_UPDATE')) {
+    return {
+      title: '⏪ Reversión / Restauración de Precios',
+      description: 'Restauración de lista de precios anterior por seguridad',
+      badge: 'Seguridad',
+      badgeClass: 'bg-amber-500/20 text-amber-400 border-amber-500/30'
+    };
+  }
+  if (normalized.includes('ORDER_CREATED') || normalized.includes('NUEVO_PEDIDO')) {
+    return {
+      title: '📦 Creación de Nuevo Pedido',
+      description: 'Registro de pedido comercial en la red',
+      badge: 'Ventas',
+      badgeClass: 'bg-blue-500/20 text-blue-400 border-blue-500/30'
+    };
+  }
+  if (normalized.includes('PAYMENT') || normalized.includes('COBRANZA')) {
+    return {
+      title: '💵 Registro de Cobranza en Caja',
+      description: 'Ingreso efectivo de abono o liquidación de factura',
+      badge: 'Cobranza',
+      badgeClass: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+    };
+  }
+  if (normalized.includes('STOCK') || normalized.includes('INVENTARIO')) {
+    return {
+      title: '🔄 Ajuste de Inventario / Stock',
+      description: 'Modificación de existencias físicas en almacén',
+      badge: 'Almacén',
+      badgeClass: 'bg-cyan-500/20 text-cyan-400 border-cyan-500/30'
+    };
+  }
+  if (normalized.includes('BCV') || normalized.includes('RATE')) {
+    return {
+      title: '🇻🇪 Ajuste de Tasa Oficial BCV',
+      description: 'Actualización del tipo de cambio oficial de referencia',
+      badge: 'Divisas',
+      badgeClass: 'bg-indigo-500/20 text-indigo-400 border-indigo-500/30'
+    };
+  }
+
+  // Fallback amigable
+  const cleanTitle = (action || '')
+    .replace(/_/g, ' ')
+    .toLowerCase()
+    .replace(/\b\w/g, l => l.toUpperCase());
+
+  return {
+    title: `⚡ ${cleanTitle}`,
+    description: `Registro operativo en el sistema`,
+    badge: 'Operación',
+    badgeClass: 'bg-slate-700/50 text-slate-300 border-slate-600'
+  };
+};
 
 export function LiveActivityFeed() {
   const firestore = useFirestore();
+  const router = useRouter();
   const [logs, setLogs] = useState<AuditLog[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -58,11 +127,19 @@ export function LiveActivityFeed() {
 
   return (
     <Card className="border border-white/10 shadow-2xl rounded-[2.5rem] bg-slate-900 text-white overflow-hidden">
-      <CardHeader className="p-8 border-b border-white/5">
+      <CardHeader className="p-8 border-b border-white/5 flex flex-row items-center justify-between">
         <CardTitle className="text-xs font-black uppercase tracking-[0.3em] text-primary flex items-center gap-3">
           <Activity className="h-5 w-5 animate-pulse text-primary" /> Bitácora Operativa
         </CardTitle>
+        <Button
+          onClick={() => router.push('/dashboard/audit')}
+          variant="outline"
+          className="h-8 px-3 rounded-xl border-white/10 bg-white/5 text-slate-300 hover:bg-white/10 font-black text-[9px] uppercase tracking-wider flex items-center gap-1 shadow-sm"
+        >
+          <span>Audit Complete</span> <ArrowUpRight className="h-3 w-3 text-primary" />
+        </Button>
       </CardHeader>
+
       <CardContent className="p-8 space-y-5">
         {isLoading ? (
           Array.from({ length: 3 }).map((_, i) => (
@@ -80,37 +157,45 @@ export function LiveActivityFeed() {
                   : new Date(log.createdAt as any)
                 : null;
 
+              const actionMeta = formatAuditAction(log.action);
+
               return (
                 <div 
                   key={log.id} 
                   className="p-4 rounded-2xl bg-white/5 border border-white/5 flex flex-col gap-2 hover:bg-white/10 transition-colors"
                 >
                   <div className="flex items-center justify-between">
-                    <span className="text-[9px] font-black uppercase text-primary tracking-widest">
-                      {log.userName}
+                    <span className="text-[9px] font-black uppercase text-primary tracking-widest flex items-center gap-1.5">
+                      👤 {log.userName || 'Usuario del Sistema'}
                     </span>
                     {logDate && (
-                      <span className="text-[8px] font-mono text-slate-500 flex items-center gap-1">
+                      <span className="text-[8px] font-mono text-slate-400 flex items-center gap-1">
                         <Clock className="h-2.5 w-2.5" /> {format(logDate, "dd/MM HH:mm")}
                       </span>
                     )}
                   </div>
-                  <p className="text-[10px] font-bold text-slate-300 uppercase leading-snug">
-                    {log.action}
-                  </p>
-                  <div className="flex items-center justify-between mt-1">
-                    <span className="text-[8px] font-mono text-slate-600">
-                      Recurso: {log.resource || 'general'}
+
+                  <div className="space-y-0.5">
+                    <p className="text-[11px] font-black text-white tracking-tight leading-snug">
+                      {actionMeta.title}
+                    </p>
+                    <p className="text-[9px] font-medium text-slate-400">
+                      {actionMeta.description}
+                    </p>
+                  </div>
+
+                  <div className="flex items-center justify-between mt-1 pt-1 border-t border-white/5">
+                    <span className="text-[8px] font-mono text-slate-500">
+                      Módulo: {(log.resource || 'General').toUpperCase()}
                     </span>
                     <Badge 
+                      variant="outline"
                       className={cn(
-                        "text-[7px] font-black uppercase tracking-widest border-none px-2 h-4",
-                        log.severity === 'critical' 
-                          ? 'bg-rose-500/20 text-rose-400' 
-                          : 'bg-blue-500/20 text-blue-400'
+                        "text-[7px] font-black uppercase tracking-widest px-2 h-4 border",
+                        actionMeta.badgeClass
                       )}
                     >
-                      {log.severity || 'info'}
+                      {actionMeta.badge}
                     </Badge>
                   </div>
                 </div>
