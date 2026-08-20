@@ -122,10 +122,16 @@ export default function AdminDashboard() {
             .slice(0, 10);
     }, [orders]);
 
+    // Estado de filtro de período para tarjetas KPI del inicio
+    const [kpiPeriod, setKpiPeriod] = useState<'today' | '7d' | 'this_month' | 'last_month' | 'all'>('all');
+
     const stats = useMemo(() => {
-        if (!orders || !products || !customers) return { revenue: 0, pending: 0, lowStock: 0, clients: 0, inventoryValuation: 0, totalDebts: 0, inTransitValuation: 0 };
+        if (!orders || !products || !customers) return { 
+            revenue: 0, pending: 0, lowStock: 0, clients: 0, inventoryValuation: 0, totalDebts: 0, inTransitValuation: 0,
+            totalOrdersCount: 0, totalOrdersAmount: 0, liquidadosCount: 0, liquidadosAmount: 0 
+        };
         
-        const globalMetrics = calculateGlobalFinancialMetrics(orders);
+        const globalMetrics = calculateGlobalFinancialMetrics(orders, kpiPeriod);
         const revenue = globalMetrics.totalRevenue;
         const totalDebts = globalMetrics.totalDebts;
         const pending = globalMetrics.pendingOrdersCount;
@@ -148,8 +154,14 @@ export default function AdminDashboard() {
             });
         }
 
-        return { revenue, pending, lowStock, clients, inventoryValuation, totalDebts, inTransitValuation };
-    }, [orders, products, customers, purchaseOrders]);
+        return { 
+            revenue, pending, lowStock, clients, inventoryValuation, totalDebts, inTransitValuation,
+            totalOrdersCount: globalMetrics.totalOrdersCount,
+            totalOrdersAmount: globalMetrics.totalOrdersAmount,
+            liquidadosCount: globalMetrics.liquidadosCount,
+            liquidadosAmount: globalMetrics.liquidadosAmount
+        };
+    }, [orders, products, customers, purchaseOrders, kpiPeriod]);
 
     const convertedBs = useMemo(() => {
         const usd = parseFloat(usdAmountInput) || 0;
@@ -226,42 +238,73 @@ export default function AdminDashboard() {
                 </div>
             </div>
 
-            {/* TARJETAS MÉTRICAS EJECUTIVAS */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 px-1">
-                <DashboardMetricCard 
-                    title="Venta Realizada" 
-                    value={`$${stats.revenue.toLocaleString('en-US', { maximumFractionDigits: 0 })}`} 
-                    subtitle="Recaudación Efectiva" 
-                    tooltip="Total acumulado de ventas facturadas y cobradas efectivamente con dinero ingresado en caja."
-                    icon={TrendingUp} iconBg="bg-emerald-50" iconColor="text-emerald-500" 
-                    onClick={() => router.push('/dashboard/billing')}
-                />
-                <DashboardMetricCard 
-                    title="Cuentas por Cobrar" 
-                    value={`$${stats.totalDebts.toLocaleString('en-US', { maximumFractionDigits: 0 })}`} 
-                    subtitle="Deuda Activa Clientes" 
-                    tooltip="Monto total pendiente por cobrar a clientes con créditos activos o abonos pendientes."
-                    icon={DollarSign} iconBg="bg-rose-50" iconColor="text-rose-500" 
-                    alert={stats.totalDebts > 0}
-                    onClick={() => router.push('/dashboard/billing?status=pendientes')}
-                    onIconClick={() => setIsReceivablesModalOpen(true)}
-                />
-                <DashboardMetricCard 
-                    title="Valor del Inventario" 
-                    value={`$${stats.inventoryValuation.toLocaleString('en-US', { maximumFractionDigits: 0 })}`} 
-                    subtitle="Activos en Almacén" 
-                    tooltip="Valoración económica total de las mercancías físicamente disponibles en almacén a precio de catálogo."
-                    icon={Boxes} iconBg="bg-blue-50" iconColor="text-blue-500" 
-                    onClick={() => router.push('/dashboard/inventory')}
-                />
-                <DashboardMetricCard 
-                    title="Importación en Tránsito" 
-                    value={`$${stats.inTransitValuation.toLocaleString('en-US', { maximumFractionDigits: 0 })}`} 
-                    subtitle="Lotes Marítimos/Aéreos" 
-                    tooltip="Costo acumulado de órdenes de compra a proveedores actualmente en envío marítimo o aéreo."
-                    icon={Globe} iconBg="bg-indigo-50" iconColor="text-indigo-500" 
-                    onClick={() => router.push('/dashboard/purchase-orders')}
-                />
+            {/* BARRA DE FILTROS DE PERÍODO INTERACTIVOS Y TARJETAS MÉTRICAS */}
+            <div className="space-y-4 px-1">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                    <div className="space-y-0.5">
+                        <h2 className="text-xs font-black uppercase tracking-[0.2em] text-slate-400">Indicadores Ejecutivos</h2>
+                        <p className="text-[9px] font-bold text-slate-400 uppercase">Métricas financieras y comerciales en tiempo real</p>
+                    </div>
+                    <div className="flex items-center bg-slate-100 p-1 rounded-2xl gap-1 border border-slate-200/60 shadow-sm">
+                        {[
+                            { id: 'today', label: '☀️ Hoy' },
+                            { id: '7d', label: '⚡ 7 Días' },
+                            { id: 'this_month', label: '🗓️ Mes Actual' },
+                            { id: 'all', label: '🌐 Histórico' },
+                        ].map(p => (
+                            <button
+                                key={p.id}
+                                type="button"
+                                onClick={() => setKpiPeriod(p.id as any)}
+                                className={cn(
+                                    "px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer",
+                                    kpiPeriod === p.id 
+                                        ? "bg-slate-900 text-white shadow-md font-black" 
+                                        : "text-slate-500 hover:text-slate-900 hover:bg-white/50 font-bold"
+                                )}
+                            >
+                                {p.label}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                    <DashboardMetricCard 
+                        title="Venta Realizada" 
+                        value={`$${stats.revenue.toLocaleString('en-US', { maximumFractionDigits: 0 })}`} 
+                        subtitle="Recaudación Efectiva" 
+                        tooltip="Total acumulado de ventas facturadas y cobradas efectivamente con dinero ingresado en caja."
+                        icon={TrendingUp} iconBg="bg-emerald-50" iconColor="text-emerald-500" 
+                        onClick={() => router.push('/dashboard/billing')}
+                    />
+                    <DashboardMetricCard 
+                        title="Cuentas por Cobrar" 
+                        value={`$${stats.totalDebts.toLocaleString('en-US', { maximumFractionDigits: 0 })}`} 
+                        subtitle="Deuda Activa Clientes" 
+                        tooltip="Monto total pendiente por cobrar a clientes con créditos activos o abonos pendientes."
+                        icon={DollarSign} iconBg="bg-rose-50" iconColor="text-rose-500" 
+                        alert={stats.totalDebts > 0}
+                        onClick={() => router.push('/dashboard/billing?status=pendientes')}
+                        onIconClick={() => setIsReceivablesModalOpen(true)}
+                    />
+                    <DashboardMetricCard 
+                        title="Valor del Inventario" 
+                        value={`$${stats.inventoryValuation.toLocaleString('en-US', { maximumFractionDigits: 0 })}`} 
+                        subtitle="Activos en Almacén" 
+                        tooltip="Valoración económica total de las mercancías físicamente disponibles en almacén a precio de catálogo."
+                        icon={Boxes} iconBg="bg-blue-50" iconColor="text-blue-500" 
+                        onClick={() => router.push('/dashboard/inventory')}
+                    />
+                    <DashboardMetricCard 
+                        title="Pedidos Realizados" 
+                        value={`${stats.totalOrdersCount} Pedidos`} 
+                        subtitle={`$${stats.totalOrdersAmount.toLocaleString('en-US', { maximumFractionDigits: 0 })} Registrados`} 
+                        tooltip="Volumen acumulado de órdenes comerciales ingresadas al sistema en todas sus fases operativas."
+                        icon={ShoppingCart} iconBg="bg-indigo-50" iconColor="text-indigo-500" 
+                        onClick={() => router.push('/dashboard/orders')}
+                    />
+                </div>
             </div>
 
             {/* ESPECIAL SUPERADMIN: SUITE DE CONTROL DE INTELIGENCIA Y RED */}
@@ -277,7 +320,7 @@ export default function AdminDashboard() {
                     </Badge>
                   </div>
                 </CardHeader>
-                <CardContent className="p-8 grid grid-cols-1 md:grid-cols-3 gap-6">
+                <CardContent className="p-8 grid grid-cols-1 md:grid-cols-4 gap-6">
                   <div className="p-6 rounded-2xl bg-white/5 border border-white/10 space-y-3">
                     <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Analista de Negocio IA</p>
                     <p className="text-xs font-medium text-slate-300">Consulta informes estratégicos y proyecciones financieras impulsadas por Genkit.</p>
@@ -292,6 +335,20 @@ export default function AdminDashboard() {
                     <Button onClick={() => router.push('/dashboard/audit')} variant="outline" className="w-full h-10 rounded-xl border-white/20 bg-transparent text-white font-black text-[9px] uppercase tracking-wider hover:bg-white/10">
                       Ver Log Auditoría <ArrowUpRight className="ml-1 h-3.5 w-3.5" />
                     </Button>
+                  </div>
+
+                  <div 
+                    onClick={() => router.push('/dashboard/purchase-orders')}
+                    className="p-6 rounded-2xl bg-white/5 border border-white/10 space-y-3 cursor-pointer hover:bg-white/10 transition-colors"
+                  >
+                    <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 flex items-center justify-between">
+                      <span>Importación en Tránsito</span>
+                      <Globe className="h-4 w-4 text-indigo-400" />
+                    </p>
+                    <p className="text-2xl font-black text-indigo-400 tracking-tighter">
+                      ${stats.inTransitValuation.toLocaleString('en-US', { maximumFractionDigits: 0 })}
+                    </p>
+                    <p className="text-[8px] font-bold text-slate-500 uppercase">Lotes Marítimos y Aéreos</p>
                   </div>
 
                   <div className="p-6 rounded-2xl bg-white/5 border border-white/10 space-y-3">

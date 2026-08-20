@@ -1,4 +1,4 @@
-import { addDays, differenceInDays } from 'date-fns';
+import { addDays, differenceInDays, subDays, startOfDay, isSameDay } from 'date-fns';
 import { Timestamp } from 'firebase/firestore';
 import type { Order, Invoice } from './definitions';
 
@@ -166,7 +166,10 @@ export function getInvoiceFromOrder(order: Order): Invoice | null {
     } as any;
 }
 
-export function calculateGlobalFinancialMetrics(orders: Order[] | null) {
+export function calculateGlobalFinancialMetrics(
+    orders: Order[] | null,
+    periodFilter: 'today' | '7d' | 'this_month' | 'last_month' | 'all' = 'all'
+) {
     if (!orders || orders.length === 0) {
         return {
             totalRevenue: 0,
@@ -176,11 +179,34 @@ export function calculateGlobalFinancialMetrics(orders: Order[] | null) {
             porVencer: 0,
             enVerificacion: 0,
             effectiveSalesCount: 0,
-            pendingOrdersCount: 0
+            pendingOrdersCount: 0,
+            totalOrdersCount: 0,
+            totalOrdersAmount: 0,
+            liquidadosCount: 0,
+            liquidadosAmount: 0
         };
     }
 
+    const now = new Date();
     const VALID_SALES_STATUSES = ['Entregado', 'Completado', 'Despachado', 'Pagado', 'Aprobado', 'En Preparación', 'En Verificación'];
+
+    const matchesPeriod = (d: Date) => {
+        if (periodFilter === 'all') return true;
+        if (periodFilter === 'today') {
+            return isSameDay(d, now);
+        }
+        if (periodFilter === '7d') {
+            return d >= startOfDay(subDays(now, 6));
+        }
+        if (periodFilter === 'this_month') {
+            return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+        }
+        if (periodFilter === 'last_month') {
+            const lm = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+            return d.getMonth() === lm.getMonth() && d.getFullYear() === lm.getFullYear();
+        }
+        return true;
+    };
 
     let totalRevenue = 0;
     let totalDebts = 0;
@@ -190,27 +216,53 @@ export function calculateGlobalFinancialMetrics(orders: Order[] | null) {
     let enVerificacion = 0;
     let effectiveSalesCount = 0;
     let pendingOrdersCount = 0;
+    let totalOrdersCount = 0;
+    let totalOrdersAmount = 0;
+    let liquidadosCount = 0;
+    let liquidadosAmount = 0;
 
     orders.forEach(order => {
         if (!order || order.status === 'Cancelado' || order.status === 'Rechazado' || order.status === 'Borrador') {
             return;
         }
 
-        const isSalesStatus = VALID_SALES_STATUSES.includes(order.status);
-        if (isSalesStatus) {
-            totalRevenue += (order.totalAmount || 0);
-            effectiveSalesCount++;
+        const salesDate = getSalesDate(order);
+        const cashDate = getCashDate(order);
+
+        // 1. Pedidos Realizados (Todas las fases activas)
+        if (matchesPeriod(salesDate)) {
+            totalOrdersCount++;
+            totalOrdersAmount += (order.totalAmount || 0);
+
+            const isSalesStatus = VALID_SALES_STATUSES.includes(order.status);
+            if (isSalesStatus) {
+                totalRevenue += (order.totalAmount || 0);
+                effectiveSalesCount++;
+            }
+
+            if (['Pendiente', 'Aprobado', 'En Preparación'].includes(order.status)) {
+                pendingOrdersCount++;
+            }
+
+            const isDispatched = ['Despachado', 'Entregado', 'Completado'].includes(order.status);
+            const invoice = getInvoiceFromOrder(order);
+            const isFullyPaid = order.status === 'Pagado' || (invoice && invoice.remainingBalance <= 0.05);
+
+            if (isDispatched && isFullyPaid) {
+                liquidadosCount++;
+                liquidadosAmount += (order.totalAmount || 0);
+            }
         }
 
-        const cashReceived = getEffectiveCashReceived(order);
-        recaudadoCash += cashReceived;
-
-        if (['Pendiente', 'Aprobado', 'En Preparación'].includes(order.status)) {
-            pendingOrdersCount++;
+        // 2. Cobranzas Cash
+        if (matchesPeriod(cashDate)) {
+            const cashReceived = getEffectiveCashReceived(order);
+            recaudadoCash += cashReceived;
         }
 
+        // 3. Deuda Activa
         const invoice = getInvoiceFromOrder(order);
-        if (invoice) {
+        if (invoice && matchesPeriod(salesDate)) {
             if (invoice.status === 'Vencido') vencido += invoice.remainingBalance;
             if (invoice.status === 'Por Vencer') porVencer += invoice.remainingBalance;
             if (invoice.status === 'En Verificación') enVerificacion += invoice.remainingBalance;
@@ -229,6 +281,10 @@ export function calculateGlobalFinancialMetrics(orders: Order[] | null) {
         porVencer,
         enVerificacion,
         effectiveSalesCount,
-        pendingOrdersCount
+        pendingOrdersCount,
+        totalOrdersCount,
+        totalOrdersAmount,
+        liquidadosCount,
+        liquidadosAmount
     };
 }

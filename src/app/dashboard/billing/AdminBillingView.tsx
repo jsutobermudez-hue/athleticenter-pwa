@@ -34,7 +34,9 @@ import {
     MessageSquare,
     Clock,
     Filter,
-    Download
+    Download,
+    ShoppingCart,
+    CheckCircle2
 } from 'lucide-react';
 import { ConfirmPaymentDialog } from './register-payment-dialog';
 import { getInvoiceFromOrder, calculateGlobalFinancialMetrics } from '@/lib/billing';
@@ -119,16 +121,23 @@ export function AdminBillingView() {
   }, [allInvoices]);
   
   const metrics = useMemo(() => {
-    if (!rawOrders) return { vencido: 0, porVencer: 0, enVerificacion: 0, totalPorCobrar: 0, recaudado: 0 };
-    const globalMetrics = calculateGlobalFinancialMetrics(rawOrders);
+    if (!rawOrders) return { 
+      vencido: 0, porVencer: 0, enVerificacion: 0, totalPorCobrar: 0, recaudado: 0,
+      totalOrdersCount: 0, totalOrdersAmount: 0, liquidadosCount: 0, liquidadosAmount: 0
+    };
+    const globalMetrics = calculateGlobalFinancialMetrics(rawOrders, dateFilter as any);
     return {
       vencido: globalMetrics.vencido,
       porVencer: globalMetrics.porVencer,
       enVerificacion: globalMetrics.enVerificacion,
       totalPorCobrar: globalMetrics.totalDebts,
-      recaudado: globalMetrics.recaudadoCash
+      recaudado: globalMetrics.recaudadoCash,
+      totalOrdersCount: globalMetrics.totalOrdersCount,
+      totalOrdersAmount: globalMetrics.totalOrdersAmount,
+      liquidadosCount: globalMetrics.liquidadosCount,
+      liquidadosAmount: globalMetrics.liquidadosAmount
     };
-  }, [rawOrders]);
+  }, [rawOrders, dateFilter]);
 
   const filteredInvoices = useMemo(() => {
     if (!allInvoices) return [];
@@ -370,11 +379,12 @@ export function AdminBillingView() {
         </div>
       </header>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 px-2">
-        <DashboardMetricCard title="Mora Crítica" value={`$${metrics.vencido.toLocaleString()}`} subtitle="Excedido +30D" icon={FileWarning} iconBg="bg-rose-50" iconColor="text-rose-500" onClick={() => setStatusFilter('Vencido')} isActive={statusFilter === 'Vencido'} />
-        <DashboardMetricCard title="Total por Cobrar" value={`$${metrics.totalPorCobrar.toLocaleString()}`} subtitle="Cartera Total Pendiente" icon={Wallet} iconBg="bg-blue-50" iconColor="text-blue-500" onClick={() => setStatusFilter('pendientes')} isActive={statusFilter === 'pendientes'} />
-        <DashboardMetricCard title="En Auditoría" value={`$${metrics.enVerificacion.toLocaleString()}`} subtitle="Abonos por Conciliar" icon={Sparkles} iconBg="bg-amber-50" iconColor="text-amber-500" onClick={() => setStatusFilter('En Verificación')} isActive={statusFilter === 'En Verificación'} />
-        <DashboardMetricCard title="Efectivo Real" value={`$${metrics.recaudado.toLocaleString()}`} subtitle="Ingreso Neto (CASH)" icon={TrendingUp} iconBg="bg-emerald-50" iconColor="text-emerald-500" onClick={() => setStatusFilter('Pagado')} isActive={statusFilter === 'Pagado'} />
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 px-2">
+        <DashboardMetricCard title="Mora Crítica" value={`$${metrics.vencido.toLocaleString()}`} subtitle="Excedido +30D" icon={FileWarning} iconBg="bg-rose-50" iconColor="text-rose-500" onClick={() => setStatusFilter('Vencido')} isActive={statusFilter === 'Vencido'} tooltip="Facturas con vencimiento mayor a 30 días en crédito." />
+        <DashboardMetricCard title="Total por Cobrar" value={`$${metrics.totalPorCobrar.toLocaleString()}`} subtitle="Deuda Activa Clientes" icon={Wallet} iconBg="bg-blue-50" iconColor="text-blue-500" onClick={() => setStatusFilter('pendientes')} isActive={statusFilter === 'pendientes'} tooltip="Saldo pendiente neto por cobrar a la red de clientes." />
+        <DashboardMetricCard title="En Auditoría" value={`$${metrics.enVerificacion.toLocaleString()}`} subtitle="Abonos por Conciliar" icon={Sparkles} iconBg="bg-amber-50" iconColor="text-amber-500" onClick={() => setStatusFilter('En Verificación')} isActive={statusFilter === 'En Verificación'} tooltip="Abonos registrados pendientes de verificación en caja." />
+        <DashboardMetricCard title="Efectivo Real" value={`$${metrics.recaudado.toLocaleString()}`} subtitle="Ingreso Neto (CASH)" icon={TrendingUp} iconBg="bg-emerald-50" iconColor="text-emerald-500" onClick={() => setStatusFilter('Pagado')} isActive={statusFilter === 'Pagado'} tooltip="Recaudación total en efectivo o divisas efectivamente liquidada." />
+        <DashboardMetricCard title="Pedidos Realizados" value={`${metrics.totalOrdersCount} Pedidos`} subtitle={`$${metrics.totalOrdersAmount.toLocaleString('en-US', { maximumFractionDigits: 0 })} Registrados`} icon={ShoppingCart} iconBg="bg-indigo-50" iconColor="text-indigo-500" tooltip="Volumen total de pedidos registrados en todas las fases comerciales." />
       </div>
 
       <div className="flex flex-col gap-6 w-full">
