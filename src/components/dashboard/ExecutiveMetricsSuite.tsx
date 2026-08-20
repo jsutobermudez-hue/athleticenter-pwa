@@ -32,6 +32,7 @@ import { OrderSheetController } from '@/app/dashboard/orders/OrderSheetControlle
 import { captureSvgAsPng } from '@/lib/chart-pdf-exporter';
 import { doc } from 'firebase/firestore';
 import { useDoc, useFirestore, useMemoFirebase } from '@/firebase';
+import { getCashDate, getSalesDate, getEffectiveCashReceived } from '@/lib/billing';
 
 interface ExecutiveMetricsSuiteProps {
     orders: Order[] | null;
@@ -43,24 +44,6 @@ const convertToDate = (value: any): Date => {
         return value.toDate();
     }
     return new Date(value);
-};
-
-const getEffectiveCashReceived = (o: Order): number => {
-    if (!o) return 0;
-    if (typeof o.totalCashReceived === 'number' && o.totalCashReceived > 0) {
-        return o.totalCashReceived;
-    }
-    if (typeof o.amountPaid === 'number' && o.amountPaid > 0) {
-        return o.amountPaid;
-    }
-    const altPaid = (o as any).paidAmount || (o as any).totalPaid || (o as any).montoPagado;
-    if (typeof altPaid === 'number' && altPaid > 0) {
-        return altPaid;
-    }
-    if (o.status === 'Pagado' || (o as any).isPaid === true || (o as any).paymentStatus === 'Pagado') {
-        return o.totalAmount || 0;
-    }
-    return 0;
 };
 
 const isCashOrder = (o: Order): boolean => {
@@ -259,21 +242,33 @@ export function ExecutiveMetricsSuite({ orders }: ExecutiveMetricsSuiteProps) {
         let globalOrdersCount = 0;
 
         const chartPoints = periodsList.map(p => {
-            const periodOrders = orders.filter(o => {
-                const d = convertToDate(o.receptionDate || o.approvalDate || o.createdAt || o.orderDate);
+            const salesOrders = orders.filter(o => {
+                if (!VALID_SALES_STATUSES.includes(o.status)) return false;
+                const d = getSalesDate(o);
                 return d >= p.start && d <= p.end;
             });
-
-            const salesOrders = periodOrders.filter(o => VALID_SALES_STATUSES.includes(o.status));
             const salesTotal = salesOrders.reduce((sum, o) => sum + (o.totalAmount || 0), 0);
 
-            const cashOrders = periodOrders.filter(o => isCashOrder(o));
+            const cashOrders = orders.filter(o => {
+                const cash = getEffectiveCashReceived(o);
+                if (cash <= 0) return false;
+                const d = getCashDate(o);
+                return d >= p.start && d <= p.end;
+            });
             const cashTotal = cashOrders.reduce((sum, o) => sum + getEffectiveCashReceived(o), 0);
 
-            const dispatchedOrders = periodOrders.filter(o => ['Despachado', 'Entregado', 'Completado'].includes(o.status));
+            const dispatchedOrders = orders.filter(o => {
+                if (!['Despachado', 'Entregado', 'Completado'].includes(o.status)) return false;
+                const d = getSalesDate(o);
+                return d >= p.start && d <= p.end;
+            });
             const dispatchedCount = dispatchedOrders.length;
 
-            const cancelledOrders = periodOrders.filter(o => ['Cancelado', 'Rechazado'].includes(o.status));
+            const cancelledOrders = orders.filter(o => {
+                if (!['Cancelado', 'Rechazado'].includes(o.status)) return false;
+                const d = getSalesDate(o);
+                return d >= p.start && d <= p.end;
+            });
             const cancelledCount = cancelledOrders.length;
 
             const ordersCount = salesOrders.length;
@@ -295,7 +290,7 @@ export function ExecutiveMetricsSuite({ orders }: ExecutiveMetricsSuiteProps) {
                 pedidosTotales: ordersCount,
                 ticketPromedio: avgTicket,
                 tasaCancelacion: cancelRate,
-                periodOrders: periodOrders,
+                periodOrders: salesOrders,
                 salesOrders: salesOrders,
                 cashOrders: cashOrders,
                 dispatchedOrders: dispatchedOrders,

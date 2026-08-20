@@ -8,8 +8,26 @@ export function getEffectiveCashReceived(o: Order): number {
     if (typeof o.amountPaid === 'number' && o.amountPaid > 0) return o.amountPaid;
     const altPaid = (o as any).paidAmount || (o as any).totalPaid || (o as any).montoPagado;
     if (typeof altPaid === 'number' && altPaid > 0) return altPaid;
+    if (Array.isArray((o as any).payments)) {
+        const sumPayments = (o as any).payments.reduce((s: number, p: any) => s + (p.amount || p.monto || 0), 0);
+        if (sumPayments > 0) return sumPayments;
+    }
     if (o.status === 'Pagado' || (o as any).isPaid === true || (o as any).paymentStatus === 'Pagado') return o.totalAmount || 0;
     return 0;
+}
+
+export function getCashDate(o: Order): Date {
+    if (!o) return new Date(0);
+    const raw = (o as any).paidAt || (o as any).paymentDate || (o as any).fechaPago || o.updatedAt || o.approvalDate || o.receptionDate || o.createdAt || o.orderDate;
+    if (!raw) return new Date(0);
+    return typeof (raw as any).toDate === 'function' ? (raw as any).toDate() : new Date(raw as any);
+}
+
+export function getSalesDate(o: Order): Date {
+    if (!o) return new Date(0);
+    const raw = o.receptionDate || o.approvalDate || o.createdAt || o.orderDate;
+    if (!raw) return new Date(0);
+    return typeof (raw as any).toDate === 'function' ? (raw as any).toDate() : new Date(raw as any);
 }
 
 export const CUTOFF_DISCOUNT_DATE = new Date('2026-08-02T00:00:00.000Z');
