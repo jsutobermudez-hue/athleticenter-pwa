@@ -32,7 +32,7 @@ import { OrderSheetController } from '@/app/dashboard/orders/OrderSheetControlle
 import { captureSvgAsPng } from '@/lib/chart-pdf-exporter';
 import { doc } from 'firebase/firestore';
 import { useDoc, useFirestore, useMemoFirebase } from '@/firebase';
-import { getCashDate, getSalesDate, getEffectiveCashReceived } from '@/lib/billing';
+import { getCashDate, getSalesDate, getEffectiveCashReceived, getInvoiceFromOrder } from '@/lib/billing';
 
 interface ExecutiveMetricsSuiteProps {
     orders: Order[] | null;
@@ -298,7 +298,28 @@ export function ExecutiveMetricsSuite({ orders }: ExecutiveMetricsSuiteProps) {
             };
         });
 
-        const globalPending = Math.max(0, globalSales - globalCash);
+        let globalPending = 0;
+
+        orders.forEach(o => {
+            if (!o || o.status === 'Cancelado' || o.status === 'Rechazado' || o.status === 'Borrador') return;
+            const inv = getInvoiceFromOrder(o);
+            if (inv && inv.remainingBalance > 0.05 && inv.status !== 'Pagado') {
+                const salesDate = getSalesDate(o);
+                if (period === 'today') {
+                    if (isSameDay(salesDate, now)) globalPending += inv.remainingBalance;
+                } else if (period === '7d') {
+                    if (salesDate >= startOfDay(subDays(now, 6))) globalPending += inv.remainingBalance;
+                } else if (period === 'this_month') {
+                    if (salesDate.getMonth() === now.getMonth() && salesDate.getFullYear() === now.getFullYear()) globalPending += inv.remainingBalance;
+                } else if (period === 'last_month') {
+                    const lm = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+                    if (salesDate.getMonth() === lm.getMonth() && salesDate.getFullYear() === lm.getFullYear()) globalPending += inv.remainingBalance;
+                } else {
+                    globalPending += inv.remainingBalance;
+                }
+            }
+        });
+
         const globalAvgTicket = globalOrdersCount > 0 ? globalSales / globalOrdersCount : 0;
 
         return {
@@ -318,7 +339,8 @@ export function ExecutiveMetricsSuite({ orders }: ExecutiveMetricsSuiteProps) {
 
     const efficiencyRate = useMemo(() => {
         if (metricsData.totals.sales <= 0) return 0;
-        return Math.min(100, Math.round((metricsData.totals.cash / metricsData.totals.sales) * 100));
+        const collectedOnIssuedSales = Math.max(0, metricsData.totals.sales - metricsData.totals.pending);
+        return Math.min(100, Math.round((collectedOnIssuedSales / metricsData.totals.sales) * 100));
     }, [metricsData]);
 
     const dsoDays = useMemo(() => {
