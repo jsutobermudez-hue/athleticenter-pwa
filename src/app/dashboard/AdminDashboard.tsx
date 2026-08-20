@@ -47,6 +47,7 @@ import { Badge } from '@/components/ui/badge';
 import { OrderSheetController } from './orders/OrderSheetController';
 import { ProductDetailsSheet } from '@/app/dashboard/inventory/product-details-sheet';
 import { cn } from '@/lib/utils';
+import { calculateGlobalFinancialMetrics } from '@/lib/billing';
 
 export default function AdminDashboard() {
     const router = useRouter();
@@ -61,7 +62,7 @@ export default function AdminDashboard() {
     // Conversor instantáneo BCV
     const [usdAmountInput, setUsdAmountInput] = useState<string>('100');
 
-    const ordersQuery = useMemoFirebase(() => (firestore ? query(collection(firestore, 'orders'), limit(100)) : null), [firestore]);
+    const ordersQuery = useMemoFirebase(() => (firestore ? query(collection(firestore, 'orders'), limit(500)) : null), [firestore]);
     const productsQuery = useMemoFirebase(() => (firestore ? query(collection(firestore, 'products'), limit(200)) : null), [firestore]);
     const customersQuery = useMemoFirebase(() => (firestore ? query(collection(firestore, 'customers'), limit(100)) : null), [firestore]);
     const offersQuery = useMemoFirebase(() => (firestore ? query(collection(firestore, 'offers'), limit(100)) : null), [firestore]);
@@ -124,8 +125,11 @@ export default function AdminDashboard() {
     const stats = useMemo(() => {
         if (!orders || !products || !customers) return { revenue: 0, pending: 0, lowStock: 0, clients: 0, inventoryValuation: 0, totalDebts: 0, inTransitValuation: 0 };
         
-        const revenue = orders.filter(o => o.status === 'Pagado').reduce((s, o) => s + o.totalAmount, 0);
-        const pending = orders.filter(o => ['Pendiente', 'Aprobado', 'En Preparación'].includes(o.status)).length;
+        const globalMetrics = calculateGlobalFinancialMetrics(orders);
+        const revenue = globalMetrics.totalRevenue;
+        const totalDebts = globalMetrics.totalDebts;
+        const pending = globalMetrics.pendingOrdersCount;
+
         const lowStock = products.filter(p => (p.stockLevel ?? (p as any).stock ?? 0) < 10).length;
         const clients = customers.filter(c => c.status === 'Activo').length;
 
@@ -133,13 +137,6 @@ export default function AdminDashboard() {
         products.forEach(p => {
             const qty = p.stockLevel ?? (p as any).stock ?? 0;
             inventoryValuation += qty * (p.price || 0);
-        });
-
-        let totalDebts = 0;
-        orders.forEach(o => {
-            if (o.status !== 'Pagado' && o.status !== 'Cancelado' && o.status !== 'Borrador') {
-                totalDebts += Math.max(0, (o.totalAmount || 0) - (o.amountPaid || 0));
-            }
         });
 
         let inTransitValuation = 0;

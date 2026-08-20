@@ -37,7 +37,7 @@ import {
     Download
 } from 'lucide-react';
 import { ConfirmPaymentDialog } from './register-payment-dialog';
-import { getInvoiceFromOrder } from '@/lib/billing';
+import { getInvoiceFromOrder, calculateGlobalFinancialMetrics } from '@/lib/billing';
 import { format } from 'date-fns';
 import { OrderSheetController } from '../orders/OrderSheetController';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
@@ -120,19 +120,14 @@ export function AdminBillingView() {
   
   const metrics = useMemo(() => {
     if (!rawOrders) return { vencido: 0, porVencer: 0, enVerificacion: 0, totalPorCobrar: 0, recaudado: 0 };
-    return rawOrders.reduce((acc, order) => {
-      const realCash = order.totalCashReceived ?? order.amountPaid ?? 0;
-      acc.recaudado += realCash;
-      const inv = getInvoiceFromOrder(order);
-      if (!inv) return acc;
-      if (inv.status === 'Vencido') acc.vencido += inv.remainingBalance;
-      if (inv.status === 'Por Vencer') acc.porVencer += inv.remainingBalance;
-      if (inv.status === 'En Verificación') acc.enVerificacion += inv.remainingBalance;
-      if (inv.remainingBalance > 0.05 && inv.status !== 'Pagado') {
-        acc.totalPorCobrar += inv.remainingBalance;
-      }
-      return acc;
-    }, { vencido: 0, porVencer: 0, enVerificacion: 0, totalPorCobrar: 0, recaudado: 0 });
+    const globalMetrics = calculateGlobalFinancialMetrics(rawOrders);
+    return {
+      vencido: globalMetrics.vencido,
+      porVencer: globalMetrics.porVencer,
+      enVerificacion: globalMetrics.enVerificacion,
+      totalPorCobrar: globalMetrics.totalDebts,
+      recaudado: globalMetrics.recaudadoCash
+    };
   }, [rawOrders]);
 
   const filteredInvoices = useMemo(() => {

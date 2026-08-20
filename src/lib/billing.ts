@@ -147,3 +147,70 @@ export function getInvoiceFromOrder(order: Order): Invoice | null {
         creditStartDate: creditStartDate,
     } as any;
 }
+
+export function calculateGlobalFinancialMetrics(orders: Order[] | null) {
+    if (!orders || orders.length === 0) {
+        return {
+            totalRevenue: 0,
+            totalDebts: 0,
+            recaudadoCash: 0,
+            vencido: 0,
+            porVencer: 0,
+            enVerificacion: 0,
+            effectiveSalesCount: 0,
+            pendingOrdersCount: 0
+        };
+    }
+
+    const VALID_SALES_STATUSES = ['Entregado', 'Completado', 'Despachado', 'Pagado', 'Aprobado', 'En Preparación', 'En Verificación'];
+
+    let totalRevenue = 0;
+    let totalDebts = 0;
+    let recaudadoCash = 0;
+    let vencido = 0;
+    let porVencer = 0;
+    let enVerificacion = 0;
+    let effectiveSalesCount = 0;
+    let pendingOrdersCount = 0;
+
+    orders.forEach(order => {
+        if (!order || order.status === 'Cancelado' || order.status === 'Rechazado' || order.status === 'Borrador') {
+            return;
+        }
+
+        const isSalesStatus = VALID_SALES_STATUSES.includes(order.status);
+        if (isSalesStatus) {
+            totalRevenue += (order.totalAmount || 0);
+            effectiveSalesCount++;
+        }
+
+        const cashReceived = getEffectiveCashReceived(order);
+        recaudadoCash += cashReceived;
+
+        if (['Pendiente', 'Aprobado', 'En Preparación'].includes(order.status)) {
+            pendingOrdersCount++;
+        }
+
+        const invoice = getInvoiceFromOrder(order);
+        if (invoice) {
+            if (invoice.status === 'Vencido') vencido += invoice.remainingBalance;
+            if (invoice.status === 'Por Vencer') porVencer += invoice.remainingBalance;
+            if (invoice.status === 'En Verificación') enVerificacion += invoice.remainingBalance;
+
+            if (invoice.remainingBalance > 0.05 && invoice.status !== 'Pagado') {
+                totalDebts += invoice.remainingBalance;
+            }
+        }
+    });
+
+    return {
+        totalRevenue,
+        totalDebts,
+        recaudadoCash,
+        vencido,
+        porVencer,
+        enVerificacion,
+        effectiveSalesCount,
+        pendingOrdersCount
+    };
+}
