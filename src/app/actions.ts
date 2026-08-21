@@ -43,14 +43,18 @@ export async function handlePasswordReset(email: string) {
 
 export async function runAIAnalyst(input: any) {
     try {
-        await ensureServerAuth();
+        try {
+            await ensureServerAuth();
+        } catch (authErr) {
+            console.warn("[Action Warning] ensureServerAuth soft warning:", authErr);
+        }
         const result = await aiAnalystFlow(input);
         return { success: true, data: result };
     } catch (e: any) {
-        console.error("[Action Error] AI Analyst failed:", e.message);
+        console.error("[Action Error] AI Analyst failed:", e?.message || e);
         return { 
             success: false, 
-            error: "Error de conexión con el motor neuronal. Por favor verifica la API Key." 
+            error: e?.message ? `Interrupción de red neuronal: ${e.message}` : "Error de conexión con el motor neuronal. Por favor reintenta tu consulta." 
         };
     }
 }

@@ -85,7 +85,7 @@ export function AIReportingHub() {
                 history: historyPayload
             });
 
-            if (result.success && result.data) {
+            if (result && result.success && result.data) {
                 const aiMsg: Message = {
                     id: (Date.now() + 1).toString(),
                     role: 'assistant',
@@ -96,11 +96,10 @@ export function AIReportingHub() {
                 };
                 setMessages(prev => [...prev, aiMsg]);
             } else {
-                // Si el server action devuelve success false pero no explota
                 const errorMsg: Message = {
                     id: (Date.now() + 2).toString(),
                     role: 'system',
-                    content: result.error || "Ocurrió un error inesperado en la red neuronal.",
+                    content: result?.error || "Ocurrió una interrupción al conectar con la red neuronal. Por favor reintenta tu consulta.",
                     timestamp: new Date()
                 };
                 setMessages(prev => [...prev, errorMsg]);
@@ -109,7 +108,9 @@ export function AIReportingHub() {
             const errorMsg: Message = {
                 id: (Date.now() + 3).toString(),
                 role: 'system',
-                content: e?.message ? `Sistemas de Red IA: ${e.message}` : "Fallo de conexión: No se pudo establecer enlace con el motor neuronal.",
+                content: e?.message && !e.message.includes('evaluating') 
+                    ? `Sistemas de Red IA: ${e.message}` 
+                    : "No se pudo establecer enlace con el motor neuronal. Verifica tu conexión de red e intenta nuevamente.",
                 timestamp: new Date()
             };
             setMessages(prev => [...prev, errorMsg]);

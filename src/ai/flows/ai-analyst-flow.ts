@@ -186,10 +186,13 @@ const getAutonomousClientRiskScoring = ai.defineTool(
         return {
           cliente: name,
           rif: data.rif || 'N/A',
+          telefono: data.phone || data.telefono || data.customerPhone || 'Sin Registro',
+          vendedor: data.assignedSalespersonName || data.salespersonName || 'Sin Asesor',
           scoreCredito: `${score} / 100`,
-          clasificacionRiesgo: score >= 80 ? 'BAJO RIESGO (VIP)' : score >= 50 ? 'RIESGO MODERADO' : 'ALTO RIESGO / MORA',
+          clasificacionRiesgo: score >= 80 ? 'BAJO RIESGO (VIP)' : score >= 50 ? 'RIESGO MODERADO' : 'ALTO RIESGO / MORA CRÍTICA',
           limiteCreditoUSD: `$${limitVal.toFixed(2)}`,
           creditoConsumidoUSD: `$${usedVal.toFixed(2)}`,
+          diasMora: moraDays > 0 ? `${moraDays} días` : 'Al Día',
           recomendacionGerencial: recomendacion
         };
       });
@@ -1029,9 +1032,12 @@ const getClientPortfolioAudit = ai.defineTool(
         return {
           cliente: data.razonSocial || data.name || 'Cliente N/A',
           rif: data.rif || 'N/A',
+          telefono: data.phone || data.telefono || data.customerPhone || 'Sin Registro',
+          vendedor: data.assignedSalespersonName || data.salespersonName || 'Sin Asesor',
           limiteCreditoUSD: `$${limitVal.toFixed(2)}`,
           creditoConsumidoUSD: `$${usedVal.toFixed(2)}`,
           creditoDisponibleUSD: `$${Math.max(0, limitVal - usedVal).toFixed(2)}`,
+          estadoMora: (data.moraDays || 0) > 35 ? '🔴 MORA CRÍTICA >35D' : (data.moraDays || 0) > 15 ? '🟡 MORA MODERADA' : '🟢 AL DÍA',
           estado: data.status || 'Activo'
         };
       });
