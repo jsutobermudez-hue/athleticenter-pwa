@@ -38,6 +38,7 @@ import { SalespersonRankingCard } from '@/components/dashboard/SalespersonRankin
 import { PaidInvoicesCard } from '@/components/dashboard/PaidInvoicesCard';
 import { ExecutiveMetricsSuite } from '@/components/dashboard/ExecutiveMetricsSuite';
 import { ReceivablesAuditModal } from '@/components/dashboard/ReceivablesAuditModal';
+import { CashAuditModal } from '@/components/dashboard/CashAuditModal';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -58,6 +59,7 @@ export default function AdminDashboard() {
     const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
     const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
     const [isReceivablesModalOpen, setIsReceivablesModalOpen] = useState<boolean>(false);
+    const [isCashAuditModalOpen, setIsCashAuditModalOpen] = useState<boolean>(false);
 
     // Conversor instantáneo BCV
     const [usdAmountInput, setUsdAmountInput] = useState<string>('100');
@@ -128,6 +130,7 @@ export default function AdminDashboard() {
     const stats = useMemo(() => {
         if (!orders || !products || !customers) return { 
             revenue: 0, pending: 0, lowStock: 0, clients: 0, inventoryValuation: 0, totalDebts: 0, inTransitValuation: 0,
+            recaudadoCash: 0, cashBreakdown: null,
             totalOrdersCount: 0, totalOrdersAmount: 0, liquidadosCount: 0, liquidadosAmount: 0 
         };
         
@@ -156,6 +159,8 @@ export default function AdminDashboard() {
 
         return { 
             revenue, pending, lowStock, clients, inventoryValuation, totalDebts, inTransitValuation,
+            recaudadoCash: globalMetrics.recaudadoCash,
+            cashBreakdown: globalMetrics.cashBreakdown,
             totalOrdersCount: globalMetrics.totalOrdersCount,
             totalOrdersAmount: globalMetrics.totalOrdersAmount,
             liquidadosCount: globalMetrics.liquidadosCount,
@@ -271,12 +276,12 @@ export default function AdminDashboard() {
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
                     <DashboardMetricCard 
-                        title="Venta Realizada" 
-                        value={`$${stats.revenue.toLocaleString('en-US', { maximumFractionDigits: 0 })}`} 
-                        subtitle="Recaudación Efectiva" 
-                        tooltip="Total acumulado de ventas facturadas y cobradas efectivamente con dinero ingresado en caja."
+                        title="Recaudación en Caja (Arqueo)" 
+                        value={`$${(stats.recaudadoCash || 0).toLocaleString('en-US', { maximumFractionDigits: 0 })}`} 
+                        subtitle={kpiPeriod === 'today' ? 'Arqueo Hoy' : kpiPeriod === '7d' ? 'Arqueo 7 Días' : kpiPeriod === 'this_month' ? 'Arqueo Mes Actual' : 'Recaudación Efectiva'} 
+                        tooltip="Total de dinero realmente ingresado a caja en el período. Clic para abrir el desglose por método de pago y acta de arqueo."
                         icon={TrendingUp} iconBg="bg-emerald-50" iconColor="text-emerald-500" 
-                        onClick={() => router.push('/dashboard/billing')}
+                        onClick={() => setIsCashAuditModalOpen(true)}
                     />
                     <DashboardMetricCard 
                         title="Cuentas por Cobrar" 
@@ -517,6 +522,15 @@ export default function AdminDashboard() {
                 isOpen={isReceivablesModalOpen}
                 onClose={() => setIsReceivablesModalOpen(false)}
                 orders={orders}
+                onSelectOrder={(o) => setSelectedOrder(o)}
+            />
+
+            <CashAuditModal
+                isOpen={isCashAuditModalOpen}
+                onClose={() => setIsCashAuditModalOpen(false)}
+                orders={orders}
+                periodFilter={kpiPeriod}
+                bcvRate={bcvRate}
                 onSelectOrder={(o) => setSelectedOrder(o)}
             />
         </div>

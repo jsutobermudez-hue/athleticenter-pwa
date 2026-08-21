@@ -36,10 +36,12 @@ import {
     Filter,
     Download,
     ShoppingCart,
-    CheckCircle2
+    CheckCircle2,
+    Banknote
 } from 'lucide-react';
 import { ConfirmPaymentDialog } from './register-payment-dialog';
 import { getInvoiceFromOrder, calculateGlobalFinancialMetrics } from '@/lib/billing';
+import { CashAuditModal } from '@/components/dashboard/CashAuditModal';
 import { format } from 'date-fns';
 import { OrderSheetController } from '../orders/OrderSheetController';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
@@ -68,7 +70,9 @@ export function AdminBillingView() {
   const [dateFilter, setDateFilter] = useState<'todos' | 'today' | '7d' | 'this_month' | 'last_month'>('todos');
   const [searchInput, setSearchInput] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+  const [selectedInvoiceForPayment, setSelectedInvoiceForPayment] = useState<Invoice | null>(null);
+  const [selectedOrderForSheet, setSelectedOrderForSheet] = useState<Order | null>(null);
+  const [isCashAuditModalOpen, setIsCashAuditModalOpen] = useState(false);
   const [isExportingPDF, setIsExportingPDF] = useState(false);
   
   const isGlobalStaff = useMemo(() => currentUser && ['admin', 'superadmin', 'gerencia', 'deposito'].includes(currentUser.role), [currentUser]);
@@ -365,6 +369,9 @@ export function AdminBillingView() {
           <Badge variant="outline" className="bg-emerald-50 text-emerald-800 border-emerald-200 text-[10px] font-black uppercase px-3 py-1.5 rounded-xl flex items-center gap-1.5 shadow-sm">
             <span>💱 Tasa Oficial BCV: Bs. {bcvRate.toFixed(2)} / USD</span>
           </Badge>
+          <Button onClick={() => setIsCashAuditModalOpen(true)} className="h-9 px-4 rounded-xl bg-emerald-700 hover:bg-emerald-600 text-white text-[9px] font-black uppercase tracking-wider shadow-md flex items-center gap-1.5">
+            <Banknote className="h-3.5 w-3.5" /> Arqueo de Caja
+          </Button>
           <Button onClick={exportInvoicesToPDF} disabled={isExportingPDF} className="h-9 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-[9px] font-black uppercase tracking-wider shadow-md flex items-center gap-1.5">
             {isExportingPDF ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Printer className="h-3.5 w-3.5 text-emerald-400" />} Imprimir PDF
           </Button>
@@ -525,7 +532,7 @@ export function AdminBillingView() {
                                 const isPendingVerification = invoice.status === 'En Verificación';
 
                                 return (
-                                    <TableRow key={invoice.id} className="hover:bg-primary/5 cursor-pointer transition-all border-b group" onClick={() => orderForInvoice && setSelectedOrder(orderForInvoice)}>
+                                    <TableRow key={invoice.id} className="hover:bg-primary/5 cursor-pointer transition-all border-b group" onClick={() => orderForInvoice && setSelectedOrderForSheet(orderForInvoice)}>
                                         <TableCell className="py-6 pl-8">
                                             <div className="flex flex-col">
                                                 <span className="font-mono text-[11px] font-black text-primary">#{invoice.id.substring(0, 8)}</span>
@@ -612,12 +619,20 @@ export function AdminBillingView() {
         </div>
       </div>
 
-      {selectedOrder && (
+      {selectedOrderForSheet && (
         <OrderSheetController 
-            order={selectedOrder} 
-            onOpenChange={(open) => !open && setSelectedOrder(null)} 
+            order={selectedOrderForSheet} 
+            onOpenChange={(open) => !open && setSelectedOrderForSheet(null)} 
         />
       )}
+
+      <CashAuditModal
+        isOpen={isCashAuditModalOpen}
+        onClose={() => setIsCashAuditModalOpen(false)}
+        orders={rawOrders}
+        periodFilter={dateFilter === 'todos' ? 'all' : dateFilter}
+        bcvRate={bcvRate}
+      />
     </div>
   );
 }

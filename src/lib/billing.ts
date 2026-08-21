@@ -268,10 +268,12 @@ export function calculateGlobalFinancialMetrics(
             if (invoice.status === 'En Verificación') enVerificacion += invoice.remainingBalance;
 
             if (invoice.remainingBalance > 0.05 && invoice.status !== 'Pagado') {
-                totalDebts += invoice.remainingBalance;
+        totalDebts += invoice.remainingBalance;
             }
         }
     });
+
+    const cashBreakdown = getCashBreakdown(orders, periodFilter);
 
     return {
         totalRevenue,
@@ -285,6 +287,103 @@ export function calculateGlobalFinancialMetrics(
         totalOrdersCount,
         totalOrdersAmount,
         liquidadosCount,
-        liquidadosAmount
+        liquidadosAmount,
+        cashBreakdown
+    };
+}
+
+export interface PaymentItem {
+    id: string;
+    orderId: string;
+    customerName: string;
+    salespersonName?: string;
+    date: Date;
+    method: string;
+    amount: number;
+    reference?: string;
+}
+
+export function getCashBreakdown(
+    orders: Order[] | null,
+    periodFilter: 'today' | '7d' | 'this_month' | 'last_month' | 'all' = 'all'
+) {
+    if (!orders || orders.length === 0) {
+        return {
+            totalCash: 0,
+            cashUsd: 0,
+            zelle: 0,
+            bcv: 0,
+            custodia: 0,
+            other: 0,
+            payments: [] as PaymentItem[]
+        };
+    }
+
+    const now = new Date();
+    const matchesPeriod = (d: Date) => {
+        if (periodFilter === 'all') return true;
+        if (periodFilter === 'today') return isSameDay(d, now);
+        if (periodFilter === '7d') return d >= startOfDay(subDays(now, 6));
+        if (periodFilter === 'this_month') return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+        if (periodFilter === 'last_month') {
+            const lm = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+            return d.getMonth() === lm.getMonth() && d.getFullYear() === lm.getFullYear();
+        }
+        return true;
+    };
+
+    let totalCash = 0;
+    let cashUsd = 0;
+    let zelle = 0;
+    let bcv = 0;
+    let custodia = 0;
+    let other = 0;
+    const payments: PaymentItem[] = [];
+
+    orders.forEach(o => {
+        const cashAmt = getEffectiveCashReceived(o);
+        if (cashAmt <= 0) return;
+
+        const cashDate = getCashDate(o);
+        if (!matchesPeriod(cashDate)) return;
+
+        totalCash += cashAmt;
+        const method = ((o as any).paymentMethod || (o as any).metodoPago || 'Efectivo USD').trim();
+        const normMethod = method.toLowerCase();
+
+        if (normMethod.includes('zelle')) {
+            zelle += cashAmt;
+        } else if (normMethod.includes('efectivo') || normMethod.includes('cash') || normMethod.includes('divisas')) {
+            cashUsd += cashAmt;
+        } else if (normMethod.includes('bcv') || normMethod.includes('pago móvil') || normMethod.includes('pago movil') || normMethod.includes('transferencia ves') || normMethod.includes('bolivar')) {
+            bcv += cashAmt;
+        } else if (normMethod.includes('custodia') || normMethod.includes('panamá') || normMethod.includes('panama')) {
+            custodia += cashAmt;
+        } else {
+            other += cashAmt;
+        }
+
+        payments.push({
+            id: o.id,
+            orderId: `#${(o.id || '').substring(0, 8).toUpperCase()}`,
+            customerName: o.customerName || 'Cliente General',
+            salespersonName: o.salespersonName || 'Directo',
+            date: cashDate,
+            method: method,
+            amount: cashAmt,
+            reference: (o as any).paymentReference || (o as any).referencia || ''
+        });
+    });
+
+    payments.sort((a, b) => b.date.getTime() - a.date.getTime());
+
+    return {
+        totalCash,
+        cashUsd,
+        zelle,
+        bcv,
+        custodia,
+        other,
+        payments
     };
 }
