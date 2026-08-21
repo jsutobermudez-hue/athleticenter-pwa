@@ -391,7 +391,7 @@ export function getCashBreakdown(
             method: method,
             amount: cashAmt,
             reference: (o as any).paymentReference || (o as any).referencia || '',
-            receiptUrl: (o as any).paymentReceiptUrl || (o as any).comprobanteUrl || (o as any).receiptUrl || (o as any).imageUrl || '',
+            receiptUrl: (o as any).paymentReceiptUrl || (o as any).comprobanteUrl || (o as any).receiptUrl || (o as any).imageUrl || (o as any).paymentProofUrl || (o as any).voucherUrl || (o as any).voucher || (o as any).comprobante || (o as any).screenshot || (o as any).retentionImageUrl || '',
             orderStatus: o.status,
             rawOrder: o
         });

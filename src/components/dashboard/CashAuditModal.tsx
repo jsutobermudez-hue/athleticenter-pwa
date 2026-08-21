@@ -6,6 +6,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { getCashBreakdown, type PaymentItem } from '@/lib/billing';
+import { useFirestore } from '@/firebase';
+import { collection, getDocs } from 'firebase/firestore';
 import { 
     Banknote, 
     Printer, 
@@ -21,7 +23,8 @@ import {
     FileText,
     ShieldCheck,
     Building,
-    Hash
+    Hash,
+    Loader2
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -37,6 +40,7 @@ interface CashAuditModalProps {
 }
 
 export function CashAuditModal({ isOpen, onClose, orders, periodFilter = 'all', bcvRate = 65.50, onSelectOrder }: CashAuditModalProps) {
+    const firestore = useFirestore();
     const [searchTerm, setSearchTerm] = useState('');
     const [activePeriod, setActivePeriod] = useState<'today' | '7d' | 'this_month' | 'last_month' | 'custom' | 'all'>(periodFilter);
     const [startDate, setStartDate] = useState<string>('');
@@ -46,10 +50,67 @@ export function CashAuditModal({ isOpen, onClose, orders, periodFilter = 'all', 
 
     // Estado para el modal de detalle del pago seleccionado
     const [selectedPaymentForDetail, setSelectedPaymentForDetail] = useState<PaymentItem | null>(null);
+    const [isLoadingSubcollectionReceipt, setIsLoadingSubcollectionReceipt] = useState(false);
 
     useEffect(() => {
         setActivePeriod(periodFilter);
     }, [periodFilter, isOpen]);
+
+    // EFECTO DE BÚSQUEDA AUTOMÁTICA DE COMPROBANTES EN SUBCOLECCIÓN DE PAGOS
+    useEffect(() => {
+        if (!selectedPaymentForDetail || !firestore) return;
+
+        const targetId = selectedPaymentForDetail.rawOrder?.id || selectedPaymentForDetail.id;
+        if (!targetId) return;
+
+        // Si ya tiene una URL de imagen, no necesitamos consultar la subcolección
+        if (selectedPaymentForDetail.receiptUrl) return;
+
+        let isMounted = true;
+        setIsLoadingSubcollectionReceipt(true);
+
+        const fetchSubcollectionReceipt = async () => {
+            try {
+                const paymentsSnap = await getDocs(collection(firestore, 'orders', targetId, 'payments'));
+                if (!isMounted) return;
+
+                let foundUrl = '';
+                let foundRegistrar = '';
+
+                paymentsSnap.docs.forEach(docSnap => {
+                    const data = docSnap.data();
+                    const url = data.imageUrl || data.paymentReceiptUrl || data.comprobanteUrl || data.receiptUrl || data.retentionImageUrl || '';
+                    if (url && !foundUrl) {
+                        foundUrl = url;
+                    }
+                    if ((data.registeredByName || data.registeredBy) && !foundRegistrar) {
+                        foundRegistrar = data.registeredByName || data.registeredBy;
+                    }
+                });
+
+                if (foundUrl || foundRegistrar) {
+                    setSelectedPaymentForDetail(prev => {
+                        if (!prev) return null;
+                        return {
+                            ...prev,
+                            receiptUrl: foundUrl || prev.receiptUrl,
+                            registeredBy: foundRegistrar || prev.registeredBy
+                        };
+                    });
+                }
+            } catch (e) {
+                console.error("Error fetching payment subcollection receipt:", e);
+            } finally {
+                if (isMounted) setIsLoadingSubcollectionReceipt(false);
+            }
+        };
+
+        fetchSubcollectionReceipt();
+
+        return () => {
+            isMounted = false;
+        };
+    }, [selectedPaymentForDetail?.id, firestore]);
 
     // Lista de vendedores únicos
     const uniqueSalespeople = useMemo(() => {
@@ -437,7 +498,12 @@ export function CashAuditModal({ isOpen, onClose, orders, periodFilter = 'all', 
                                     )}
                                 </label>
                                 
-                                {selectedPaymentForDetail.receiptUrl ? (
+                                {isLoadingSubcollectionReceipt ? (
+                                    <div className="p-8 rounded-2xl bg-slate-900 border border-slate-800 flex flex-col items-center justify-center gap-2">
+                                        <Loader2 className="h-6 w-6 animate-spin text-emerald-400" />
+                                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Cargando Comprobante Digital...</p>
+                                    </div>
+                                ) : selectedPaymentForDetail.receiptUrl ? (
                                     <div className="relative rounded-2xl overflow-hidden border border-slate-800 bg-black max-h-64 flex items-center justify-center">
                                         <img 
                                             src={selectedPaymentForDetail.receiptUrl} 
