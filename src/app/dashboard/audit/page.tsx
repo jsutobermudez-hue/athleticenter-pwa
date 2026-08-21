@@ -30,7 +30,9 @@ function AuditPageContent() {
   const firestore = useFirestore();
   const [searchTerm, setSearchTerm] = useState('');
   const [activeTab, setActiveTab] = useState('operations');
-  const [dateFilter, setDateFilter] = useState<'todos' | 'today' | '7d' | 'this_month' | 'last_month'>('todos');
+  const [dateFilter, setDateFilter] = useState<'todos' | 'today' | '7d' | 'this_month' | 'last_month' | 'custom'>('todos');
+  const [startDate, setStartDate] = useState<string>('');
+  const [endDate, setEndDate] = useState<string>('');
 
   const isAdmin = currentUser && currentUser.role === 'superadmin';
   const auditQuery = useMemoFirebase(() => (firestore && isAdmin) ? query(collection(firestore, 'auditLogs'), orderBy('createdAt', 'desc'), limit(300)) : null, [firestore, isAdmin]);
@@ -40,6 +42,8 @@ function AuditPageContent() {
     if (!logs) return { operations: [], notifications: [] };
     const term = searchTerm.toLowerCase();
     const now = new Date();
+    const startObj = startDate ? new Date(`${startDate}T00:00:00`) : null;
+    const endObj = endDate ? new Date(`${endDate}T23:59:59`) : null;
 
     const matchesDate = (log: AuditLog) => {
       if (dateFilter === 'todos') return true;
@@ -47,6 +51,11 @@ function AuditPageContent() {
       const lDate = typeof (log.createdAt as any).toDate === 'function' ? (log.createdAt as any).toDate() : new Date(log.createdAt as any);
       if (isNaN(lDate.getTime())) return true;
 
+      if (dateFilter === 'custom') {
+        if (startObj && !isNaN(startObj.getTime()) && lDate < startObj) return false;
+        if (endObj && !isNaN(endObj.getTime()) && lDate > endObj) return false;
+        return true;
+      }
       if (dateFilter === 'today') return isSameDay(lDate, now);
       if (dateFilter === '7d') return lDate >= startOfDay(subDays(now, 6));
       if (dateFilter === 'this_month') return lDate.getMonth() === now.getMonth() && lDate.getFullYear() === now.getFullYear();
@@ -82,6 +91,7 @@ function AuditPageContent() {
           { id: '7d', label: '⚡ Últimos 7 Días' },
           { id: 'this_month', label: '🗓️ Mes Actual' },
           { id: 'last_month', label: '📅 Mes Anterior' },
+          { id: 'custom', label: '📆 Rango Personalizado' },
         ].map(p => (
           <button
             key={p.id}
@@ -97,6 +107,24 @@ function AuditPageContent() {
             {p.label}
           </button>
         ))}
+
+        {dateFilter === 'custom' && (
+          <div className="flex items-center gap-2 ml-2">
+            <input
+              type="date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              className="h-8 px-2.5 bg-white border border-slate-200 rounded-xl text-[10px] font-bold text-slate-700 focus:outline-none focus:border-primary"
+            />
+            <span className="text-slate-400 text-xs font-bold">a</span>
+            <input
+              type="date"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              className="h-8 px-2.5 bg-white border border-slate-200 rounded-xl text-[10px] font-bold text-slate-700 focus:outline-none focus:border-primary"
+            />
+          </div>
+        )}
       </div>
 
       <Card className="terminal-card"><CardContent className="p-8"><div className="relative"><Activity className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-400" /><Input placeholder="BUSCAR OPERARIO O ACCIÓN..." className="h-14 pl-12 rounded-[1.5rem] bg-slate-50 border-none font-bold" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} /></div></CardContent></Card>

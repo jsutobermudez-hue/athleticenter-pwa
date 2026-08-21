@@ -305,7 +305,9 @@ export interface PaymentItem {
 
 export function getCashBreakdown(
     orders: Order[] | null,
-    periodFilter: 'today' | '7d' | 'this_month' | 'last_month' | 'all' = 'all'
+    periodFilter: 'today' | '7d' | 'this_month' | 'last_month' | 'custom' | 'all' = 'all',
+    customStartDate?: string,
+    customEndDate?: string
 ) {
     if (!orders || orders.length === 0) {
         return {
@@ -320,8 +322,16 @@ export function getCashBreakdown(
     }
 
     const now = new Date();
+    const startObj = customStartDate ? new Date(`${customStartDate}T00:00:00`) : null;
+    const endObj = customEndDate ? new Date(`${customEndDate}T23:59:59`) : null;
+
     const matchesPeriod = (d: Date) => {
         if (periodFilter === 'all') return true;
+        if (periodFilter === 'custom') {
+            if (startObj && !isNaN(startObj.getTime()) && d < startObj) return false;
+            if (endObj && !isNaN(endObj.getTime()) && d > endObj) return false;
+            return true;
+        }
         if (periodFilter === 'today') return isSameDay(d, now);
         if (periodFilter === '7d') return d >= startOfDay(subDays(now, 6));
         if (periodFilter === 'this_month') return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();

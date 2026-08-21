@@ -67,7 +67,9 @@ export function AdminBillingView() {
   const [statusFilter, setStatusFilter] = useState('todos');
   const [salespersonFilter, setSalespersonFilter] = useState('todos');
   const [agingFilter, setAgingFilter] = useState('todos');
-  const [dateFilter, setDateFilter] = useState<'todos' | 'today' | '7d' | 'this_month' | 'last_month'>('todos');
+  const [dateFilter, setDateFilter] = useState<'todos' | 'today' | '7d' | 'this_month' | 'last_month' | 'custom'>('todos');
+  const [startDate, setStartDate] = useState<string>('');
+  const [endDate, setEndDate] = useState<string>('');
   const [searchInput, setSearchInput] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedInvoiceForPayment, setSelectedInvoiceForPayment] = useState<Invoice | null>(null);
@@ -190,6 +192,13 @@ export function AdminBillingView() {
           else iDate = new Date(i.createdAt as any);
         }
         if (!iDate || isNaN(iDate.getTime())) return true;
+        if (dateFilter === 'custom') {
+          const startObj = startDate ? new Date(`${startDate}T00:00:00`) : null;
+          const endObj = endDate ? new Date(`${endDate}T23:59:59`) : null;
+          if (startObj && !isNaN(startObj.getTime()) && iDate < startObj) return false;
+          if (endObj && !isNaN(endObj.getTime()) && iDate > endObj) return false;
+          return true;
+        }
         if (dateFilter === 'today') {
           return iDate.getDate() === now.getDate() && iDate.getMonth() === currentMonth && iDate.getFullYear() === currentYear;
         }
@@ -406,6 +415,7 @@ export function AdminBillingView() {
                     { id: '7d', label: '⚡ Últimos 7 Días' },
                     { id: 'this_month', label: '🗓️ Mes Actual' },
                     { id: 'last_month', label: '📅 Mes Anterior' },
+                    { id: 'custom', label: '📆 Rango Personalizado' },
                 ].map(p => (
                     <button
                         key={p.id}
@@ -414,13 +424,31 @@ export function AdminBillingView() {
                         className={cn(
                             "px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer border",
                             dateFilter === p.id 
-                                ? "bg-slate-900 text-white border-slate-900 shadow-sm" 
-                                : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100"
+                                ? "bg-slate-900 text-white border-slate-900 shadow-sm font-black" 
+                                : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100 font-bold"
                         )}
                     >
                         {p.label}
                     </button>
                 ))}
+
+                {dateFilter === 'custom' && (
+                    <div className="flex items-center gap-2 ml-2">
+                        <input
+                            type="date"
+                            value={startDate}
+                            onChange={(e) => setStartDate(e.target.value)}
+                            className="h-8 px-2.5 bg-white border border-slate-200 rounded-xl text-[10px] font-bold text-slate-700 focus:outline-none focus:border-primary"
+                        />
+                        <span className="text-slate-400 text-xs font-bold">a</span>
+                        <input
+                            type="date"
+                            value={endDate}
+                            onChange={(e) => setEndDate(e.target.value)}
+                            className="h-8 px-2.5 bg-white border border-slate-200 rounded-xl text-[10px] font-bold text-slate-700 focus:outline-none focus:border-primary"
+                        />
+                    </div>
+                )}
             </div>
 
             <div className="flex flex-wrap items-center gap-3 w-full">

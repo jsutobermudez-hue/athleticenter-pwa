@@ -104,7 +104,9 @@ export default function AdminOrdersView() {
     
     const [queryLimit, setQueryLimit] = useState(100);
     const [activeTab, setActiveTab] = useState<'todos' | 'comercial' | 'operativo' | 'logistica' | 'cobranzas' | 'archivo'>('todos');
-    const [dateFilter, setDateFilter] = useState<'todos' | 'today' | '7d' | 'this_month' | 'last_month'>('todos');
+    const [dateFilter, setDateFilter] = useState<'todos' | 'today' | '7d' | 'this_month' | 'last_month' | 'custom'>('todos');
+    const [startDate, setStartDate] = useState<string>('');
+    const [endDate, setEndDate] = useState<string>('');
     const [isExportingPDF, setIsExportingPDF] = useState(false);
 
     const canListAll = useMemo(() => 
@@ -173,11 +175,18 @@ export default function AdminOrdersView() {
 
         if (dateFilter !== 'todos') {
             const now = new Date();
+            const startObj = startDate ? new Date(`${startDate}T00:00:00`) : null;
+            const endObj = endDate ? new Date(`${endDate}T23:59:59`) : null;
             filtered = filtered.filter(o => {
                 const rawDate = o.orderDate || o.createdAt;
                 if (!rawDate) return true;
                 const d = typeof (rawDate as any).toDate === 'function' ? (rawDate as any).toDate() : new Date(rawDate as any);
                 if (isNaN(d.getTime())) return true;
+                if (dateFilter === 'custom') {
+                    if (startObj && !isNaN(startObj.getTime()) && d < startObj) return false;
+                    if (endObj && !isNaN(endObj.getTime()) && d > endObj) return false;
+                    return true;
+                }
                 if (dateFilter === 'today') return d.toDateString() === now.toDateString();
                 if (dateFilter === '7d') {
                     const diff = (now.getTime() - d.getTime()) / (1000 * 3600 * 24);
@@ -482,6 +491,7 @@ export default function AdminOrdersView() {
                                 { id: '7d', label: '⚡ Últimos 7 Días' },
                                 { id: 'this_month', label: '🗓️ Mes Actual' },
                                 { id: 'last_month', label: '📅 Mes Anterior' },
+                                { id: 'custom', label: '📆 Rango Personalizado' },
                             ].map(p => (
                                 <button
                                     key={p.id}
@@ -490,13 +500,31 @@ export default function AdminOrdersView() {
                                     className={cn(
                                         "px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer border",
                                         dateFilter === p.id 
-                                            ? "bg-slate-900 text-white border-slate-900 shadow-sm" 
-                                            : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100"
+                                            ? "bg-slate-900 text-white border-slate-900 shadow-sm font-black" 
+                                            : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100 font-bold"
                                     )}
                                 >
                                     {p.label}
                                 </button>
                             ))}
+
+                            {dateFilter === 'custom' && (
+                                <div className="flex items-center gap-2 ml-2">
+                                    <input
+                                        type="date"
+                                        value={startDate}
+                                        onChange={(e) => setStartDate(e.target.value)}
+                                        className="h-8 px-2.5 bg-white border border-slate-200 rounded-xl text-[10px] font-bold text-slate-700 focus:outline-none focus:border-primary"
+                                    />
+                                    <span className="text-slate-400 text-xs font-bold">a</span>
+                                    <input
+                                        type="date"
+                                        value={endDate}
+                                        onChange={(e) => setEndDate(e.target.value)}
+                                        className="h-8 px-2.5 bg-white border border-slate-200 rounded-xl text-[10px] font-bold text-slate-700 focus:outline-none focus:border-primary"
+                                    />
+                                </div>
+                            )}
                         </div>
                         <div className="flex flex-wrap items-center gap-2 ml-auto">
                             <Button

@@ -21,18 +21,16 @@ import { AdminDispatchKanban } from './AdminDispatchKanban';
 import { OrderSheetController } from '../orders/OrderSheetController';
 import { DashboardMetricCard } from '@/components/dashboard/DashboardMetricCard';
 
+import { format, subDays, startOfDay, isSameDay } from 'date-fns';
+import { cn } from '@/lib/utils';
+
 export const dynamic = 'force-dynamic';
 
-/**
- * PÁGINA DE DESPACHO v5.0.0 - RECONEXIÓN TÁCTICA
- * Saneado: Se activa el OrderSheetController para permitir ver detalles al hacer clic en tarjetas.
- */
 function DispatchPageContent() {
   const { profile: currentUser, isUserLoading } = useUser();
   const firestore = useFirestore();
   const searchParams = useSearchParams();
   
-  // Estado para controlar qué diálogo o terminal se abre
   const [dialogState, setDialogState] = useState<{ 
     type: 'dispatch' | 'confirmDelivery' | 'confirmStatus' | 'status' | 'completePacking' | 'details' | null; 
     order: Order | null; 
@@ -40,6 +38,9 @@ function DispatchPageContent() {
   }>({ type: null, order: null });
 
   const [activeKpi, setActiveKpi] = useState<'warehouse' | 'road' | 'delivered' | 'todos'>('todos');
+  const [dateFilter, setDateFilter] = useState<'todos' | 'today' | '7d' | 'this_month' | 'last_month' | 'custom'>('todos');
+  const [startDate, setStartDate] = useState<string>('');
+  const [endDate, setEndDate] = useState<string>('');
 
   const isClient = currentUser?.role === 'cliente';
   const isAdminOrWarehouseOrSales = currentUser && ['superadmin', 'admin', 'gerencia', 'deposito', 'ventas'].includes(currentUser.role);
@@ -49,11 +50,40 @@ function DispatchPageContent() {
   const ordersQuery = useMemoFirebase(() => {
     if (!isAdminOrWarehouseOrSales || !firestore) return null;
     const base = collection(firestore, 'orders');
-    // Cargamos pedidos en fases logísticas activas
     return query(base, where('status', 'in', allowedStatuses), limit(150));
   }, [firestore, isAdminOrWarehouseOrSales]);
   
-  const { data: allOrders, isLoading: isLoadingOrders } = useCollection<Order>(ordersQuery);
+  const { data: rawOrders, isLoading: isLoadingOrders } = useCollection<Order>(ordersQuery);
+
+  const allOrders = useMemo(() => {
+    if (!rawOrders) return [];
+    if (dateFilter === 'todos') return rawOrders;
+
+    const now = new Date();
+    const startObj = startDate ? new Date(`${startDate}T00:00:00`) : null;
+    const endObj = endDate ? new Date(`${endDate}T23:59:59`) : null;
+
+    return rawOrders.filter(o => {
+      const rawDate = o.orderDate || o.createdAt;
+      if (!rawDate) return true;
+      const d = typeof (rawDate as any).toDate === 'function' ? (rawDate as any).toDate() : new Date(rawDate as any);
+      if (isNaN(d.getTime())) return true;
+
+      if (dateFilter === 'custom') {
+        if (startObj && !isNaN(startObj.getTime()) && d < startObj) return false;
+        if (endObj && !isNaN(endObj.getTime()) && d > endObj) return false;
+        return true;
+      }
+      if (dateFilter === 'today') return isSameDay(d, now);
+      if (dateFilter === '7d') return d >= startOfDay(subDays(now, 6));
+      if (dateFilter === 'this_month') return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+      if (dateFilter === 'last_month') {
+        const lm = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+        return d.getMonth() === lm.getMonth() && d.getFullYear() === lm.getFullYear();
+      }
+      return true;
+    });
+  }, [rawOrders, dateFilter, startDate, endDate]);
 
   const columns = useMemo(() => {
     const groups: Record<OrderStatus, { orders: Order[], count: number, total: number }> = {
@@ -97,6 +127,51 @@ function DispatchPageContent() {
         <h1 className="text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none italic">Logística de Red</h1>
         <p className="text-[10px] text-muted-foreground font-black uppercase tracking-[0.4em]">Control de Picking, Tránsito y Certificación de Entregas.</p>
       </header>
+
+      {/* BARRA DE FILTROS DE PERÍODO */}
+      <div className="flex flex-wrap items-center gap-2 px-2">
+        <span className="text-[9px] font-black uppercase tracking-widest text-slate-400 mr-1">Periodo:</span>
+        {[
+          { id: 'todos', label: '🌐 Todo el Histórico' },
+          { id: 'today', label: '☀️ Hoy' },
+          { id: '7d', label: '⚡ Últimos 7 Días' },
+          { id: 'this_month', label: '🗓️ Mes Actual' },
+          { id: 'last_month', label: '📅 Mes Anterior' },
+          { id: 'custom', label: '📆 Rango Personalizado' },
+        ].map(p => (
+          <button
+            key={p.id}
+            type="button"
+            onClick={() => setDateFilter(p.id as any)}
+            className={cn(
+              "px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer border",
+              dateFilter === p.id 
+                ? "bg-slate-900 text-white border-slate-900 shadow-sm font-black" 
+                : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50 font-bold"
+            )}
+          >
+            {p.label}
+          </button>
+        ))}
+
+        {dateFilter === 'custom' && (
+          <div className="flex items-center gap-2 ml-2">
+            <input
+              type="date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              className="h-8 px-2.5 bg-white border border-slate-200 rounded-xl text-[10px] font-bold text-slate-700 focus:outline-none focus:border-primary"
+            />
+            <span className="text-slate-400 text-xs font-bold">a</span>
+            <input
+              type="date"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              className="h-8 px-2.5 bg-white border border-slate-200 rounded-xl text-[10px] font-bold text-slate-700 focus:outline-none focus:border-primary"
+            />
+          </div>
+        )}
+      </div>
 
       {/* Tablero de KPIs Interactivos */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 px-2">
