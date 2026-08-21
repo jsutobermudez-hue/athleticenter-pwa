@@ -13,7 +13,7 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
-import { format, differenceInDays } from 'date-fns';
+import { format, differenceInDays, subDays, startOfDay, isSameDay } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
@@ -198,6 +198,7 @@ export default function AdminQuotesView() {
     const [searchTerm, setSearchTerm] = useState('');
     const [statusFilter, setStatusFilter] = useState<QuoteStatus | 'todos'>('todos');
     const [salespersonFilter, setSalespersonFilter] = useState('todos');
+    const [dateFilter, setDateFilter] = useState<'todos' | 'today' | '7d' | 'this_month' | 'last_month'>('todos');
     const [sortBy, setSortBy] = useState<'quoteDate' | 'totalAmount'>('quoteDate');
     const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
     const [openSections, setOpenSections] = useState<string[]>([]);
@@ -227,23 +228,23 @@ export default function AdminQuotesView() {
         let convertedTotal = 0;
 
         allQuotes.forEach(q => {
-            if (q.status !== 'Cancelada') {
-                totalPipeline += q.totalAmount || 0;
-                totalCount++;
-            }
+            const amt = q.totalAmount || 0;
+            totalPipeline += amt;
+            totalCount++;
+
             if (q.status === 'Borrador') {
                 draftsCount++;
-                draftsTotal += q.totalAmount || 0;
+                draftsTotal += amt;
             } else if (['Enviada', 'Aceptada'].includes(q.status)) {
                 activeCount++;
-                activeTotal += q.totalAmount || 0;
+                activeTotal += amt;
             } else if (q.status === 'Convertida') {
                 convertedCount++;
-                convertedTotal += q.totalAmount || 0;
+                convertedTotal += amt;
             }
         });
 
-        const conversionRate = totalCount > 0 ? (convertedCount / totalCount) * 100 : 0;
+        const conversionRate = totalCount > 0 ? Math.round((convertedCount / totalCount) * 100) : 0;
 
         return { totalPipeline, totalCount, draftsCount, draftsTotal, activeCount, activeTotal, convertedCount, convertedTotal, conversionRate };
     }, [allQuotes]);
@@ -253,11 +254,30 @@ export default function AdminQuotesView() {
         if (!allQuotes) return initial;
         
         const term = searchTerm.toLowerCase().trim();
+        const now = new Date();
+
+        const matchesDate = (q: Quote) => {
+            if (dateFilter === 'todos') return true;
+            const rawDate = (q as any).quoteDate || q.createdAt;
+            if (!rawDate) return true;
+            const qDate = typeof (rawDate as any).toDate === 'function' ? (rawDate as any).toDate() : new Date(rawDate as any);
+            if (isNaN(qDate.getTime())) return true;
+
+            if (dateFilter === 'today') return isSameDay(qDate, now);
+            if (dateFilter === '7d') return qDate >= startOfDay(subDays(now, 6));
+            if (dateFilter === 'this_month') return qDate.getMonth() === now.getMonth() && qDate.getFullYear() === now.getFullYear();
+            if (dateFilter === 'last_month') {
+                const lm = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+                return qDate.getMonth() === lm.getMonth() && qDate.getFullYear() === lm.getFullYear();
+            }
+            return true;
+        };
+
         const filtered = allQuotes.filter(q => {
             const matchesSearch = q.id.toLowerCase().includes(term) || q.customerName.toLowerCase().includes(term) || (q.customerRif || '').toLowerCase().includes(term);
             const matchesStatus = statusFilter === 'todos' || q.status === statusFilter;
             const matchesSalesperson = salespersonFilter === 'todos' || q.salespersonName === salespersonFilter;
-            return matchesSearch && matchesStatus && matchesSalesperson;
+            return matchesSearch && matchesStatus && matchesSalesperson && matchesDate(q);
         });
 
         filtered.forEach(q => {
@@ -266,12 +286,13 @@ export default function AdminQuotesView() {
             else initial.history.push(q);
         });
         return initial;
-    }, [allQuotes, searchTerm, statusFilter, salespersonFilter]);
+    }, [allQuotes, searchTerm, statusFilter, salespersonFilter, dateFilter]);
 
     const handleClearFilters = () => {
         setSearchTerm('');
         setStatusFilter('todos');
         setSalespersonFilter('todos');
+        setDateFilter('todos');
     };
 
     if (!canListAll) return <div className="p-12 text-center opacity-40 italic font-black uppercase tracking-widest text-[10px] text-slate-500">Acceso restringido a Gerencia Administrativa.</div>;
@@ -322,6 +343,32 @@ export default function AdminQuotesView() {
                     onClick={() => setStatusFilter('Convertida')}
                     isActive={statusFilter === 'Convertida'}
                 />
+            </div>
+
+            {/* BARRA DE FILTROS DE PERÍODO INTERACTIVOS */}
+            <div className="flex flex-wrap items-center gap-2 px-2">
+                <span className="text-[9px] font-black uppercase tracking-widest text-slate-400 mr-1">Periodo:</span>
+                {[
+                    { id: 'todos', label: '🌐 Todo el Histórico' },
+                    { id: 'today', label: '☀️ Hoy' },
+                    { id: '7d', label: '⚡ Últimos 7 Días' },
+                    { id: 'this_month', label: '🗓️ Mes Actual' },
+                    { id: 'last_month', label: '📅 Mes Anterior' },
+                ].map(p => (
+                    <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => setDateFilter(p.id as any)}
+                        className={cn(
+                            "px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer border",
+                            dateFilter === p.id 
+                                ? "bg-slate-900 text-white border-slate-900 shadow-sm font-black" 
+                                : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100 font-bold"
+                        )}
+                    >
+                        {p.label}
+                    </button>
+                ))}
             </div>
 
             {/* FILTROS TÁCTICOS */}

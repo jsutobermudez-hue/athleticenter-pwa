@@ -16,7 +16,7 @@ import { useCollection, useFirestore, useMemoFirebase, useUser } from '@/firebas
 import { collection, query, orderBy, limit } from 'firebase/firestore';
 import type { AuditLog } from '@/lib/definitions';
 import { Loader2, ShieldAlert, Clock, Activity, ShieldCheck, CheckCheck, RefreshCw } from 'lucide-react';
-import { format } from 'date-fns';
+import { format, subDays, startOfDay, isSameDay } from 'date-fns';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
@@ -30,6 +30,7 @@ function AuditPageContent() {
   const firestore = useFirestore();
   const [searchTerm, setSearchTerm] = useState('');
   const [activeTab, setActiveTab] = useState('operations');
+  const [dateFilter, setDateFilter] = useState<'todos' | 'today' | '7d' | 'this_month' | 'last_month'>('todos');
 
   const isAdmin = currentUser && currentUser.role === 'superadmin';
   const auditQuery = useMemoFirebase(() => (firestore && isAdmin) ? query(collection(firestore, 'auditLogs'), orderBy('createdAt', 'desc'), limit(300)) : null, [firestore, isAdmin]);
@@ -38,11 +39,29 @@ function AuditPageContent() {
   const filteredLogs = useMemo(() => {
     if (!logs) return { operations: [], notifications: [] };
     const term = searchTerm.toLowerCase();
+    const now = new Date();
+
+    const matchesDate = (log: AuditLog) => {
+      if (dateFilter === 'todos') return true;
+      if (!log.createdAt) return true;
+      const lDate = typeof (log.createdAt as any).toDate === 'function' ? (log.createdAt as any).toDate() : new Date(log.createdAt as any);
+      if (isNaN(lDate.getTime())) return true;
+
+      if (dateFilter === 'today') return isSameDay(lDate, now);
+      if (dateFilter === '7d') return lDate >= startOfDay(subDays(now, 6));
+      if (dateFilter === 'this_month') return lDate.getMonth() === now.getMonth() && lDate.getFullYear() === now.getFullYear();
+      if (dateFilter === 'last_month') {
+        const lm = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+        return lDate.getMonth() === lm.getMonth() && lDate.getFullYear() === lm.getFullYear();
+      }
+      return true;
+    };
+
     const allFiltered = logs.filter(log => 
-        log.userName.toLowerCase().includes(term) || log.action.toLowerCase().includes(term)
+        (log.userName.toLowerCase().includes(term) || log.action.toLowerCase().includes(term)) && matchesDate(log)
     );
     return { operations: allFiltered.filter(l => l.resource !== 'notifications'), notifications: allFiltered.filter(l => l.resource === 'notifications') };
-  }, [logs, searchTerm]);
+  }, [logs, searchTerm, dateFilter]);
 
   if (isUserLoading || !currentUser) return <div className="flex h-screen items-center justify-center"><Loader2 className="animate-spin" /></div>;
   if (!isAdmin) { router.replace('/dashboard'); return null; }
@@ -53,6 +72,32 @@ function AuditPageContent() {
         <h1 className="terminal-header flex items-center gap-4"><ShieldAlert className="h-10 w-10 text-rose-600" /> Auditoría Global</h1>
         <p className="tech-label opacity-60">Registro maestro de operaciones críticas de red.</p>
       </header>
+
+      {/* BARRA DE FILTROS DE PERÍODO */}
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-[9px] font-black uppercase tracking-widest text-slate-400 mr-1">Periodo:</span>
+        {[
+          { id: 'todos', label: '🌐 Todo el Histórico' },
+          { id: 'today', label: '☀️ Hoy' },
+          { id: '7d', label: '⚡ Últimos 7 Días' },
+          { id: 'this_month', label: '🗓️ Mes Actual' },
+          { id: 'last_month', label: '📅 Mes Anterior' },
+        ].map(p => (
+          <button
+            key={p.id}
+            type="button"
+            onClick={() => setDateFilter(p.id as any)}
+            className={cn(
+              "px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer border",
+              dateFilter === p.id 
+                ? "bg-slate-900 text-white border-slate-900 shadow-sm font-black" 
+                : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50 font-bold"
+            )}
+          >
+            {p.label}
+          </button>
+        ))}
+      </div>
 
       <Card className="terminal-card"><CardContent className="p-8"><div className="relative"><Activity className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-400" /><Input placeholder="BUSCAR OPERARIO O ACCIÓN..." className="h-14 pl-12 rounded-[1.5rem] bg-slate-50 border-none font-bold" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} /></div></CardContent></Card>
 
