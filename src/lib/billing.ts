@@ -296,11 +296,17 @@ export interface PaymentItem {
     id: string;
     orderId: string;
     customerName: string;
+    customerRif?: string;
+    customerPhone?: string;
     salespersonName?: string;
+    registeredBy?: string;
     date: Date;
     method: string;
     amount: number;
     reference?: string;
+    receiptUrl?: string;
+    orderStatus?: string;
+    rawOrder?: Order;
 }
 
 export function getCashBreakdown(
@@ -377,11 +383,17 @@ export function getCashBreakdown(
             id: o.id,
             orderId: `#${(o.id || '').substring(0, 8).toUpperCase()}`,
             customerName: o.customerName || 'Cliente General',
+            customerRif: o.customerRif || '',
+            customerPhone: o.customerPhone || '',
             salespersonName: o.salespersonName || 'Directo',
+            registeredBy: (o as any).registeredByName || (o as any).registeredBy || o.salespersonName || 'Sistema / Caja',
             date: cashDate,
             method: method,
             amount: cashAmt,
-            reference: (o as any).paymentReference || (o as any).referencia || ''
+            reference: (o as any).paymentReference || (o as any).referencia || '',
+            receiptUrl: (o as any).paymentReceiptUrl || (o as any).comprobanteUrl || (o as any).receiptUrl || (o as any).imageUrl || '',
+            orderStatus: o.status,
+            rawOrder: o
         });
     });
 

@@ -276,10 +276,10 @@ export default function AdminDashboard() {
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
                     <DashboardMetricCard 
-                        title="Recaudación en Caja (Arqueo)" 
+                        title="Pagos Registrados" 
                         value={`$${(stats.recaudadoCash || 0).toLocaleString('en-US', { maximumFractionDigits: 0 })}`} 
-                        subtitle={kpiPeriod === 'today' ? 'Arqueo Hoy' : kpiPeriod === '7d' ? 'Arqueo 7 Días' : kpiPeriod === 'this_month' ? 'Arqueo Mes Actual' : 'Recaudación Efectiva'} 
-                        tooltip="Total de dinero realmente ingresado a caja en el período. Clic para abrir el desglose por método de pago y acta de arqueo."
+                        subtitle={kpiPeriod === 'today' ? 'Cobros Hoy' : kpiPeriod === '7d' ? 'Cobros 7 Días' : kpiPeriod === 'this_month' ? 'Cobros Mes Actual' : 'Recaudado Efectivo'} 
+                        tooltip="Total de pagos registrados en caja. Clic para auditar detalles, comprobar vouchers con imagen y ver quién lo registró."
                         icon={TrendingUp} iconBg="bg-emerald-50" iconColor="text-emerald-500" 
                         onClick={() => setIsCashAuditModalOpen(true)}
                     />

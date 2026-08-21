@@ -379,7 +379,7 @@ export function AdminBillingView() {
             <span>💱 Tasa Oficial BCV: Bs. {bcvRate.toFixed(2)} / USD</span>
           </Badge>
           <Button onClick={() => setIsCashAuditModalOpen(true)} className="h-9 px-4 rounded-xl bg-emerald-700 hover:bg-emerald-600 text-white text-[9px] font-black uppercase tracking-wider shadow-md flex items-center gap-1.5">
-            <Banknote className="h-3.5 w-3.5" /> Arqueo de Caja
+            <Banknote className="h-3.5 w-3.5" /> Pagos Registrados
           </Button>
           <Button onClick={exportInvoicesToPDF} disabled={isExportingPDF} className="h-9 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-[9px] font-black uppercase tracking-wider shadow-md flex items-center gap-1.5">
             {isExportingPDF ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Printer className="h-3.5 w-3.5 text-emerald-400" />} Imprimir PDF
