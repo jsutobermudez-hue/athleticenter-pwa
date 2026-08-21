@@ -45,6 +45,7 @@ const COLORS: { [key: string]: string } = {
   'Despachados': '#6366f1',      // Indigo
   'En Verificación': '#0284c7',  // Sky Blue
   'Pendientes': '#f59e0b',       // Warm Amber
+  'Cancelados': '#ef4444',       // Crimson Red
 };
 
 export function OrderStatusChart({ orders, isLoading = false }: OrderStatusChartProps) {
@@ -62,13 +63,14 @@ export function OrderStatusChart({ orders, isLoading = false }: OrderStatusChart
 
   // Clasificación por embudo operativo
   const funnelData = useMemo(() => {
-    if (!orders) return { verification: [], warehouse: [], transit: [], completed: [], pending: [] };
+    if (!orders) return { verification: [], warehouse: [], transit: [], completed: [], pending: [], cancelled: [] };
 
     const verification: Order[] = [];
     const warehouse: Order[] = [];
     const transit: Order[] = [];
     const completed: Order[] = [];
     const pending: Order[] = [];
+    const cancelled: Order[] = [];
 
     orders.forEach(order => {
       if (['En Verificación'].includes(order.status)) {
@@ -79,12 +81,14 @@ export function OrderStatusChart({ orders, isLoading = false }: OrderStatusChart
         transit.push(order);
       } else if (['Completado', 'Pagado', 'Entregado'].includes(order.status)) {
         completed.push(order);
+      } else if (['Cancelado', 'Rechazado'].includes(order.status)) {
+        cancelled.push(order);
       } else {
         pending.push(order);
       }
     });
 
-    return { verification, warehouse, transit, completed, pending };
+    return { verification, warehouse, transit, completed, pending, cancelled };
   }, [orders]);
 
   const chartData = useMemo(() => {
@@ -97,12 +101,15 @@ export function OrderStatusChart({ orders, isLoading = false }: OrderStatusChart
       { name: 'En Ruta / Despachados', value: funnelData.transit.length, orders: funnelData.transit, color: COLORS['Despachados'], percent: Math.round((funnelData.transit.length / totalCount) * 100) },
       { name: 'Verificación de Pago', value: funnelData.verification.length, orders: funnelData.verification, color: COLORS['En Verificación'], percent: Math.round((funnelData.verification.length / totalCount) * 100) },
       { name: 'Por Aprobar / Pendientes', value: funnelData.pending.length, orders: funnelData.pending, color: COLORS['Pendientes'], percent: Math.round((funnelData.pending.length / totalCount) * 100) },
+      { name: 'Cancelados / Anulados', value: funnelData.cancelled.length, orders: funnelData.cancelled, color: COLORS['Cancelados'], percent: Math.round((funnelData.cancelled.length / totalCount) * 100) },
     ].filter(item => item.value > 0);
   }, [orders, funnelData]);
 
   const totalRevenueUSD = useMemo(() => {
     if (!orders) return 0;
-    return orders.reduce((sum, o) => sum + (o.totalAmount || 0), 0);
+    return orders
+      .filter(o => o.status !== 'Cancelado' && o.status !== 'Rechazado')
+      .reduce((sum, o) => sum + (o.totalAmount || 0), 0);
   }, [orders]);
 
   const openStatusAudit = (statusName: string) => {
@@ -128,7 +135,10 @@ export function OrderStatusChart({ orders, isLoading = false }: OrderStatusChart
     if (selectedStatusFilter.includes('Verificación')) {
       return orders.filter(o => ['En Verificación'].includes(o.status));
     }
-    return orders.filter(o => !['Pagado', 'Completado', 'Entregado', 'Aprobado', 'En Preparación', 'Despachado', 'En Verificación'].includes(o.status));
+    if (selectedStatusFilter.includes('Cancelados') || selectedStatusFilter === 'Cancelado') {
+      return orders.filter(o => ['Cancelado', 'Rechazado'].includes(o.status));
+    }
+    return orders.filter(o => ['Pendiente', 'Borrador'].includes(o.status));
   }, [orders, selectedStatusFilter, chartData]);
 
   // Generador e Impresor de Reportes PDF Oficiales
