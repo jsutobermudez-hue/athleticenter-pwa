@@ -215,19 +215,29 @@ export function ReportPaymentDialog({ invoice, mode = 'partial' }: { invoice: In
   const is15DaysEligible = elapsedDays <= 15;
 
   useEffect(() => {
-    if (earlyPaymentType === '7days' && !is7DaysEligible) {
-      setValue('earlyPaymentType', is15DaysEligible ? '15days' : 'none');
-    } else if (earlyPaymentType === '15days' && !is15DaysEligible) {
+    if (selectedMethod === 'Zelle' || selectedMethod === 'Efectivo') {
+      setValue('accountingBase', 'cash');
+    } else if (selectedMethod === 'Pago Móvil' || selectedMethod === 'Transferencia Bancaria') {
+      setValue('accountingBase', 'bcv');
+    }
+  }, [selectedMethod, setValue]);
+
+  useEffect(() => {
+    if (is7DaysEligible) {
+      setValue('earlyPaymentType', '7days');
+    } else if (is15DaysEligible) {
+      setValue('earlyPaymentType', '15days');
+    } else {
       setValue('earlyPaymentType', 'none');
     }
-  }, [elapsedDays, is7DaysEligible, is15DaysEligible, earlyPaymentType, setValue]);
+  }, [elapsedDays, is7DaysEligible, is15DaysEligible, setValue]);
 
   // LÓGICA DE CÁLCULO BI-DIRECCIONAL EN TIEMPO REAL v8.3 (RESILIENTE)
   const calculation = useMemo(() => {
-    const bcvDiscountFactor = (globalSettings.defaultBcvDiscount || 35) / 100;
-    const ivaFactor = (globalSettings.ivaPercent || 16) / 100;
-    const early7Factor = (globalSettings.earlyPayment7Days || 5) / 100;
-    const early15Factor = (globalSettings.earlyPayment15Days || 3) / 100;
+    const bcvDiscountFactor = ((globalSettings as any)?.defaultBcvDiscount !== undefined ? (globalSettings as any).defaultBcvDiscount : 25) / 100;
+    const ivaFactor = (globalSettings?.ivaPercent || 16) / 100;
+    const early7Factor = (globalSettings?.earlyPayment7Days || 5) / 100;
+    const early15Factor = (globalSettings?.earlyPayment15Days || 3) / 100;
 
     const currentBalance = invoice?.remainingBalance || 0;
     const rawVal = Number(inputAmount || 0);

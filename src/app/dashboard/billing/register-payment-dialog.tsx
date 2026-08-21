@@ -88,7 +88,7 @@ export function ConfirmPaymentDialog({ order }: { order: Order }) {
   const { data: pendingPayments, isLoading: isLoadingPayment } = useCollection<Payment>(paymentsQuery);
   const reportedPayment = useMemo(() => pendingPayments?.[0], [pendingPayments]);
 
-  const { control, handleSubmit, formState: { isSubmitting }, reset } = useForm<PaymentFormValues>({
+  const { control, handleSubmit, formState: { isSubmitting }, reset, setValue } = useForm<PaymentFormValues>({
     resolver: zodResolver(paymentSchema),
     defaultValues: {
       amount: 0,
@@ -102,6 +102,15 @@ export function ConfirmPaymentDialog({ order }: { order: Order }) {
   });
 
   const watchedValues = useWatch({ control });
+
+  useEffect(() => {
+    const m = (watchedValues?.method || '').toLowerCase();
+    if (m.includes('zelle') || m.includes('efectivo') || m.includes('cash')) {
+      setValue('accountingBase', 'cash');
+    } else if (m.includes('bcv') || m.includes('pago móvil') || m.includes('pago movil') || m.includes('transferencia')) {
+      setValue('accountingBase', 'bcv');
+    }
+  }, [watchedValues?.method, setValue]);
 
   useEffect(() => {
     if (reportedPayment) {
