@@ -586,3 +586,176 @@ export async function generatePurchaseOrderPDF(order: PurchaseOrder, companyProf
 
     doc.save(`Manifiesto_Importacion_${(order.id || 'PO').substring(0, 8)}.pdf`);
 }
+
+export async function generatePaymentReceiptPDF({
+    payment,
+    order,
+    companyProfile,
+    bcvRate = 65.50,
+    paymentIndex = 1
+}: {
+    payment: Partial<Payment> & { amount: number; method: string; referenceNumber?: string; registeredByName?: string; paymentDate?: any; imageUrl?: string };
+    order: Partial<Order>;
+    companyProfile?: Partial<CompanyProfile>;
+    bcvRate?: number;
+    paymentIndex?: number;
+}) {
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    const orderIdStr = (order.id || 'N/A').toUpperCase();
+    const receiptId = `#REC-${orderIdStr.replace('#', '')}-${paymentIndex}`;
+    
+    let pDate = new Date();
+    if (payment.paymentDate) {
+        if (typeof (payment.paymentDate as any).toDate === 'function') pDate = (payment.paymentDate as any).toDate();
+        else if ((payment.paymentDate as any).seconds) pDate = new Date((payment.paymentDate as any).seconds * 1000);
+        else pDate = new Date(payment.paymentDate);
+    }
+
+    doc.setFillColor(15, 23, 42);
+    doc.rect(0, 0, 210, 36, 'F');
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(16);
+    doc.setTextColor(255, 255, 255);
+    doc.text((companyProfile?.companyName || (companyProfile as any)?.name || 'ATHLETICENTER PRO C.A.').toUpperCase(), 14, 16);
+
+    doc.setFontSize(8);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(148, 163, 184);
+    doc.text(`RIF: ${companyProfile?.companyRif || (companyProfile as any)?.rif || 'J-12345678-0'}`, 14, 23);
+    doc.text(`RECIBO OFICIAL DE PAGO Y CAJA - COMPROBANTE DE ABONO CERTIFICADO`, 14, 28);
+    doc.text(`TASA OFICIAL BCV: Bs. ${bcvRate.toFixed(2)} / USD | EMISIÓN: ${format(new Date(), 'dd/MM/yyyy HH:mm')}`, 14, 33);
+
+    doc.setFillColor(16, 185, 129);
+    doc.rect(145, 10, 51, 18, 'F');
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(9);
+    doc.setTextColor(255, 255, 255);
+    doc.text("RECIBO N°", 170.5, 16, { align: 'center' });
+    doc.setFontSize(11);
+    doc.text(receiptId, 170.5, 24, { align: 'center' });
+
+    doc.setFillColor(248, 250, 252);
+    doc.roundedRect(14, 42, 182, 28, 3, 3, 'F');
+    doc.setDrawColor(226, 232, 240);
+    doc.roundedRect(14, 42, 182, 28, 3, 3, 'S');
+
+    doc.setFontSize(7.5); doc.setFont("helvetica", "bold"); doc.setTextColor(100);
+    doc.text("CLIENTE / RAZÓN SOCIAL:", 18, 48);
+    doc.text("ORDEN VINCULADA:", 115, 48);
+    doc.text("VENDEDOR / ASESOR:", 115, 62);
+
+    doc.setFontSize(10); doc.setTextColor(15, 23, 42);
+    doc.text((order.customerName || 'Cliente General').toUpperCase(), 18, 55);
+    doc.setFontSize(8.5); doc.setTextColor(71, 85, 105);
+    doc.text(`RIF: ${order.customerRif || 'N/A'}`, 18, 62);
+
+    doc.setFontSize(10); doc.setTextColor(16, 185, 129);
+    doc.text(orderIdStr, 115, 55);
+    doc.setFontSize(8.5); doc.setTextColor(71, 85, 105);
+    doc.text((order.salespersonName || 'Directo').toUpperCase(), 115, 67);
+
+    const nominalTotal = Number(order.totalAmount || 0);
+    const bcvDiscountPct = (order as any).bcvDiscountSnapshot !== undefined ? (order as any).bcvDiscountSnapshot : 25;
+    const early7dPct = (order as any).earlyPayment7dSnapshot !== undefined ? (order as any).earlyPayment7dSnapshot : 5;
+    
+    const isCashOrZelle = (payment.method || '').toLowerCase().includes('zelle') || (payment.method || '').toLowerCase().includes('efectivo');
+    const cashDiscVal = isCashOrZelle ? nominalTotal * (bcvDiscountPct / 100) : 0;
+    const earlyDiscVal = nominalTotal * (early7dPct / 100);
+    const netExigible = Math.max(0, nominalTotal - cashDiscVal - earlyDiscVal);
+
+    doc.setFillColor(241, 245, 249);
+    doc.rect(14, 75, 182, 7, 'F');
+    doc.setFontSize(8); doc.setFont("helvetica", "bold"); doc.setTextColor(30, 41, 59);
+    doc.text("1. AMORTIZACIÓN E INCENTIVOS DEL PEDIDO (CONDICIONES INMUTABLES CONGELADAS)", 18, 80);
+
+    const amortRows = [
+        ["Monto Nominal Pedido (Lista BCV)", `$ ${nominalTotal.toFixed(2)} USD`, `Bs. ${(nominalTotal * bcvRate).toLocaleString('es-VE', { minimumFractionDigits: 2 })}`],
+        [`Descuento Divisas / Cash (${isCashOrZelle ? bcvDiscountPct : 0}%)`, `- $ ${cashDiscVal.toFixed(2)} USD`, `- Bs. ${(cashDiscVal * bcvRate).toLocaleString('es-VE', { minimumFractionDigits: 2 })}`],
+        [`Descuento Pronto Pago (${early7dPct}%)`, `- $ ${earlyDiscVal.toFixed(2)} USD`, `- Bs. ${(earlyDiscVal * bcvRate).toLocaleString('es-VE', { minimumFractionDigits: 2 })}`],
+        ["MONTO NETO EXIGIBLE EN DIVISAS", `$ ${netExigible.toFixed(2)} USD`, `Bs. ${(netExigible * bcvRate).toLocaleString('es-VE', { minimumFractionDigits: 2 })}`]
+    ];
+
+    (doc as any).autoTable({
+        head: [["DESCRIPCIÓN DE BASE", "VALOR EN $ USD", "VALOR EN BOLÍVARES (Bs. BCV)"]],
+        body: amortRows,
+        startY: 84,
+        theme: 'plain',
+        headStyles: { fillColor: [226, 232, 240], textColor: [15, 23, 42], fontStyle: 'bold', fontSize: 7.5 },
+        bodyStyles: { fontSize: 8 },
+        columnStyles: {
+            0: { cellWidth: 100, fontStyle: 'bold' },
+            1: { cellWidth: 40, halign: 'right' },
+            2: { cellWidth: 42, halign: 'right' }
+        }
+    });
+
+    const nextY = (doc as any).lastAutoTable.finalY + 6;
+    doc.setFillColor(241, 245, 249);
+    doc.rect(14, nextY, 182, 7, 'F');
+    doc.setFontSize(8); doc.setFont("helvetica", "bold"); doc.setTextColor(16, 185, 129);
+    doc.text("2. DETALLE DE DINERO REAL INGRESADO AL BANCO O CAJA (ABONO ACTUAL)", 18, nextY + 5);
+
+    const paymentAmountUSD = Number(payment.amount || 0);
+    const paymentAmountVES = paymentAmountUSD * bcvRate;
+
+    let targetBankName = 'Taquilla Central de Caja Físico';
+    const normM = (payment.method || '').toLowerCase();
+    if (normM.includes('zelle')) targetBankName = 'Corporación Athleticenter LLC (Chase Bank Zelle)';
+    else if (normM.includes('pago móvil') || normM.includes('pago movil')) targetBankName = 'Banco Mercantil / Banesco VES';
+    else if (normM.includes('transferencia')) targetBankName = 'Banesco Cuenta Corriente Fiscal';
+    else if (normM.includes('custodia') || normM.includes('panamá')) targetBankName = 'Cuenta Custodia Banesco Panamá';
+
+    const bankRows = [
+        ["Entidad / Cuenta Destino", targetBankName.toUpperCase()],
+        ["Vía / Método de Pago", (payment.method || 'Efectivo').toUpperCase()],
+        ["N° Referencia / Confirmación", payment.referenceNumber || 'N/A / Caja Físico'],
+        ["Monto Real Ingresado ($ USD)", `$ ${paymentAmountUSD.toLocaleString('en-US', { minimumFractionDigits: 2 })} USD`],
+        ["Monto Real Ingresado (Bs. VES)", `Bs. ${paymentAmountVES.toLocaleString('es-VE', { minimumFractionDigits: 2 })} VES`],
+        ["Registrado / Verificado Por", (payment.registeredByName || order.salespersonName || 'Caja Central').toUpperCase()]
+    ];
+
+    (doc as any).autoTable({
+        head: [["PARÁMETRO AUDITADO", "DETALLE REGISTRADO EN SISTEMA"]],
+        body: bankRows,
+        startY: nextY + 9,
+        theme: 'grid',
+        headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 7.5 },
+        bodyStyles: { fontSize: 8 },
+        columnStyles: {
+            0: { cellWidth: 70, fontStyle: 'bold' },
+            1: { cellWidth: 112 }
+        }
+    });
+
+    const nextY2 = (doc as any).lastAutoTable.finalY + 6;
+    const totalPaidSoFar = Number(order.amountPaid || order.totalCashReceived || paymentAmountUSD);
+    const remainingBalance = Math.max(0, netExigible - totalPaidSoFar);
+
+    doc.setFillColor(15, 23, 42);
+    doc.roundedRect(14, nextY2, 182, 24, 3, 3, 'F');
+
+    doc.setFontSize(8); doc.setFont("helvetica", "bold"); doc.setTextColor(148, 163, 184);
+    doc.text("NETO EXIGIBLE", 20, nextY2 + 7);
+    doc.text("TOTAL ABONADO", 80, nextY2 + 7);
+    doc.text("SALDO ADICIONAL PENDIENTE", 140, nextY2 + 7);
+
+    doc.setFontSize(12); doc.setTextColor(255, 255, 255);
+    doc.text(`$${netExigible.toFixed(2)}`, 20, nextY2 + 16);
+    doc.setTextColor(16, 185, 129);
+    doc.text(`$${totalPaidSoFar.toFixed(2)}`, 80, nextY2 + 16);
+
+    if (remainingBalance <= 0.05) {
+        doc.setTextColor(52, 211, 153);
+        doc.text("SOLVENTE (100%)", 140, nextY2 + 16);
+    } else {
+        doc.setTextColor(248, 113, 113);
+        doc.text(`$${remainingBalance.toFixed(2)} USD`, 140, nextY2 + 16);
+    }
+
+    doc.setFontSize(7.5); doc.setFont("helvetica", "normal"); doc.setTextColor(100);
+    doc.text("CERTIFICADO DIGITAL DE PAGO: Documento emitido automáticamente por el Sistema Athleticenter Pro.", 14, 280);
+    doc.text("Validez oficial respaldada por comprobante bancario adjunto en el expediente.", 14, 284);
+
+    doc.save(`Recibo_Pago_${receiptId.replace('#', '')}.pdf`);
+}

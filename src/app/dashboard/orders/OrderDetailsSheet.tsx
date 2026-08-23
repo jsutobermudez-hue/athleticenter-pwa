@@ -46,7 +46,7 @@ import {
   Trash2
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { generateOrderPDF, generatePickingListPDF, generatePackageLabelsPDF } from '@/lib/pdf-generator';
+import { generateOrderPDF, generatePickingListPDF, generatePackageLabelsPDF, generatePaymentReceiptPDF } from '@/lib/pdf-generator';
 import { statusConfig } from '@/lib/status-config';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
@@ -542,12 +542,20 @@ export function OrderDetailsSheet({
                             <div className="flex justify-center p-4"><Loader2 className="animate-spin h-5 w-5 text-slate-400" /></div>
                         ) : orderPayments && orderPayments.length > 0 ? (
                             <div className="space-y-4">
-                                {orderPayments.map((p, idx) => (
-                                    <div key={idx} className="p-4 rounded-2xl bg-slate-50 border border-slate-100 space-y-3">
+                                {orderPayments.map((p, idx) => {
+                                    const voucherImg = p.imageUrl || (p as any).paymentReceiptUrl || (p as any).comprobanteUrl || (p as any).receiptUrl || (p as any).retentionImageUrl || (p as any).voucherUrl || '';
+                                    return (
+                                    <div key={idx} className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-3">
                                         <div className="flex items-center justify-between">
                                             <div className="space-y-0.5">
-                                                <p className="text-xs font-black uppercase text-slate-900">{p.method}</p>
+                                                <p className="text-xs font-black uppercase text-slate-900 flex items-center gap-1.5">
+                                                    <span className="h-2 w-2 rounded-full bg-emerald-500"></span>
+                                                    {p.method} (Abono #{idx + 1})
+                                                </p>
                                                 <p className="text-[9px] font-mono text-slate-500">Ref: {p.referenceNumber || 'N/A'}</p>
+                                                {(p as any).registeredByName && (
+                                                    <p className="text-[8px] font-bold text-slate-400 uppercase">Reg: {(p as any).registeredByName}</p>
+                                                )}
                                             </div>
                                             <div className="text-right">
                                                 <p className="text-xs font-black text-emerald-600">${p.amount?.toFixed(2)}</p>
@@ -566,39 +574,53 @@ export function OrderDetailsSheet({
                                             <p className="text-[9px] text-slate-600 bg-white p-2 rounded-xl border border-slate-100 italic">{p.notes}</p>
                                         )}
 
-                                        {(p.imageUrl || p.retentionImageUrl) && (
+                                        {voucherImg && (
                                             <div className="flex items-center gap-3 pt-1">
-                                                {p.imageUrl && (
-                                                    <div 
-                                                        onClick={() => setZoomImage(p.imageUrl!)} 
-                                                        className="relative group h-14 w-20 rounded-xl overflow-hidden border-2 border-emerald-200 cursor-pointer shadow-sm hover:opacity-90 transition-opacity shrink-0 bg-slate-900"
-                                                    >
-                                                        <img src={p.imageUrl} alt="Comprobante" className="h-full w-full object-cover" />
-                                                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity text-white">
-                                                            <Maximize2 className="h-4 w-4" />
-                                                        </div>
+                                                <div 
+                                                    onClick={() => setZoomImage(voucherImg)} 
+                                                    className="relative group h-14 w-20 rounded-xl overflow-hidden border-2 border-emerald-200 cursor-pointer shadow-sm hover:opacity-90 transition-opacity shrink-0 bg-slate-900"
+                                                >
+                                                    <img src={voucherImg} alt="Comprobante" className="h-full w-full object-cover" />
+                                                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity text-white">
+                                                        <Maximize2 className="h-4 w-4" />
                                                     </div>
-                                                )}
-
-                                                {p.retentionImageUrl && (
-                                                    <div 
-                                                        onClick={() => setZoomImage(p.retentionImageUrl!)} 
-                                                        className="relative group h-14 w-20 rounded-xl overflow-hidden border-2 border-indigo-200 cursor-pointer shadow-sm hover:opacity-90 transition-opacity shrink-0 bg-slate-900"
-                                                    >
-                                                        <img src={p.retentionImageUrl} alt="Retención" className="h-full w-full object-cover" />
-                                                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity text-white">
-                                                            <Maximize2 className="h-4 w-4" />
-                                                        </div>
-                                                    </div>
-                                                )}
-                                                
+                                                </div>
                                                 <div className="text-[8px] font-bold text-slate-400 uppercase leading-relaxed">
                                                     Toca la foto para ampliar el comprobante bancario.
                                                 </div>
                                             </div>
                                         )}
+
+                                        <div className="flex items-center gap-2 pt-2 border-t border-slate-200/60">
+                                            <Button
+                                                type="button"
+                                                onClick={() => generatePaymentReceiptPDF({
+                                                    payment: p,
+                                                    order,
+                                                    companyProfile: companyProfile || undefined,
+                                                    bcvRate: globalSettings?.bcvRate || 65.50,
+                                                    paymentIndex: idx + 1
+                                                })}
+                                                className="h-8 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-[9px] font-black uppercase tracking-wider flex items-center gap-1.5 shadow-sm"
+                                            >
+                                                <Printer className="h-3 w-3 text-emerald-400" /> Recibo PDF (#REC-{(order.id || '').substring(0,6)}-{idx+1})
+                                            </Button>
+
+                                            <Button
+                                                type="button"
+                                                onClick={() => {
+                                                    const cleanPhone = (order.customerPhone || customerData?.phone || '').replace(/[^0-9]/g, '');
+                                                    const text = `Hola *${order.customerName}*! 👋 Adjuntamos tu Recibo Oficial de Pago por *$${p.amount?.toFixed(2)} USD* (${p.method}, Ref: ${p.referenceNumber || 'N/A'}) correspondiente al pedido #${order.id}. ¡Gracias por preferir Athleticenter Pro! 📦⚽`;
+                                                    window.open(`https://wa.me/${cleanPhone}?text=${encodeURIComponent(text)}`, '_blank');
+                                                }}
+                                                className="h-8 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-[9px] font-black uppercase tracking-wider flex items-center gap-1.5 shadow-sm"
+                                            >
+                                                <Send className="h-3 w-3" /> WhatsApp Recibo
+                                            </Button>
+                                        </div>
                                     </div>
-                                ))}
+                                    );
+                                })}
                             </div>
                         ) : (
                             <p className="text-[10px] font-bold text-slate-400 uppercase text-center py-2 italic">Sin abonos o comprobantes adjuntos.</p>

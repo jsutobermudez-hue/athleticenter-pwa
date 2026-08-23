@@ -29,6 +29,7 @@ import {
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { format } from 'date-fns';
+import { generatePaymentReceiptPDF } from '@/lib/pdf-generator';
 
 interface CashAuditModalProps {
     isOpen: boolean;
@@ -570,19 +571,45 @@ export function CashAuditModal({ isOpen, onClose, orders, periodFilter = 'all', 
                                 </div>
                             </div>
 
-                            {/* BOTÓN PARA ABRIR EL EXPEDIENTE COMPLETO */}
-                            {selectedPaymentForDetail.rawOrder && onSelectOrder && (
+                            {/* BOTONES DE ACCIÓN: EMISIÓN DE RECIBO Y EXPEDIENTE COMPLETO */}
+                            <div className="space-y-2 pt-2 border-t border-slate-800">
                                 <Button 
-                                    onClick={() => {
-                                        const raw = selectedPaymentForDetail.rawOrder;
-                                        setSelectedPaymentForDetail(null);
-                                        onSelectOrder(raw!);
-                                    }}
-                                    className="w-full h-11 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 text-white font-black text-[10px] uppercase tracking-wider flex items-center justify-center gap-2"
+                                    onClick={() => generatePaymentReceiptPDF({
+                                        payment: {
+                                            amount: selectedPaymentForDetail.amount,
+                                            method: selectedPaymentForDetail.method as any,
+                                            referenceNumber: selectedPaymentForDetail.reference,
+                                            registeredByName: selectedPaymentForDetail.registeredBy,
+                                            paymentDate: selectedPaymentForDetail.date,
+                                            imageUrl: selectedPaymentForDetail.receiptUrl
+                                        },
+                                        order: selectedPaymentForDetail.rawOrder || {
+                                            id: selectedPaymentForDetail.orderId,
+                                            customerName: selectedPaymentForDetail.customerName,
+                                            customerRif: selectedPaymentForDetail.customerRif,
+                                            salespersonName: selectedPaymentForDetail.salespersonName,
+                                            totalAmount: selectedPaymentForDetail.amount
+                                        },
+                                        bcvRate
+                                    })}
+                                    className="w-full h-11 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-[10px] uppercase tracking-wider flex items-center justify-center gap-2 shadow-lg"
                                 >
-                                    <FileText className="h-4 w-4 text-emerald-400" /> Abrir Expediente Completo de la Orden
+                                    <Printer className="h-4 w-4" /> Imprimir Recibo Oficial de Pago PDF
                                 </Button>
-                            )}
+
+                                {selectedPaymentForDetail.rawOrder && onSelectOrder && (
+                                    <Button 
+                                        onClick={() => {
+                                            const raw = selectedPaymentForDetail.rawOrder;
+                                            setSelectedPaymentForDetail(null);
+                                            onSelectOrder(raw!);
+                                        }}
+                                        className="w-full h-10 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 font-black text-[9px] uppercase tracking-wider flex items-center justify-center gap-2"
+                                    >
+                                        <FileText className="h-3.5 w-3.5 text-emerald-400" /> Abrir Expediente Completo de la Orden
+                                    </Button>
+                                )}
+                            </div>
                         </div>
                     </DialogContent>
                 </Dialog>

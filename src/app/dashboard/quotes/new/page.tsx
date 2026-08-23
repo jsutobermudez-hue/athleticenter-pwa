@@ -227,6 +227,10 @@ function NewQuoteForm() {
             quoteDate: serverTimestamp(),
             expiryDate: Timestamp.fromDate(addDays(new Date(), 15)),
             totalAmount: safeTotal,
+            bcvDiscountSnapshot: globalSettings?.defaultBcvDiscount !== undefined ? globalSettings.defaultBcvDiscount : 25,
+            earlyPayment7dSnapshot: globalSettings?.earlyPayment7Days !== undefined ? globalSettings.earlyPayment7Days : 5,
+            earlyPayment15dSnapshot: globalSettings?.earlyPayment15Days !== undefined ? globalSettings.earlyPayment15Days : 3,
+            bcvRateSnapshot: globalSettings?.bcvRate || 65.50,
             status: isCloudDraft ? 'Borrador' : 'Enviada',
             createdAt: serverTimestamp(),
             updatedAt: serverTimestamp()

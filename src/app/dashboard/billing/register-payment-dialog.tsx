@@ -48,7 +48,7 @@ import { doc, writeBatch, collection, serverTimestamp, query, where, limit, runT
 import Image from 'next/image';
 import { createAppNotifications } from '@/lib/notifications';
 import { cn } from '@/lib/utils';
-import { generateOrderPDF } from '@/lib/pdf-generator';
+import { generateOrderPDF, generatePaymentReceiptPDF } from '@/lib/pdf-generator';
 
 const paymentSchema = z.object({
   amount: z.coerce.number().min(0.01, 'El monto debe ser mayor a cero.'),
@@ -244,20 +244,22 @@ export function ConfirmPaymentDialog({ order }: { order: Order }) {
             return { ...item, product: pData } as OrderItemClient;
         }));
 
-        if (fullItems.length > 0) {
-            generateOrderPDF({
-                customerName: order.customerName,
-                customerRif: order.customerRif || customerData?.rif,
-                customerAddress: customerData?.address || '',
-                orderItems: fullItems,
-                salespersonName: order.salespersonName || 'Ventas Directas',
-                orderId: order.id,
-                createdAt: new Date(),
+        try {
+            generatePaymentReceiptPDF({
+                payment: {
+                    amount: reportedPayment?.amount || data.amount,
+                    method: data.method as any,
+                    referenceNumber: data.referenceNumber,
+                    registeredByName: currentUser?.name || authUser.displayName || authUser.email || 'Caja Central',
+                    paymentDate: new Date(),
+                    imageUrl: (reportedPayment as any)?.imageUrl || ''
+                },
+                order,
                 companyProfile: companyProfile || undefined,
-                documentType: data.documentType,
-                globalSettings: globalSettings || undefined,
                 bcvRate: globalSettings?.bcvRate || 65.50
             });
+        } catch (pdfErr) {
+            console.error("Error generating payment receipt PDF:", pdfErr);
         }
 
         await createAppNotifications(firestore, {
