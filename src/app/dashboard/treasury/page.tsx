@@ -51,6 +51,8 @@ import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
+import { CashAuditModal } from '@/components/dashboard/CashAuditModal';
+import { OrderSheetController } from '@/app/dashboard/orders/OrderSheetController';
 
 const financialSchema = z.object({
   bcvRate: z.coerce.number().min(1, 'La tasa debe ser mayor o igual a 1'),
@@ -69,30 +71,47 @@ const financialSchema = z.object({
 
 type FinancialFormValues = z.infer<typeof financialSchema>;
 
-function MetricCard({ title, value, subValue, icon: Icon, colorClass }: any) {
+function MetricCard({ title, value, subValue, icon: Icon, colorClass, onClick }: any) {
     return (
-        <Card className="border-none shadow-sm rounded-[1.5rem] bg-white overflow-hidden group">
+        <Card 
+            onClick={onClick}
+            className={cn(
+                "border-none shadow-sm rounded-[1.5rem] bg-white overflow-hidden group transition-all duration-300",
+                onClick && "cursor-pointer hover:shadow-xl hover:-translate-y-1 active:scale-95 border-2 border-transparent hover:border-primary/20"
+            )}
+        >
             <CardContent className="p-6">
                 <div className="flex justify-between items-start mb-4">
                     <p className="text-[9px] font-black uppercase text-slate-400 tracking-[0.2em]">{title}</p>
-                    <div className={cn("p-2.5 rounded-xl transition-transform group-hover:rotate-12", colorClass)}>
-                        <Icon className="h-4.5 w-4.5" />
+                    <div className="flex items-center gap-1.5">
+                        {onClick && (
+                            <ArrowUpRight className="h-3.5 w-3.5 text-slate-300 group-hover:text-primary transition-colors" />
+                        )}
+                        <div className={cn("p-2.5 rounded-xl transition-transform group-hover:rotate-12", colorClass)}>
+                            <Icon className="h-4.5 w-4.5" />
+                        </div>
                     </div>
                 </div>
                 <h3 className="text-2xl sm:text-3xl font-black tracking-tighter text-slate-900 leading-none">{value}</h3>
-                <p className="text-[9px] font-bold text-muted-foreground uppercase mt-2 tracking-widest">{subValue}</p>
+                <p className="text-[9px] font-bold text-muted-foreground uppercase mt-2 tracking-widest flex items-center justify-between">
+                    <span>{subValue}</span>
+                </p>
             </CardContent>
         </Card>
     );
 }
 
 export default function TreasuryPage() {
+  const router = useRouter();
   const firestore = useFirestore();
   const { toast } = useToast();
   const { profile: currentUser, isUserLoading } = useUser();
   const [isSyncing, setIsSyncing] = useState(false);
   const [isMassUpdating, setIsMassUpdating] = useState(false);
   const [syncType, setSyncType] = useState<'bcv' | 'wac'>('bcv');
+
+  const [isCashAuditOpen, setIsCashAuditOpen] = useState(false);
+  const [selectedOrderForDetails, setSelectedOrderForDetails] = useState<Order | null>(null);
   
   const [brandFilter, setBrandFilter] = useState('todos');
   const [categoryFilter, setCategoryFilter] = useState('todos');
@@ -343,10 +362,45 @@ export default function TreasuryPage() {
       </header>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
-          <MetricCard title="Liquidez Real" value={`$${metrics?.totalCashVerified?.toLocaleString() || '0'}`} subValue="Efectivo en Banco (CASH)" icon={TrendingUp} colorClass="bg-emerald-50 text-emerald-500" />
-          <MetricCard title="Capital en Calle" value={`$${metrics?.liquidityGap?.toLocaleString() || '0'}`} subValue="Cuentas por Cobrar" icon={Wallet} colorClass="bg-blue-50 text-blue-500" />
-          <MetricCard title="Valor Activo" value={`$${metrics?.replacementCostTotal?.toLocaleString() || '0'}`} subValue="Costo Reposición WAC" icon={Boxes} colorClass="bg-slate-900 text-white" />
-          <MetricCard title="Tasa BCV" value={`${formValues.bcvRate || settings?.bcvRate || '65.50'} Bs`} subValue="Parámetro de Red" icon={Landmark} colorClass="bg-primary/5 text-primary" />
+          <MetricCard 
+              title="Liquidez Real" 
+              value={`$${metrics?.totalCashVerified?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}`} 
+              subValue="Efectivo en Banco (CASH) • Ver Pagos" 
+              icon={TrendingUp} 
+              colorClass="bg-emerald-50 text-emerald-500" 
+              onClick={() => setIsCashAuditOpen(true)}
+          />
+          <MetricCard 
+              title="Capital en Calle" 
+              value={`$${metrics?.liquidityGap?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}`} 
+              subValue="Cuentas por Cobrar • Ver Facturación" 
+              icon={Wallet} 
+              colorClass="bg-blue-50 text-blue-500" 
+              onClick={() => router.push('/dashboard/billing')}
+          />
+          <MetricCard 
+              title="Valor Activo" 
+              value={`$${metrics?.replacementCostTotal?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}`} 
+              subValue="Costo Reposición WAC • Ver Catálogo" 
+              icon={Boxes} 
+              colorClass="bg-slate-900 text-white" 
+              onClick={() => router.push('/dashboard/inventory')}
+          />
+          <MetricCard 
+              title="Tasa BCV" 
+              value={`${formValues.bcvRate || settings?.bcvRate || '65.50'} Bs`} 
+              subValue="Parámetro de Red • Auto-Sync" 
+              icon={Landmark} 
+              colorClass="bg-primary/5 text-primary" 
+              onClick={() => {
+                  const el = document.getElementById('bcvRateInput');
+                  if (el) {
+                      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                      el.focus();
+                  }
+                  handleSyncBcv();
+              }}
+          />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
@@ -372,7 +426,7 @@ export default function TreasuryPage() {
                                 <div className="p-5 bg-slate-50 rounded-2xl border border-slate-100 flex flex-col justify-center text-center shadow-inner">
                                     <Label className="text-[9px] font-black uppercase text-slate-400 mb-2">Tasa Oficial BCV (Bs/$)</Label>
                                     <Controller name="bcvRate" control={control} render={({ field }) => (
-                                        <Input type="number" step="0.01" {...field} value={isNaN(field.value) ? "" : field.value} className="text-2xl font-black bg-white border border-slate-200 text-center h-12 rounded-xl text-slate-900 shadow-sm" />
+                                        <Input id="bcvRateInput" type="number" step="0.01" {...field} value={isNaN(field.value) ? "" : field.value} className="text-2xl font-black bg-white border border-slate-200 text-center h-12 rounded-xl text-slate-900 shadow-sm focus:ring-2 focus:ring-primary" />
                                     )} />
                                 </div>
                                 <div className="p-5 bg-emerald-50 rounded-2xl border border-emerald-100 flex flex-col justify-center text-center shadow-inner">
@@ -521,6 +575,23 @@ export default function TreasuryPage() {
             </Card>
         </div>
       </div>
+
+      {/* MODAL DE ARQUEO Y REGISTRO DE PAGOS (LIQUIDEZ REAL) */}
+      <CashAuditModal 
+          isOpen={isCashAuditOpen} 
+          onClose={() => setIsCashAuditOpen(false)} 
+          orders={allOrders || []} 
+          bcvRate={formValues.bcvRate || settings?.bcvRate || 65.50} 
+          onSelectOrder={(ord) => setSelectedOrderForDetails(ord)}
+      />
+
+      {/* EXPEDIENTE DE DETALLES DE ORDEN SELECCIONADA DESDE TESORERÍA */}
+      {selectedOrderForDetails && (
+          <OrderSheetController 
+              order={selectedOrderForDetails} 
+              onOpenChange={(open) => { if (!open) setSelectedOrderForDetails(null); }} 
+          />
+      )}
     </div>
   );
 }
