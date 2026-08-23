@@ -233,12 +233,17 @@ export function ReportPaymentDialog({ invoice, mode = 'partial' }: { invoice: In
     }
   }, [elapsedDays, is7DaysEligible, is15DaysEligible, setValue]);
 
-  // LÓGICA DE CÁLCULO BI-DIRECCIONAL EN TIEMPO REAL v8.3 (RESILIENTE)
+  // LÓGICA DE CÁLCULO BI-DIRECCIONAL EN TIEMPO REAL v8.3 (RESILIENTE CON SNAPSHOTS)
   const calculation = useMemo(() => {
-    const bcvDiscountFactor = ((globalSettings as any)?.defaultBcvDiscount !== undefined ? (globalSettings as any).defaultBcvDiscount : 25) / 100;
+    const rawSnapshotBcv = (invoice as any)?.bcvDiscountSnapshot;
+    const bcvDiscountFactor = (rawSnapshotBcv !== undefined ? rawSnapshotBcv : ((globalSettings as any)?.defaultBcvDiscount !== undefined ? (globalSettings as any).defaultBcvDiscount : 25)) / 100;
     const ivaFactor = (globalSettings?.ivaPercent || 16) / 100;
-    const early7Factor = (globalSettings?.earlyPayment7Days || 5) / 100;
-    const early15Factor = (globalSettings?.earlyPayment15Days || 3) / 100;
+
+    const rawSnapshot7d = (invoice as any)?.earlyPayment7dSnapshot;
+    const early7Factor = (rawSnapshot7d !== undefined ? rawSnapshot7d : (globalSettings?.earlyPayment7Days || 5)) / 100;
+
+    const rawSnapshot15d = (invoice as any)?.earlyPayment15dSnapshot;
+    const early15Factor = (rawSnapshot15d !== undefined ? rawSnapshot15d : (globalSettings?.earlyPayment15Days || 3)) / 100;
 
     const currentBalance = invoice?.remainingBalance || 0;
     const rawVal = Number(inputAmount || 0);

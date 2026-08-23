@@ -614,17 +614,28 @@ export async function generatePaymentReceiptPDF({
     doc.setFillColor(15, 23, 42);
     doc.rect(0, 0, 210, 36, 'F');
 
+    let textStartX = 14;
+    if (companyProfile?.logoUrl) {
+        try {
+            const base64Logo = await getBase64ImageFromUrl(companyProfile.logoUrl);
+            doc.addImage(base64Logo, 'PNG', 12, 5, 26, 26, undefined, 'FAST');
+            textStartX = 42;
+        } catch (e) {
+            console.warn("[PDF] Error loading logo for receipt PDF:", e);
+        }
+    }
+
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(16);
+    doc.setFontSize(14);
     doc.setTextColor(255, 255, 255);
-    doc.text((companyProfile?.companyName || (companyProfile as any)?.name || 'ATHLETICENTER PRO C.A.').toUpperCase(), 14, 16);
+    doc.text((companyProfile?.companyName || (companyProfile as any)?.name || 'ATHLETICENTER PRO C.A.').toUpperCase(), textStartX, 15);
 
     doc.setFontSize(8);
     doc.setFont("helvetica", "normal");
     doc.setTextColor(148, 163, 184);
-    doc.text(`RIF: ${companyProfile?.companyRif || (companyProfile as any)?.rif || 'J-12345678-0'}`, 14, 23);
-    doc.text(`RECIBO OFICIAL DE PAGO Y CAJA - COMPROBANTE DE ABONO CERTIFICADO`, 14, 28);
-    doc.text(`TASA OFICIAL BCV: Bs. ${bcvRate.toFixed(2)} / USD | EMISIÓN: ${format(new Date(), 'dd/MM/yyyy HH:mm')}`, 14, 33);
+    doc.text(`RIF: ${companyProfile?.companyRif || (companyProfile as any)?.rif || 'J-12345678-0'}`, textStartX, 21);
+    doc.text(`RECIBO OFICIAL DE PAGO Y CAJA - COMPROBANTE DE ABONO CERTIFICADO`, textStartX, 26);
+    doc.text(`TASA OFICIAL BCV: Bs. ${bcvRate.toFixed(2)} / USD | EMISIÓN: ${format(new Date(), 'dd/MM/yyyy HH:mm')}`, textStartX, 31);
 
     doc.setFillColor(16, 185, 129);
     doc.rect(145, 10, 51, 18, 'F');
