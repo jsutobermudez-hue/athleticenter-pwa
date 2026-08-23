@@ -421,5 +421,25 @@ export async function executePriceRollback(params: {
     }
 }
 
+export async function sendPaymentReceiptEmailAction(params: {
+    toEmail: string;
+    customerName: string;
+    receiptId: string;
+    orderId: string;
+    amountPaidUSD: number;
+    paymentMethod: string;
+    referenceNumber?: string;
+    remainingBalanceUSD: number;
+    isFullyPaid: boolean;
+}) {
+    try {
+        const { sendPaymentReceiptEmail } = await import('@/lib/email');
+        return await sendPaymentReceiptEmail(params);
+    } catch (err: any) {
+        console.warn("[Action Email Warning] Error sending payment receipt email:", err?.message);
+        return { success: false, error: err?.message };
+    }
+}
+
 
 

@@ -256,6 +256,23 @@ export function ConfirmPaymentDialog({ order }: { order: Order }) {
             console.error("Error generating payment receipt PDF:", pdfErr);
         }
 
+        try {
+            const { sendPaymentReceiptEmailAction } = await import('@/app/actions');
+            await sendPaymentReceiptEmailAction({
+                toEmail: (order as any).customerEmail || (order as any).email || currentUser?.email || authUser?.email || '',
+                customerName: order.customerName,
+                receiptId: `#REC-${(order.id || '').replace('#','').substring(0,8)}-1`,
+                orderId: order.id,
+                amountPaidUSD: actualCash,
+                paymentMethod: data.method,
+                referenceNumber: data.referenceNumber,
+                remainingBalanceUSD: Math.max(0, order.totalAmount - newTotalPaid),
+                isFullyPaid
+            });
+        } catch (emailErr) {
+            console.warn("Aviso: Envío de correo de recibo diferido:", emailErr);
+        }
+
         await createAppNotifications(firestore, {
             category: 'Facturación',
             title: isFullyPaid ? `🎉 ¡Pedido Liquidado / Solvente! #${order.id.substring(0, 8)}` : `💵 ¡Abono Conciliado! #${order.id.substring(0, 8)}`,
