@@ -230,19 +230,13 @@ export function ConfirmPaymentDialog({ order }: { order: Order }) {
                 createdAt: serverTimestamp()
             });
         }
-    })
-    .then(async () => {
-        const itemsSnap = await getDocs(collection(firestore, `orders/${order.id}/orderItems`));
-        const itemDocs = itemsSnap.docs.map(d => ({ id: d.id, ...d.data() } as OrderItem));
-        
-        const customerSnap = await getDoc(doc(firestore, 'customers', order.customerId));
-        const customerData = customerSnap.exists() ? customerSnap.data() as Customer : null;
 
-        const fullItems = await Promise.all(itemDocs.map(async (item) => {
-            const pSnap = await getDoc(doc(firestore, 'products', item.productId));
-            const pData = pSnap.exists() ? pSnap.data() as Product : { name: 'Producto No Encontrado', sku: 'N/A', price: 0 } as any;
-            return { ...item, product: pData } as OrderItemClient;
-        }));
+        return { isFullyPaid, actualCash, newTotalPaid };
+    })
+    .then(async (result) => {
+        const isFullyPaid = result?.isFullyPaid || false;
+        const actualCash = result?.actualCash || data.amount;
+        const newTotalPaid = result?.newTotalPaid || data.amount;
 
         try {
             generatePaymentReceiptPDF({
@@ -264,16 +258,18 @@ export function ConfirmPaymentDialog({ order }: { order: Order }) {
 
         await createAppNotifications(firestore, {
             category: 'Facturación',
-            title: `¡Abono Conciliado! #${order.id.substring(0, 6)}`,
-            message: `Se ha verificado un abono por $${(reportedPayment?.baseAmount || data.amount).toFixed(2)} para ${order.customerName}.`,
+            title: isFullyPaid ? `🎉 ¡Pedido Liquidado / Solvente! #${order.id.substring(0, 8)}` : `💵 ¡Abono Conciliado! #${order.id.substring(0, 8)}`,
+            message: isFullyPaid 
+                ? `El pedido #${order.id} para ${order.customerName} ha sido liquidado al 100% por $${actualCash.toFixed(2)}. Estatus: SOLVENTE.`
+                : `Se ha verificado un abono por $${actualCash.toFixed(2)} para el pedido #${order.id} (${order.customerName}). Saldo pendiente: $${Math.max(0, order.totalAmount - newTotalPaid).toFixed(2)}.`,
             link: `/dashboard/billing?orderId=${order.id}`,
             initiatorId: currentUser.id,
             salespersonId: order.salespersonId,
             customerId: order.customerId,
-            roles: ['admin', 'gerencia'],
+            roles: ['admin', 'gerencia', 'deposito'],
         });
 
-        toast({ title: '¡Abono Conciliado!', description: `Deuda actualizada y documento generado.` });
+        toast({ title: isFullyPaid ? '🎉 ¡Pedido Liquidado y Solvente!' : '¡Abono Conciliado!', description: `Deuda actualizada y Recibo Oficial PDF emitido.` });
         setIsOpen(false);
     })
     .catch(async (serverError: any) => {

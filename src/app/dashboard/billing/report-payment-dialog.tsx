@@ -54,6 +54,7 @@ import { doc, collection, serverTimestamp, setDoc, updateDoc } from 'firebase/fi
 import { ImageUploader } from '@/components/ui/image-uploader';
 import { cn } from '@/lib/utils';
 import type { Invoice, Order, FinancialSettings, Payment } from '@/lib/definitions';
+import { createAppNotifications } from '@/lib/notifications';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import {
   Tooltip,
@@ -352,7 +353,6 @@ export function ReportPaymentDialog({ invoice, mode = 'partial' }: { invoice: In
     try {
       await setDoc(paymentRef, cleanPayload);
       
-      // 2. Actualización de estatus del pedido a "En Verificación"
       try {
         await updateDoc(doc(firestore, 'orders', invoice.id), {
           status: 'En Verificación',
@@ -360,6 +360,21 @@ export function ReportPaymentDialog({ invoice, mode = 'partial' }: { invoice: In
         });
       } catch (orderUpdateErr: any) {
         console.warn("Aviso: Pago guardado, actualización de orden diferida:", orderUpdateErr);
+      }
+
+      try {
+        await createAppNotifications(firestore, {
+          category: 'Facturación',
+          title: `📥 Nuevo Abono Reportado #${invoice.id.substring(0, 8)}`,
+          message: `Se ha reportado un pago por $${(Number(calculation.finalAmount) || 0).toFixed(2)} (${data.method || 'Efectivo'}) para el pedido #${invoice.id} (${invoice.customerName || 'Cliente'}). Pendiente por verificación en caja.`,
+          link: `/dashboard/billing?orderId=${invoice.id}`,
+          initiatorId: currentUser?.id || authUser?.uid || '',
+          salespersonId: invoice.salespersonId,
+          customerId: invoice.customerId,
+          roles: ['admin', 'gerencia', 'deposito']
+        });
+      } catch (notifErr) {
+        console.warn("Aviso: Notificación de reporte diferida:", notifErr);
       }
 
       toast({ 
