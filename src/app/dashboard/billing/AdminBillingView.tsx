@@ -400,9 +400,6 @@ export function AdminBillingView() {
           <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">Auditoría de ingresos y conciliación de abonos de la red global</p>
         </div>
         <div className="flex flex-wrap items-center gap-2.5">
-          <div className="bg-slate-100 border border-slate-200 text-slate-800 text-[10px] font-black uppercase px-3 py-2 rounded-2xl flex items-center gap-1.5 shadow-xs">
-            <span>💱 Tasa Oficial BCV: <strong className="text-slate-900 font-extrabold">Bs. {bcvRate.toFixed(2)}</strong> / USD</span>
-          </div>
           <Button onClick={() => setIsCashAuditModalOpen(true)} className="h-10 px-4 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-black uppercase tracking-wider shadow-md transition-all active:scale-95 flex items-center gap-1.5">
             <Banknote className="h-4 w-4" /> Pagos Registrados
           </Button>
