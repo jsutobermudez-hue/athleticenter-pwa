@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { getCashBreakdown, type PaymentItem } from '@/lib/billing';
 import { useFirestore } from '@/firebase';
-import { collection, getDocs } from 'firebase/firestore';
+import { collection, collectionGroup, getDocs } from 'firebase/firestore';
 import { 
     Banknote, 
     Printer, 
@@ -53,9 +53,86 @@ export function CashAuditModal({ isOpen, onClose, orders, periodFilter = 'all', 
     const [selectedPaymentForDetail, setSelectedPaymentForDetail] = useState<PaymentItem | null>(null);
     const [isLoadingSubcollectionReceipt, setIsLoadingSubcollectionReceipt] = useState(false);
 
+    // Estado para pagos reales de subcolecciones
+    const [subcollectionPayments, setSubcollectionPayments] = useState<PaymentItem[] | null>(null);
+    const [isLoadingSubcollectionPayments, setIsLoadingSubcollectionPayments] = useState(false);
+
     useEffect(() => {
         setActivePeriod(periodFilter);
     }, [periodFilter, isOpen]);
+
+    // EFECTO DE CONSULTA GLOBAL DE SUBCOLECCIONES DE PAGOS (COLLECTION GROUP)
+    useEffect(() => {
+        if (!isOpen || !firestore) return;
+
+        let isMounted = true;
+        setIsLoadingSubcollectionPayments(true);
+
+        const fetchAllPaymentsFromFirestore = async () => {
+            try {
+                const querySnap = await getDocs(collectionGroup(firestore, 'payments'));
+                if (!isMounted) return;
+
+                const fetchedItems: PaymentItem[] = [];
+                querySnap.docs.forEach(docSnap => {
+                    const data = docSnap.data();
+                    const parentOrderRef = docSnap.ref.parent.parent;
+                    const orderId = parentOrderRef ? parentOrderRef.id : (data.orderId || '');
+                    const rawOrd = orders?.find(o => o.id === orderId);
+
+                    const amt = Number(data.amount || data.monto || 0);
+                    if (amt <= 0) return;
+
+                    let pMethod = (data.method || data.paymentMethod || data.metodoPago || '').trim();
+                    const pRef = (data.referenceNumber || data.reference || data.referencia || '').trim();
+                    const normRef = pRef.toLowerCase();
+
+                    if (!pMethod) {
+                        if (normRef.startsWith('zel') || normRef.startsWith('wfct') || normRef.includes('zelle')) pMethod = 'Zelle';
+                        else if (normRef.includes('pm') || normRef.includes('pago movil')) pMethod = 'Pago Móvil';
+                        else pMethod = 'Efectivo USD';
+                    }
+
+                    let pDate = new Date();
+                    const rawDate = data.paymentDate || data.createdAt || data.date || data.fecha;
+                    if (rawDate) {
+                        pDate = typeof rawDate.toDate === 'function' ? rawDate.toDate() : new Date(rawDate);
+                    }
+
+                    fetchedItems.push({
+                        id: docSnap.id,
+                        orderId: `#${(orderId || '').substring(0, 8).toUpperCase()}`,
+                        customerName: data.customerName || rawOrd?.customerName || 'Cliente General',
+                        customerRif: data.customerRif || rawOrd?.customerRif || '',
+                        customerPhone: data.customerPhone || rawOrd?.customerPhone || '',
+                        salespersonName: data.salespersonName || rawOrd?.salespersonName || 'Directo',
+                        registeredBy: data.registeredByName || data.registeredBy || data.verifiedByName || 'Sistema / Caja',
+                        date: pDate,
+                        method: pMethod,
+                        amount: amt,
+                        reference: pRef,
+                        receiptUrl: data.imageUrl || data.paymentReceiptUrl || data.comprobanteUrl || data.receiptUrl || data.retentionImageUrl || '',
+                        orderStatus: rawOrd?.status || 'Pagado',
+                        rawOrder: rawOrd
+                    });
+                });
+
+                if (fetchedItems.length > 0) {
+                    setSubcollectionPayments(fetchedItems);
+                }
+            } catch (e) {
+                console.error("Error fetching collectionGroup payments:", e);
+            } finally {
+                if (isMounted) setIsLoadingSubcollectionPayments(false);
+            }
+        };
+
+        fetchAllPaymentsFromFirestore();
+
+        return () => {
+            isMounted = false;
+        };
+    }, [isOpen, firestore, orders]);
 
     // EFECTO DE BÚSQUEDA AUTOMÁTICA DE COMPROBANTES EN SUBCOLECCIÓN DE PAGOS
     useEffect(() => {
@@ -123,8 +200,15 @@ export function CashAuditModal({ isOpen, onClose, orders, periodFilter = 'all', 
     }, [orders]);
 
     const breakdown = useMemo(() => {
-        return getCashBreakdown(orders, activePeriod, startDate, endDate);
-    }, [orders, activePeriod, startDate, endDate]);
+        const baseBreakdown = getCashBreakdown(orders, activePeriod, startDate, endDate);
+        if (subcollectionPayments && subcollectionPayments.length > 0) {
+            return {
+                ...baseBreakdown,
+                payments: subcollectionPayments
+            };
+        }
+        return baseBreakdown;
+    }, [orders, activePeriod, startDate, endDate, subcollectionPayments]);
 
     const [statusFilter, setStatusFilter] = useState<'todos' | 'solventes'>('todos');
 
