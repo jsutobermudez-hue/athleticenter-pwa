@@ -371,8 +371,8 @@ export function PurchaseOrderDetailSheet({ order, isOpen, onOpenChange }: Purcha
 
   return (
     <Sheet open={isOpen} onOpenChange={onOpenChange}>
-      <SheetContent className="w-full sm:max-w-2xl lg:max-w-4xl p-0 flex flex-col h-screen border-none rounded-l-[2.5rem] shadow-2xl">
-        <SheetHeader className="p-8 pb-4 bg-slate-900 text-white shrink-0">
+      <SheetContent className="w-full sm:max-w-4xl lg:max-w-6xl p-0 flex flex-col h-screen border-none rounded-l-[2.5rem] shadow-2xl">
+        <SheetHeader className="p-6 sm:p-8 pb-4 bg-slate-900 text-white shrink-0">
           <div className="flex justify-between items-start">
             <div className="space-y-1 text-left">
                 <SheetTitle className="text-2xl font-black uppercase tracking-tighter text-white">Manifiesto e Inteligencia de Importación</SheetTitle>

@@ -261,7 +261,7 @@ export function CashAuditModal({ isOpen, onClose, orders, periodFilter = 'all', 
     return (
         <>
             <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-                <DialogContent className="max-w-5xl bg-slate-950 text-white border-slate-800 p-0 overflow-hidden rounded-[2.5rem] shadow-2xl">
+                <DialogContent className="max-w-[96vw] xl:max-w-7xl bg-slate-950 text-white border-slate-800 p-0 overflow-hidden rounded-[2.5rem] shadow-2xl">
                     <DialogHeader className="p-6 pb-4 bg-slate-900/80 border-b border-slate-800/80 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                         <div>
                             <div className="flex items-center gap-2">

@@ -300,49 +300,49 @@ export function OrderDetailsSheet({
   return (
     <>
     <Dialog open={isOpen} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-[95vw] lg:max-w-6xl p-0 flex flex-col h-[90vh] border-none rounded-[2rem] sm:rounded-[2.5rem] shadow-2xl overflow-hidden z-[100]">
+      <DialogContent className="max-w-[96vw] xl:max-w-7xl p-0 flex flex-col h-[92vh] max-h-[92vh] border-none rounded-[2rem] sm:rounded-[2.5rem] shadow-2xl overflow-hidden z-[100]">
         
         {/* HEADER DE EXPEDIENTE */}
-        <DialogHeader className="p-6 sm:p-8 pb-4 bg-slate-50 border-b shrink-0 relative">
+        <DialogHeader className="p-5 sm:p-6 pb-3 bg-slate-900 text-white shrink-0 relative">
           <div className="flex justify-between items-start">
-            <div className="space-y-1 text-left flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <DialogTitle className="text-2xl sm:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none truncate">EXPEDIENTE #{order.id.substring(0,8)}</DialogTitle>
+            <div className="space-y-1 text-left flex-1 min-w-0 pr-8">
+                <div className="flex items-center gap-2.5 flex-wrap">
+                  <DialogTitle className="text-xl sm:text-2xl font-black uppercase tracking-tighter text-white leading-none truncate">EXPEDIENTE #{order.id.substring(0,8)}</DialogTitle>
                   {finalCustomerRif && (
-                    <Badge variant="outline" className="font-mono text-[9px] font-bold uppercase px-2 h-5 bg-white border-slate-200 text-slate-600">
+                    <Badge variant="outline" className="font-mono text-[9px] font-bold uppercase px-2 h-5 bg-white/10 border-white/20 text-slate-300">
                       RIF: {finalCustomerRif}
                     </Badge>
                   )}
                 </div>
-                <DialogDescription className="font-black text-[10px] sm:text-[12px] uppercase tracking-[0.2em] text-primary truncate mt-1">{order.customerName}</DialogDescription>
+                <DialogDescription className="font-black text-[10px] sm:text-[12px] uppercase tracking-[0.2em] text-primary-foreground/90 truncate mt-0.5">{order.customerName}</DialogDescription>
             </div>
-            <div className="flex flex-col items-end gap-2 shrink-0 mr-8">
-                <Badge className={cn(statusConfig[order.status]?.color, "font-black uppercase text-[9px] sm:text-[11px] px-3 sm:px-4 h-6 sm:h-8 border-none shadow-md")}>{order.status}</Badge>
+            <div className="flex items-center gap-3 shrink-0 mr-8">
+                <Badge className={cn(statusConfig[order.status]?.color, "font-black uppercase text-[10px] sm:text-[11px] px-3.5 h-7 border-none shadow-md")}>{order.status}</Badge>
                 {isCancellationPending && <Badge variant="destructive" className="animate-pulse text-[8px] font-black uppercase h-5 px-2">Anulación Pendiente</Badge>}
             </div>
           </div>
 
           {/* LÍNEA DE TIEMPO STEPPER EN CABECERA */}
           {order.status !== 'Cancelado' && (
-            <div className="mt-6 pt-4 border-t border-slate-200/60">
-              <div className="grid grid-cols-5 gap-1.5 sm:gap-2">
+            <div className="mt-4 pt-3 border-t border-white/10">
+              <div className="grid grid-cols-5 gap-1 sm:gap-2">
                 {ORDER_STAGES.map((stage, idx) => {
                   const isPassed = idx <= currentStageIndex;
                   const isCurrent = idx === currentStageIndex;
                   const StageIcon = stage.icon;
 
                   return (
-                    <div key={stage.id} className="flex flex-col items-center gap-1.5 text-center">
+                    <div key={stage.id} className="flex flex-col items-center gap-1 text-center">
                       <div className={cn(
-                        "h-8 w-8 sm:h-9 sm:w-9 rounded-xl flex items-center justify-center transition-all shadow-sm",
-                        isCurrent ? "bg-primary text-white ring-4 ring-primary/20 scale-105" :
-                        isPassed ? "bg-slate-900 text-white" : "bg-slate-200 text-slate-400"
+                        "h-7 w-7 sm:h-8 sm:w-8 rounded-xl flex items-center justify-center transition-all shadow-sm",
+                        isCurrent ? "bg-primary text-white ring-4 ring-primary/30 scale-105" :
+                        isPassed ? "bg-emerald-500 text-white" : "bg-white/10 text-slate-400"
                       )}>
-                        <StageIcon className="h-4 w-4" />
+                        <StageIcon className="h-3.5 w-3.5" />
                       </div>
                       <span className={cn(
                         "text-[7px] sm:text-[8px] font-black uppercase tracking-wider truncate max-w-full",
-                        isCurrent ? "text-primary font-extrabold" : isPassed ? "text-slate-900" : "text-slate-400"
+                        isCurrent ? "text-primary font-extrabold" : isPassed ? "text-white" : "text-slate-400"
                       )}>
                         {stage.label}
                       </span>
@@ -353,74 +353,78 @@ export function OrderDetailsSheet({
             </div>
           )}
 
-          <button onClick={() => onOpenChange(false)} className="absolute top-6 right-6 text-slate-300 hover:text-slate-900 transition-colors">
+          <button onClick={() => onOpenChange(false)} className="absolute top-5 right-5 text-white/50 hover:text-white transition-colors">
             <X className="h-6 w-6" />
           </button>
         </DialogHeader>
 
-        <div className="flex-1 overflow-y-auto overflow-x-hidden bg-white min-h-0">
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-0">
-                <div className="lg:col-span-8 p-6 sm:p-10 space-y-10">
+        <div className="flex-1 overflow-y-auto overflow-x-hidden bg-slate-50/50 min-h-0">
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-0 min-h-full">
+                {/* COLUMNA IZQUIERDA: CONTENIDO Y PICKING (7 COLS) */}
+                <div className="lg:col-span-7 p-5 sm:p-7 space-y-6 bg-white border-r border-slate-100">
                     {(order.dispatchImageUrl || order.deliveryImageUrl) && (
-                        <div className="space-y-4">
+                        <div className="space-y-3">
                             <h3 className="text-[10px] font-black uppercase tracking-[0.4em] text-slate-400 flex items-center gap-2 px-1">
                                 <Camera className="h-4 w-4 text-primary" /> CUSTODIA DIGITAL
                             </h3>
-                            <div className="grid grid-cols-2 gap-6">
+                            <div className="grid grid-cols-2 gap-4">
                                 {order.dispatchImageUrl && (
                                     <div 
-                                        className="relative aspect-video sm:aspect-square rounded-[2rem] overflow-hidden bg-slate-100 border border-slate-200 cursor-zoom-in group shadow-xl"
+                                        className="relative aspect-video rounded-2xl overflow-hidden bg-slate-100 border border-slate-200 cursor-zoom-in group shadow-md"
                                         onClick={() => setZoomImage(order.dispatchImageUrl!)}
                                     >
                                         <img src={order.dispatchImageUrl} alt="Salida" className="object-cover w-full h-full transition-transform duration-700 group-hover:scale-110" />
                                         <div className="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                                            <Maximize2 className="text-white h-8 w-8" />
+                                            <Maximize2 className="text-white h-6 w-6" />
                                         </div>
-                                        <Badge className="absolute top-4 left-4 bg-slate-900 text-white border-none text-[8px] font-black uppercase px-2 h-5">SALIDA CERTIFICADA</Badge>
+                                        <Badge className="absolute top-2 left-2 bg-slate-900 text-white border-none text-[8px] font-black uppercase px-2 h-5">SALIDA CERTIFICADA</Badge>
                                     </div>
                                 )}
                                 {order.deliveryImageUrl && (
                                     <div 
-                                        className="relative aspect-video sm:aspect-square rounded-[2rem] overflow-hidden bg-slate-100 border border-slate-200 cursor-zoom-in group shadow-xl"
+                                        className="relative aspect-video rounded-2xl overflow-hidden bg-slate-100 border border-slate-200 cursor-zoom-in group shadow-md"
                                         onClick={() => setZoomImage(order.deliveryImageUrl!)}
                                     >
                                         <img src={order.deliveryImageUrl} alt="Recepción" className="object-cover w-full h-full transition-transform duration-700 group-hover:scale-110" />
                                         <div className="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                                            <Maximize2 className="text-white h-8 w-8" />
+                                            <Maximize2 className="text-white h-6 w-6" />
                                         </div>
-                                        <Badge className="absolute top-4 left-4 bg-emerald-600 text-white border-none text-[8px] font-black uppercase px-2 h-5">RECEPCIÓN CLIENTE</Badge>
+                                        <Badge className="absolute top-2 left-2 bg-emerald-600 text-white border-none text-[8px] font-black uppercase px-2 h-5">RECEPCIÓN CLIENTE</Badge>
                                     </div>
                                 )}
                             </div>
                         </div>
                     )}
 
-                    <div className="space-y-6">
-                        <h3 className="text-[10px] font-black uppercase tracking-[0.4em] text-slate-400 flex items-center gap-2 px-1"><Box className="h-4 w-4 text-primary" /> MANIFIESTO DE CARGA</h3>
-                        <div className="rounded-[2.5rem] border border-slate-100 overflow-hidden shadow-2xl bg-white">
-                            <div className="divide-y divide-slate-50">
+                    <div className="space-y-4">
+                        <div className="flex items-center justify-between px-1">
+                            <h3 className="text-[10px] font-black uppercase tracking-[0.4em] text-slate-400 flex items-center gap-2"><Box className="h-4 w-4 text-primary" /> MANIFIESTO DE CARGA</h3>
+                            <span className="text-[10px] font-black text-slate-500 uppercase">{itemsWithProductData.length} Productos</span>
+                        </div>
+                        <div className="rounded-2xl border border-slate-200 overflow-hidden shadow-sm bg-white">
+                            <div className="divide-y divide-slate-100">
                                 {isLoadingItems ? (
-                                    Array.from({ length: 3 }).map((_, i) => <div key={i} className="p-8"><Skeleton className="h-12 w-full rounded-2xl" /></div>)
+                                    Array.from({ length: 3 }).map((_, i) => <div key={i} className="p-6"><Skeleton className="h-10 w-full rounded-xl" /></div>)
                                 ) : sortedItemsForPicking.map((item) => (
-                                    <div key={item.id} className={cn("p-6 sm:p-8 flex items-center gap-6 transition-all", item.picked && "bg-emerald-50/30")}>
-                                        <div className="relative h-16 w-16 sm:h-20 sm:w-20 shrink-0 rounded-[1.5rem] overflow-hidden bg-slate-50 border border-slate-100 shadow-inner">
+                                    <div key={item.id} className={cn("p-4 sm:p-5 flex items-center gap-4 transition-all", item.picked && "bg-emerald-50/40")}>
+                                        <div className="relative h-14 w-14 shrink-0 rounded-xl overflow-hidden bg-slate-50 border border-slate-200 shadow-inner">
                                             <Avatar className="h-full w-full rounded-none">
                                                 <AvatarImage src={item.product?.imageUrl} className="object-cover" />
                                                 <AvatarFallback className="rounded-none bg-slate-100">
-                                                    <Box className="h-8 w-8 text-slate-300" />
+                                                    <Box className="h-6 w-6 text-slate-300" />
                                                 </AvatarFallback>
                                             </Avatar>
                                         </div>
 
                                         <div className="flex-1 min-w-0">
-                                            <div className="flex items-center gap-3 mb-2 min-w-0">
-                                                <Badge variant="outline" className="bg-primary/5 text-primary border-primary/20 text-[8px] font-black h-5 uppercase px-2 shrink-0">
-                                                    UBICACIÓN: {item.product?.warehouseLocation || 'S/U'}
+                                            <div className="flex items-center gap-2 mb-1 min-w-0 flex-wrap">
+                                                <Badge variant="outline" className="bg-primary/5 text-primary border-primary/20 text-[8px] font-black h-4 uppercase px-1.5 shrink-0">
+                                                    {item.product?.warehouseLocation || 'S/U'}
                                                 </Badge>
-                                                <p className="text-sm sm:text-base font-black uppercase truncate text-slate-900 leading-tight">{item.product?.name || '---'}</p>
+                                                <p className="text-xs sm:text-sm font-black uppercase truncate text-slate-900 leading-tight">{item.product?.name || '---'}</p>
                                             </div>
                                             <div className="flex items-center gap-3">
-                                                <span className="text-[9px] font-mono font-bold text-slate-400 uppercase tracking-tighter bg-slate-50 px-2 py-1 rounded-md">{item.product?.sku}</span>
+                                                <span className="text-[9px] font-mono font-bold text-slate-400 uppercase tracking-tighter bg-slate-50 px-1.5 py-0.5 rounded">{item.product?.sku}</span>
                                                 <span className="text-[10px] font-black text-primary uppercase">CANT: {item.quantity}</span>
                                             </div>
                                         </div>
@@ -430,12 +434,12 @@ export function OrderDetailsSheet({
                                                 <Button 
                                                     variant={item.picked ? "default" : "outline"} 
                                                     size="icon" 
-                                                    className={cn("h-12 w-12 sm:h-14 sm:w-14 rounded-[1.2rem] sm:rounded-[1.5rem] shadow-xl transition-all active:scale-90", item.picked ? "bg-emerald-500" : "border-slate-200 text-slate-300")}
+                                                    className={cn("h-10 w-10 rounded-xl shadow-md transition-all active:scale-90", item.picked ? "bg-emerald-500" : "border-slate-200 text-slate-300")}
                                                     onClick={() => handleTogglePicked(item)}
                                                 >
-                                                    {item.picked ? <Check className="h-6 w-6 text-white" /> : <Box className="h-6 w-6" />}
+                                                    {item.picked ? <Check className="h-5 w-5 text-white" /> : <Box className="h-5 w-5" />}
                                                 </Button>
-                                            ) : <p className="font-black text-lg sm:text-2xl text-slate-900 tracking-tighter">${(item.quantity * item.unitPrice).toFixed(2)}</p>}
+                                            ) : <p className="font-black text-base sm:text-xl text-slate-900 tracking-tighter">${(item.quantity * item.unitPrice).toFixed(2)}</p>}
                                         </div>
                                     </div>
                                 ))}
@@ -444,110 +448,104 @@ export function OrderDetailsSheet({
                     </div>
                 </div>
 
-                <div className="lg:col-span-4 bg-slate-50/50 border-l border-slate-100 p-6 sm:p-10 space-y-10">
-                    {isStaff && order.status !== 'Borrador' && order.status !== 'Cancelado' && (
-                        <div className="p-8 bg-slate-900 text-white rounded-[2.5rem] shadow-2xl space-y-8 relative overflow-hidden group">
-                            <div className="absolute top-0 right-0 p-6 opacity-5 group-hover:rotate-12 transition-transform duration-1000"><Truck className="h-32 w-32" /></div>
-                            <div className="flex items-center justify-between relative z-10">
-                                <div className="flex items-center gap-3">
-                                    <div className="p-2.5 rounded-2xl bg-primary/20 text-primary"><ClipboardList className="h-6 w-6" /></div>
-                                    <Label className="text-xs font-black uppercase tracking-[0.2em] text-primary">Logística Pro</Label>
-                                </div>
-                                {['Aprobado', 'En Preparación'].includes(order.status) && (
-                                    <div className="flex items-center gap-2">
-                                        <span className="text-[9px] font-black uppercase text-white/40">MODO PICKING</span>
-                                        <Switch checked={pickingMode} onCheckedChange={setPickingMode} />
-                                    </div>
-                                )}
-                            </div>
+                {/* COLUMNA DERECHA: AUDITORÍA FINANCIERA Y ACCIONES ORGANIZADAS (5 COLS) */}
+                <div className="lg:col-span-5 bg-slate-50 p-5 sm:p-7 space-y-6">
+                    {/* ACCIONES PRINCIPALES DE OPERACIÓN */}
+                    {(isAdmin || isStaff) && (
+                      <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-sm space-y-3">
+                          <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Acciones de Operación</p>
+                          <div className="space-y-2">
+                              {(order.status === 'Pendiente' || order.status === 'Borrador') && isAdmin && (
+                                  <Button 
+                                      onClick={() => onActionTrigger('approve')} 
+                                      className="w-full h-11 bg-emerald-600 hover:bg-emerald-500 text-white font-black uppercase text-[10px] tracking-[0.2em] shadow-lg rounded-xl transition-all"
+                                  >
+                                      <ShieldCheck className="mr-2 h-5 w-5" /> APROBAR PEDIDO
+                                  </Button>
+                              )}
 
-                            <div className="space-y-4 relative z-10">
+                              {['Aprobado', 'En Preparación'].includes(order.status) && isStaff && (
+                                  <div className="flex items-center justify-between p-3 rounded-xl bg-slate-900 text-white">
+                                      <div className="flex items-center gap-2">
+                                          <ClipboardList className="h-4 w-4 text-primary" />
+                                          <span className="text-[10px] font-black uppercase">MODO PICKING</span>
+                                      </div>
+                                      <Switch checked={pickingMode} onCheckedChange={setPickingMode} />
+                                  </div>
+                              )}
+                          </div>
+                      </div>
+                    )}
+
+                    {/* MODO PICKING AVANCE */}
+                    {pickingMode && (
+                        <div className="p-4 bg-slate-900 text-white rounded-2xl shadow-lg space-y-3">
+                            <div className="flex justify-between items-center">
+                                <p className="text-[10px] font-black uppercase text-primary tracking-widest">Avance Recolección</p>
+                                <p className="text-lg font-black tracking-tighter text-white">{pickedCount} <span className="text-xs text-slate-400">/ {totalItems}</span></p>
+                            </div>
+                            <Progress value={pickingPercentage} className="h-2 bg-white/10" />
+                            <div className="grid grid-cols-2 gap-2 pt-1">
                                 <Button 
-                                    variant="outline" 
-                                    className="w-full bg-white/5 border-white/10 text-white hover:bg-white/10 h-12 rounded-xl font-black uppercase text-[10px] tracking-widest"
+                                    className="bg-white/10 hover:bg-white/20 text-white h-9 rounded-xl font-black uppercase text-[9px]"
+                                    onClick={() => setShowScanner(true)}
+                                >
+                                    <QrCode className="mr-1.5 h-3.5 w-3.5" /> Escanear QR
+                                </Button>
+                                <Button 
+                                    variant="outline"
+                                    className="border-white/20 bg-transparent text-white hover:bg-white/10 h-9 rounded-xl font-black uppercase text-[9px]"
                                     onClick={() => generatePickingListPDF({ orderId: order.id, customerName: order.customerName, orderItems: sortedItemsForPicking, companyProfile: companyProfile || undefined })}
                                 >
-                                    <MapPin className="mr-2 h-4 w-4 text-primary" /> Exportar Picking List
+                                    <MapPin className="mr-1.5 h-3.5 w-3.5 text-primary" /> Picking PDF
                                 </Button>
-                                
-                                {pickingMode ? (
-                                    <div className="space-y-4 animate-in slide-in-from-top-4">
-                                        <Button 
-                                            className="w-full bg-primary hover:bg-primary/90 text-white h-12 rounded-xl font-black uppercase text-[10px] tracking-[0.2em] shadow-xl"
-                                            onClick={() => setShowScanner(true)}
-                                        >
-                                            <QrCode className="mr-2 h-4 w-4" /> Escanear Código QR
-                                        </Button>
-                                        
-                                        <div className="p-5 bg-white/5 rounded-2xl border border-white/10 space-y-4">
-                                            <div className="flex justify-between items-end">
-                                                <p className="text-[9px] font-black uppercase text-slate-400">Avance de Recolección</p>
-                                                <p className="text-2xl font-black tracking-tighter text-white">{pickedCount} <span className="text-xs text-slate-500">/ {totalItems}</span></p>
-                                            </div>
-                                            <Progress value={pickingPercentage} className="h-2 bg-white/10" />
-                                            
-                                            {isFullyPicked && (
-                                                <Button 
-                                                    onClick={handleCompletePicking} 
-                                                    disabled={isCompleting}
-                                                    className="w-full h-12 bg-emerald-500 hover:bg-emerald-600 text-white font-black uppercase text-[10px] tracking-[0.2em] rounded-xl shadow-2xl animate-pulse"
-                                                >
-                                                    {isCompleting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <CheckCircle2 className="h-4 w-4 mr-2" />} FINALIZAR PICKING
-                                                </Button>
-                                            )}
-                                        </div>
-                                    </div>
-                                ) : (
-                                    ['Completado', 'Despachado', 'Entregado'].includes(order.status) && (
-                                        <Button 
-                                            variant="outline" 
-                                            className="w-full bg-white/5 border-white/10 text-white hover:bg-white/10 h-12 rounded-xl font-black uppercase text-[10px] tracking-widest"
-                                            onClick={handlePrintLabels}
-                                            disabled={isPrintingLabels || isLoadingItems}
-                                        >
-                                            {isPrintingLabels ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Printer className="mr-2 h-4 w-4 text-primary" />} Generar Etiquetas QR
-                                        </Button>
-                                    )
-                                )}
                             </div>
+                            {isFullyPicked && (
+                                <Button 
+                                    onClick={handleCompletePicking} 
+                                    disabled={isCompleting}
+                                    className="w-full h-10 bg-emerald-500 hover:bg-emerald-600 text-white font-black uppercase text-[10px] tracking-[0.2em] rounded-xl shadow-xl animate-pulse"
+                                >
+                                    {isCompleting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <CheckCircle2 className="h-4 w-4 mr-2" />} FINALIZAR PICKING
+                                </Button>
+                            )}
                         </div>
                     )}
 
-                    {/* TARJETA DE COMPROBANTES Y RECIBOS DE PAGO */}
-                    <div className="p-8 rounded-[2.5rem] bg-white border border-slate-100 shadow-xl space-y-6">
-                        <div className="space-y-3">
-                            <div className="flex items-center justify-between">
-                                <div className="space-y-0.5">
-                                    <p className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400">Auditoría Financiera</p>
-                                    <h4 className="text-sm font-black uppercase text-slate-900">Estado de Abonos ({orderPayments?.length || 0})</h4>
-                                </div>
-                                <Badge variant="outline" className="bg-emerald-50 border-emerald-200 text-emerald-700 font-black text-[9px] px-2 py-0.5">
-                                    ${paidAmount.toFixed(2)} / ${totalAmount.toFixed(2)}
-                                </Badge>
+                    {/* TARJETA DE AUDITORÍA FINANCIERA DESTACADA Y AMPLIA */}
+                    <div className="p-5 rounded-2xl bg-white border border-slate-200 shadow-md space-y-4">
+                        <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                            <div>
+                                <p className="text-[9px] font-black uppercase tracking-[0.2em] text-primary">Auditoría Financiera</p>
+                                <h4 className="text-xs font-black uppercase text-slate-900">Estado de Abonos ({orderPayments?.length || 0})</h4>
                             </div>
+                            <div className="text-right">
+                                <p className="text-sm font-black text-slate-900 tracking-tight">${paidAmount.toFixed(2)} / ${totalAmount.toFixed(2)}</p>
+                                <p className="text-[8px] font-bold text-slate-400 uppercase">Monto Total Expediente</p>
+                            </div>
+                        </div>
 
-                            {/* BARRA DE PROGRESO DE PAGO */}
-                            <div className="space-y-1.5">
-                              <Progress value={paymentPct} className="h-2 bg-slate-100" />
-                              <div className="flex justify-between text-[8px] font-black uppercase text-slate-400">
-                                <span>Abonado ({paymentPct.toFixed(0)}%)</span>
-                                <span className={pendingDebt > 0.05 ? "text-rose-600 font-bold" : "text-emerald-600 font-bold"}>
-                                  {pendingDebt > 0.05 ? `Saldo: $${pendingDebt.toFixed(2)}` : 'Solvente'}
+                        {/* BARRA DE PROGRESO DE AMORTIZACIÓN */}
+                        <div className="space-y-1 bg-slate-50 p-3 rounded-xl border border-slate-100">
+                            <div className="flex justify-between text-[9px] font-black uppercase">
+                                <span className="text-slate-500">Amortizado: {paymentPct.toFixed(0)}%</span>
+                                <span className={pendingDebt > 0.05 ? "text-rose-600 font-extrabold" : "text-emerald-600 font-extrabold"}>
+                                    {pendingDebt > 0.05 ? `Adeudado: $${pendingDebt.toFixed(2)}` : '🎉 100% SOLVENTE'}
                                 </span>
-                              </div>
                             </div>
+                            <Progress value={paymentPct} className="h-2 bg-slate-200" />
                         </div>
 
                         {isLoadingPayments ? (
                             <div className="flex justify-center p-4"><Loader2 className="animate-spin h-5 w-5 text-slate-400" /></div>
                         ) : orderPayments && orderPayments.length > 0 ? (
-                            <div className="space-y-4">
+                            <div className="space-y-3">
                                 {orderPayments.map((p, idx) => {
                                     const voucherImg = p.imageUrl || (p as any).paymentReceiptUrl || (p as any).comprobanteUrl || (p as any).receiptUrl || (p as any).retentionImageUrl || (p as any).voucherUrl || '';
                                     return (
-                                    <div key={idx} className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-3">
+                                    <div key={idx} className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2.5">
                                         <div className="flex items-center justify-between">
-                                            <div className="space-y-0.5">
+                                            <div>
                                                 <p className="text-xs font-black uppercase text-slate-900 flex items-center gap-1.5">
                                                     <span className="h-2 w-2 rounded-full bg-emerald-500"></span>
                                                     {p.method} (Abono #{idx + 1})
@@ -558,9 +556,9 @@ export function OrderDetailsSheet({
                                                 )}
                                             </div>
                                             <div className="text-right">
-                                                <p className="text-xs font-black text-emerald-600">${p.amount?.toFixed(2)}</p>
+                                                <p className="text-sm font-black text-emerald-600">${p.amount?.toFixed(2)}</p>
                                                 <Badge variant="outline" className={cn(
-                                                    "text-[8px] font-black uppercase border-none px-2 py-0",
+                                                    "text-[8px] font-black uppercase border-none px-2 py-0.5",
                                                     p.status === 'verified' ? "bg-emerald-100 text-emerald-800" :
                                                     p.status === 'pending_verification' ? "bg-amber-100 text-amber-800" :
                                                     "bg-rose-100 text-rose-800"
@@ -570,28 +568,22 @@ export function OrderDetailsSheet({
                                             </div>
                                         </div>
 
-                                        {p.notes && (
-                                            <p className="text-[9px] text-slate-600 bg-white p-2 rounded-xl border border-slate-100 italic">{p.notes}</p>
-                                        )}
-
                                         {voucherImg && (
-                                            <div className="flex items-center gap-3 pt-1">
+                                            <div className="flex items-center gap-2 pt-1">
                                                 <div 
                                                     onClick={() => setZoomImage(voucherImg)} 
-                                                    className="relative group h-14 w-20 rounded-xl overflow-hidden border-2 border-emerald-200 cursor-pointer shadow-sm hover:opacity-90 transition-opacity shrink-0 bg-slate-900"
+                                                    className="relative group h-12 w-16 rounded-lg overflow-hidden border border-emerald-300 cursor-pointer shadow-sm shrink-0 bg-slate-900"
                                                 >
                                                     <img src={voucherImg} alt="Comprobante" className="h-full w-full object-cover" />
-                                                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity text-white">
-                                                        <Maximize2 className="h-4 w-4" />
+                                                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white">
+                                                        <Maximize2 className="h-3.5 w-3.5" />
                                                     </div>
                                                 </div>
-                                                <div className="text-[8px] font-bold text-slate-400 uppercase leading-relaxed">
-                                                    Toca la foto para ampliar el comprobante bancario.
-                                                </div>
+                                                <span className="text-[8px] font-bold text-slate-400 uppercase">Ver voucher ampliado</span>
                                             </div>
                                         )}
 
-                                        <div className="flex items-center gap-2 pt-2 border-t border-slate-200/60">
+                                        <div className="grid grid-cols-2 gap-2 pt-1 border-t border-slate-200/60">
                                             <Button
                                                 type="button"
                                                 onClick={() => generatePaymentReceiptPDF({
@@ -601,9 +593,9 @@ export function OrderDetailsSheet({
                                                     bcvRate: globalSettings?.bcvRate || 65.50,
                                                     paymentIndex: idx + 1
                                                 })}
-                                                className="h-8 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-[9px] font-black uppercase tracking-wider flex items-center gap-1.5 shadow-sm"
+                                                className="h-7 px-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-[8px] font-black uppercase tracking-wider flex items-center justify-center gap-1 shadow-sm"
                                             >
-                                                <Printer className="h-3 w-3 text-emerald-400" /> Recibo PDF (#REC-{(order.id || '').substring(0,6)}-{idx+1})
+                                                <Printer className="h-3 w-3 text-emerald-400" /> Recibo PDF
                                             </Button>
 
                                             <Button
@@ -615,9 +607,9 @@ export function OrderDetailsSheet({
                                                     const text = `Hola *${order.customerName}*! 👋 Se ha generado tu *Recibo Oficial de Pago N° ${receiptCode}* por *$${p.amount?.toFixed(2)} USD* (${p.method}, Ref: ${p.referenceNumber || 'N/A'}) correspondiente al pedido #${order.id}.\n\n📌 Estado de Cuenta: *${statusStr}*.\n\n¡Gracias por tu confianza y preferir Athleticenter Pro! 📦⚽`;
                                                     window.open(`https://wa.me/${cleanPhone}?text=${encodeURIComponent(text)}`, '_blank');
                                                 }}
-                                                className="h-8 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-[9px] font-black uppercase tracking-wider flex items-center gap-1.5 shadow-sm"
+                                                className="h-7 px-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[8px] font-black uppercase tracking-wider flex items-center justify-center gap-1 shadow-sm"
                                             >
-                                                <Send className="h-3 w-3" /> WhatsApp Recibo
+                                                <Send className="h-3 w-3" /> WhatsApp
                                             </Button>
                                         </div>
                                     </div>
@@ -629,64 +621,55 @@ export function OrderDetailsSheet({
                         )}
                     </div>
 
-                    <div className="p-8 rounded-[2.5rem] bg-white border border-slate-100 shadow-xl space-y-6">
-                        <div className="space-y-1">
-                            <p className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400">Inversión Final</p>
-                            <p className="text-5xl font-black text-slate-900 tracking-tighter leading-none">${order.totalAmount.toLocaleString()}</p>
+                    {/* BLOQUE DE DOCUMENTOS Y COMUNICACIÓN ORGANIZADO */}
+                    <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-sm space-y-3">
+                        <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Documentación y Reportes</p>
+                        <div className="grid grid-cols-2 gap-2">
+                            <Button 
+                                variant="outline" 
+                                disabled={isLoadingItems || itemsWithProductData.length === 0 || isExporting} 
+                                className="h-10 font-black uppercase tracking-widest text-[9px] border-slate-200 bg-white shadow-sm rounded-xl" 
+                                onClick={handleExportNote}
+                            >
+                                {isExporting ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Printer className="mr-1 h-4 w-4 text-primary" />} NOTA PDF
+                            </Button>
+
+                            <Button 
+                                variant="outline" 
+                                disabled={isLoadingItems || itemsWithProductData.length === 0} 
+                                className="h-10 font-black uppercase tracking-widest text-[9px] border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 shadow-sm rounded-xl" 
+                                onClick={handleShareWhatsApp}
+                            >
+                                <MessageSquare className="mr-1 h-4 w-4 text-emerald-600" /> WHATSAPP
+                            </Button>
                         </div>
-                        <Separator className="bg-slate-100" />
-                        <div className="space-y-4">
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                <Button 
-                                    variant="outline" 
-                                    disabled={isLoadingItems || itemsWithProductData.length === 0 || isExporting} 
-                                    className="w-full h-14 font-black uppercase tracking-widest text-[10px] border-slate-200 bg-white shadow-xl rounded-2xl transition-all active:scale-95" 
-                                    onClick={handleExportNote}
-                                >
-                                    {isExporting ? <Loader2 className="h-5 w-5 animate-spin mr-2" /> : <Printer className="mr-2 h-5 w-5 text-primary" />} NOTA PDF
-                                </Button>
 
-                                <Button 
-                                    variant="outline" 
-                                    disabled={isLoadingItems || itemsWithProductData.length === 0} 
-                                    className="w-full h-14 font-black uppercase tracking-widest text-[10px] border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 shadow-xl rounded-2xl transition-all active:scale-95" 
-                                    onClick={handleShareWhatsApp}
-                                >
-                                    <MessageSquare className="mr-2 h-5 w-5 text-emerald-600" /> WHATSAPP
-                                </Button>
-                            </div>
+                        {isAdmin && (
+                            <Button 
+                                variant="outline"
+                                onClick={handleGoToBilling} 
+                                className="w-full h-9 border-blue-200 bg-blue-50 hover:bg-blue-100 text-blue-700 font-black uppercase text-[9px] tracking-widest rounded-xl shadow-sm"
+                            >
+                                <FileText className="mr-1.5 h-3.5 w-3.5 text-blue-600" /> GESTIONAR EN FACTURACIÓN (1-CLIC)
+                            </Button>
+                        )}
+                    </div>
 
-                            {/* BOTÓN ATAJO A FACTURACIÓN EN 1 CLIC PARA GERENCIA */}
-                            {isAdmin && (
-                              <Button 
-                                  variant="outline"
-                                  onClick={handleGoToBilling} 
-                                  className="w-full h-12 border-blue-200 bg-blue-50 hover:bg-blue-100 text-blue-700 font-black uppercase text-[10px] tracking-widest rounded-2xl shadow-sm"
-                              >
-                                  <FileText className="mr-2 h-4 w-4 text-blue-600" /> GESTIONAR EN FACTURACIÓN (1-CLIC)
-                              </Button>
-                            )}
-
-                            {(order.status === 'Pendiente' || order.status === 'Borrador') && isAdmin && (
-                                <Button 
-                                    onClick={() => onActionTrigger('approve')} 
-                                    className="w-full h-14 bg-primary hover:bg-primary/90 text-white font-black uppercase text-xs tracking-[0.3em] shadow-2xl rounded-2xl transition-all active:scale-95"
-                                >
-                                    <ShieldCheck className="mr-3 h-6 w-6" /> APROBAR PEDIDO
-                                </Button>
-                            )}
-
+                    {/* ACCIONES ADMINISTRATIVAS Y CRÍTICAS */}
+                    {(canCancelDirectly || canRequestCancellation || (isAdmin && onDeleteOrder)) && (
+                        <div className="p-4 rounded-2xl bg-rose-50/50 border border-rose-100 space-y-2">
+                            <p className="text-[9px] font-black uppercase tracking-[0.2em] text-rose-500">Gestión de Anulación</p>
                             {(canCancelDirectly || canRequestCancellation) && (
                                 <Button 
                                     variant="outline" 
                                     onClick={(e) => { e.preventDefault(); canCancelDirectly ? onCancelOrder() : onRequestCancellation(); }} 
                                     disabled={isCanceling || isRequestingCancellation || isCancellationPending} 
                                     className={cn(
-                                        "w-full h-14 border-rose-200 text-rose-600 hover:bg-rose-50 font-black uppercase text-[10px] tracking-widest rounded-2xl shadow-md",
+                                        "w-full h-10 border-rose-200 text-rose-600 hover:bg-rose-50 font-black uppercase text-[9px] tracking-widest rounded-xl shadow-sm",
                                         isCancellationPending && "bg-amber-50 text-amber-600 border-amber-200"
                                     )}
                                 >
-                                    {isCanceling || isRequestingCancellation ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : isCancellationPending ? <Clock className="mr-2 h-4 w-4" /> : <XCircle className="mr-2 h-4 w-4" />}
+                                    {isCanceling || isRequestingCancellation ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : isCancellationPending ? <Clock className="mr-1.5 h-4 w-4" /> : <XCircle className="mr-1.5 h-4 w-4" />}
                                     {isCancellationPending ? "ANULACIÓN EN TRÁMITE" : "ANULAR ESTE PEDIDO"}
                                 </Button>
                             )}
@@ -695,20 +678,13 @@ export function OrderDetailsSheet({
                                 <Button 
                                     variant="destructive" 
                                     onClick={(e) => { e.preventDefault(); onDeleteOrder(); }} 
-                                    className="w-full h-12 bg-rose-600 hover:bg-rose-700 text-white font-black uppercase text-[10px] tracking-widest rounded-2xl shadow-lg mt-2 flex items-center justify-center gap-2"
+                                    className="w-full h-9 bg-rose-600 hover:bg-rose-700 text-white font-black uppercase text-[9px] tracking-widest rounded-xl shadow-md flex items-center justify-center gap-1.5"
                                 >
-                                    <Trash2 className="h-4 w-4" /> ELIMINAR PEDIDO DUPLICADO DE LA BD
+                                    <Trash2 className="h-3.5 w-3.5" /> ELIMINAR REGISTRO BD
                                 </Button>
                             )}
                         </div>
-                    </div>
-
-                    <div className="flex flex-col items-center gap-4 text-slate-300 pt-4">
-                        <ShieldCheck className="h-6 w-6" />
-                        <p className="text-[9px] font-black uppercase tracking-[0.4em] text-center leading-relaxed">
-                            Athleticenter Pro Control Center<br/>Protocolo de Auditoría v6.0
-                        </p>
-                    </div>
+                    )}
                 </div>
             </div>
         </div>
