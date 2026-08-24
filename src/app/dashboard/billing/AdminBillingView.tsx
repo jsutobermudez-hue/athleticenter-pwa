@@ -394,29 +394,26 @@ export function AdminBillingView() {
 
   return (
     <div className="w-full max-w-full mx-auto flex flex-col gap-8 pb-32 animate-in fade-in-50 duration-500">
-      <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 px-2">
+      <header className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 px-2">
         <div className="space-y-1">
-          <h1 className="text-4xl font-black uppercase tracking-tighter text-slate-900 leading-none italic">Cobranza y Facturación</h1>
-          <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.4em]">Auditoría de ingresos y conciliación de abonos de la red global.</p>
+          <h1 className="text-3xl font-black uppercase tracking-tight text-slate-900 leading-none">Cobranza y Facturación</h1>
+          <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">Auditoría de ingresos y conciliación de abonos de la red global</p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Badge variant="outline" className="bg-emerald-50 text-emerald-800 border-emerald-200 text-[10px] font-black uppercase px-3 py-1.5 rounded-xl flex items-center gap-1.5 shadow-sm">
-            <span>💱 Tasa Oficial BCV: Bs. {bcvRate.toFixed(2)} / USD</span>
-          </Badge>
-          <Button onClick={() => setIsCashAuditModalOpen(true)} className="h-9 px-4 rounded-xl bg-emerald-700 hover:bg-emerald-600 text-white text-[9px] font-black uppercase tracking-wider shadow-md flex items-center gap-1.5">
-            <Banknote className="h-3.5 w-3.5" /> Pagos Registrados
+        <div className="flex flex-wrap items-center gap-2.5">
+          <div className="bg-slate-100 border border-slate-200 text-slate-800 text-[10px] font-black uppercase px-3 py-2 rounded-2xl flex items-center gap-1.5 shadow-xs">
+            <span>💱 Tasa Oficial BCV: <strong className="text-slate-900 font-extrabold">Bs. {bcvRate.toFixed(2)}</strong> / USD</span>
+          </div>
+          <Button onClick={() => setIsCashAuditModalOpen(true)} className="h-10 px-4 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-black uppercase tracking-wider shadow-md transition-all active:scale-95 flex items-center gap-1.5">
+            <Banknote className="h-4 w-4" /> Pagos Registrados
           </Button>
-          <Button onClick={exportInvoicesToPDF} disabled={isExportingPDF} className="h-9 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-[9px] font-black uppercase tracking-wider shadow-md flex items-center gap-1.5">
-            {isExportingPDF ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Printer className="h-3.5 w-3.5 text-emerald-400" />} Imprimir PDF
+          <Button onClick={exportInvoicesToPDF} disabled={isExportingPDF} className="h-10 px-4 rounded-2xl bg-slate-900 hover:bg-slate-800 text-white text-[10px] font-black uppercase tracking-wider shadow-md transition-all active:scale-95 flex items-center gap-1.5">
+            {isExportingPDF ? <Loader2 className="h-4 w-4 animate-spin" /> : <Printer className="h-4 w-4 text-emerald-400" />} Imprimir PDF
           </Button>
           {salespersonFilter !== 'todos' && (
-            <Button onClick={handleSendSalespersonPDFReport} className="h-9 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-[9px] font-black uppercase tracking-wider shadow-md flex items-center gap-1.5">
-              <Send className="h-3.5 w-3.5" /> Enviar PDF a Vendedor
+            <Button onClick={handleSendSalespersonPDFReport} className="h-10 px-4 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-black uppercase tracking-wider shadow-md transition-all active:scale-95 flex items-center gap-1.5">
+              <Send className="h-4 w-4" /> Enviar PDF a Vendedor
             </Button>
           )}
-          <Button onClick={exportInvoicesToCSV} variant="outline" className="h-9 px-4 rounded-xl border-slate-200 bg-white hover:bg-slate-50 text-slate-900 text-[9px] font-black uppercase tracking-wider shadow-sm flex items-center gap-1.5">
-            <Download className="h-3.5 w-3.5 text-primary" /> Excel
-          </Button>
         </div>
       </header>
 
@@ -430,24 +427,24 @@ export function AdminBillingView() {
 
       <div className="flex flex-col gap-6 w-full">
         {/* BARRA DE FILTROS AVANZADOS MULTIDIMENSIONAL */}
-        <div className="flex flex-col gap-4 border-b border-slate-200 pb-6 px-2">
+        <div className="flex flex-col gap-4 border-b border-slate-200/80 pb-6 px-2">
             {/* FILTROS RÁPIDOS DE PERÍODOS DE VENTA */}
             <div className="flex flex-wrap items-center gap-2 pb-2">
-                <span className="text-[9px] font-black uppercase tracking-widest text-slate-400 mr-1">Periodo Facturado:</span>
+                <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 mr-2">Periodo Facturado:</span>
                 {[
-                    { id: 'todos', label: '🌐 Todo el Histórico' },
-                    { id: 'today', label: '☀️ Hoy' },
-                    { id: '7d', label: '⚡ Últimos 7 Días' },
-                    { id: 'this_month', label: '🗓️ Mes Actual' },
-                    { id: 'last_month', label: '📅 Mes Anterior' },
-                    { id: 'custom', label: '📆 Rango Personalizado' },
+                    { id: 'todos', label: 'Todo el Histórico' },
+                    { id: 'today', label: 'Hoy' },
+                    { id: '7d', label: 'Últimos 7 Días' },
+                    { id: 'this_month', label: 'Mes Actual' },
+                    { id: 'last_month', label: 'Mes Anterior' },
+                    { id: 'custom', label: 'Rango Personalizado' },
                 ].map(p => (
                     <button
                         key={p.id}
                         type="button"
                         onClick={() => setDateFilter(p.id as any)}
                         className={cn(
-                            "px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer border",
+                            "px-3.5 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer border shadow-2xs",
                             dateFilter === p.id 
                                 ? "bg-slate-900 text-white border-slate-900 shadow-sm font-black" 
                                 : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100 font-bold"
