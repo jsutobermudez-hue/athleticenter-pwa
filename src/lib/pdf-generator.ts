@@ -587,14 +587,21 @@ export async function generatePurchaseOrderPDF(order: PurchaseOrder, companyProf
     doc.save(`Manifiesto_Importacion_${(order.id || 'PO').substring(0, 8)}.pdf`);
 }
 
+function isVESPaymentMethod(method?: string): boolean {
+    const norm = (method || '').toLowerCase();
+    return norm.includes('pago móvil') || norm.includes('pago movil') || norm.includes('transferencia ves') || norm.includes('bolivar') || norm.includes('punto de venta');
+}
+
 export async function generatePaymentReceiptPDF({
     payment,
+    allPayments,
     order,
     companyProfile,
     bcvRate = 65.50,
     paymentIndex = 1
 }: {
-    payment: Partial<Payment> & { amount: number; method: string; referenceNumber?: string; registeredByName?: string; paymentDate?: any; imageUrl?: string };
+    payment?: Partial<Payment> & { amount: number; method: string; referenceNumber?: string; registeredByName?: string; paymentDate?: any; imageUrl?: string };
+    allPayments?: (Partial<Payment> & { amount: number; method: string; referenceNumber?: string; registeredByName?: string; paymentDate?: any })[];
     order: Partial<Order>;
     companyProfile?: Partial<CompanyProfile>;
     bcvRate?: number;
@@ -602,15 +609,9 @@ export async function generatePaymentReceiptPDF({
 }) {
     const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
     const orderIdStr = (order.id || 'N/A').toUpperCase();
+    const activePayment = payment || (allPayments && allPayments.length > 0 ? allPayments[allPayments.length - 1] : { amount: 0, method: 'Efectivo' });
     const receiptId = `#REC-${orderIdStr.replace('#', '')}-${paymentIndex}`;
     
-    let pDate = new Date();
-    if (payment.paymentDate) {
-        if (typeof (payment.paymentDate as any).toDate === 'function') pDate = (payment.paymentDate as any).toDate();
-        else if ((payment.paymentDate as any).seconds) pDate = new Date((payment.paymentDate as any).seconds * 1000);
-        else pDate = new Date(payment.paymentDate);
-    }
-
     doc.setFillColor(15, 23, 42);
     doc.rect(0, 0, 210, 36, 'F');
 
@@ -634,7 +635,7 @@ export async function generatePaymentReceiptPDF({
     doc.setFont("helvetica", "normal");
     doc.setTextColor(148, 163, 184);
     doc.text(`RIF: ${companyProfile?.companyRif || (companyProfile as any)?.rif || 'J-12345678-0'}`, textStartX, 21);
-    doc.text(`RECIBO OFICIAL DE PAGO Y CAJA - COMPROBANTE DE ABONO CERTIFICADO`, textStartX, 26);
+    doc.text(`RECIBO OFICIAL DE PAGO Y CAJA - COMPROBANTE MULTI-ABONO CERTIFICADO`, textStartX, 26);
     doc.text(`TASA OFICIAL BCV: Bs. ${bcvRate.toFixed(2)} / USD | EMISIÓN: ${format(new Date(), 'dd/MM/yyyy HH:mm')}`, textStartX, 31);
 
     doc.setFillColor(16, 185, 129);
@@ -670,7 +671,7 @@ export async function generatePaymentReceiptPDF({
     const bcvDiscountPct = (order as any).bcvDiscountSnapshot !== undefined ? (order as any).bcvDiscountSnapshot : 25;
     const early7dPct = (order as any).earlyPayment7dSnapshot !== undefined ? (order as any).earlyPayment7dSnapshot : 5;
     
-    const isCashOrZelle = (payment.method || '').toLowerCase().includes('zelle') || (payment.method || '').toLowerCase().includes('efectivo');
+    const isCashOrZelle = (activePayment.method || '').toLowerCase().includes('zelle') || (activePayment.method || '').toLowerCase().includes('efectivo');
     const cashDiscVal = isCashOrZelle ? nominalTotal * (bcvDiscountPct / 100) : 0;
     const earlyDiscVal = nominalTotal * (early7dPct / 100);
     const netExigible = Math.max(0, nominalTotal - cashDiscVal - earlyDiscVal);
@@ -705,42 +706,51 @@ export async function generatePaymentReceiptPDF({
     doc.setFillColor(241, 245, 249);
     doc.rect(14, nextY, 182, 7, 'F');
     doc.setFontSize(8); doc.setFont("helvetica", "bold"); doc.setTextColor(16, 185, 129);
-    doc.text("2. DETALLE DE DINERO REAL INGRESADO AL BANCO O CAJA (ABONO ACTUAL)", 18, nextY + 5);
+    doc.text("2. HISTORIAL COMPLETO DE ABONOS BANCARIOS CERTIFICADOS DE LA ORDEN", 18, nextY + 5);
 
-    const paymentAmountUSD = Number(payment.amount || 0);
-    const paymentAmountVES = paymentAmountUSD * bcvRate;
+    const paymentsList = (allPayments && allPayments.length > 0) ? allPayments : [activePayment];
 
-    let targetBankName = 'Taquilla Central de Caja Físico';
-    const normM = (payment.method || '').toLowerCase();
-    if (normM.includes('zelle')) targetBankName = 'Corporación Athleticenter LLC (Chase Bank Zelle)';
-    else if (normM.includes('pago móvil') || normM.includes('pago movil')) targetBankName = 'Banco Mercantil / Banesco VES';
-    else if (normM.includes('transferencia')) targetBankName = 'Banesco Cuenta Corriente Fiscal';
-    else if (normM.includes('custodia') || normM.includes('panamá')) targetBankName = 'Cuenta Custodia Banesco Panamá';
+    const bankRows = paymentsList.map((p, idx) => {
+        let pDateStr = format(new Date(), 'dd/MM/yy');
+        if (p.paymentDate) {
+            if (typeof (p.paymentDate as any).toDate === 'function') pDateStr = format((p.paymentDate as any).toDate(), 'dd/MM/yy');
+            else if ((p.paymentDate as any).seconds) pDateStr = format(new Date((p.paymentDate as any).seconds * 1000), 'dd/MM/yy');
+            else pDateStr = format(new Date(p.paymentDate), 'dd/MM/yy');
+        }
 
-    const bankRows = [
-        ["Entidad / Cuenta Destino", targetBankName.toUpperCase()],
-        ["Vía / Método de Pago", (payment.method || 'Efectivo').toUpperCase()],
-        ["N° Referencia / Confirmación", payment.referenceNumber || 'N/A / Caja Físico'],
-        ["Monto Real Ingresado ($ USD)", `$ ${paymentAmountUSD.toLocaleString('en-US', { minimumFractionDigits: 2 })} USD`],
-        ["Monto Real Ingresado (Bs. VES)", `Bs. ${paymentAmountVES.toLocaleString('es-VE', { minimumFractionDigits: 2 })} VES`],
-        ["Registrado / Verificado Por", (payment.registeredByName || order.salespersonName || 'Caja Central').toUpperCase()]
-    ];
+        const amtUSD = Number(p.amount || 0);
+        const isVES = isVESPaymentMethod(p.method);
+        const amountDisplay = isVES 
+            ? `Bs. ${(amtUSD * bcvRate).toLocaleString('es-VE', { minimumFractionDigits: 2 })} ($${amtUSD.toFixed(2)} USD)`
+            : `$ ${amtUSD.toLocaleString('en-US', { minimumFractionDigits: 2 })} USD`;
+
+        return [
+            `Abono #${idx + 1}\n(${pDateStr})`,
+            (p.method || 'Efectivo').toUpperCase(),
+            p.referenceNumber || 'N/A / Caja Físico',
+            amountDisplay,
+            (p.registeredByName || order.salespersonName || 'Caja Central').toUpperCase()
+        ];
+    });
 
     (doc as any).autoTable({
-        head: [["PARÁMETRO AUDITADO", "DETALLE REGISTRADO EN SISTEMA"]],
+        head: [["# / FECHA", "MÉTODO / VÍA", "N° REFERENCIA", "MONTO INGRESADO", "VERIFICADO POR"]],
         body: bankRows,
         startY: nextY + 9,
         theme: 'grid',
         headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 7.5 },
-        bodyStyles: { fontSize: 8 },
+        bodyStyles: { fontSize: 7.5 },
         columnStyles: {
-            0: { cellWidth: 70, fontStyle: 'bold' },
-            1: { cellWidth: 112 }
+            0: { cellWidth: 26, fontStyle: 'bold', halign: 'center' },
+            1: { cellWidth: 32 },
+            2: { cellWidth: 38 },
+            3: { cellWidth: 46, fontStyle: 'bold', halign: 'right' },
+            4: { cellWidth: 40 }
         }
     });
 
     const nextY2 = (doc as any).lastAutoTable.finalY + 6;
-    const totalPaidSoFar = Number(order.amountPaid || order.totalCashReceived || paymentAmountUSD);
+    const totalPaidSoFar = paymentsList.reduce((sum, p) => sum + Number(p.amount || 0), 0);
     const remainingBalance = Math.max(0, netExigible - totalPaidSoFar);
 
     doc.setFillColor(15, 23, 42);
@@ -748,20 +758,20 @@ export async function generatePaymentReceiptPDF({
 
     doc.setFontSize(8); doc.setFont("helvetica", "bold"); doc.setTextColor(148, 163, 184);
     doc.text("NETO EXIGIBLE", 20, nextY2 + 7);
-    doc.text("TOTAL ABONADO", 80, nextY2 + 7);
-    doc.text("SALDO ADICIONAL PENDIENTE", 140, nextY2 + 7);
+    doc.text("TOTAL ABONADO CUMULATIVO", 75, nextY2 + 7);
+    doc.text("SALDO ADICIONAL PENDIENTE", 145, nextY2 + 7);
 
     doc.setFontSize(12); doc.setTextColor(255, 255, 255);
     doc.text(`$${netExigible.toFixed(2)}`, 20, nextY2 + 16);
     doc.setTextColor(16, 185, 129);
-    doc.text(`$${totalPaidSoFar.toFixed(2)}`, 80, nextY2 + 16);
+    doc.text(`$${totalPaidSoFar.toFixed(2)}`, 75, nextY2 + 16);
 
     if (remainingBalance <= 0.05) {
         doc.setTextColor(52, 211, 153);
-        doc.text("SOLVENTE (100%)", 140, nextY2 + 16);
+        doc.text("SOLVENTE (100%)", 145, nextY2 + 16);
     } else {
         doc.setTextColor(248, 113, 113);
-        doc.text(`$${remainingBalance.toFixed(2)} USD`, 140, nextY2 + 16);
+        doc.text(`$${remainingBalance.toFixed(2)}`, 145, nextY2 + 16);
     }
 
     doc.setFontSize(7.5); doc.setFont("helvetica", "normal"); doc.setTextColor(100);

@@ -588,6 +588,7 @@ export function OrderDetailsSheet({
                                                 type="button"
                                                 onClick={() => generatePaymentReceiptPDF({
                                                     payment: p,
+                                                    allPayments: orderPayments || [],
                                                     order,
                                                     companyProfile: companyProfile || undefined,
                                                     bcvRate: globalSettings?.bcvRate || 65.50,
