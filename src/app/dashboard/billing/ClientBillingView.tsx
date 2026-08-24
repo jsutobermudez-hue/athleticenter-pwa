@@ -257,16 +257,16 @@ export function ClientBillingView() {
 
         <TabsContent value="invoices" className="mt-0 space-y-6 outline-none">
             <div className="px-2">
-                <ScrollArea className="w-full whitespace-nowrap rounded-[2.5rem] border border-slate-100 shadow-xl bg-white">
-                    <div className="min-w-[800px]">
-                        <Table>
+                <div className="w-full rounded-[2.5rem] border border-slate-100 shadow-xl bg-white overflow-hidden">
+                    <div className="w-full overflow-x-auto">
+                        <Table className="w-full">
                             <TableHeader className="bg-slate-900">
                                 <TableRow className="hover:bg-transparent border-none">
-                                    <TableHead className="text-[9px] font-black uppercase py-5 pl-8 text-white">Referencia</TableHead>
-                                    <TableHead className="text-[9px] font-black uppercase text-white">Vencimiento</TableHead>
-                                    <TableHead className="text-right text-[9px] font-black uppercase text-white">Saldo Pendiente</TableHead>
-                                    <TableHead className="text-center text-[9px] font-black uppercase text-white">Estado Cobro</TableHead>
-                                    <TableHead className="text-right text-[9px] font-black uppercase pr-8 text-white">Reportar Abono</TableHead>
+                                    <TableHead className="text-[9px] font-black uppercase py-4 pl-6 text-white w-28">Referencia</TableHead>
+                                    <TableHead className="text-[9px] font-black uppercase text-white min-w-[120px]">Vencimiento</TableHead>
+                                    <TableHead className="text-right text-[9px] font-black uppercase text-white min-w-[150px]">Saldo Pendiente</TableHead>
+                                    <TableHead className="text-center text-[9px] font-black uppercase text-white min-w-[130px]">Estado Cobro</TableHead>
+                                    <TableHead className="text-right text-[9px] font-black uppercase pr-6 text-white min-w-[200px]">Reportar Abono</TableHead>
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
@@ -277,13 +277,13 @@ export function ClientBillingView() {
                                     
                                     return (
                                         <TableRow key={invoice.id} className="hover:bg-primary/5 transition-colors border-b last:border-none group">
-                                            <TableCell className="py-5 pl-8">
+                                            <TableCell className="py-4 pl-6">
                                                 <span className="font-mono text-[11px] font-black text-primary">#{invoice.id.substring(0, 8)}</span>
                                             </TableCell>
-                                            <TableCell className="text-[10px] font-bold text-slate-500">
+                                            <TableCell className="text-[10px] font-bold text-slate-500 py-4">
                                                 {invoice.dueDate instanceof Timestamp ? format(invoice.dueDate.toDate(), 'dd/MM/yyyy') : format(invoice.dueDate as any, 'dd/MM/yyyy')}
                                             </TableCell>
-                                            <TableCell className="text-right">
+                                            <TableCell className="text-right py-4">
                                                 <div className="flex flex-col items-end gap-1">
                                                     <span className={cn("font-black text-base tracking-tighter", isFullyPaid ? "text-emerald-600 font-extrabold" : "text-slate-900")}>
                                                         ${invoice.remainingBalance.toFixed(2)}
@@ -292,20 +292,20 @@ export function ClientBillingView() {
                                                         <span>${invoice.amountPaid.toFixed(2)} de ${invoice.amountTotal.toFixed(2)}</span>
                                                         <span className="font-black text-slate-700">({paidPct}%)</span>
                                                     </div>
-                                                    <div className="w-28 h-1.5 bg-slate-100 rounded-full overflow-hidden border border-slate-200">
+                                                    <div className="w-24 h-1.5 bg-slate-100 rounded-full overflow-hidden border border-slate-200">
                                                         <div className={cn("h-full transition-all duration-500 rounded-full", paidPct >= 100 ? "bg-emerald-500" : "bg-blue-500")} style={{ width: `${paidPct}%` }} />
                                                     </div>
                                                 </div>
                                             </TableCell>
-                                            <TableCell className="text-center">
+                                            <TableCell className="text-center py-4">
                                                 <Badge className={cn(
-                                                    "text-[9px] font-black uppercase border px-3 py-1 shadow-none rounded-xl",
+                                                    "text-[9px] font-black uppercase border px-3 py-1 shadow-none rounded-xl whitespace-nowrap",
                                                     isFullyPaid ? "bg-emerald-50 text-emerald-700 border-emerald-300" : "bg-blue-50 text-blue-700 border-blue-300"
                                                 )}>
                                                     {isFullyPaid ? "🎉 TOTALMENTE PAGADO" : invoice.statusText}
                                                 </Badge>
                                             </TableCell>
-                                            <TableCell className="text-right pr-8">
+                                            <TableCell className="text-right pr-6 py-4">
                                                 <div className="flex items-center justify-end gap-3">
                                                     {isFullyPaid && orderForInvoice ? (
                                                         <ReprintButton order={orderForInvoice} companyProfile={companyProfile || undefined} customer={customerProfile} />
@@ -325,8 +325,7 @@ export function ClientBillingView() {
                             </TableBody>
                         </Table>
                     </div>
-                    <ScrollBar orientation="horizontal" className="bg-slate-50 h-3" />
-                </ScrollArea>
+                </div>
             </div>
         </TabsContent>
 

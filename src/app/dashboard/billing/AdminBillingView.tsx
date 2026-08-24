@@ -541,16 +541,16 @@ export function AdminBillingView() {
         </div>
 
         <div className="w-full px-2">
-            <ScrollArea className="w-full whitespace-nowrap rounded-[2.5rem] border border-slate-100 shadow-xl bg-white">
-                <div className="min-w-[1000px]">
-                    <Table>
+            <div className="w-full rounded-[2.5rem] border border-slate-100 shadow-xl bg-white overflow-hidden">
+                <div className="w-full overflow-x-auto">
+                    <Table className="w-full">
                         <TableHeader className="bg-slate-900">
                             <TableRow className="hover:bg-transparent border-none">
-                                <TableHead className="text-[10px] font-black uppercase tracking-widest py-5 pl-8 text-white">Expediente</TableHead>
-                                <TableHead className="text-[10px] font-black uppercase tracking-widest text-white">Entidad Comercial</TableHead>
-                                <TableHead className="text-right text-[10px] font-black uppercase tracking-widest text-white">Saldo Pendiente</TableHead>
-                                <TableHead className="text-center text-[10px] font-black uppercase tracking-widest text-white">Estado Cobro</TableHead>
-                                <TableHead className="text-right text-[10px] font-black uppercase tracking-widest pr-8 text-white">Acciones</TableHead>
+                                <TableHead className="text-[10px] font-black uppercase tracking-widest py-4 pl-6 text-white w-28">Expediente</TableHead>
+                                <TableHead className="text-[10px] font-black uppercase tracking-widest text-white min-w-[180px]">Entidad Comercial</TableHead>
+                                <TableHead className="text-right text-[10px] font-black uppercase tracking-widest text-white min-w-[150px]">Saldo Pendiente</TableHead>
+                                <TableHead className="text-center text-[10px] font-black uppercase tracking-widest text-white min-w-[130px]">Estado Cobro</TableHead>
+                                <TableHead className="text-right text-[10px] font-black uppercase tracking-widest pr-6 text-white min-w-[200px]">Acciones</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -562,24 +562,24 @@ export function AdminBillingView() {
 
                                 return (
                                     <TableRow key={invoice.id} className="hover:bg-primary/5 cursor-pointer transition-all border-b group" onClick={() => orderForInvoice && setSelectedOrderForSheet(orderForInvoice)}>
-                                        <TableCell className="py-6 pl-8">
+                                        <TableCell className="py-4 pl-6">
                                             <div className="flex flex-col">
                                                 <span className="font-mono text-[11px] font-black text-primary">#{invoice.id.substring(0, 8)}</span>
-                                                <span className="text-[8px] font-bold text-slate-400 uppercase mt-1">Vence: {format(invoice.dueDate as any, 'dd/MM/yy')}</span>
+                                                <span className="text-[8px] font-bold text-slate-400 uppercase mt-0.5">Vence: {format(invoice.dueDate as any, 'dd/MM/yy')}</span>
                                             </div>
                                         </TableCell>
-                                        <TableCell>
+                                        <TableCell className="py-4">
                                             <div className="flex items-center gap-3">
-                                                <Avatar className="h-10 w-10 rounded-xl border-2 border-white shadow-sm shrink-0">
+                                                <Avatar className="h-9 w-9 rounded-xl border-2 border-white shadow-sm shrink-0">
                                                     <AvatarFallback className="bg-slate-100 text-slate-400 font-black text-[10px] uppercase">{invoice.customerName.charAt(0)}</AvatarFallback>
                                                 </Avatar>
                                                 <div className="flex flex-col min-w-0">
                                                     <span className="font-black text-[12px] uppercase text-slate-900 leading-none truncate">{invoice.customerName}</span>
-                                                    <span className="text-[8px] text-slate-400 font-bold uppercase mt-1.5 flex items-center gap-1.5"><User2 className="h-2.5 w-2.5" /> Asesor: {invoice.salespersonName}</span>
+                                                    <span className="text-[8px] text-slate-400 font-bold uppercase mt-1 flex items-center gap-1.5"><User2 className="h-2.5 w-2.5" /> Asesor: {invoice.salespersonName}</span>
                                                 </div>
                                             </div>
                                         </TableCell>
-                                        <TableCell className="text-right">
+                                        <TableCell className="text-right py-4">
                                             <div className="flex flex-col items-end gap-1">
                                                 <span className={cn("font-black text-base tracking-tighter", invoice.remainingBalance <= 0.05 ? "text-emerald-600 font-extrabold" : "text-slate-900")}>
                                                     ${invoice.remainingBalance.toFixed(2)}
@@ -592,7 +592,7 @@ export function AdminBillingView() {
                                                                 <span>${invoice.amountPaid.toFixed(2)} de ${invoice.amountTotal.toFixed(2)}</span>
                                                                 <span className="font-black text-slate-700">({paidPct}%)</span>
                                                             </div>
-                                                            <div className="w-28 h-1.5 bg-slate-100 rounded-full overflow-hidden border border-slate-200">
+                                                            <div className="w-24 h-1.5 bg-slate-100 rounded-full overflow-hidden border border-slate-200">
                                                                 <div className={cn("h-full transition-all duration-500 rounded-full", paidPct >= 100 ? "bg-emerald-500" : "bg-blue-500")} style={{ width: `${paidPct}%` }} />
                                                             </div>
                                                         </div>
@@ -600,9 +600,9 @@ export function AdminBillingView() {
                                                 })()}
                                             </div>
                                         </TableCell>
-                                        <TableCell className="text-center">
+                                        <TableCell className="text-center py-4">
                                             <Badge className={cn(
-                                                "text-[9px] font-black uppercase border px-3 py-1 shadow-none rounded-xl", 
+                                                "text-[9px] font-black uppercase border px-3 py-1 shadow-none rounded-xl whitespace-nowrap", 
                                                 invoice.remainingBalance <= 0.05 ? 'bg-emerald-50 text-emerald-700 border-emerald-300' : 
                                                 invoice.status === 'Vencido' ? 'bg-rose-50 text-rose-700 border-rose-300' : 
                                                 invoice.status === 'En Verificación' ? 'bg-amber-50 text-amber-800 border-amber-300 animate-pulse' :
@@ -611,7 +611,7 @@ export function AdminBillingView() {
                                                 {invoice.remainingBalance <= 0.05 ? '🎉 TOTALMENTE PAGADO' : invoice.statusText}
                                             </Badge>
                                         </TableCell>
-                                        <TableCell className="text-right pr-8" onClick={(e) => e.stopPropagation()}>
+                                        <TableCell className="text-right pr-6 py-4" onClick={(e) => e.stopPropagation()}>
                                             <div className="flex items-center justify-end gap-2">
                                                 {isPendingVerification && orderForInvoice && isGlobalStaff && (
                                                     <ConfirmPaymentDialog order={orderForInvoice} />
@@ -621,10 +621,10 @@ export function AdminBillingView() {
                                                         <Button 
                                                             variant="outline" 
                                                             size="sm" 
-                                                            className="h-9 px-3 rounded-xl border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 font-black text-[9px] uppercase tracking-wider"
+                                                            className="h-8 px-2.5 rounded-xl border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 font-black text-[9px] uppercase tracking-wider"
                                                             onClick={() => handleSendWhatsAppInvoiceReminder(invoice, orderForInvoice)}
                                                         >
-                                                            <MessageSquare className="h-3.5 w-3.5 text-emerald-600 mr-1" /> WhatsApp
+                                                            <MessageSquare className="h-3 w-3 text-emerald-600 mr-1" /> WhatsApp
                                                         </Button>
                                                         <ReportPaymentDialog invoice={invoice} mode="partial" />
                                                         <ReportPaymentDialog invoice={invoice} mode="total" />
@@ -634,18 +634,18 @@ export function AdminBillingView() {
                                                         <Button 
                                                             variant="outline" 
                                                             size="sm" 
-                                                            className="h-9 px-3 rounded-xl border-slate-200 bg-slate-900 text-white hover:bg-slate-800 font-black text-[9px] uppercase tracking-wider shadow-sm flex items-center gap-1"
+                                                            className="h-8 px-2.5 rounded-xl border-slate-200 bg-slate-900 text-white hover:bg-slate-800 font-black text-[9px] uppercase tracking-wider shadow-sm flex items-center gap-1"
                                                             onClick={() => generatePaymentReceiptPDF({
                                                                 payment: { amount: invoice.amountTotal, method: 'Transferencia Bancaria', paymentDate: new Date() },
                                                                 order: orderForInvoice || { id: invoice.id, customerName: invoice.customerName, totalAmount: invoice.amountTotal }
                                                             })}
                                                         >
-                                                            <Printer className="h-3.5 w-3.5 text-emerald-400" /> Recibo PDF
+                                                            <Printer className="h-3 w-3 text-emerald-400" /> Recibo PDF
                                                         </Button>
                                                         <Button 
                                                             variant="outline" 
                                                             size="sm" 
-                                                            className="h-9 px-3 rounded-xl border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 font-black text-[9px] uppercase tracking-wider"
+                                                            className="h-8 px-2.5 rounded-xl border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 font-black text-[9px] uppercase tracking-wider"
                                                             onClick={() => handleSendWhatsAppInvoiceReminder(invoice, orderForInvoice)}
                                                         >
                                                             <MessageSquare className="h-3.5 w-3.5 text-emerald-600 mr-1" /> WhatsApp Solvente
@@ -667,8 +667,7 @@ export function AdminBillingView() {
                         </TableBody>
                     </Table>
                 </div>
-                <ScrollBar orientation="horizontal" className="bg-slate-50 h-3" />
-            </ScrollArea>
+            </div>
 
             {/* RESUMEN DINÁMICO AL PIE DE LA TABLA */}
             <div className="bg-slate-900 text-white p-4 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-3 text-xs font-mono font-bold mt-2 shadow-lg">
