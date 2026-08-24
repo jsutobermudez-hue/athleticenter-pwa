@@ -48,6 +48,7 @@ import {
 import { cn } from '@/lib/utils';
 import { generateOrderPDF, generatePickingListPDF, generatePackageLabelsPDF, generatePaymentReceiptPDF } from '@/lib/pdf-generator';
 import { statusConfig } from '@/lib/status-config';
+import { getOrderCommercialDiscountPercent } from '@/lib/billing';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
@@ -137,8 +138,12 @@ export function OrderDetailsSheet({
 
   const paidAmount = order.amountPaid || 0;
   const totalAmount = order.totalAmount || 0;
-  const pendingDebt = Math.max(0, totalAmount - paidAmount);
-  const paymentPct = totalAmount > 0 ? Math.min(100, (paidAmount / totalAmount) * 100) : 0;
+  const discountPercent = getOrderCommercialDiscountPercent(order);
+  const discountAmount = (totalAmount * discountPercent) / 100;
+  const netPayableTotal = Math.max(0, totalAmount - discountAmount);
+  const isPaidExplicit = order.status === 'Pagado';
+  const pendingDebt = isPaidExplicit ? 0 : Math.max(0, netPayableTotal - paidAmount);
+  const paymentPct = netPayableTotal > 0 ? Math.min(100, (paidAmount / netPayableTotal) * 100) : (isPaidExplicit ? 100 : 0);
 
   // CÁLCULO DE ETAPA EN STEPPER
   const currentStageIndex = useMemo(() => {
@@ -517,14 +522,19 @@ export function OrderDetailsSheet({
 
                     {/* TARJETA DE AUDITORÍA FINANCIERA DESTACADA Y AMPLIA */}
                     <div className="p-5 rounded-2xl bg-white border border-slate-200 shadow-md space-y-4">
-                        <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-slate-100 gap-2">
                             <div>
                                 <p className="text-[9px] font-black uppercase tracking-[0.2em] text-primary">Auditoría Financiera</p>
                                 <h4 className="text-xs font-black uppercase text-slate-900">Estado de Abonos ({orderPayments?.length || 0})</h4>
+                                {discountPercent > 0 && (
+                                    <p className="text-[9px] font-bold text-slate-500 mt-1">
+                                        Subtotal Bruto: <span className="line-through text-slate-400">${totalAmount.toFixed(2)}</span> • Desc. {discountPercent}% (<strong className="text-emerald-600">-${discountAmount.toFixed(2)}</strong>)
+                                    </p>
+                                )}
                             </div>
-                            <div className="text-right">
-                                <p className="text-sm font-black text-slate-900 tracking-tight">${paidAmount.toFixed(2)} / ${totalAmount.toFixed(2)}</p>
-                                <p className="text-[8px] font-bold text-slate-400 uppercase">Monto Total Expediente</p>
+                            <div className="text-left sm:text-right">
+                                <p className="text-base font-black text-slate-900 tracking-tight">${paidAmount.toFixed(2)} / ${netPayableTotal.toFixed(2)}</p>
+                                <p className="text-[8px] font-bold text-slate-400 uppercase">{discountPercent > 0 ? 'Monto Neto Facturado' : 'Monto Total Expediente'}</p>
                             </div>
                         </div>
 

@@ -100,14 +100,17 @@ export function getInvoiceFromOrder(order: Order): Invoice | null {
     const today = new Date();
     const remainingDays = differenceInDays(dueDate, today);
     const amountPaid = getEffectiveCashReceived(order);
-    const remainingBalance = Math.max(0, order.totalAmount - amountPaid);
     const commercialDiscountPercent = getOrderCommercialDiscountPercent(order);
+    const discountAmount = (order.totalAmount * commercialDiscountPercent) / 100;
+    const netPayableTotal = Math.max(0, order.totalAmount - discountAmount);
+    const isExplicitlyPaid = order.status === 'Pagado';
+    const remainingBalance = isExplicitlyPaid ? 0 : Math.max(0, netPayableTotal - amountPaid);
 
     let status: Invoice['status'] = 'Por Vencer';
     let statusText = `Vence en ${remainingDays} días`;
     let discount = 10;
     
-    if (remainingBalance <= 0.05) {
+    if (isExplicitlyPaid || remainingBalance <= 0.05) {
         status = 'Pagado';
         statusText = 'Totalmente Pagado';
         discount = 0;
