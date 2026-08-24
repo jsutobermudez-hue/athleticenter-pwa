@@ -158,3 +158,91 @@ export async function executeWeeklySalespersonReceivablesSummary() {
     }
 }
 
+export async function executePendingReconciliationAlert() {
+    try {
+        const { firestore } = initializeFirebaseServer();
+        const { collection, getDocs, query, where, limit } = await import('firebase/firestore');
+        const { sendPendingReconciliationSummaryEmail } = await import('@/lib/email');
+        const { sendWhatsAppMessage } = await import('@/lib/whatsapp');
+
+        const pendingSnap = await getDocs(query(
+            collection(firestore, 'orders'),
+            where('status', '==', 'En Verificación'),
+            limit(100)
+        ));
+
+        if (pendingSnap.empty) {
+            return { success: true, pendingCount: 0, message: 'Sin abonos pendientes por conciliar.' };
+        }
+
+        const pendingItems: { orderId: string; customerName: string; amount: number }[] = [];
+        let totalAmountUSD = 0;
+
+        pendingSnap.docs.forEach(docSnap => {
+            const data = docSnap.data();
+            const amt = Number(data.amountPaid || data.totalCashReceived || data.totalAmount || 0);
+            totalAmountUSD += amt;
+            pendingItems.push({
+                orderId: docSnap.id,
+                customerName: data.customerName || 'Cliente',
+                amount: amt
+            });
+        });
+
+        const pendingCount = pendingItems.length;
+
+        // 1. Notificaciones Internas y Push Web Nativo
+        await createAppNotifications(firestore, {
+            category: 'Facturación',
+            title: `🏛️ Alerta de Conciliación: ${pendingCount} Abonos en Verificación`,
+            message: `Atención Administración: Existen ${pendingCount} abonos pendientes por conciliar que suman $${totalAmountUSD.toFixed(2)} USD en caja.`,
+            link: '/dashboard/treasury',
+            initiatorId: 'pending_reconciliation_agent',
+            roles: ['superadmin', 'admin']
+        });
+
+        // 2. Notificación vía Email y WhatsApp a Administradores
+        const adminsSnap = await getDocs(query(
+            collection(firestore, 'users'),
+            where('role', 'in', ['superadmin', 'admin']),
+            limit(50)
+        ));
+
+        for (const adminDoc of adminsSnap.docs) {
+            const admin = adminDoc.data();
+            const email = admin.email;
+            const phone = admin.phone || admin.whatsappPhone;
+            const name = admin.name || admin.displayName || 'Administrador';
+
+            if (email) {
+                await sendPendingReconciliationSummaryEmail({
+                    toEmail: email,
+                    adminName: name,
+                    pendingCount: pendingCount,
+                    totalAmountUSD: totalAmountUSD,
+                    itemsSummary: pendingItems
+                });
+            }
+
+            if (phone) {
+                const wsText = `*🏛️ ALERTA DE CONCILIACIÓN BANCARIA - ATHLETICENTER PRO*\n\n` +
+                    `Estimado(a) *${name}*,\n\n` +
+                    `Le informamos que existen *${pendingCount} abonos pendientes por conciliar* en el sistema por un monto total de *$${totalAmountUSD.toFixed(2)} USD*.\n\n` +
+                    `Por favor ingrese al módulo de Tesorería para auditar los asientos bancarios:\n` +
+                    `https://athleticenter-pwa.web.app/dashboard/treasury`;
+                await sendWhatsAppMessage(phone, wsText);
+            }
+        }
+
+        return {
+            success: true,
+            pendingCount: pendingCount,
+            totalAmountUSD: totalAmountUSD,
+            adminsNotified: adminsSnap.size
+        };
+    } catch (e: any) {
+        console.error("[Agent Service] Pending Reconciliation Alert failed:", e.message);
+        return { success: false, error: e.message };
+    }
+}
+

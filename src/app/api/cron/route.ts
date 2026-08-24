@@ -7,13 +7,14 @@ import {
     executeStockOutPredictor, 
     executeLogisticsAudit, 
     executeChurnPrevention,
-    executeWeeklySalespersonReceivablesSummary
+    executeWeeklySalespersonReceivablesSummary,
+    executePendingReconciliationAlert
 } from '@/services/agents';
 
 export const dynamic = 'force-dynamic';
 
 /**
- * ENDPOINT DE AUTOMATIZACIÓN v6.0 (FASE 4: BLINDAJE BCV Y NOTIFICACIONES MULTICANAL)
+ * ENDPOINT DE AUTOMATIZACIÓN v7.0 (ALERTAS MULTICANAL DE CONCILIACIÓN BANCARIA Y WEB PUSH)
  * Orquestador maestro de procesos autónomos de la terminal.
  */
 export async function GET(request: Request) {
@@ -36,11 +37,12 @@ export async function GET(request: Request) {
         executeStockOutPredictor(),
         executeLogisticsAudit(),
         executeChurnPrevention(),
-        executeWeeklySalespersonReceivablesSummary()
+        executeWeeklySalespersonReceivablesSummary(),
+        executePendingReconciliationAlert()
     ]);
 
     const summary = results.map((r, i) => ({
-        agent: ['BCV_Sync', 'Billing', 'Savings', 'StockOut', 'Logistics', 'Churn', 'WeeklySalespersonReceivables'][i],
+        agent: ['BCV_Sync', 'Billing', 'Savings', 'StockOut', 'Logistics', 'Churn', 'WeeklySalespersonReceivables', 'PendingReconciliationAlert'][i],
         status: r.status,
         data: r.status === 'fulfilled' ? r.value : null,
         error: r.status === 'rejected' ? r.reason : null

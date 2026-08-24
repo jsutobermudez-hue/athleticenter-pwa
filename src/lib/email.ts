@@ -139,3 +139,108 @@ export async function sendPaymentReceiptEmail(params: SendPaymentEmailParams) {
     console.log(`[Email Engine Log] Correo procesado en sistema para ${toEmail} | Recibo: ${receiptId}`);
     return { success: true, simulated: true };
 }
+
+interface SendPendingReconciliationsEmailParams {
+    toEmail: string;
+    adminName: string;
+    pendingCount: number;
+    totalAmountUSD: number;
+    itemsSummary: { orderId: string; customerName: string; amount: number }[];
+}
+
+export async function sendPendingReconciliationSummaryEmail(params: SendPendingReconciliationsEmailParams) {
+    const { toEmail, adminName, pendingCount, totalAmountUSD, itemsSummary } = params;
+
+    if (!toEmail || !toEmail.includes('@')) return { success: false, error: 'Email inválido.' };
+
+    const resendApiKey = process.env.RESEND_API_KEY;
+
+    const rowsHtml = itemsSummary.slice(0, 8).map(item => `
+        <tr>
+            <td style="font-weight: bold; color: #3b82f6; font-family: monospace;">#${item.orderId.substring(0, 8).toUpperCase()}</td>
+            <td>${item.customerName}</td>
+            <td style="font-weight: bold; text-align: right; color: #10b981;">$${item.amount.toFixed(2)} USD</td>
+        </tr>
+    `).join('');
+
+    const htmlTemplate = `
+    <!DOCTYPE html>
+    <html lang="es">
+    <head>
+        <meta charset="UTF-8">
+        <style>
+            body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; background-color: #f8fafc; color: #0f172a; margin: 0; padding: 20px; }
+            .container { max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 20px; overflow: hidden; border: 1px solid #e2e8f0; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.05); }
+            .header { background-color: #0f172a; color: #ffffff; padding: 24px; }
+            .content { padding: 24px; }
+            .alert-box { background-color: #fef3c7; border: 1px solid #f59e0b; color: #92400e; padding: 14px; border-radius: 12px; font-weight: bold; font-size: 13px; margin: 15px 0; }
+            .table-box { width: 100%; border-collapse: collapse; margin-top: 15px; }
+            .table-box td, .table-box th { padding: 10px; border-bottom: 1px solid #f1f5f9; font-size: 12px; }
+            .table-box th { background-color: #f8fafc; color: #64748b; text-align: left; text-transform: uppercase; font-size: 10px; }
+            .footer { background-color: #f1f5f9; color: #64748b; padding: 18px; text-align: center; font-size: 11px; }
+            .btn { display: inline-block; background-color: #10b981; color: #ffffff; padding: 10px 20px; text-decoration: none; border-radius: 10px; font-weight: bold; font-size: 12px; margin-top: 15px; }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="header">
+                <h1 style="margin: 0; font-size: 18px;">🏛️ ATHLETICENTER PRO C.A.</h1>
+                <p style="margin: 4px 0 0 0; color: #94a3b8; font-size: 11px;">Alerta Automatizada de Conciliación Bancaria</p>
+            </div>
+            
+            <div class="content">
+                <p style="font-size: 14px; font-weight: bold;">Hola ${adminName},</p>
+                <div class="alert-box">
+                    ⚠️ Existen ${pendingCount} abonos pendientes por conciliar por un monto total de $${totalAmountUSD.toLocaleString('en-US', { minimumFractionDigits: 2 })} USD.
+                </div>
+
+                <p style="font-size: 12px; color: #475569;">A continuación el resumen de los comprobantes cargados esperando revisión en caja:</p>
+
+                <table class="table-box">
+                    <thead>
+                        <tr>
+                            <th>Expediente</th>
+                            <th>Cliente</th>
+                            <th style="text-align: right;">Monto ($)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${rowsHtml}
+                    </tbody>
+                </table>
+
+                <div style="text-align: center; margin-top: 20px;">
+                    <a href="https://athleticenter-pwa.web.app/dashboard/treasury" class="btn">Ingresar al Centro de Conciliación</a>
+                </div>
+            </div>
+
+            <div class="footer">
+                <p style="margin: 0;">CORPORACIÓN ATHLETICENTER PRO C.A. • MÓDULO DE TESORERÍA</p>
+            </div>
+        </div>
+    </body>
+    </html>
+    `;
+
+    if (resendApiKey) {
+        try {
+            await fetch('https://api.resend.com/emails', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${resendApiKey}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    from: 'Athleticenter Pro <tesoreria@athleticenter.com>',
+                    to: [toEmail],
+                    subject: `🏛️ [Alerta Tesorería] ${pendingCount} Abonos por Conciliar ($${totalAmountUSD.toFixed(2)} USD)`,
+                    html: htmlTemplate
+                })
+            });
+        } catch (e) {
+            console.warn("[Email Engine] Error sending pending reconciliation email:", e);
+        }
+    }
+
+    return { success: true };
+}
