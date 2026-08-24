@@ -28,11 +28,13 @@ import { signOut } from 'firebase/auth';
 import { NotificationsPopover } from './notifications-popover';
 import { ReloadAppButton } from './ReloadAppButton';
 import { PlaceHolderImages } from '@/lib/placeholder-images';
-import { Search, Wifi, WifiOff } from 'lucide-react';
+import { Search, Wifi, WifiOff, Clock } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { DynamicAppLogo } from '../icons/dynamic-app-logo';
 import { doc } from 'firebase/firestore';
-import type { CompanyProfile } from '@/lib/definitions';
+import type { CompanyProfile, FinancialSettings } from '@/lib/definitions';
+import { format } from 'date-fns';
+import { Badge } from '@/components/ui/badge';
 
 const spanishLabels: { [key: string]: string } = {
     dashboard: 'Panel',
@@ -47,6 +49,29 @@ const spanishLabels: { [key: string]: string } = {
     notifications: 'Notificaciones',
     quotes: 'Cotizaciones',
     audit: 'Auditoría',
+}
+
+function LiveClock() {
+    const [timeStr, setTimeStr] = useState<string>('');
+
+    useEffect(() => {
+        const updateClock = () => {
+            const now = new Date();
+            setTimeStr(format(now, 'hh:mm a • dd MMM').toUpperCase());
+        };
+        updateClock();
+        const timer = setInterval(updateClock, 1000);
+        return () => clearInterval(timer);
+    }, []);
+
+    if (!timeStr) return null;
+
+    return (
+        <div className="hidden lg:flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-100/80 dark:bg-slate-800/80 text-slate-700 dark:text-slate-200 border border-slate-200/60 dark:border-slate-700/60 text-[10px] font-mono font-bold shadow-2xs">
+            <Clock className="h-3 w-3 text-slate-500" />
+            <span>{timeStr}</span>
+        </div>
+    );
 }
 
 function ConnectionStatus() {
@@ -64,7 +89,7 @@ function ConnectionStatus() {
 
     return (
         <div className={cn(
-            "flex items-center gap-1.5 px-2.5 py-1 rounded-full transition-all border shadow-sm",
+            "flex items-center gap-1.5 px-2.5 py-1 rounded-full transition-all border shadow-2xs",
             isOnline ? "bg-emerald-50 border-emerald-100 text-emerald-600" : "bg-rose-50 border-rose-100 text-rose-600 animate-pulse"
         )}>
             {isOnline ? <Wifi className="h-3 w-3" /> : <WifiOff className="h-3 w-3" />}
@@ -86,14 +111,14 @@ export function Header() {
   const companyProfileRef = useMemoFirebase(() => firestore ? doc(firestore, 'companyProfile', 'main') : null, [firestore]);
   const { data: companyProfile } = useDoc<CompanyProfile>(companyProfileRef);
 
+  const settingsRef = useMemoFirebase(() => firestore ? doc(firestore, 'system', 'financials') : null, [firestore]);
+  const { data: globalSettings } = useDoc<FinancialSettings>(settingsRef);
+  const bcvRate = globalSettings?.bcvRate || 65.50;
+
   const isAdmin = useMemo(() => {
     if (!profile) return false;
     return ['superadmin', 'admin', 'gerencia'].includes(profile.role);
   }, [profile]);
-
-  const handleOpenSearch = () => {
-    window.dispatchEvent(new CustomEvent('open-global-search'));
-  };
 
   const segments = pathname.split('/').filter(Boolean);
   const userAvatarPlaceholder = PlaceHolderImages.find(p => p.id === 'user-avatar')?.imageUrl || "https://picsum.photos/seed/avatar/40/40";
@@ -116,7 +141,7 @@ export function Header() {
 
   return (
     <>
-      <header className="sticky top-0 z-30 flex h-14 items-center gap-4 border-b bg-card px-4 sm:static sm:h-auto sm:border-0 sm:bg-transparent sm:px-6 mx-auto w-full max-w-[1600px]">
+      <header className="sticky top-0 z-30 flex h-14 items-center gap-4 border-b bg-white/80 dark:bg-slate-950/80 backdrop-blur-md px-4 sm:static sm:h-auto sm:border-0 sm:bg-transparent sm:px-6 mx-auto w-full max-w-[1600px]">
         <SidebarTrigger className="md:hidden" />
         <div className="flex items-center gap-4 flex-1">
           <SidebarTrigger className="hidden md:flex" />
@@ -127,32 +152,18 @@ export function Header() {
               </div>
           )}
 
-          {isAdmin && (
-            <Button 
-                variant="outline" 
-                className="hidden lg:flex items-center gap-2 px-4 h-9 rounded-full bg-muted/20 border-none text-muted-foreground font-medium text-xs hover:bg-muted/40 transition-all"
-                onClick={handleOpenSearch}
-            >
-                <Search className="h-3.5 w-3.5" />
-                <span>Búsqueda Inteligente...</span>
-                <kbd className="pointer-events-none inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground opacity-100 ml-2">
-                <span className="text-xs">⌘</span>K
-                </kbd>
-            </Button>
-          )}
-
-          <Breadcrumb className="hidden font-medium md:flex ml-4">
+          <Breadcrumb className="hidden font-medium md:flex ml-2">
             <BreadcrumbList>
               <BreadcrumbItem>
                 <BreadcrumbLink asChild>
-                    <Link href="/dashboard" className="text-[10px] font-black uppercase tracking-widest">Panel</Link>
+                    <Link href="/dashboard" className="text-[10px] font-black uppercase tracking-widest text-slate-500 hover:text-slate-900">Panel</Link>
                 </BreadcrumbLink>
               </BreadcrumbItem>
               {segments.slice(1).map((segment) => (
                 <React.Fragment key={segment}>
                   <BreadcrumbSeparator />
                   <BreadcrumbItem>
-                    <BreadcrumbPage className="text-[10px] font-black uppercase tracking-widest">{getBreadcrumbLabel(segment)}</BreadcrumbPage>
+                    <BreadcrumbPage className="text-[10px] font-black uppercase tracking-widest text-slate-900">{getBreadcrumbLabel(segment)}</BreadcrumbPage>
                   </BreadcrumbItem>
                 </React.Fragment>
               ))}
@@ -160,7 +171,13 @@ export function Header() {
           </Breadcrumb>
         </div>
         
-        <div className="relative ml-auto flex items-center gap-2 md:grow-0">
+        <div className="relative ml-auto flex items-center gap-2.5 md:grow-0">
+          <LiveClock />
+
+          <div className="hidden sm:flex items-center gap-1 px-3 py-1 rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border border-emerald-200/60 dark:border-emerald-800/60 text-[10px] font-black uppercase shadow-2xs">
+            <span>💱 BCV: <strong className="text-emerald-950 dark:text-emerald-200 font-black">Bs. {bcvRate.toFixed(2)}</strong></span>
+          </div>
+
           <ConnectionStatus />
           <ReloadAppButton />
           <NotificationsPopover />
@@ -168,12 +185,17 @@ export function Header() {
         
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="outline" size="icon" className="overflow-hidden rounded-full h-9 w-9 border-2 border-primary/10">
+            <Button variant="outline" size="icon" className="overflow-hidden rounded-full h-9 w-9 border-2 border-slate-200 dark:border-slate-800 hover:scale-105 transition-all">
               <Image src={profile?.avatarUrl || userAvatarPlaceholder} width={40} height={40} alt="User" className="overflow-hidden rounded-full object-cover" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="rounded-xl border-border/60 shadow-xl w-56">
-            <DropdownMenuLabel className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Mi Mando</DropdownMenuLabel>
+            <DropdownMenuLabel className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex justify-between items-center">
+              <span>Mi Mando</span>
+              <Badge variant="outline" className="text-[8px] font-black uppercase border-none bg-slate-100 text-slate-700 px-1.5 py-0.5">
+                {profile?.role || 'USUARIO'}
+              </Badge>
+            </DropdownMenuLabel>
             <DropdownMenuSeparator />
             {profile && (
               <DropdownMenuItem className="font-bold text-xs" onSelect={() => setIsProfileDialogOpen(true)}>Editar Perfil</DropdownMenuItem>
