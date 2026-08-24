@@ -32,9 +32,6 @@ export function getSalesDate(o: Order): Date {
 
 export const CUTOFF_DISCOUNT_DATE = new Date('2026-08-02T00:00:00.000Z');
 
-/**
- * LISTA DE MÉTODOS DE PAGO EN DIVISAS VÁLIDOS PARA EL DESCUENTO DE CONTADO/PRONTO PAGO
- */
 export const FOREIGN_CURRENCY_PAYMENT_METHODS = [
     'Efectivo USD',
     'Efectivo $',
@@ -50,50 +47,35 @@ export const FOREIGN_CURRENCY_PAYMENT_METHODS = [
 ];
 
 export function isForeignCurrencyPaymentMethod(method?: string): boolean {
-    if (!method) return true; // Por defecto asumimos divisas en cotizaciones/órdenes estándar en USD
+    if (!method) return true;
     const normalized = method.trim().toLowerCase();
-    
-    // Si contiene bolivares, bcv, pago movil -> Es VES
     if (normalized.includes('bcv') || normalized.includes('pago móvil') || normalized.includes('pago movil') || normalized.includes('ves') || normalized.includes('bolivar')) {
         return false;
     }
     return true;
 }
 
-/**
- * Retorna el Porcentaje de Descuento Comercial Base aplicado a la Orden.
- * 1. Si el pago es en Bolívares (VES/BCV) -> 0% Descuento Divisas (Se liquida a Precio Lista BCV).
- * 2. Si es en Divisas (Efectivo USD, Zelle, Banesco Panamá, Binance, etc.):
- *    - Si el pedido tiene congelado `order.appliedDiscountPercent`, usa ese valor.
- *    - Pedidos creados ANTES del 02/08/2026 -> 35% de Descuento Divisas
- *    - Pedidos creados el 02/08/2026 o DESPUÉS -> 25% de Descuento Divisas
- */
 export function getOrderCommercialDiscountPercent(order: Order, paymentMethod?: string, defaultCurrentDiscount: number = 25): number {
     if (!order) return defaultCurrentDiscount;
-
-    // Si se especifica un método de pago en Bolívares, no aplica descuento de contado en divisas
     if (paymentMethod && !isForeignCurrencyPaymentMethod(paymentMethod)) {
         return 0;
     }
-
     if (typeof (order as any).appliedDiscountPercent === 'number') {
         return (order as any).appliedDiscountPercent;
     }
-    
+    if (typeof (order as any).bcvDiscountSnapshot === 'number') {
+        return (order as any).bcvDiscountSnapshot;
+    }
     const rawDate = order.createdAt || order.orderDate || order.receptionDate;
     if (!rawDate) return defaultCurrentDiscount;
-
     const orderDate = typeof (rawDate as any).toDate === 'function' 
         ? (rawDate as Timestamp).toDate() 
         : new Date(rawDate as any);
-
     if (isNaN(orderDate.getTime())) return defaultCurrentDiscount;
-
     if (orderDate.getTime() < CUTOFF_DISCOUNT_DATE.getTime()) {
-        return 35; // 35% de descuento histórico en Divisas previo al 2 de Agosto de 2026
+        return 35;
     }
-    
-    return defaultCurrentDiscount; // 25% activo en Divisas desde el 2 de Agosto de 2026
+    return defaultCurrentDiscount;
 }
 
 export function getInvoiceFromOrder(order: Order): Invoice | null {
@@ -101,7 +83,7 @@ export function getInvoiceFromOrder(order: Order): Invoice | null {
         return null;
     }
     
-    const rawDate = order.receptionDate || order.approvalDate || order.orderDate;
+    const rawDate = order.receptionDate || order.approvalDate || order.orderDate || order.createdAt;
     if (!rawDate) {
         return null;
     }
@@ -125,13 +107,17 @@ export function getInvoiceFromOrder(order: Order): Invoice | null {
     let statusText = `Vence en ${remainingDays} días`;
     let discount = 10;
     
-    if (order.status === 'Pagado' || remainingBalance <= 0.05) {
+    if (remainingBalance <= 0.05) {
         status = 'Pagado';
         statusText = 'Totalmente Pagado';
         discount = 0;
     } else if (order.status === 'En Verificación') {
         status = 'En Verificación';
         statusText = 'Abono en Verificación';
+        discount = 0;
+    } else if (amountPaid > 0) {
+        status = 'Por Vencer';
+        statusText = `Abono Parcial ($${amountPaid.toFixed(2)})`;
         discount = 0;
     } else if (remainingDays <= 0) {
         status = 'Vencido';
@@ -175,6 +161,7 @@ export function calculateGlobalFinancialMetrics(
             totalRevenue: 0,
             totalDebts: 0,
             recaudadoCash: 0,
+            cashBreakdown: { totalCash: 0, cashUsd: 0, zelle: 0, bcv: 0, custodia: 0, other: 0, payments: [] },
             vencido: 0,
             porVencer: 0,
             enVerificacion: 0,
@@ -229,7 +216,6 @@ export function calculateGlobalFinancialMetrics(
         const salesDate = getSalesDate(order);
         const cashDate = getCashDate(order);
 
-        // 1. Pedidos Realizados (Todas las fases activas)
         if (matchesPeriod(salesDate)) {
             totalOrdersCount++;
             totalOrdersAmount += (order.totalAmount || 0);
@@ -254,31 +240,25 @@ export function calculateGlobalFinancialMetrics(
             }
         }
 
-        // 2. Cobranzas Cash
         if (matchesPeriod(cashDate)) {
             const cashReceived = getEffectiveCashReceived(order);
             recaudadoCash += cashReceived;
         }
 
-        // 3. Deuda Activa
         const invoice = getInvoiceFromOrder(order);
         if (invoice && matchesPeriod(salesDate)) {
             if (invoice.status === 'Vencido') vencido += invoice.remainingBalance;
             if (invoice.status === 'Por Vencer') porVencer += invoice.remainingBalance;
             if (invoice.status === 'En Verificación') enVerificacion += invoice.remainingBalance;
-
-            if (invoice.remainingBalance > 0.05 && invoice.status !== 'Pagado') {
-        totalDebts += invoice.remainingBalance;
-            }
+            totalDebts += invoice.remainingBalance;
         }
     });
-
-    const cashBreakdown = getCashBreakdown(orders, periodFilter);
 
     return {
         totalRevenue,
         totalDebts,
         recaudadoCash,
+        cashBreakdown: getCashBreakdown(orders, periodFilter),
         vencido,
         porVencer,
         enVerificacion,
@@ -287,8 +267,7 @@ export function calculateGlobalFinancialMetrics(
         totalOrdersCount,
         totalOrdersAmount,
         liquidadosCount,
-        liquidadosAmount,
-        cashBreakdown
+        liquidadosAmount
     };
 }
 
@@ -305,6 +284,7 @@ export interface PaymentItem {
     amount: number;
     reference?: string;
     receiptUrl?: string;
+    bankStatementUrl?: string;
     orderStatus?: string;
     rawOrder?: Order;
 }
@@ -312,8 +292,8 @@ export interface PaymentItem {
 export function getCashBreakdown(
     orders: Order[] | null,
     periodFilter: 'today' | '7d' | 'this_month' | 'last_month' | 'custom' | 'all' = 'all',
-    customStartDate?: string,
-    customEndDate?: string
+    startDate?: string,
+    endDate?: string
 ) {
     if (!orders || orders.length === 0) {
         return {
@@ -323,21 +303,23 @@ export function getCashBreakdown(
             bcv: 0,
             custodia: 0,
             other: 0,
-            payments: [] as PaymentItem[]
+            payments: [] as any[]
         };
     }
 
     const now = new Date();
-    const startObj = customStartDate ? new Date(`${customStartDate}T00:00:00`) : null;
-    const endObj = customEndDate ? new Date(`${customEndDate}T23:59:59`) : null;
 
     const matchesPeriod = (d: Date) => {
-        if (periodFilter === 'all') return true;
+        if (!d || isNaN(d.getTime()) || d.getTime() === 0) return false;
+
         if (periodFilter === 'custom') {
+            const startObj = startDate ? new Date(`${startDate}T00:00:00`) : null;
+            const endObj = endDate ? new Date(`${endDate}T23:59:59`) : null;
             if (startObj && !isNaN(startObj.getTime()) && d < startObj) return false;
             if (endObj && !isNaN(endObj.getTime()) && d > endObj) return false;
             return true;
         }
+        if (periodFilter === 'all') return true;
         if (periodFilter === 'today') return isSameDay(d, now);
         if (periodFilter === '7d') return d >= startOfDay(subDays(now, 6));
         if (periodFilter === 'this_month') return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
@@ -354,7 +336,7 @@ export function getCashBreakdown(
     let bcv = 0;
     let custodia = 0;
     let other = 0;
-    const payments: PaymentItem[] = [];
+    const payments: any[] = [];
 
     orders.forEach(o => {
         const cashAmt = getEffectiveCashReceived(o);

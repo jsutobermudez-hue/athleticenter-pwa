@@ -272,7 +272,8 @@ export function ClientBillingView() {
                             <TableBody>
                                 {combinedInvoices.length > 0 ? combinedInvoices.map((invoice) => {
                                     const orderForInvoice = allOrders?.find(o => o.id === invoice.id);
-                                    const isPaid = (invoice.status as string) === 'paid' || invoice.status === 'Pagado';
+                                    const isFullyPaid = invoice.remainingBalance <= 0.05;
+                                    const paidPct = invoice.amountTotal > 0 ? Math.min(100, Math.round((invoice.amountPaid / invoice.amountTotal) * 100)) : 0;
                                     
                                     return (
                                         <TableRow key={invoice.id} className="hover:bg-primary/5 transition-colors border-b last:border-none group">
@@ -283,17 +284,30 @@ export function ClientBillingView() {
                                                 {invoice.dueDate instanceof Timestamp ? format(invoice.dueDate.toDate(), 'dd/MM/yyyy') : format(invoice.dueDate as any, 'dd/MM/yyyy')}
                                             </TableCell>
                                             <TableCell className="text-right">
-                                                <span className="font-black text-base text-slate-900 tracking-tighter">${invoice.remainingBalance.toFixed(2)}</span>
+                                                <div className="flex flex-col items-end gap-1">
+                                                    <span className={cn("font-black text-base tracking-tighter", isFullyPaid ? "text-emerald-600 font-extrabold" : "text-slate-900")}>
+                                                        ${invoice.remainingBalance.toFixed(2)}
+                                                    </span>
+                                                    <div className="flex items-center gap-1 text-[8px] font-bold text-slate-400 uppercase">
+                                                        <span>${invoice.amountPaid.toFixed(2)} de ${invoice.amountTotal.toFixed(2)}</span>
+                                                        <span className="font-black text-slate-700">({paidPct}%)</span>
+                                                    </div>
+                                                    <div className="w-28 h-1.5 bg-slate-100 rounded-full overflow-hidden border border-slate-200">
+                                                        <div className={cn("h-full transition-all duration-500 rounded-full", paidPct >= 100 ? "bg-emerald-500" : "bg-blue-500")} style={{ width: `${paidPct}%` }} />
+                                                    </div>
+                                                </div>
                                             </TableCell>
                                             <TableCell className="text-center">
                                                 <Badge className={cn(
-                                                    "text-[8px] font-black uppercase border-none px-2.5 h-5 shadow-none",
-                                                    isPaid ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"
-                                                )}>{invoice.statusText}</Badge>
+                                                    "text-[9px] font-black uppercase border px-3 py-1 shadow-none rounded-xl",
+                                                    isFullyPaid ? "bg-emerald-50 text-emerald-700 border-emerald-300" : "bg-blue-50 text-blue-700 border-blue-300"
+                                                )}>
+                                                    {isFullyPaid ? "🎉 TOTALMENTE PAGADO" : invoice.statusText}
+                                                </Badge>
                                             </TableCell>
                                             <TableCell className="text-right pr-8">
                                                 <div className="flex items-center justify-end gap-3">
-                                                    {isPaid && orderForInvoice ? (
+                                                    {isFullyPaid && orderForInvoice ? (
                                                         <ReprintButton order={orderForInvoice} companyProfile={companyProfile || undefined} customer={customerProfile} />
                                                     ) : (
                                                         <div className="flex gap-2">

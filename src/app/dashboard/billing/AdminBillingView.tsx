@@ -50,6 +50,7 @@ import { DashboardMetricCard } from '@/components/dashboard/DashboardMetricCard'
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { Printer, Send } from 'lucide-react';
+import { generatePaymentReceiptPDF } from '@/lib/pdf-generator';
 
 import { doc } from 'firebase/firestore';
 import { useDoc } from '@/firebase';
@@ -579,22 +580,35 @@ export function AdminBillingView() {
                                             </div>
                                         </TableCell>
                                         <TableCell className="text-right">
-                                            <div className="flex flex-col items-end">
-                                                <span className={cn("font-black text-lg tracking-tighter", invoice.remainingBalance > 0 ? "text-slate-900" : "text-emerald-600")}>
+                                            <div className="flex flex-col items-end gap-1">
+                                                <span className={cn("font-black text-base tracking-tighter", invoice.remainingBalance <= 0.05 ? "text-emerald-600 font-extrabold" : "text-slate-900")}>
                                                     ${invoice.remainingBalance.toFixed(2)}
                                                 </span>
-                                                <span className="text-[8px] font-bold text-slate-400 uppercase">Monto BI</span>
+                                                {(() => {
+                                                    const paidPct = invoice.amountTotal > 0 ? Math.min(100, Math.round((invoice.amountPaid / invoice.amountTotal) * 100)) : 0;
+                                                    return (
+                                                        <div className="flex flex-col items-end gap-0.5">
+                                                            <div className="flex items-center gap-1 text-[8px] font-bold text-slate-400 uppercase">
+                                                                <span>${invoice.amountPaid.toFixed(2)} de ${invoice.amountTotal.toFixed(2)}</span>
+                                                                <span className="font-black text-slate-700">({paidPct}%)</span>
+                                                            </div>
+                                                            <div className="w-28 h-1.5 bg-slate-100 rounded-full overflow-hidden border border-slate-200">
+                                                                <div className={cn("h-full transition-all duration-500 rounded-full", paidPct >= 100 ? "bg-emerald-500" : "bg-blue-500")} style={{ width: `${paidPct}%` }} />
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })()}
                                             </div>
                                         </TableCell>
                                         <TableCell className="text-center">
                                             <Badge className={cn(
-                                                "text-[8px] font-black uppercase border-none px-2.5 h-5 shadow-none", 
-                                                invoice.status === 'Pagado' ? 'bg-emerald-100 text-emerald-700' : 
-                                                invoice.status === 'Vencido' ? 'bg-rose-100 text-rose-700' : 
-                                                invoice.status === 'En Verificación' ? 'bg-blue-100 text-blue-700 animate-pulse' :
-                                                'bg-amber-100 text-amber-700'
+                                                "text-[9px] font-black uppercase border px-3 py-1 shadow-none rounded-xl", 
+                                                invoice.remainingBalance <= 0.05 ? 'bg-emerald-50 text-emerald-700 border-emerald-300' : 
+                                                invoice.status === 'Vencido' ? 'bg-rose-50 text-rose-700 border-rose-300' : 
+                                                invoice.status === 'En Verificación' ? 'bg-amber-50 text-amber-800 border-amber-300 animate-pulse' :
+                                                'bg-blue-50 text-blue-700 border-blue-300'
                                             )}>
-                                                {invoice.statusText}
+                                                {invoice.remainingBalance <= 0.05 ? '🎉 TOTALMENTE PAGADO' : invoice.statusText}
                                             </Badge>
                                         </TableCell>
                                         <TableCell className="text-right pr-8" onClick={(e) => e.stopPropagation()}>
@@ -602,7 +616,7 @@ export function AdminBillingView() {
                                                 {isPendingVerification && orderForInvoice && isGlobalStaff && (
                                                     <ConfirmPaymentDialog order={orderForInvoice} />
                                                 )}
-                                                {invoice.remainingBalance > 0.05 && (
+                                                {invoice.remainingBalance > 0.05 ? (
                                                     <div className="flex gap-2">
                                                         <Button 
                                                             variant="outline" 
@@ -614,6 +628,28 @@ export function AdminBillingView() {
                                                         </Button>
                                                         <ReportPaymentDialog invoice={invoice} mode="partial" />
                                                         <ReportPaymentDialog invoice={invoice} mode="total" />
+                                                    </div>
+                                                ) : (
+                                                    <div className="flex gap-2">
+                                                        <Button 
+                                                            variant="outline" 
+                                                            size="sm" 
+                                                            className="h-9 px-3 rounded-xl border-slate-200 bg-slate-900 text-white hover:bg-slate-800 font-black text-[9px] uppercase tracking-wider shadow-sm flex items-center gap-1"
+                                                            onClick={() => generatePaymentReceiptPDF({
+                                                                payment: { amount: invoice.amountTotal, method: 'Transferencia Bancaria', paymentDate: new Date() },
+                                                                order: orderForInvoice || { id: invoice.id, customerName: invoice.customerName, totalAmount: invoice.amountTotal }
+                                                            })}
+                                                        >
+                                                            <Printer className="h-3.5 w-3.5 text-emerald-400" /> Recibo PDF
+                                                        </Button>
+                                                        <Button 
+                                                            variant="outline" 
+                                                            size="sm" 
+                                                            className="h-9 px-3 rounded-xl border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 font-black text-[9px] uppercase tracking-wider"
+                                                            onClick={() => handleSendWhatsAppInvoiceReminder(invoice, orderForInvoice)}
+                                                        >
+                                                            <MessageSquare className="h-3.5 w-3.5 text-emerald-600 mr-1" /> WhatsApp Solvente
+                                                        </Button>
                                                     </div>
                                                 )}
                                             </div>
