@@ -308,7 +308,7 @@ export function OrderDetailsSheet({
   return (
     <>
     <Dialog open={isOpen} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-[96vw] xl:max-w-7xl p-0 flex flex-col h-[92vh] max-h-[92vh] border-none rounded-[2rem] sm:rounded-[2.5rem] shadow-2xl overflow-hidden z-[100]">
+      <DialogContent className="max-w-[98vw] w-[98vw] p-0 flex flex-col h-[94vh] max-h-[94vh] border-none rounded-3xl shadow-2xl overflow-hidden z-[100]">
         
         {/* HEADER DE EXPEDIENTE */}
         <DialogHeader className="p-5 sm:p-6 pb-3 bg-slate-900 text-white shrink-0 relative">

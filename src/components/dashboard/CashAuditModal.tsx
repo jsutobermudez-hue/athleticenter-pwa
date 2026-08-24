@@ -369,8 +369,8 @@ export function CashAuditModal({ isOpen, onClose, orders, periodFilter = 'all', 
     return (
         <>
             <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-                <DialogContent className="max-w-[96vw] xl:max-w-7xl bg-slate-950 text-white border-slate-800 p-0 overflow-hidden rounded-[2.5rem] shadow-2xl">
-                    <DialogHeader className="p-6 pb-4 bg-slate-900/80 border-b border-slate-800/80 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <DialogContent className="max-w-[98vw] w-[98vw] h-[94vh] max-h-[94vh] bg-slate-950 text-white border-slate-800 p-0 overflow-hidden rounded-3xl shadow-2xl flex flex-col">
+                    <DialogHeader className="p-6 pb-4 bg-slate-900/80 border-b border-slate-800/80 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shrink-0">
                         <div>
                             <div className="flex items-center gap-2">
                                 <Badge className="bg-emerald-500/20 text-emerald-400 border-none font-black text-[9px] uppercase px-2.5 py-0.5">
@@ -391,7 +391,7 @@ export function CashAuditModal({ isOpen, onClose, orders, periodFilter = 'all', 
                         </Button>
                     </DialogHeader>
 
-                    <div className="p-6 space-y-5 max-h-[78vh] overflow-y-auto">
+                    <div className="p-6 space-y-5 flex-1 overflow-y-auto min-h-0">
                         {/* BARRA DE FILTROS AVANZADOS Y RANGO DE FECHAS */}
                         <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-3">
                             <div className="flex flex-wrap items-center gap-2">
@@ -753,11 +753,14 @@ export function CashAuditModal({ isOpen, onClose, orders, periodFilter = 'all', 
                                         onClick={() => {
                                             const raw = selectedPaymentForDetail.rawOrder;
                                             setSelectedPaymentForDetail(null);
-                                            onSelectOrder(raw!);
+                                            onClose();
+                                            setTimeout(() => {
+                                                onSelectOrder(raw!);
+                                            }, 50);
                                         }}
-                                        className="w-full h-10 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 font-black text-[9px] uppercase tracking-wider flex items-center justify-center gap-2"
+                                        className="w-full h-11 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-black text-[10px] uppercase tracking-wider flex items-center justify-center gap-2 shadow-lg"
                                     >
-                                        <FileText className="h-3.5 w-3.5 text-emerald-400" /> Abrir Expediente Completo de la Orden
+                                        <FileText className="h-4 w-4 text-white" /> 📜 Abrir Expediente Completo de la Orden
                                     </Button>
                                 )}
                             </div>
