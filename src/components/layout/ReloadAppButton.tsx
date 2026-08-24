@@ -12,15 +12,30 @@ import { useToast } from '@/hooks/use-toast';
 export function ReloadAppButton() {
   const { toast } = useToast();
 
-  const handleReload = () => {
+  const handleReload = async () => {
     toast({
-      title: "Recargando sistema",
-      description: "Sincronizando datos y refrescando sesión...",
+      title: "Sincronizando Sistema",
+      description: "Limpiando caché PWA e instalando versión actualizada...",
     });
     
+    try {
+      if ('caches' in window) {
+        const cacheNames = await caches.keys();
+        await Promise.all(cacheNames.map(name => caches.delete(name)));
+      }
+      if ('serviceWorker' in navigator) {
+        const registrations = await navigator.serviceWorker.getRegistrations();
+        for (const reg of registrations) {
+          await reg.update();
+        }
+      }
+    } catch (e) {
+      console.warn("[PWA] Error clearing cache:", e);
+    }
+
     setTimeout(() => {
       window.location.reload();
-    }, 600);
+    }, 400);
   };
 
   return (
