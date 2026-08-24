@@ -451,24 +451,38 @@ export function AdminBillingView() {
                         {p.label}
                     </button>
                 ))}
-
-                {dateFilter === 'custom' && (
-                    <div className="flex items-center gap-2 ml-2">
+            {dateFilter === 'custom' && (
+                <div className="flex flex-wrap items-center gap-3 mt-2 p-3 bg-slate-50 border border-slate-200/80 rounded-2xl animate-in fade-in-50 duration-300">
+                    <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-black uppercase text-slate-500 tracking-wider">Fecha Desde:</span>
                         <input
                             type="date"
                             value={startDate}
                             onChange={(e) => setStartDate(e.target.value)}
-                            className="h-8 px-2.5 bg-white border border-slate-200 rounded-xl text-[10px] font-bold text-slate-700 focus:outline-none focus:border-primary"
+                            className="h-9 px-3 bg-white border border-slate-300 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-900 shadow-2xs"
                         />
-                        <span className="text-slate-400 text-xs font-bold">a</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-black uppercase text-slate-500 tracking-wider">Fecha Hasta:</span>
                         <input
                             type="date"
                             value={endDate}
                             onChange={(e) => setEndDate(e.target.value)}
-                            className="h-8 px-2.5 bg-white border border-slate-200 rounded-xl text-[10px] font-bold text-slate-700 focus:outline-none focus:border-primary"
+                            className="h-9 px-3 bg-white border border-slate-300 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-900 shadow-2xs"
                         />
                     </div>
-                )}
+                    {(startDate || endDate) && (
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => { setStartDate(''); setEndDate(''); }}
+                            className="h-9 px-3 text-[10px] font-black uppercase text-slate-500 hover:text-rose-600 hover:bg-rose-50"
+                        >
+                            Limpiar Fechas
+                        </Button>
+                    )}
+                </div>
+            )}
             </div>
 
             <div className="flex flex-wrap items-center gap-3 w-full">
