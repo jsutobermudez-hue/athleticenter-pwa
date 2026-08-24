@@ -345,38 +345,101 @@ export function getCashBreakdown(
         const cashDate = getCashDate(o);
         if (!matchesPeriod(cashDate)) return;
 
-        totalCash += cashAmt;
-        const method = ((o as any).paymentMethod || (o as any).metodoPago || 'Efectivo USD').trim();
-        const normMethod = method.toLowerCase();
+        const orderPayments = Array.isArray((o as any).payments) && (o as any).payments.length > 0 
+            ? (o as any).payments 
+            : null;
 
-        if (normMethod.includes('zelle')) {
-            zelle += cashAmt;
-        } else if (normMethod.includes('efectivo') || normMethod.includes('cash') || normMethod.includes('divisas')) {
-            cashUsd += cashAmt;
-        } else if (normMethod.includes('bcv') || normMethod.includes('pago móvil') || normMethod.includes('pago movil') || normMethod.includes('transferencia ves') || normMethod.includes('bolivar')) {
-            bcv += cashAmt;
-        } else if (normMethod.includes('custodia') || normMethod.includes('panamá') || normMethod.includes('panama')) {
-            custodia += cashAmt;
+        if (orderPayments) {
+            orderPayments.forEach((p: any) => {
+                const pAmt = Number(p.amount || p.monto || 0);
+                if (pAmt <= 0) return;
+
+                let pMethod = (p.method || p.paymentMethod || p.metodoPago || (o as any).paymentMethod || (o as any).metodoPago || '').trim();
+                const pRef = (p.referenceNumber || p.reference || p.referencia || '').trim();
+                const normRef = pRef.toLowerCase();
+
+                if (!pMethod) {
+                    if (normRef.startsWith('zel') || normRef.startsWith('wfct') || normRef.includes('zelle')) pMethod = 'Zelle';
+                    else if (normRef.includes('pm') || normRef.includes('pago movil')) pMethod = 'Pago Móvil';
+                    else pMethod = 'Efectivo USD';
+                }
+
+                const normMethod = pMethod.toLowerCase();
+
+                totalCash += pAmt;
+                if (normMethod.includes('zelle') || normRef.includes('zelle') || normRef.startsWith('wfct')) {
+                    zelle += pAmt;
+                } else if (normMethod.includes('bcv') || normMethod.includes('pago móvil') || normMethod.includes('pago movil') || normMethod.includes('transferencia ves') || normMethod.includes('bolivar')) {
+                    bcv += pAmt;
+                } else if (normMethod.includes('custodia') || normMethod.includes('panamá') || normMethod.includes('panama')) {
+                    custodia += pAmt;
+                } else {
+                    cashUsd += pAmt;
+                }
+
+                let pDate = cashDate;
+                if (p.paymentDate) {
+                    pDate = typeof (p.paymentDate as any).toDate === 'function' ? (p.paymentDate as any).toDate() : new Date(p.paymentDate);
+                }
+
+                payments.push({
+                    id: p.id || `${o.id}_${payments.length}`,
+                    orderId: `#${(o.id || '').substring(0, 8).toUpperCase()}`,
+                    customerName: o.customerName || 'Cliente General',
+                    customerRif: o.customerRif || '',
+                    customerPhone: o.customerPhone || '',
+                    salespersonName: o.salespersonName || 'Directo',
+                    registeredBy: p.registeredByName || p.registeredBy || (o as any).registeredByName || o.salespersonName || 'Sistema / Caja',
+                    date: pDate,
+                    method: pMethod,
+                    amount: pAmt,
+                    reference: pRef,
+                    receiptUrl: p.imageUrl || p.paymentReceiptUrl || p.comprobanteUrl || p.receiptUrl || p.retentionImageUrl || '',
+                    orderStatus: o.status,
+                    rawOrder: o
+                });
+            });
         } else {
-            other += cashAmt;
-        }
+            let method = ((o as any).paymentMethod || (o as any).metodoPago || (o as any).method || (o as any).paymentWay || '').trim();
+            const ref = ((o as any).paymentReference || (o as any).referencia || (o as any).reference || '').trim();
+            const normRef = ref.toLowerCase();
 
-        payments.push({
-            id: o.id,
-            orderId: `#${(o.id || '').substring(0, 8).toUpperCase()}`,
-            customerName: o.customerName || 'Cliente General',
-            customerRif: o.customerRif || '',
-            customerPhone: o.customerPhone || '',
-            salespersonName: o.salespersonName || 'Directo',
-            registeredBy: (o as any).registeredByName || (o as any).registeredBy || o.salespersonName || 'Sistema / Caja',
-            date: cashDate,
-            method: method,
-            amount: cashAmt,
-            reference: (o as any).paymentReference || (o as any).referencia || '',
-            receiptUrl: (o as any).paymentReceiptUrl || (o as any).comprobanteUrl || (o as any).receiptUrl || (o as any).imageUrl || (o as any).paymentProofUrl || (o as any).voucherUrl || (o as any).voucher || (o as any).comprobante || (o as any).screenshot || (o as any).retentionImageUrl || '',
-            orderStatus: o.status,
-            rawOrder: o
-        });
+            if (!method) {
+                if (normRef.startsWith('zel') || normRef.startsWith('wfct') || normRef.includes('zelle')) method = 'Zelle';
+                else if (normRef.includes('pm') || normRef.includes('pago movil')) method = 'Pago Móvil';
+                else method = 'Efectivo USD';
+            }
+
+            const normMethod = method.toLowerCase();
+
+            totalCash += cashAmt;
+            if (normMethod.includes('zelle') || normRef.includes('zelle') || normRef.startsWith('wfct')) {
+                zelle += cashAmt;
+            } else if (normMethod.includes('bcv') || normMethod.includes('pago móvil') || normMethod.includes('pago movil') || normMethod.includes('transferencia ves') || normMethod.includes('bolivar')) {
+                bcv += cashAmt;
+            } else if (normMethod.includes('custodia') || normMethod.includes('panamá') || normMethod.includes('panama')) {
+                custodia += cashAmt;
+            } else {
+                cashUsd += cashAmt;
+            }
+
+            payments.push({
+                id: o.id,
+                orderId: `#${(o.id || '').substring(0, 8).toUpperCase()}`,
+                customerName: o.customerName || 'Cliente General',
+                customerRif: o.customerRif || '',
+                customerPhone: o.customerPhone || '',
+                salespersonName: o.salespersonName || 'Directo',
+                registeredBy: (o as any).registeredByName || (o as any).registeredBy || o.salespersonName || 'Sistema / Caja',
+                date: cashDate,
+                method: method,
+                amount: cashAmt,
+                reference: ref,
+                receiptUrl: (o as any).paymentReceiptUrl || (o as any).comprobanteUrl || (o as any).receiptUrl || (o as any).imageUrl || (o as any).paymentProofUrl || (o as any).voucherUrl || (o as any).voucher || (o as any).comprobante || (o as any).screenshot || (o as any).retentionImageUrl || '',
+                orderStatus: o.status,
+                rawOrder: o
+            });
+        }
     });
 
     payments.sort((a, b) => b.date.getTime() - a.date.getTime());

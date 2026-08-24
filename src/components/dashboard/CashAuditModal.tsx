@@ -169,6 +169,30 @@ export function CashAuditModal({ isOpen, onClose, orders, periodFilter = 'all', 
         return result;
     }, [breakdown.payments, statusFilter, methodFilter, salespersonFilter, searchTerm]);
 
+    const kpis = useMemo(() => {
+        let totalCash = 0;
+        let cashUsd = 0;
+        let zelleUsd = 0;
+        let bcvVes = 0;
+
+        filteredPayments.forEach(p => {
+            const amt = Number(p.amount) || 0;
+            totalCash += amt;
+            const normMethod = (p.method || '').toLowerCase();
+            const normRef = (p.reference || '').toLowerCase();
+
+            if (normMethod.includes('zelle') || normRef.includes('zelle') || normRef.startsWith('wfct') || normRef.startsWith('zel')) {
+                zelleUsd += amt;
+            } else if (normMethod.includes('bcv') || normMethod.includes('pago móvil') || normMethod.includes('pago movil') || normMethod.includes('transferencia ves') || normMethod.includes('bolivar')) {
+                bcvVes += amt;
+            } else {
+                cashUsd += amt;
+            }
+        });
+
+        return { totalCash, cashUsd, zelleUsd, bcvVes };
+    }, [filteredPayments]);
+
     const periodTitle = useMemo(() => {
         if (activePeriod === 'today') return 'Pagos Registrados del Día (HOY)';
         if (activePeriod === '7d') return 'Pagos Registrados (Últimos 7 Días)';
@@ -384,26 +408,26 @@ export function CashAuditModal({ isOpen, onClose, orders, periodFilter = 'all', 
                             <div className="p-4 rounded-2xl bg-emerald-950/40 border border-emerald-500/20 space-y-1">
                                 <p className="text-[9px] font-black uppercase text-emerald-400 tracking-wider">Total Recaudado</p>
                                 <p className="text-xl font-black text-white tracking-tight">
-                                    ${breakdown.totalCash.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                                    ${kpis.totalCash.toLocaleString('en-US', { minimumFractionDigits: 2 })}
                                 </p>
-                                <p className="text-[8px] text-slate-400 font-bold">Bs. {(breakdown.totalCash * bcvRate).toLocaleString('es-VE', { maximumFractionDigits: 0 })}</p>
+                                <p className="text-[8px] text-slate-400 font-bold">Bs. {(kpis.totalCash * bcvRate).toLocaleString('es-VE', { maximumFractionDigits: 0 })}</p>
                             </div>
                             <div className="p-4 rounded-2xl bg-blue-950/40 border border-blue-500/20 space-y-1">
                                 <p className="text-[9px] font-black uppercase text-blue-400 tracking-wider">Efectivo USD</p>
                                 <p className="text-xl font-black text-white tracking-tight">
-                                    ${breakdown.cashUsd.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                                    ${kpis.cashUsd.toLocaleString('en-US', { minimumFractionDigits: 2 })}
                                 </p>
                             </div>
                             <div className="p-4 rounded-2xl bg-purple-950/40 border border-purple-500/20 space-y-1">
                                 <p className="text-[9px] font-black uppercase text-purple-400 tracking-wider">Zelle USD</p>
                                 <p className="text-xl font-black text-white tracking-tight">
-                                    ${breakdown.zelle.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                                    ${kpis.zelleUsd.toLocaleString('en-US', { minimumFractionDigits: 2 })}
                                 </p>
                             </div>
                             <div className="p-4 rounded-2xl bg-sky-950/40 border border-sky-500/20 space-y-1">
                                 <p className="text-[9px] font-black uppercase text-sky-400 tracking-wider">Bolívares BCV</p>
                                 <p className="text-xl font-black text-white tracking-tight">
-                                    ${breakdown.bcv.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                                    ${kpis.bcvVes.toLocaleString('en-US', { minimumFractionDigits: 2 })}
                                 </p>
                             </div>
                         </div>
