@@ -243,7 +243,10 @@ export function OrderDetailsSheet({
   };
 
   const handleGoToBilling = () => {
-    router.push(`/dashboard/billing?orderId=${order.id}`);
+    onOpenChange(false);
+    setTimeout(() => {
+      router.push(`/dashboard/billing?orderId=${order.id}`);
+    }, 100);
   };
 
   const handleExportNote = async () => {
