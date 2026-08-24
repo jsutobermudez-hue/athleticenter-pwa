@@ -98,10 +98,18 @@ export function AdminBillingView() {
   useEffect(() => {
     const statusQuery = searchParams.get('status');
     if (statusQuery) setStatusFilter(statusQuery);
+    
     const orderQuery = searchParams.get('orderId');
     if (orderQuery) {
-      setSearchInput(orderQuery);
-      setSearchTerm(orderQuery);
+      // Limpiar filtros para garantizar que la factura sea visible
+      setStatusFilter('todos');
+      setDateFilter('todos');
+      setAgingFilter('todos');
+      setSalespersonFilter('todos');
+      
+      const cleanTerm = orderQuery.replace('#', '').trim();
+      setSearchInput(cleanTerm);
+      setSearchTerm(cleanTerm);
     }
   }, [searchParams]);
 
@@ -121,6 +129,22 @@ export function AdminBillingView() {
     const filtered = rawOrders.filter(o => baseStatuses.includes(o.status));
     return filtered.map(getInvoiceFromOrder).filter(Boolean) as Invoice[];
   }, [rawOrders]);
+
+  // AUTO-DISPARO DE MODAL DE PAGO SI VIENE orderId EN LA URL
+  useEffect(() => {
+    const orderQuery = searchParams.get('orderId');
+    if (orderQuery && allInvoices.length > 0 && !selectedInvoiceForPayment) {
+      const cleanTerm = orderQuery.replace('#', '').trim().toLowerCase();
+      const targetInvoice = allInvoices.find(i => 
+        i.id.toLowerCase() === cleanTerm ||
+        i.id.toLowerCase().startsWith(cleanTerm) ||
+        cleanTerm.includes(i.id.toLowerCase())
+      );
+      if (targetInvoice) {
+        setSelectedInvoiceForPayment(targetInvoice);
+      }
+    }
+  }, [searchParams, allInvoices, selectedInvoiceForPayment]);
 
   const uniqueSalespeople = useMemo(() => {
     if (!allInvoices) return [];
@@ -686,6 +710,13 @@ export function AdminBillingView() {
         <OrderSheetController 
             order={selectedOrderForSheet} 
             onOpenChange={(open) => !open && setSelectedOrderForSheet(null)} 
+        />
+      )}
+
+      {selectedInvoiceForPayment && (
+        <ReportPaymentDialog
+            invoice={selectedInvoiceForPayment}
+            mode="partial"
         />
       )}
 
