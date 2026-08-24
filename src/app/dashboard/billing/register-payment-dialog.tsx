@@ -32,6 +32,7 @@ import {
     CheckCircle, 
     XCircle, 
     ShieldCheck, 
+    ShieldAlert,
     Receipt, 
     Eye, 
     Calculator, 
@@ -186,6 +187,9 @@ export function ConfirmPaymentDialog({ order }: { order: Order }) {
           referenceNumber: data.referenceNumber || '',
           notes: data.notes || '',
           status: 'verified',
+          verifiedByUserId: currentUser.id,
+          verifiedByName: currentUser.name || authUser.displayName || authUser.email || 'Administración Central',
+          bankStatementUrl: (reportedPayment as any)?.bankStatementUrl || (reportedPayment as any)?.imageUrl || '',
           updatedAt: serverTimestamp()
         };
 
@@ -294,6 +298,36 @@ export function ConfirmPaymentDialog({ order }: { order: Order }) {
         toast({ variant: 'destructive', title: 'Fallo de Conciliación', description: serverError?.message || 'Error al procesar abono.' });
     });
   };
+
+  const canReconcile = currentUser && ['superadmin', 'admin'].includes(currentUser.role);
+
+  if (!canReconcile) {
+    return (
+      <Dialog open={isOpen} onOpenChange={setIsOpen}>
+        <DialogTrigger asChild>
+          <Button size="sm" variant="outline" className="font-black uppercase tracking-widest text-[9px] h-8 rounded-xl border-slate-200 bg-slate-50 text-slate-400">
+            <ShieldAlert className="mr-1.5 h-3.5 w-3.5 text-amber-500" /> Conciliar Abono
+          </Button>
+        </DialogTrigger>
+        <DialogContent className="max-w-md p-8 rounded-[2.5rem] bg-white border-none shadow-2xl">
+          <DialogHeader className="text-center space-y-3">
+            <div className="mx-auto p-4 rounded-2xl bg-amber-50 text-amber-600 w-fit">
+              <ShieldAlert className="h-10 w-10" />
+            </div>
+            <DialogTitle className="text-xl font-black uppercase text-slate-900 tracking-tight">Acción Restringida por Seguridad</DialogTitle>
+            <DialogDescription className="text-xs text-slate-500 font-medium leading-relaxed">
+              La conciliación bancaria y la aprobación oficial de abonos están reservadas <strong>exclusivamente para los usuarios Superadministradores y Administradores</strong>.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="mt-6">
+            <Button onClick={() => setIsOpen(false)} className="w-full h-12 rounded-2xl bg-slate-900 hover:bg-slate-800 text-white font-black uppercase text-[10px] tracking-wider">
+              Entendido / Cerrar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    );
+  }
 
   return (
     <Dialog open={isOpen} onOpenChange={setIsOpen}>

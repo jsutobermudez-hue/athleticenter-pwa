@@ -77,25 +77,28 @@ export function CashAuditModal({ isOpen, onClose, orders, periodFilter = 'all', 
 
                 let foundUrl = '';
                 let foundRegistrar = '';
+                let foundBankStatementUrl = '';
 
                 paymentsSnap.docs.forEach(docSnap => {
                     const data = docSnap.data();
                     const url = data.imageUrl || data.paymentReceiptUrl || data.comprobanteUrl || data.receiptUrl || data.retentionImageUrl || '';
-                    if (url && !foundUrl) {
-                        foundUrl = url;
-                    }
-                    if ((data.registeredByName || data.registeredBy) && !foundRegistrar) {
-                        foundRegistrar = data.registeredByName || data.registeredBy;
-                    }
+                    const bankUrl = data.bankStatementUrl || data.bankReceiptUrl || data.bankUrl || '';
+                    
+                    if (url && !foundUrl) foundUrl = url;
+                    if (bankUrl && !foundBankStatementUrl) foundBankStatementUrl = bankUrl;
+                    
+                    const verifier = data.verifiedByName || data.registeredByName || data.registeredBy || '';
+                    if (verifier && !foundRegistrar) foundRegistrar = verifier;
                 });
 
-                if (foundUrl || foundRegistrar) {
+                if (foundUrl || foundRegistrar || foundBankStatementUrl) {
                     setSelectedPaymentForDetail(prev => {
                         if (!prev) return null;
                         return {
                             ...prev,
                             receiptUrl: foundUrl || prev.receiptUrl,
-                            registeredBy: foundRegistrar || prev.registeredBy
+                            registeredBy: foundRegistrar || prev.registeredBy,
+                            bankStatementUrl: foundBankStatementUrl || (prev as any).bankStatementUrl
                         };
                     });
                 }
@@ -123,8 +126,19 @@ export function CashAuditModal({ isOpen, onClose, orders, periodFilter = 'all', 
         return getCashBreakdown(orders, activePeriod, startDate, endDate);
     }, [orders, activePeriod, startDate, endDate]);
 
+    const [statusFilter, setStatusFilter] = useState<'todos' | 'solventes'>('todos');
+
     const filteredPayments = useMemo(() => {
         let result = breakdown.payments;
+
+        if (statusFilter === 'solventes') {
+            result = result.filter(p => {
+                const ord = p.rawOrder;
+                if (!ord) return true;
+                const rem = (ord.totalAmount || 0) - (ord.amountPaid || ord.totalCashReceived || 0);
+                return rem <= 0.05 || ord.status === 'Pagado';
+            });
+        }
 
         if (methodFilter !== 'todos') {
             result = result.filter(p => {
@@ -153,7 +167,7 @@ export function CashAuditModal({ isOpen, onClose, orders, periodFilter = 'all', 
         }
 
         return result;
-    }, [breakdown.payments, methodFilter, salespersonFilter, searchTerm]);
+    }, [breakdown.payments, statusFilter, methodFilter, salespersonFilter, searchTerm]);
 
     const periodTitle = useMemo(() => {
         if (activePeriod === 'today') return 'Pagos Registrados del Día (HOY)';
@@ -295,6 +309,20 @@ export function CashAuditModal({ isOpen, onClose, orders, periodFilter = 'all', 
                                         {p.label}
                                     </button>
                                 ))}
+
+                                <div className="h-4 w-px bg-slate-800 mx-1" />
+
+                                <button
+                                    type="button"
+                                    onClick={() => setStatusFilter(prev => prev === 'solventes' ? 'todos' : 'solventes')}
+                                    className={`px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all border ${
+                                        statusFilter === 'solventes'
+                                            ? "bg-emerald-500 text-slate-950 border-emerald-400 shadow-md font-black"
+                                            : "bg-slate-950 text-emerald-400 border-emerald-500/30 hover:bg-slate-800"
+                                    }`}
+                                >
+                                    🎉 {statusFilter === 'solventes' ? 'Viendo Solo 100% Solventes' : 'Filtrar 100% Liquidados'}
+                                </button>
                             </div>
 
                             <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 pt-2 border-t border-slate-800/80">
@@ -483,42 +511,57 @@ export function CashAuditModal({ isOpen, onClose, orders, periodFilter = 'all', 
                         </DialogHeader>
 
                         <div className="p-6 space-y-6 max-h-[75vh] overflow-y-auto">
-                            {/* COMPROBANTE DE PAGO / FOTO VOUCHER */}
-                            <div className="space-y-2">
-                                <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 flex items-center justify-between">
-                                    <span>📸 Comprobante Digital de Pago</span>
-                                    {selectedPaymentForDetail.receiptUrl && (
-                                        <a 
-                                            href={selectedPaymentForDetail.receiptUrl} 
-                                            target="_blank" 
-                                            rel="noopener noreferrer"
-                                            className="text-emerald-400 hover:underline flex items-center gap-1 text-[9px] font-bold"
-                                        >
-                                            <ExternalLink className="h-3 w-3" /> Ver Imagen Completa
-                                        </a>
+                            {/* DUAL VOUCHER: COMPROBANTE DE CLIENTE VS ASIENTO BANCARIO OFICIAL */}
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                <div className="space-y-2">
+                                    <label className="text-[9px] font-black uppercase tracking-widest text-slate-400 flex items-center justify-between">
+                                        <span>📸 Voucher del Cliente</span>
+                                        {selectedPaymentForDetail.receiptUrl && (
+                                            <a href={selectedPaymentForDetail.receiptUrl} target="_blank" rel="noopener noreferrer" className="text-emerald-400 hover:underline flex items-center gap-1 text-[8px] font-bold">
+                                                <ExternalLink className="h-3 w-3" /> Abrir
+                                            </a>
+                                        )}
+                                    </label>
+                                    
+                                    {isLoadingSubcollectionReceipt ? (
+                                        <div className="p-6 rounded-2xl bg-slate-900 border border-slate-800 flex flex-col items-center justify-center gap-2">
+                                            <Loader2 className="h-5 w-5 animate-spin text-emerald-400" />
+                                            <p className="text-[8px] font-black uppercase tracking-widest text-slate-400">Cargando...</p>
+                                        </div>
+                                    ) : selectedPaymentForDetail.receiptUrl ? (
+                                        <div className="relative rounded-2xl overflow-hidden border border-slate-800 bg-black max-h-48 flex items-center justify-center">
+                                            <img src={selectedPaymentForDetail.receiptUrl} alt="Comprobante cliente" className="object-contain max-h-48 w-full rounded-2xl" />
+                                        </div>
+                                    ) : (
+                                        <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 text-center space-y-1">
+                                            <ShieldCheck className="h-6 w-6 text-emerald-400 mx-auto opacity-80" />
+                                            <p className="text-[10px] font-black uppercase text-slate-300">Caja / Taquilla Directa</p>
+                                        </div>
                                     )}
-                                </label>
-                                
-                                {isLoadingSubcollectionReceipt ? (
-                                    <div className="p-8 rounded-2xl bg-slate-900 border border-slate-800 flex flex-col items-center justify-center gap-2">
-                                        <Loader2 className="h-6 w-6 animate-spin text-emerald-400" />
-                                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Cargando Comprobante Digital...</p>
-                                    </div>
-                                ) : selectedPaymentForDetail.receiptUrl ? (
-                                    <div className="relative rounded-2xl overflow-hidden border border-slate-800 bg-black max-h-64 flex items-center justify-center">
-                                        <img 
-                                            src={selectedPaymentForDetail.receiptUrl} 
-                                            alt="Comprobante de pago" 
-                                            className="object-contain max-h-64 w-full rounded-2xl"
-                                        />
-                                    </div>
-                                ) : (
-                                    <div className="p-6 rounded-2xl bg-slate-900 border border-slate-800 text-center space-y-2">
-                                        <ShieldCheck className="h-8 w-8 text-emerald-400 mx-auto opacity-80" />
-                                        <p className="text-xs font-black uppercase text-slate-300">Pago Recibido Directamente en Caja</p>
-                                        <p className="text-[10px] text-slate-400 font-bold">Sin adjunto de comprobante digital. Registrado y respaldado en sistema interno.</p>
-                                    </div>
-                                )}
+                                </div>
+
+                                <div className="space-y-2">
+                                    <label className="text-[9px] font-black uppercase tracking-widest text-blue-400 flex items-center justify-between">
+                                        <span>🏛️ Asiento Bancario Verificado</span>
+                                        {(selectedPaymentForDetail as any).bankStatementUrl && (
+                                            <a href={(selectedPaymentForDetail as any).bankStatementUrl} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline flex items-center gap-1 text-[8px] font-bold">
+                                                <ExternalLink className="h-3 w-3" /> Ver Asiento
+                                            </a>
+                                        )}
+                                    </label>
+                                    
+                                    {(selectedPaymentForDetail as any).bankStatementUrl ? (
+                                        <div className="relative rounded-2xl overflow-hidden border border-blue-900/50 bg-black max-h-48 flex items-center justify-center">
+                                            <img src={(selectedPaymentForDetail as any).bankStatementUrl} alt="Asiento bancario" className="object-contain max-h-48 w-full rounded-2xl" />
+                                        </div>
+                                    ) : (
+                                        <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 text-center space-y-1">
+                                            <Building className="h-6 w-6 text-blue-400 mx-auto opacity-80" />
+                                            <p className="text-[10px] font-black uppercase text-slate-300">Referencia Conciliada</p>
+                                            <p className="text-[8px] text-slate-400 font-bold">Ref: {selectedPaymentForDetail.reference || 'N/A'}</p>
+                                        </div>
+                                    )}
+                                </div>
                             </div>
 
                             {/* TARJETAS DE DATOS FINANCIEROS Y AUDITORÍA */}
@@ -542,13 +585,13 @@ export function CashAuditModal({ isOpen, onClose, orders, periodFilter = 'all', 
                                 </div>
                             </div>
 
-                            {/* INFORMACIÓN DE QUIÉN REGISTRÓ Y DATOS DE CLIENTE */}
+                            {/* INFORMACIÓN DE QUIÉN CONCILIÓ Y DATOS DE CLIENTE */}
                             <div className="p-4 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-3 text-xs">
                                 <div className="flex items-center justify-between border-b border-slate-800/80 pb-2">
                                     <span className="text-[9px] font-black uppercase text-slate-400 flex items-center gap-1.5">
-                                        <UserCheck className="h-3.5 w-3.5 text-blue-400" /> Registrado Por:
+                                        <UserCheck className="h-3.5 w-3.5 text-blue-400" /> Conciliado / Aprobado Por:
                                     </span>
-                                    <span className="font-black text-white">{selectedPaymentForDetail.registeredBy || selectedPaymentForDetail.salespersonName || 'Sistema / Caja'}</span>
+                                    <span className="font-black text-emerald-400">{selectedPaymentForDetail.registeredBy || 'Administración Central (Superadmin)'}</span>
                                 </div>
 
                                 <div className="flex items-center justify-between border-b border-slate-800/80 pb-2">
