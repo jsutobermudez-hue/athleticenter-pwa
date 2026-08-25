@@ -4,16 +4,21 @@ import type { Order, Invoice } from './definitions';
 
 export function getEffectiveCashReceived(o: Order): number {
     if (!o) return 0;
-    if (typeof o.totalCashReceived === 'number' && o.totalCashReceived > 0) return o.totalCashReceived;
-    if (typeof o.amountPaid === 'number' && o.amountPaid > 0) return o.amountPaid;
-    const altPaid = (o as any).paidAmount || (o as any).totalPaid || (o as any).montoPagado;
-    if (typeof altPaid === 'number' && altPaid > 0) return altPaid;
-    if (Array.isArray((o as any).payments)) {
-        const sumPayments = (o as any).payments.reduce((s: number, p: any) => s + (p.amount || p.monto || 0), 0);
-        if (sumPayments > 0) return sumPayments;
+    if (o.status === 'Pagado' || (o as any).isPaid === true || (o as any).paymentStatus === 'Pagado') {
+        return o.totalAmount || 0;
     }
-    if (o.status === 'Pagado' || (o as any).isPaid === true || (o as any).paymentStatus === 'Pagado') return o.totalAmount || 0;
-    return 0;
+    const cash = typeof o.totalCashReceived === 'number' && o.totalCashReceived > 0 ? o.totalCashReceived : 0;
+    const paid = typeof o.amountPaid === 'number' && o.amountPaid > 0 ? o.amountPaid : 0;
+    const altPaid = (o as any).paidAmount || (o as any).totalPaid || (o as any).montoPagado || 0;
+    const numAltPaid = typeof altPaid === 'number' && altPaid > 0 ? altPaid : 0;
+    
+    let sumPayments = 0;
+    if (Array.isArray((o as any).payments)) {
+        sumPayments = (o as any).payments.reduce((s: number, p: any) => s + (Number(p.amount || p.monto) || 0), 0);
+    }
+    
+    const effectivePaid = Math.max(cash, paid, numAltPaid, sumPayments);
+    return Math.min(effectivePaid, o.totalAmount || effectivePaid);
 }
 
 export function getCashDate(o: Order): Date {
