@@ -233,26 +233,27 @@ export function ReportPaymentDialog({ invoice, mode = 'partial' }: { invoice: In
     }
   }, [elapsedDays, is7DaysEligible, is15DaysEligible, setValue]);
 
-  // LÓGICA DE CÁLCULO BI-DIRECCIONAL EN TIEMPO REAL v8.3 (RESILIENTE CON SNAPSHOTS)
+  // LÓGICA DE CÁLCULO BI-DIRECCIONAL EN TIEMPO REAL v8.4 (CUSTODIA DE TESORERÍA & PREVENCIÓN DE DOBLE DESCUENTO)
   const calculation = useMemo(() => {
-    const rawSnapshotBcv = (invoice as any)?.bcvDiscountSnapshot;
+    const rawSnapshotBcv = orderData?.treasurySnapshot?.bcvDiscountPercent ?? (invoice as any)?.treasurySnapshot?.bcvDiscountPercent ?? (invoice as any)?.bcvDiscountSnapshot;
     const bcvDiscountFactor = (rawSnapshotBcv !== undefined ? rawSnapshotBcv : ((globalSettings as any)?.defaultBcvDiscount !== undefined ? (globalSettings as any).defaultBcvDiscount : 25)) / 100;
     const ivaFactor = (globalSettings?.ivaPercent || 16) / 100;
 
-    const rawSnapshot7d = (invoice as any)?.earlyPayment7dSnapshot;
-    const early7Factor = (rawSnapshot7d !== undefined ? rawSnapshot7d : (globalSettings?.earlyPayment7Days || 5)) / 100;
+    const rawSnapshot7d = orderData?.treasurySnapshot?.earlyPayment7dPercent ?? (invoice as any)?.treasurySnapshot?.earlyPayment7dPercent ?? (invoice as any)?.earlyPayment7dSnapshot;
+    const early7Factor = (rawSnapshot7d !== undefined ? rawSnapshot7d : (globalSettings?.earlyPayment7Days || 10)) / 100;
 
-    const rawSnapshot15d = (invoice as any)?.earlyPayment15dSnapshot;
-    const early15Factor = (rawSnapshot15d !== undefined ? rawSnapshot15d : (globalSettings?.earlyPayment15Days || 3)) / 100;
+    const rawSnapshot15d = orderData?.treasurySnapshot?.earlyPayment15dPercent ?? (invoice as any)?.treasurySnapshot?.earlyPayment15dPercent ?? (invoice as any)?.earlyPayment15dSnapshot;
+    const early15Factor = (rawSnapshot15d !== undefined ? rawSnapshot15d : (globalSettings?.earlyPayment15Days || 5)) / 100;
 
     const currentBalance = invoice?.remainingBalance || 0;
     const rawVal = Number(inputAmount || 0);
 
-    let cashDiscountPct = accountingBase === 'cash' ? bcvDiscountFactor : 0;
+    const isAlreadyDiscounted = (orderData as any)?.incentivesApplied === true || (orderData as any)?.isNetPrice === true;
+    let cashDiscountPct = (accountingBase === 'cash' && !isAlreadyDiscounted) ? bcvDiscountFactor : 0;
     let earlyDiscountPct = 0;
     let discountType: Payment['discountType'] = 'none';
 
-    if (accountingBase === 'cash') discountType = 'cash';
+    if (accountingBase === 'cash' && !isAlreadyDiscounted) discountType = 'cash';
 
     if (earlyPaymentType === '7days' && is7DaysEligible) {
       earlyDiscountPct = early7Factor;

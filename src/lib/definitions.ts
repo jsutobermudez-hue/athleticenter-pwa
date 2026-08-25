@@ -74,6 +74,14 @@ export interface Product extends Auditable {
   totalSold?: number;
 }
 
+export interface TreasurySnapshot {
+    bcvDiscountPercent: number;
+    earlyPayment7dPercent: number;
+    earlyPayment15dPercent: number;
+    bcvRate: number;
+    snapshotDate?: Timestamp | Date;
+}
+
 export interface Order extends Auditable {
   id: string;
   customerId: string;
@@ -86,6 +94,9 @@ export interface Order extends Auditable {
   totalAmount: number;
   amountPaid: number;
   totalCashReceived?: number;
+  treasurySnapshot?: TreasurySnapshot;
+  appliedDiscountPercent?: number;
+  bcvDiscountSnapshot?: number;
   status: OrderStatus;
   receptionDate?: Timestamp;
   approvalDate?: Timestamp;

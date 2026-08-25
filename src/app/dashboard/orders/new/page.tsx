@@ -275,9 +275,16 @@ function NewOrderForm() {
                 createdAt: serverTimestamp(), 
                 totalAmount: safeTotalAmount, 
                 amountPaid: 0, 
+                treasurySnapshot: {
+                    bcvDiscountPercent: globalSettings?.defaultBcvDiscount !== undefined ? globalSettings.defaultBcvDiscount : 25,
+                    earlyPayment7dPercent: globalSettings?.earlyPayment7Days !== undefined ? globalSettings.earlyPayment7Days : 10,
+                    earlyPayment15dPercent: globalSettings?.earlyPayment15Days !== undefined ? globalSettings.earlyPayment15Days : 5,
+                    bcvRate: globalSettings?.bcvRate || 65.50,
+                    snapshotDate: new Date()
+                },
                 bcvDiscountSnapshot: globalSettings?.defaultBcvDiscount !== undefined ? globalSettings.defaultBcvDiscount : 25,
-                earlyPayment7dSnapshot: globalSettings?.earlyPayment7Days !== undefined ? globalSettings.earlyPayment7Days : 5,
-                earlyPayment15dSnapshot: globalSettings?.earlyPayment15Days !== undefined ? globalSettings.earlyPayment15Days : 3,
+                earlyPayment7dSnapshot: globalSettings?.earlyPayment7Days !== undefined ? globalSettings.earlyPayment7Days : 10,
+                earlyPayment15dSnapshot: globalSettings?.earlyPayment15Days !== undefined ? globalSettings.earlyPayment15Days : 5,
                 bcvRateSnapshot: globalSettings?.bcvRate || 65.50,
                 status: isDraft ? 'Borrador' : 'Pendiente',
                 updatedAt: serverTimestamp()

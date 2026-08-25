@@ -35,8 +35,6 @@ export function getSalesDate(o: Order): Date {
     return typeof (raw as any).toDate === 'function' ? (raw as any).toDate() : new Date(raw as any);
 }
 
-export const CUTOFF_DISCOUNT_DATE = new Date('2026-08-02T00:00:00.000Z');
-
 export const FOREIGN_CURRENCY_PAYMENT_METHODS = [
     'Efectivo USD',
     'Efectivo $',
@@ -60,30 +58,27 @@ export function isForeignCurrencyPaymentMethod(method?: string): boolean {
     return true;
 }
 
-export function getOrderCommercialDiscountPercent(order: Order, paymentMethod?: string, defaultCurrentDiscount: number = 25): number {
-    if (!order) return defaultCurrentDiscount;
+export function getOrderCommercialDiscountPercent(order: Order, paymentMethod?: string, fallbackTreasuryDiscount: number = 25): number {
+    if (!order) return fallbackTreasuryDiscount;
     if (paymentMethod && !isForeignCurrencyPaymentMethod(paymentMethod)) {
         return 0;
     }
+    // 1. Custodia inmutable por snapshot de Tesorería grabado al emitir la orden
+    if (typeof order.treasurySnapshot?.bcvDiscountPercent === 'number') {
+        return order.treasurySnapshot.bcvDiscountPercent;
+    }
+    // 2. Snapshots directos grabados en el documento de la orden
     if (typeof (order as any).appliedDiscountPercent === 'number') {
         return (order as any).appliedDiscountPercent;
     }
     if (typeof (order as any).bcvDiscountSnapshot === 'number') {
         return (order as any).bcvDiscountSnapshot;
     }
-    const rawDate = order.createdAt || order.orderDate || order.receptionDate;
-    if (!rawDate) return defaultCurrentDiscount;
-    const orderDate = typeof (rawDate as any).toDate === 'function' 
-        ? (rawDate as Timestamp).toDate() 
-        : new Date(rawDate as any);
-    if (isNaN(orderDate.getTime())) return defaultCurrentDiscount;
-    if (orderDate.getTime() < CUTOFF_DISCOUNT_DATE.getTime()) {
-        return 35;
-    }
-    return defaultCurrentDiscount;
+    // 3. Fallback dinámico entregado desde Tesorería (FinancialSettings)
+    return fallbackTreasuryDiscount;
 }
 
-export function getInvoiceFromOrder(order: Order): Invoice | null {
+export function getInvoiceFromOrder(order: Order, fallbackTreasuryDiscount: number = 25): Invoice | null {
     if (!['Entregado', 'En Verificación', 'Pagado', 'Despachado', 'Completado', 'En Preparación', 'Aprobado'].includes(order.status)) {
         return null;
     }
@@ -105,8 +100,12 @@ export function getInvoiceFromOrder(order: Order): Invoice | null {
     const today = new Date();
     const remainingDays = differenceInDays(dueDate, today);
     const amountPaid = getEffectiveCashReceived(order);
-    const commercialDiscountPercent = getOrderCommercialDiscountPercent(order);
-    const discountAmount = (order.totalAmount * commercialDiscountPercent) / 100;
+    const commercialDiscountPercent = getOrderCommercialDiscountPercent(order, undefined, fallbackTreasuryDiscount);
+    
+    const isAlreadyNetOrDiscounted = (order as any).incentivesApplied === true || (order as any).isNetPrice === true;
+    const effectiveCommDiscount = isAlreadyNetOrDiscounted ? 0 : commercialDiscountPercent;
+
+    const discountAmount = (order.totalAmount * effectiveCommDiscount) / 100;
     const netPayableTotal = Math.max(0, order.totalAmount - discountAmount);
     const isExplicitlyPaid = order.status === 'Pagado';
     const remainingBalance = isExplicitlyPaid ? 0 : Math.max(0, netPayableTotal - amountPaid);
@@ -131,10 +130,6 @@ export function getInvoiceFromOrder(order: Order): Invoice | null {
         status = 'Vencido';
         statusText = `Vencido hace ${Math.abs(remainingDays)} días`;
         discount = 0;
-    } else if (remainingDays <= 7) {
-        discount = 0;
-    } else if (remainingDays <= 15) {
-        discount = 5;
     }
 
     return {
@@ -153,24 +148,37 @@ export function getInvoiceFromOrder(order: Order): Invoice | null {
         statusText: statusText,
         remainingCreditDays: remainingDays,
         discountPercentage: discount,
-        commercialDiscountPercentage: commercialDiscountPercent,
+        commercialDiscountPercentage: effectiveCommDiscount,
         currency: 'USD',
         createdAt: (order.createdAt || rawDate) as Timestamp,
         creditStartDate: creditStartDate,
     } as any;
 }
 
-export function getPaymentSimulation(order: Order, bcvRate: number = 78.50) {
+export function getPaymentSimulation(
+    order: Order, 
+    bcvRate: number = 78.50,
+    treasurySettings?: { defaultBcvDiscount?: number; earlyPayment7Days?: number; earlyPayment15Days?: number }
+) {
     if (!order) return null;
     const amountPaid = getEffectiveCashReceived(order);
     const grossTotal = order.totalAmount || 0;
     const grossRemaining = order.status === 'Pagado' ? 0 : Math.max(0, grossTotal - amountPaid);
     
-    const commDiscountPercent = getOrderCommercialDiscountPercent(order);
-    const netTotal = Math.max(0, grossTotal - (grossTotal * commDiscountPercent / 100));
+    const fallbackDiscount = treasurySettings?.defaultBcvDiscount !== undefined ? treasurySettings.defaultBcvDiscount : 25;
+    const commDiscountPercent = getOrderCommercialDiscountPercent(order, undefined, fallbackDiscount);
+
+    // PREVENCIÓN DE DOBLE DESCUENTO: Si la orden ya trae incentivos aplicados o fue guardada a tarifa neta
+    const isAlreadyNetOrDiscounted = (order as any).incentivesApplied === true || (order as any).isNetPrice === true;
+    const effectiveCommDiscount = isAlreadyNetOrDiscounted ? 0 : commDiscountPercent;
+
+    const netTotal = Math.max(0, grossTotal - (grossTotal * effectiveCommDiscount / 100));
     const netCashRemaining = order.status === 'Pagado' ? 0 : Math.max(0, netTotal - amountPaid);
 
-    // Pronto pago por días transcurridos
+    // Pronto pago dinámico de Tesorería (Custodia por snapshot o fallback)
+    const early7Pct = order.treasurySnapshot?.earlyPayment7dPercent ?? treasurySettings?.earlyPayment7Days ?? 10;
+    const early15Pct = order.treasurySnapshot?.earlyPayment15dPercent ?? treasurySettings?.earlyPayment15Days ?? 5;
+
     const rawDate = order.receptionDate || order.approvalDate || order.orderDate || order.createdAt;
     let creditDays = 0;
     if (rawDate) {
@@ -182,13 +190,12 @@ export function getPaymentSimulation(order: Order, bcvRate: number = 78.50) {
 
     const isOverdue = creditDays > 30 || (order.status as string) === 'Vencido';
     
-    // Pronto pago 7 días (-10% extra) y 15 días (-5% extra) si no está en mora
     let prontoPago7d = netCashRemaining;
     let prontoPago15d = netCashRemaining;
     
     if (!isOverdue && netCashRemaining > 0) {
-        prontoPago7d = Math.max(0, netCashRemaining * 0.90);
-        prontoPago15d = Math.max(0, netCashRemaining * 0.95);
+        prontoPago7d = Math.max(0, netCashRemaining * (1 - early7Pct / 100));
+        prontoPago15d = Math.max(0, netCashRemaining * (1 - early15Pct / 100));
     }
 
     return {
@@ -199,7 +206,7 @@ export function getPaymentSimulation(order: Order, bcvRate: number = 78.50) {
         prontoPago15dUsd: isOverdue ? grossRemaining : prontoPago15d,
         creditDays,
         isOverdue,
-        appliedDiscountPercent: commDiscountPercent
+        appliedDiscountPercent: effectiveCommDiscount
     };
 }
 
