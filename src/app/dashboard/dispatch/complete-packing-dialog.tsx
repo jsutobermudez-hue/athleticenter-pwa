@@ -12,12 +12,13 @@ import {
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
-import { Loader2, Box, Scale, PackageCheck, X, Camera } from 'lucide-react';
+import { Loader2, Box, Scale, PackageCheck, X, Camera, Printer } from 'lucide-react';
 import type { Order } from '@/lib/definitions';
 import { useToast } from '@/hooks/use-toast';
 import { useFirestore, useUser, errorEmitter, FirestorePermissionError } from '@/firebase';
 import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { createAppNotifications } from '@/lib/notifications';
+import { generatePackageLabelsPDF } from '@/lib/pdf-generator';
 
 type CompletePackingDialogProps = {
   order: Order;
@@ -178,7 +179,24 @@ export function CompletePackingDialog({ order, isOpen, onOpenChange }: CompleteP
             </div>
 
             <DialogFooter className="p-6 sm:p-8 border-t border-slate-50 bg-slate-50 flex flex-col-reverse sm:flex-row items-center justify-between gap-4 shrink-0">
-                <Button type="button" variant="ghost" className="font-black uppercase tracking-widest text-[9px] h-10 px-6 w-full sm:w-auto" onClick={() => onOpenChange(false)}>Cancelar</Button>
+                <div className="flex items-center gap-2 w-full sm:w-auto">
+                    <Button type="button" variant="ghost" className="font-black uppercase tracking-widest text-[9px] h-10 px-4" onClick={() => onOpenChange(false)}>Cancelar</Button>
+                    <Button 
+                        type="button" 
+                        variant="outline"
+                        onClick={async () => {
+                            try {
+                                await generatePackageLabelsPDF(order, (order as any).items || [], undefined, (order as any).customerAddress || (order as any).deliveryAddress || '');
+                                toast({ title: "Etiquetas PDF Generadas" });
+                            } catch (e) {
+                                toast({ variant: 'destructive', title: 'Error al generar etiquetas' });
+                            }
+                        }}
+                        className="h-10 px-4 rounded-xl border-slate-200 bg-white font-black uppercase text-[9px] tracking-wider text-slate-700 hover:bg-slate-100 shadow-sm flex items-center gap-1.5"
+                    >
+                        <Printer className="h-3.5 w-3.5 text-indigo-600" /> ETIQUETAS PDF
+                    </Button>
+                </div>
                 <Button type="submit" disabled={isPending} className="h-12 px-10 rounded-xl font-black uppercase tracking-[0.2em] shadow-xl bg-indigo-600 hover:bg-indigo-700 transition-all active:scale-95 text-[10px] w-full sm:w-auto">
                     {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <PackageCheck className="mr-2 h-4 w-4" />} SELLAR Y COMPLETAR
                 </Button>
