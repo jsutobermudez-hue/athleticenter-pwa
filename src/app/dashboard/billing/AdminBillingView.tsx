@@ -128,8 +128,9 @@ export function AdminBillingView() {
     if (!rawOrders) return [];
     const baseStatuses: OrderStatus[] = ['Entregado', 'En Verificación', 'Pagado', 'Despachado', 'Aprobado', 'En Preparación', 'Completado'];
     const filtered = rawOrders.filter(o => baseStatuses.includes(o.status));
-    return filtered.map(getInvoiceFromOrder).filter(Boolean) as Invoice[];
-  }, [rawOrders]);
+    const treasuryDiscount = (globalSettings as any)?.defaultBcvDiscount !== undefined ? (globalSettings as any).defaultBcvDiscount : 25;
+    return filtered.map(o => getInvoiceFromOrder(o, treasuryDiscount)).filter(Boolean) as Invoice[];
+  }, [rawOrders, globalSettings]);
 
   // AUTO-DISPARO DE MODAL DE PAGO SI VIENE orderId EN LA URL
   useEffect(() => {

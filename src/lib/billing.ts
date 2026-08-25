@@ -67,14 +67,7 @@ export function getOrderCommercialDiscountPercent(order: Order, paymentMethod?: 
     if (typeof order.treasurySnapshot?.bcvDiscountPercent === 'number') {
         return order.treasurySnapshot.bcvDiscountPercent;
     }
-    // 2. Snapshots directos grabados en el documento de la orden
-    if (typeof (order as any).appliedDiscountPercent === 'number') {
-        return (order as any).appliedDiscountPercent;
-    }
-    if (typeof (order as any).bcvDiscountSnapshot === 'number') {
-        return (order as any).bcvDiscountSnapshot;
-    }
-    // 3. Fallback dinámico entregado desde Tesorería (FinancialSettings)
+    // 2. Fallback dinámico entregado desde Tesorería viva (FinancialSettings)
     return fallbackTreasuryDiscount;
 }
 
