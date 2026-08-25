@@ -39,11 +39,14 @@ export const FOREIGN_CURRENCY_PAYMENT_METHODS = [
     'Efectivo USD',
     'Efectivo $',
     'Zelle',
+    'Binance Pay / USDT',
+    'Binance Pay',
+    'Binance',
+    'USDT',
     'Transferencia USD',
     'Banesco Panamá',
     'Mercantil Panamá',
     'Cuenta Custodia USD',
-    'Binance / USDT',
     'PayPal',
     'Wire Transfer USD',
     'Divisas'
@@ -371,6 +374,7 @@ export function getCashBreakdown(
             totalCash: 0,
             cashUsd: 0,
             zelle: 0,
+            binance: 0,
             bcv: 0,
             custodia: 0,
             other: 0,
@@ -404,6 +408,7 @@ export function getCashBreakdown(
     let totalCash = 0;
     let cashUsd = 0;
     let zelle = 0;
+    let binance = 0;
     let bcv = 0;
     let custodia = 0;
     let other = 0;
@@ -431,6 +436,7 @@ export function getCashBreakdown(
 
                 if (!pMethod) {
                     if (normRef.startsWith('zel') || normRef.startsWith('wfct') || normRef.includes('zelle')) pMethod = 'Zelle';
+                    else if (normRef.includes('binance') || normRef.includes('usdt')) pMethod = 'Binance Pay / USDT';
                     else if (normRef.includes('pm') || normRef.includes('pago movil')) pMethod = 'Pago Móvil';
                     else pMethod = 'Efectivo USD';
                 }
@@ -438,7 +444,9 @@ export function getCashBreakdown(
                 const normMethod = pMethod.toLowerCase();
 
                 totalCash += pAmt;
-                if (normMethod.includes('zelle') || normRef.includes('zelle') || normRef.startsWith('wfct')) {
+                if (normMethod.includes('binance') || normMethod.includes('usdt') || normRef.includes('binance') || normRef.includes('usdt')) {
+                    binance += pAmt;
+                } else if (normMethod.includes('zelle') || normRef.includes('zelle') || normRef.startsWith('wfct')) {
                     zelle += pAmt;
                 } else if (normMethod.includes('bcv') || normMethod.includes('pago móvil') || normMethod.includes('pago movil') || normMethod.includes('transferencia ves') || normMethod.includes('bolivar')) {
                     bcv += pAmt;

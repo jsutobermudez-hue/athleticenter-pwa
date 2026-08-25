@@ -273,6 +273,7 @@ export function CashAuditModal({ isOpen, onClose, orders, periodFilter = 'all', 
                 const norm = p.method.toLowerCase();
                 if (methodFilter === 'cash') return norm.includes('efectivo') || norm.includes('cash') || norm.includes('divisas');
                 if (methodFilter === 'zelle') return norm.includes('zelle');
+                if (methodFilter === 'binance') return norm.includes('binance') || norm.includes('usdt');
                 if (methodFilter === 'bcv') return norm.includes('bcv') || norm.includes('pago móvil') || norm.includes('pago movil') || norm.includes('transferencia ves') || norm.includes('bolivar');
                 if (methodFilter === 'custodia') return norm.includes('custodia') || norm.includes('panamá') || norm.includes('panama');
                 return true;
@@ -301,6 +302,7 @@ export function CashAuditModal({ isOpen, onClose, orders, periodFilter = 'all', 
         let totalCash = 0;
         let cashUsd = 0;
         let zelleUsd = 0;
+        let binanceUsd = 0;
         let bcvVes = 0;
 
         filteredPayments.forEach(p => {
@@ -309,7 +311,9 @@ export function CashAuditModal({ isOpen, onClose, orders, periodFilter = 'all', 
             const normMethod = (p.method || '').toLowerCase();
             const normRef = (p.reference || '').toLowerCase();
 
-            if (normMethod.includes('zelle') || normRef.includes('zelle') || normRef.startsWith('wfct') || normRef.startsWith('zel')) {
+            if (normMethod.includes('binance') || normMethod.includes('usdt') || normRef.includes('binance') || normRef.includes('usdt')) {
+                binanceUsd += amt;
+            } else if (normMethod.includes('zelle') || normRef.includes('zelle') || normRef.startsWith('wfct') || normRef.startsWith('zel')) {
                 zelleUsd += amt;
             } else if (normMethod.includes('bcv') || normMethod.includes('pago móvil') || normMethod.includes('pago movil') || normMethod.includes('transferencia ves') || normMethod.includes('bolivar')) {
                 bcvVes += amt;
@@ -318,7 +322,7 @@ export function CashAuditModal({ isOpen, onClose, orders, periodFilter = 'all', 
             }
         });
 
-        return { totalCash, cashUsd, zelleUsd, bcvVes };
+        return { totalCash, cashUsd, zelleUsd, binanceUsd, bcvVes };
     }, [filteredPayments]);
 
     const periodTitle = useMemo(() => {
@@ -509,6 +513,7 @@ export function CashAuditModal({ isOpen, onClose, orders, periodFilter = 'all', 
                                         <option value="todos">Todas las Vías de Pago</option>
                                         <option value="cash">💵 Efectivo USD</option>
                                         <option value="zelle">⚡ Zelle USD</option>
+                                        <option value="binance">🟡 Binance Pay / USDT</option>
                                         <option value="bcv">🇻🇪 Bolívares BCV / Pago Móvil</option>
                                         <option value="custodia">🏦 Custodia / Panamá</option>
                                     </select>
@@ -532,7 +537,7 @@ export function CashAuditModal({ isOpen, onClose, orders, periodFilter = 'all', 
                         </div>
 
                         {/* RESUMEN DE MÉTODOS DE PAGO */}
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
                             <div className="p-4 rounded-2xl bg-emerald-950/40 border border-emerald-500/20 space-y-1">
                                 <p className="text-[9px] font-black uppercase text-emerald-400 tracking-wider">Total Recaudado</p>
                                 <p className="text-xl font-black text-white tracking-tight">
@@ -550,6 +555,12 @@ export function CashAuditModal({ isOpen, onClose, orders, periodFilter = 'all', 
                                 <p className="text-[9px] font-black uppercase text-purple-400 tracking-wider">Zelle USD</p>
                                 <p className="text-xl font-black text-white tracking-tight">
                                     ${kpis.zelleUsd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                </p>
+                            </div>
+                            <div className="p-4 rounded-2xl bg-amber-950/40 border border-amber-500/20 space-y-1">
+                                <p className="text-[9px] font-black uppercase text-amber-400 tracking-wider">Binance / USDT</p>
+                                <p className="text-xl font-black text-white tracking-tight">
+                                    ${kpis.binanceUsd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                 </p>
                             </div>
                             <div className="p-4 rounded-2xl bg-sky-950/40 border border-sky-500/20 space-y-1">

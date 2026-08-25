@@ -154,7 +154,7 @@ export interface Payment extends Auditable {
     retentionAmount?: number;
     retentionPercentage?: number;
     paymentDate: Date | Timestamp;
-    method: 'Transferencia Bancaria' | 'Pago Móvil' | 'Zelle' | 'Efectivo' | 'Punto de Venta' | 'Otro';
+    method: 'Transferencia Bancaria' | 'Pago Móvil' | 'Zelle' | 'Binance Pay / USDT' | 'Binance Pay' | 'Binance' | 'Efectivo' | 'Punto de Venta' | 'Otro';
     referenceNumber: string;
     notes?: string;
     imageUrl?: string;

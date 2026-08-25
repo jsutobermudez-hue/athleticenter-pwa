@@ -46,7 +46,8 @@ import {
     DollarSign,
     Clock,
     ArrowRightLeft,
-    Sparkles
+    Sparkles,
+    Wallet
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useFirestore, useUser, useDoc, useMemoFirebase } from '@/firebase';
@@ -185,6 +186,17 @@ export function ReportPaymentDialog({ invoice, mode = 'partial' }: { invoice: In
         } 
     },
     { 
+        id: 'Binance Pay / USDT', 
+        label: 'Binance Pay', 
+        sub: 'USDT (P2P / Pay)', 
+        icon: Wallet, 
+        data: { 
+            payId: '248901234', 
+            titular: 'ATHLETICENTER / USDT', 
+            guia: 'Abono directo en USDT por Binance Pay. Registre el número de referencia TxHash o Binance Order ID.' 
+        } 
+    },
+    { 
         id: 'Efectivo', 
         label: 'Efectivo', 
         sub: 'Taquilla', 
@@ -216,9 +228,10 @@ export function ReportPaymentDialog({ invoice, mode = 'partial' }: { invoice: In
   const is15DaysEligible = elapsedDays <= 15;
 
   useEffect(() => {
-    if (selectedMethod === 'Zelle' || selectedMethod === 'Efectivo') {
+    const isCashEligibleMethod = ['Zelle', 'Efectivo', 'Binance Pay / USDT', 'Binance Pay', 'Binance', 'USDT'].includes(selectedMethod);
+    if (isCashEligibleMethod) {
       setValue('accountingBase', 'cash');
-    } else if (selectedMethod === 'Pago Móvil' || selectedMethod === 'Transferencia Bancaria') {
+    } else {
       setValue('accountingBase', 'bcv');
     }
   }, [selectedMethod, setValue]);
