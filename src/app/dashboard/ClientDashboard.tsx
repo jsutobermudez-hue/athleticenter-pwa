@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useCollection, useFirestore, useMemoFirebase, useUser, useDoc } from '@/firebase';
 import { collection, query, where, limit, doc } from 'firebase/firestore';
 import type { Order, Product, FinancialSettings, Customer } from '@/lib/definitions';
@@ -16,7 +16,8 @@ import {
     ClipboardList,
     Wallet,
     MessageCircle,
-    ShoppingBag
+    ShoppingBag,
+    Clock
 } from 'lucide-react';
 import { DashboardMetricCard } from '@/components/dashboard/DashboardMetricCard';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -25,6 +26,7 @@ import { CatalogHighlights } from '@/components/dashboard/CatalogHighlights';
 import { OrderTrackerTimeline } from '@/components/dashboard/OrderTrackerTimeline';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { cn } from '@/lib/utils';
 
 export default function ClientDashboard() {
     const router = useRouter();
@@ -48,14 +50,45 @@ export default function ClientDashboard() {
         })[0];
     }, [myOrders]);
 
+    const [kpiPeriod, setKpiPeriod] = useState<'today' | '7d' | 'this_month' | 'last_month' | 'all'>('all');
+
     const stats = useMemo(() => {
         if (!myOrders) return { balance: 0, inTransit: 0, totalOrders: 0 };
+        const now = new Date();
+        const currentMonth = now.getMonth();
+        const currentYear = now.getFullYear();
+
+        const isDateInPeriod = (rawDate: any) => {
+            if (kpiPeriod === 'all' || !rawDate) return true;
+            const d = typeof rawDate.toDate === 'function' ? rawDate.toDate() : new Date(rawDate);
+            if (isNaN(d.getTime())) return true;
+            if (kpiPeriod === 'today') {
+                return d.getDate() === now.getDate() && d.getMonth() === currentMonth && d.getFullYear() === currentYear;
+            }
+            if (kpiPeriod === '7d') {
+                const s7 = new Date();
+                s7.setDate(now.getDate() - 7);
+                return d >= s7;
+            }
+            if (kpiPeriod === 'this_month') {
+                return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
+            }
+            if (kpiPeriod === 'last_month') {
+                const lm = currentMonth === 0 ? 11 : currentMonth - 1;
+                const ly = currentMonth === 0 ? currentYear - 1 : currentYear;
+                return d.getMonth() === lm && d.getFullYear() === ly;
+            }
+            return true;
+        };
+
+        const filteredOrders = myOrders.filter(o => isDateInPeriod(o.createdAt || o.orderDate || o.receptionDate));
+
         return {
             balance: customerProfile?.creditUsed || 0,
-            inTransit: myOrders.filter(o => ['Despachado', 'Completado'].includes(o.status)).length,
-            totalOrders: myOrders.length
+            inTransit: filteredOrders.filter(o => ['Despachado', 'Completado'].includes(o.status)).length,
+            totalOrders: filteredOrders.length
         };
-    }, [myOrders, customerProfile]);
+    }, [myOrders, customerProfile, kpiPeriod]);
 
     const handleWhatsAppSalesperson = (e?: React.MouseEvent) => {
         if (e) e.stopPropagation();
@@ -85,6 +118,37 @@ export default function ClientDashboard() {
                 </div>
             </header>
 
+            {/* BARRA DE PERÍODOS DE FECHAS */}
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-slate-900 text-white p-3 sm:p-4 rounded-3xl shadow-lg border border-slate-800">
+                <div className="flex items-center gap-2">
+                    <Clock className="h-4 w-4 text-emerald-400" />
+                    <span className="text-[10px] font-black uppercase tracking-widest text-slate-300">Filtro Temporal de Pedidos:</span>
+                </div>
+                <div className="flex flex-wrap items-center gap-1.5 bg-slate-950 p-1 rounded-2xl border border-slate-800">
+                    {[
+                        { id: 'today', label: '☀️ Hoy' },
+                        { id: '7d', label: '⚡ 7 Días' },
+                        { id: 'this_month', label: '🗓️ Mes Actual' },
+                        { id: 'last_month', label: '🗓️ Mes Anterior' },
+                        { id: 'all', label: '🌐 Todo' },
+                    ].map(p => (
+                        <button
+                            key={p.id}
+                            type="button"
+                            onClick={() => setKpiPeriod(p.id as any)}
+                            className={cn(
+                                "px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer",
+                                kpiPeriod === p.id 
+                                    ? "bg-emerald-600 text-white shadow-md font-black" 
+                                    : "text-slate-400 hover:text-white hover:bg-slate-900 font-bold"
+                            )}
+                        >
+                            {p.label}
+                        </button>
+                    ))}
+                </div>
+            </div>
+
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 px-1">
                 <DashboardMetricCard 
                     title="Crédito en Uso" 
@@ -103,7 +167,7 @@ export default function ClientDashboard() {
                 <DashboardMetricCard 
                     title="Mis Pedidos" 
                     value={stats.totalOrders} 
-                    subtitle="Historial Acumulado" 
+                    subtitle={kpiPeriod === 'today' ? 'Pedidos Hoy' : kpiPeriod === '7d' ? 'Pedidos 7 Días' : kpiPeriod === 'this_month' ? 'Pedidos Mes Actual' : kpiPeriod === 'last_month' ? 'Pedidos Mes Anterior' : 'Historial Acumulado'} 
                     icon={ClipboardList} iconBg="bg-indigo-50" iconColor="text-indigo-500" 
                     onClick={() => router.push('/dashboard/orders')}
                 />

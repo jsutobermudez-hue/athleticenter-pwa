@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useCollection, useFirestore, useMemoFirebase } from '@/firebase';
 import { collection, query, where, limit } from 'firebase/firestore';
 import type { Order, Product, Carrier } from '@/lib/definitions';
@@ -21,6 +21,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { cn } from '@/lib/utils';
 import { CatalogHighlights } from '@/components/dashboard/CatalogHighlights';
 import { ExpressStockAdjust } from '@/components/dashboard/ExpressStockAdjust';
 
@@ -34,15 +35,46 @@ export default function WarehouseDashboard() {
     const { data: activeOrders } = useCollection<Order>(ordersQuery);
     const { data: carriers } = useCollection<Carrier>(carriersQuery);
 
+    const [kpiPeriod, setKpiPeriod] = useState<'today' | '7d' | 'this_month' | 'last_month' | 'all'>('all');
+
     const stats = useMemo(() => {
         if (!activeOrders) return { picking: 0, packing: 0, ready: 0, transit: 0 };
-        return {
-            picking: activeOrders.filter(o => o.status === 'Aprobado').length,
-            packing: activeOrders.filter(o => o.status === 'En Preparación').length,
-            ready: activeOrders.filter(o => o.status === 'Completado').length,
-            transit: activeOrders.filter(o => o.status === 'Despachado').length,
+        const now = new Date();
+        const currentMonth = now.getMonth();
+        const currentYear = now.getFullYear();
+
+        const isDateInPeriod = (rawDate: any) => {
+            if (kpiPeriod === 'all' || !rawDate) return true;
+            const d = typeof rawDate.toDate === 'function' ? rawDate.toDate() : new Date(rawDate);
+            if (isNaN(d.getTime())) return true;
+            if (kpiPeriod === 'today') {
+                return d.getDate() === now.getDate() && d.getMonth() === currentMonth && d.getFullYear() === currentYear;
+            }
+            if (kpiPeriod === '7d') {
+                const s7 = new Date();
+                s7.setDate(now.getDate() - 7);
+                return d >= s7;
+            }
+            if (kpiPeriod === 'this_month') {
+                return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
+            }
+            if (kpiPeriod === 'last_month') {
+                const lm = currentMonth === 0 ? 11 : currentMonth - 1;
+                const ly = currentMonth === 0 ? currentYear - 1 : currentYear;
+                return d.getMonth() === lm && d.getFullYear() === ly;
+            }
+            return true;
         };
-    }, [activeOrders]);
+
+        const filteredOrders = activeOrders.filter(o => isDateInPeriod(o.createdAt || o.orderDate || o.receptionDate));
+
+        return {
+            picking: filteredOrders.filter(o => o.status === 'Aprobado').length,
+            packing: filteredOrders.filter(o => o.status === 'En Preparación').length,
+            ready: filteredOrders.filter(o => o.status === 'Completado').length,
+            transit: filteredOrders.filter(o => o.status === 'Despachado').length,
+        };
+    }, [activeOrders, kpiPeriod]);
 
     return (
         <div className="flex flex-col gap-10 pb-20 animate-in fade-in duration-700">
@@ -51,11 +83,42 @@ export default function WarehouseDashboard() {
                 <p className="tech-label opacity-60">Control de Picking, Embalaje y Certificación de Salidas.</p>
             </header>
 
+            {/* BARRA DE PERÍODOS DE FECHAS */}
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-slate-900 text-white p-3 sm:p-4 rounded-3xl shadow-lg border border-slate-800">
+                <div className="flex items-center gap-2">
+                    <Boxes className="h-4 w-4 text-emerald-400" />
+                    <span className="text-[10px] font-black uppercase tracking-widest text-slate-300">Filtro Logístico por Período:</span>
+                </div>
+                <div className="flex flex-wrap items-center gap-1.5 bg-slate-950 p-1 rounded-2xl border border-slate-800">
+                    {[
+                        { id: 'today', label: '☀️ Hoy' },
+                        { id: '7d', label: '⚡ 7 Días' },
+                        { id: 'this_month', label: '🗓️ Mes Actual' },
+                        { id: 'last_month', label: '🗓️ Mes Anterior' },
+                        { id: 'all', label: '🌐 Todo' },
+                    ].map(p => (
+                        <button
+                            key={p.id}
+                            type="button"
+                            onClick={() => setKpiPeriod(p.id as any)}
+                            className={cn(
+                                "px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer",
+                                kpiPeriod === p.id 
+                                    ? "bg-emerald-600 text-white shadow-md font-black" 
+                                    : "text-slate-400 hover:text-white hover:bg-slate-900 font-bold"
+                            )}
+                        >
+                            {p.label}
+                        </button>
+                    ))}
+                </div>
+            </div>
+
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
                 <DashboardMetricCard 
                     title="Cola de Picking" 
                     value={stats.picking} 
-                    subtitle="Esperando Selección" 
+                    subtitle={kpiPeriod === 'all' ? 'Esperando Selección' : 'Filtrado por Período'} 
                     icon={Boxes} iconBg="bg-blue-50" iconColor="text-blue-500" 
                     onClick={() => router.push('/dashboard/dispatch')}
                 />

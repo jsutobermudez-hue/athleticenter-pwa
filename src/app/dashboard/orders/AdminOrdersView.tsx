@@ -127,8 +127,36 @@ export default function AdminOrdersView() {
         return Array.from(new Set(allOrders.map(o => o.salespersonName))).filter((sp): sp is string => Boolean(sp)).sort();
     }, [allOrders]);
 
+    const [kpiPeriod, setKpiPeriod] = useState<'today' | '7d' | 'this_month' | 'last_month' | 'all'>('all');
+
     const metrics = useMemo(() => {
         if (!allOrders) return { totalVolume: 0, totalCount: 0, prepCount: 0, prepTotal: 0, routeCount: 0, routeTotal: 0, pendingDebt: 0 };
+        const now = new Date();
+        const currentMonth = now.getMonth();
+        const currentYear = now.getFullYear();
+
+        const isDateInPeriod = (rawDate: any) => {
+            if (kpiPeriod === 'all' || !rawDate) return true;
+            const d = typeof rawDate.toDate === 'function' ? rawDate.toDate() : new Date(rawDate);
+            if (isNaN(d.getTime())) return true;
+            if (kpiPeriod === 'today') {
+                return d.getDate() === now.getDate() && d.getMonth() === currentMonth && d.getFullYear() === currentYear;
+            }
+            if (kpiPeriod === '7d') {
+                const s7 = new Date();
+                s7.setDate(now.getDate() - 7);
+                return d >= s7;
+            }
+            if (kpiPeriod === 'this_month') {
+                return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
+            }
+            if (kpiPeriod === 'last_month') {
+                const lm = currentMonth === 0 ? 11 : currentMonth - 1;
+                const ly = currentMonth === 0 ? currentYear - 1 : currentYear;
+                return d.getMonth() === lm && d.getFullYear() === ly;
+            }
+            return true;
+        };
 
         let totalVolume = 0;
         let totalCount = 0;
@@ -139,7 +167,7 @@ export default function AdminOrdersView() {
         let pendingDebt = 0;
 
         allOrders.forEach(o => {
-            if (o.status !== 'Cancelado') {
+            if (o.status !== 'Cancelado' && isDateInPeriod(o.createdAt || o.orderDate || o.receptionDate)) {
                 totalVolume += (o.totalAmount || 0);
                 totalCount += 1;
 
@@ -159,7 +187,7 @@ export default function AdminOrdersView() {
         });
 
         return { totalVolume, totalCount, prepCount, prepTotal, routeCount, routeTotal, pendingDebt };
-    }, [allOrders]);
+    }, [allOrders, kpiPeriod]);
 
     const groups = useMemo(() => {
         if (!allOrders) return { solicitudes: [], revisiones: [], borradores: [], comercial: [], operativo: [], logistica: [], cobranzas: [], archivo: [] };
@@ -404,6 +432,37 @@ export default function AdminOrdersView() {
     return (
         <div className="flex flex-col gap-6 animate-in fade-in duration-500">
             {/* TARJETAS KPI DE PEDIDOS */}
+            {/* BARRA DE PERÍODOS DE FECHAS */}
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-slate-900 text-white p-3 sm:p-4 rounded-3xl shadow-lg border border-slate-800 mx-1 sm:mx-2">
+                <div className="flex items-center gap-2">
+                    <Clock className="h-4 w-4 text-emerald-400" />
+                    <span className="text-[10px] font-black uppercase tracking-widest text-slate-300">Filtro Temporal de Pedidos:</span>
+                </div>
+                <div className="flex flex-wrap items-center gap-1.5 bg-slate-950 p-1 rounded-2xl border border-slate-800">
+                    {[
+                        { id: 'today', label: '☀️ Hoy' },
+                        { id: '7d', label: '⚡ 7 Días' },
+                        { id: 'this_month', label: '🗓️ Mes Actual' },
+                        { id: 'last_month', label: '🗓️ Mes Anterior' },
+                        { id: 'all', label: '🌐 Todo' },
+                    ].map(p => (
+                        <button
+                            key={p.id}
+                            type="button"
+                            onClick={() => setKpiPeriod(p.id as any)}
+                            className={cn(
+                                "px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer",
+                                kpiPeriod === p.id 
+                                    ? "bg-emerald-600 text-white shadow-md font-black" 
+                                    : "text-slate-400 hover:text-white hover:bg-slate-900 font-bold"
+                            )}
+                        >
+                            {p.label}
+                        </button>
+                    ))}
+                </div>
+            </div>
+
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mx-1 sm:mx-2">
                 <DashboardMetricCard 
                     title="Volumen Facturado ($)" 

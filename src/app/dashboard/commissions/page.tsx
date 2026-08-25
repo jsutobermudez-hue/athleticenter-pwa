@@ -108,7 +108,15 @@ function CommissionsContent() {
         let pipeline = 0;
         let totalPaid = 0;
 
-        rawCommissions.filter(c => c.status === 'pagado').forEach(c => {
+        const isCommissionInDateRange = (c: Commission) => {
+            if (!dateRange?.from) return true;
+            const start = startOfDay(dateRange.from).getTime();
+            const end = (dateRange.to || dateRange.from).getTime() + 86400000;
+            const d = c.commissionDate instanceof Timestamp ? c.commissionDate.toMillis() : (c.createdAt ? new Date(c.createdAt as any).getTime() : 0);
+            return d >= start && d <= end;
+        };
+
+        rawCommissions.filter(c => c.status === 'pagado' && isCommissionInDateRange(c)).forEach(c => {
             const amount = c.invoiceAmount || 0;
             const comm = c.salespersonCommissionAmount || 0;
             const isOldRecord = amount > (comm * 15);
@@ -116,7 +124,7 @@ function CommissionsContent() {
             totalPaid += (sinceratedBase * 0.05);
         });
 
-        rawCommissions.filter(c => (c.status || 'pendiente') === 'pendiente').forEach(c => {
+        rawCommissions.filter(c => (c.status || 'pendiente') === 'pendiente' && isCommissionInDateRange(c)).forEach(c => {
             const amount = c.invoiceAmount || 0;
             const comm = c.salespersonCommissionAmount || 0;
             const isOldRecord = amount > (comm * 15);
@@ -135,7 +143,7 @@ function CommissionsContent() {
         });
 
         return { available, pipeline, totalPaid };
-    }, [allOrders, rawCommissions, currentUser]);
+    }, [allOrders, rawCommissions, currentUser, dateRange]);
 
     const filteredCommissions = useMemo(() => {
         if (!rawCommissions) return [];
