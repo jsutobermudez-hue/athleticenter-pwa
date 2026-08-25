@@ -728,8 +728,14 @@ export function AdminBillingView() {
                                                 </span>
                                                 {(() => {
                                                     const paidPct = invoice.amountTotal > 0 ? Math.min(100, Math.round((invoice.amountPaid / invoice.amountTotal) * 100)) : 0;
+                                                    const netCash = (invoice as any).netCashBalance !== undefined ? (invoice as any).netCashBalance : invoice.remainingBalance * 0.75;
                                                     return (
                                                         <div className="flex flex-col items-end gap-0.5">
+                                                            {invoice.remainingBalance > 0.05 && (
+                                                                <span className="text-[9px] font-black text-emerald-600 uppercase tracking-tight">
+                                                                    Neto Cash: ${netCash.toFixed(2)}
+                                                                </span>
+                                                            )}
                                                             <div className="flex items-center gap-1 text-[8px] font-bold text-slate-400 uppercase">
                                                                 <span>${invoice.amountPaid.toFixed(2)} de ${invoice.amountTotal.toFixed(2)}</span>
                                                                 <span className="font-black text-slate-700">({paidPct}%)</span>

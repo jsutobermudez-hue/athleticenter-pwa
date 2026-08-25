@@ -108,13 +108,17 @@ export function getInvoiceFromOrder(order: Order, fallbackTreasuryDiscount: numb
     const discountAmount = (order.totalAmount * effectiveCommDiscount) / 100;
     const netPayableTotal = Math.max(0, order.totalAmount - discountAmount);
     const isExplicitlyPaid = order.status === 'Pagado';
-    const remainingBalance = isExplicitlyPaid ? 0 : Math.max(0, netPayableTotal - amountPaid);
+    
+    // Base Deuda Bruta a Lista BCV (sin doble descuento)
+    const grossRemainingBalance = isExplicitlyPaid ? 0 : Math.max(0, order.totalAmount - amountPaid);
+    const netCashBalance = isExplicitlyPaid ? 0 : Math.max(0, netPayableTotal - amountPaid);
+    const remainingBalance = grossRemainingBalance;
 
     let status: Invoice['status'] = 'Por Vencer';
     let statusText = `Vence en ${remainingDays} días`;
     let discount = 10;
     
-    if (isExplicitlyPaid || remainingBalance <= 0.05) {
+    if (isExplicitlyPaid || grossRemainingBalance <= 0.05) {
         status = 'Pagado';
         statusText = 'Totalmente Pagado';
         discount = 0;
@@ -143,6 +147,7 @@ export function getInvoiceFromOrder(order: Order, fallbackTreasuryDiscount: numb
         amountTotal: order.totalAmount,
         amountPaid: amountPaid,
         remainingBalance: remainingBalance,
+        netCashBalance: netCashBalance,
         dueDate: dueDate,
         status: status,
         statusText: statusText,
