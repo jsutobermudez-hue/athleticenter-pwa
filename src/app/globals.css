@@ -48,6 +48,7 @@
     -webkit-overflow-scrolling: touch;
     touch-action: manipulation;
     overscroll-behavior-y: auto;
+    scroll-behavior: smooth;
   }
   body {
     @apply bg-background text-foreground;
@@ -67,7 +68,11 @@
   .ios-touch-scroll {
     -webkit-overflow-scrolling: touch;
     touch-action: pan-y;
-    overscroll-behavior-y: contain;
+    overscroll-behavior-y: auto;
+  }
+  
+  .recharts-wrapper, .recharts-surface {
+    touch-action: pan-y !important;
   }
   
   .bg-sidebar-gradient {

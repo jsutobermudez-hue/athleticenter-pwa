@@ -181,7 +181,7 @@ export default function DashboardLayout({
                   <AppSidebar />
                   <SidebarInset className="max-w-full overflow-x-hidden">
                       <Header />
-                      <main className="p-2 sm:p-4 lg:p-6 mx-auto w-full max-w-[1600px] min-h-[calc(100dvh-60px)] overflow-y-auto overflow-x-hidden relative ios-touch-scroll">
+                      <main className="p-2 sm:p-4 lg:p-6 mx-auto w-full max-w-[1600px] min-h-[calc(100dvh-60px)] overflow-y-auto overflow-x-hidden relative ios-touch-scroll overscroll-y-auto">
                           {children}
                       </main>
                       <InstallBanner />
