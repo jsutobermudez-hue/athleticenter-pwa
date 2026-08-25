@@ -236,7 +236,13 @@ export function ReportPaymentDialog({ invoice, mode = 'partial' }: { invoice: In
     }
   }, [selectedMethod, setValue]);
 
+  const isNetOrPromotional = (orderData as any)?.incentivesApplied === true || (orderData as any)?.isNetPrice === true || !!(orderData as any)?.promoName;
+
   useEffect(() => {
+    if (isNetOrPromotional) {
+      setValue('earlyPaymentType', 'none');
+      return;
+    }
     if (is7DaysEligible) {
       setValue('earlyPaymentType', '7days');
     } else if (is15DaysEligible) {
@@ -244,7 +250,7 @@ export function ReportPaymentDialog({ invoice, mode = 'partial' }: { invoice: In
     } else {
       setValue('earlyPaymentType', 'none');
     }
-  }, [elapsedDays, is7DaysEligible, is15DaysEligible, setValue]);
+  }, [elapsedDays, is7DaysEligible, is15DaysEligible, isNetOrPromotional, setValue]);
 
   // LÓGICA DE CÁLCULO BI-DIRECCIONAL EN TIEMPO REAL v8.4 (CUSTODIA DE TESORERÍA & PREVENCIÓN DE DOBLE DESCUENTO)
   const calculation = useMemo(() => {
@@ -261,19 +267,21 @@ export function ReportPaymentDialog({ invoice, mode = 'partial' }: { invoice: In
     const currentBalance = invoice?.remainingBalance || 0;
     const rawVal = Number(inputAmount || 0);
 
-    const isAlreadyDiscounted = (orderData as any)?.incentivesApplied === true || (orderData as any)?.isNetPrice === true;
+    const isAlreadyDiscounted = isNetOrPromotional;
     let cashDiscountPct = (accountingBase === 'cash' && !isAlreadyDiscounted) ? bcvDiscountFactor : 0;
     let earlyDiscountPct = 0;
     let discountType: Payment['discountType'] = 'none';
 
     if (accountingBase === 'cash' && !isAlreadyDiscounted) discountType = 'cash';
 
-    if (earlyPaymentType === '7days' && is7DaysEligible) {
-      earlyDiscountPct = early7Factor;
-      if (discountType === 'none') discountType = '7days';
-    } else if (earlyPaymentType === '15days' && is15DaysEligible) {
-      earlyDiscountPct = early15Factor;
-      if (discountType === 'none') discountType = '15days';
+    if (!isAlreadyDiscounted) {
+      if (earlyPaymentType === '7days' && is7DaysEligible) {
+        earlyDiscountPct = early7Factor;
+        if (discountType === 'none') discountType = '7days';
+      } else if (earlyPaymentType === '15days' && is15DaysEligible) {
+        earlyDiscountPct = early15Factor;
+        if (discountType === 'none') discountType = '15days';
+      }
     }
 
     const totalDiscountPct = cashDiscountPct + earlyDiscountPct;
