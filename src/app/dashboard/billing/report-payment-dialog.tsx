@@ -236,9 +236,20 @@ export function ReportPaymentDialog({ invoice, mode = 'partial' }: { invoice: In
     }
   }, [selectedMethod, setValue]);
 
-  const isNetOrPromotional = (orderData as any)?.incentivesApplied === true || (orderData as any)?.isNetPrice === true || !!(orderData as any)?.promoName;
+  const isNetOrPromotional = useMemo(() => {
+    return (orderData as any)?.incentivesApplied === true || 
+           (orderData as any)?.isNetPrice === true || 
+           !!(orderData as any)?.promoName ||
+           (invoice as any)?.incentivesApplied === true ||
+           (invoice as any)?.isNetPrice === true ||
+           !!(invoice as any)?.promoName ||
+           (invoice as any)?.promoName === 'Oferta Spartan $14' ||
+           (invoice?.id || '').includes('P-CONV') ||
+           (orderData?.id || '').includes('P-CONV');
+  }, [orderData, invoice]);
 
   useEffect(() => {
+    if (!isOpen) return;
     if (isNetOrPromotional) {
       setValue('earlyPaymentType', 'none');
       return;
@@ -250,7 +261,7 @@ export function ReportPaymentDialog({ invoice, mode = 'partial' }: { invoice: In
     } else {
       setValue('earlyPaymentType', 'none');
     }
-  }, [elapsedDays, is7DaysEligible, is15DaysEligible, isNetOrPromotional, setValue]);
+  }, [isOpen, elapsedDays, is7DaysEligible, is15DaysEligible, isNetOrPromotional, setValue]);
 
   // LÓGICA DE CÁLCULO BI-DIRECCIONAL EN TIEMPO REAL v8.4 (CUSTODIA DE TESORERÍA & PREVENCIÓN DE DOBLE DESCUENTO)
   const calculation = useMemo(() => {
@@ -556,10 +567,10 @@ export function ReportPaymentDialog({ invoice, mode = 'partial' }: { invoice: In
                                         className={cn(
                                             "p-3.5 rounded-2xl border-2 text-center transition-all flex flex-col justify-between h-22",
                                             earlyPaymentType === '7days' ? "border-emerald-500 bg-emerald-50 shadow-sm" : "border-slate-100",
-                                            is7DaysEligible ? "cursor-pointer hover:bg-slate-50" : "opacity-40 cursor-not-allowed bg-slate-100 grayscale"
+                                            (is7DaysEligible && !isNetOrPromotional) ? "cursor-pointer hover:bg-slate-50" : "opacity-40 cursor-not-allowed bg-slate-100 grayscale"
                                         )}
                                         onClick={() => {
-                                            if (is7DaysEligible) setValue('earlyPaymentType', '7days');
+                                            if (is7DaysEligible && !isNetOrPromotional) setValue('earlyPaymentType', '7days');
                                         }}
                                     >
                                         <div className="flex flex-col">
@@ -567,7 +578,7 @@ export function ReportPaymentDialog({ invoice, mode = 'partial' }: { invoice: In
                                             <span className="text-[7px] font-bold text-emerald-600 uppercase">{globalSettings?.earlyPayment7Days || 5}% OFF</span>
                                         </div>
                                         <span className="text-[7px] font-black uppercase flex items-center justify-center gap-1">
-                                            {is7DaysEligible ? '🟢 Disponible' : `🔒 Vencido (${elapsedDays}d)`}
+                                            {isNetOrPromotional ? '🔒 Precio Neto Oferta' : is7DaysEligible ? '🟢 Disponible' : `🔒 Vencido (${elapsedDays}d)`}
                                         </span>
                                     </div>
 
@@ -575,10 +586,10 @@ export function ReportPaymentDialog({ invoice, mode = 'partial' }: { invoice: In
                                         className={cn(
                                             "p-3.5 rounded-2xl border-2 text-center transition-all flex flex-col justify-between h-22",
                                             earlyPaymentType === '15days' ? "border-emerald-500 bg-emerald-50 shadow-sm" : "border-slate-100",
-                                            is15DaysEligible ? "cursor-pointer hover:bg-slate-50" : "opacity-40 cursor-not-allowed bg-slate-100 grayscale"
+                                            (is15DaysEligible && !isNetOrPromotional) ? "cursor-pointer hover:bg-slate-50" : "opacity-40 cursor-not-allowed bg-slate-100 grayscale"
                                         )}
                                         onClick={() => {
-                                            if (is15DaysEligible) setValue('earlyPaymentType', '15days');
+                                            if (is15DaysEligible && !isNetOrPromotional) setValue('earlyPaymentType', '15days');
                                         }}
                                     >
                                         <div className="flex flex-col">
@@ -586,7 +597,7 @@ export function ReportPaymentDialog({ invoice, mode = 'partial' }: { invoice: In
                                             <span className="text-[7px] font-bold text-emerald-600 uppercase">{globalSettings?.earlyPayment15Days || 3}% OFF</span>
                                         </div>
                                         <span className="text-[7px] font-black uppercase flex items-center justify-center gap-1">
-                                            {is15DaysEligible ? '🟢 Disponible' : `🔒 Vencido (${elapsedDays}d)`}
+                                            {isNetOrPromotional ? '🔒 Precio Neto Oferta' : is15DaysEligible ? '🟢 Disponible' : `🔒 Vencido (${elapsedDays}d)`}
                                         </span>
                                     </div>
                                 </div>
