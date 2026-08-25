@@ -124,6 +124,7 @@ function InventoryContent() {
   const isAdmin = !!(currentUser && ['superadmin', 'admin', 'gerencia'].includes(currentUser.role));
   const isWarehouse = currentUser?.role === 'deposito';
   const isCommercial = currentUser && ['ventas', 'cliente'].includes(currentUser.role);
+  const isStaff = Boolean(currentUser && ['superadmin', 'admin', 'gerencia', 'vendedor', 'deposito'].includes(currentUser.role));
   
   const canCreateProduct = isAdmin;
   const canManageStock = isAdmin || isWarehouse;
@@ -419,18 +420,25 @@ function InventoryContent() {
                                             </td>
                                             <td className="p-4 font-bold text-slate-600 uppercase text-[10px]">{p.category}</td>
                                             <td className="p-4">
-                                                <Badge variant="outline" className="bg-primary/5 text-primary border-primary/20 text-[8px] font-black uppercase">
-                                                    <MapPin className="h-2.5 w-2.5 mr-1" /> {p.warehouseLocation || 'S/U'}
-                                                </Badge>
-                                            </td>
-                                            <td className="p-4">
-                                                <Badge className={cn(
-                                                    "text-[8px] font-black uppercase border-none text-white",
-                                                    stockVal === 0 ? "bg-rose-600" : stockVal < 10 ? "bg-amber-500" : "bg-emerald-600"
-                                                )}>
-                                                    {stockVal} UNID.
-                                                </Badge>
-                                            </td>
+                                                 <Badge variant="outline" className="bg-primary/5 text-primary border-primary/20 text-[8px] font-black uppercase">
+                                                     {isStaff ? (
+                                                         <><MapPin className="h-2.5 w-2.5 mr-1" /> {p.warehouseLocation || 'S/U'}</>
+                                                     ) : (
+                                                         'B2B CERTIFICADO'
+                                                     )}
+                                                 </Badge>
+                                             </td>
+                                             <td className="p-4">
+                                                 <Badge className={cn(
+                                                     "text-[8px] font-black uppercase border-none text-white",
+                                                     stockVal === 0 ? "bg-rose-600" : stockVal < 10 ? "bg-amber-500" : "bg-emerald-600"
+                                                 )}>
+                                                     {isStaff 
+                                                         ? `${stockVal} UNID.`
+                                                         : (stockVal > 10 ? "DISPONIBLE" : stockVal > 0 ? "ÚLTIMAS UNIDADES" : "SIN STOCK")
+                                                     }
+                                                 </Badge>
+                                             </td>
                                             <td className="p-4 font-black text-slate-900">${(p.price || 0).toFixed(2)}</td>
                                             <td className="p-4 text-right">
                                                 <Button size="sm" variant="ghost" onClick={() => setSelectedProduct(p)} className="h-8 px-3 rounded-lg text-slate-400 hover:text-primary">

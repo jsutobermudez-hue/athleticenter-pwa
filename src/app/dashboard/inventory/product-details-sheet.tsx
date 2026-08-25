@@ -171,27 +171,42 @@ export function ProductDetailsSheet({ product, allOffers, isOpen, onOpenChange, 
                     </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="p-5 rounded-[1.8rem] border border-slate-100 bg-white shadow-sm space-y-1">
                         <div className="flex items-center gap-2 text-slate-400">
                             <Box className="h-4 w-4" />
-                            <p className="text-[9px] font-black uppercase tracking-widest">Existencias</p>
+                            <p className="text-[9px] font-black uppercase tracking-widest">{isStaff ? 'Existencias Almacén' : 'Disponibilidad B2B'}</p>
                         </div>
-                        <div className="flex items-baseline gap-2">
-                            <p className="font-black text-2xl text-slate-900 tracking-tighter leading-none">{stockValue}</p>
-                            <span className="text-[9px] font-bold text-slate-400 uppercase">Unidades</span>
+                        <div className="flex items-baseline gap-2 pt-1">
+                            <p className="font-black text-2xl text-slate-900 tracking-tighter leading-none">
+                                {isStaff ? stockValue : (stockValue > 10 ? 'DISPONIBLE' : stockValue > 0 ? 'ÚLTIMAS UNIDADES' : 'SIN STOCK')}
+                            </p>
+                            {isStaff && <span className="text-[9px] font-bold text-slate-400 uppercase">Unidades</span>}
                         </div>
-                        <Badge className={cn("mt-2 text-[8px] font-black uppercase border-none px-2 h-5 shadow-none", stockValue > 10 ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700')}>{status.toUpperCase()}</Badge>
+                        <Badge className={cn("mt-2 text-[8px] font-black uppercase border-none px-2 h-5 shadow-none", stockValue > 10 ? 'bg-emerald-100 text-emerald-700' : stockValue > 0 ? 'bg-amber-100 text-amber-700' : 'bg-rose-100 text-rose-700')}>
+                            {stockValue > 10 ? (isStaff ? 'EN STOCK' : 'ENTREGA INMEDIATA') : stockValue > 0 ? 'ALERTA STOCK' : 'AGOTADO'}
+                        </Badge>
                     </div>
 
-                    <div className="p-5 rounded-[1.8rem] border border-slate-100 bg-white shadow-sm space-y-1">
-                        <div className="flex items-center gap-2 text-slate-400">
-                            <MapPin className="h-4 w-4" />
-                            <p className="text-[9px] font-black uppercase tracking-widest">Ubicación</p>
+                    {isStaff ? (
+                        <div className="p-5 rounded-[1.8rem] border border-slate-100 bg-white shadow-sm space-y-1">
+                            <div className="flex items-center gap-2 text-slate-400">
+                                <MapPin className="h-4 w-4" />
+                                <p className="text-[9px] font-black uppercase tracking-widest">Ubicación Depósito</p>
+                            </div>
+                            <p className="font-black text-lg text-slate-700 tracking-tight uppercase truncate">{product.warehouseLocation || 'Sin Asignar'}</p>
+                            <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest pt-1">Referencia Picking</p>
                         </div>
-                        <p className="font-black text-lg text-slate-700 tracking-tight uppercase truncate">{product.warehouseLocation || 'Sin Asignar'}</p>
-                        <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest pt-1">Referencia Picking</p>
-                    </div>
+                    ) : (
+                        <div className="p-5 rounded-[1.8rem] border border-slate-100 bg-white shadow-sm space-y-1">
+                            <div className="flex items-center gap-2 text-slate-400">
+                                <ShieldCheck className="h-4 w-4 text-emerald-500" />
+                                <p className="text-[9px] font-black uppercase tracking-widest">Garantía Corporativa</p>
+                            </div>
+                            <p className="font-black text-lg text-slate-900 tracking-tight uppercase truncate">ATHLETICENTER C.A.</p>
+                            <p className="text-[8px] font-bold text-emerald-600 uppercase tracking-widest pt-1">Despacho Certificado B2B</p>
+                        </div>
+                    )}
                 </div>
 
                 <Tabs defaultValue="info" className="w-full">

@@ -21,6 +21,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import { useUser } from '@/firebase';
 import { useDataSaving } from '@/hooks/use-data-saving';
 
 interface ProductCardProps {
@@ -42,6 +43,9 @@ export function ProductCard({
   quantityInCart = 0,
   onQuantityChange,
 }: ProductCardProps) {
+  const { profile: currentUser } = useUser();
+  const isStaff = Boolean(currentUser && ['superadmin', 'admin', 'gerencia', 'vendedor', 'deposito'].includes(currentUser.role));
+
   const { isDataSaving } = useDataSaving();
   const [imageLoaded, setImageLoaded] = useState(false);
   
@@ -159,19 +163,21 @@ export function ProductCard({
             <h3 className="text-[13px] font-black uppercase tracking-tight leading-tight text-slate-900 line-clamp-2">{product.name}</h3>
             <div className="flex items-center gap-2 mt-1.5">
                 <span className="text-[8px] font-mono font-bold text-slate-400 uppercase tracking-tighter bg-slate-50 px-1.5 py-0.5 rounded-md">{product.sku}</span>
-                <TooltipProvider>
-                    <Tooltip>
-                        <TooltipTrigger asChild>
-                            <div className="flex items-center gap-1 cursor-help" onClick={(e) => e.stopPropagation()}>
-                                <div className={cn("h-2 w-2 rounded-full animate-pulse", health.color)} />
-                                <span className={cn("text-[8px] font-black uppercase tracking-widest", health.color.replace('bg-', 'text-'))}>MARGEN</span>
-                            </div>
-                        </TooltipTrigger>
-                        <TooltipContent className="rounded-xl border-none shadow-xl bg-slate-900 text-white font-bold uppercase text-[9px]">
-                            {health.label}
-                        </TooltipContent>
-                    </Tooltip>
-                </TooltipProvider>
+                {isStaff && (
+                    <TooltipProvider>
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <div className="flex items-center gap-1 cursor-help" onClick={(e) => e.stopPropagation()}>
+                                    <div className={cn("h-2 w-2 rounded-full animate-pulse", health.color)} />
+                                    <span className={cn("text-[8px] font-black uppercase tracking-widest", health.color.replace('bg-', 'text-'))}>MARGEN</span>
+                                </div>
+                            </TooltipTrigger>
+                            <TooltipContent className="rounded-xl border-none shadow-xl bg-slate-900 text-white font-bold uppercase text-[9px]">
+                                {health.label}
+                            </TooltipContent>
+                        </Tooltip>
+                    </TooltipProvider>
+                )}
             </div>
           </div>
         </div>
@@ -199,7 +205,12 @@ export function ProductCard({
         <div className="space-y-1">
           <div className="flex items-center gap-1.5">
             <div className={cn("h-1.5 w-1.5 rounded-full", stockValue > 10 ? "bg-emerald-500" : stockValue > 0 ? "bg-amber-500 animate-pulse" : "bg-rose-500")} />
-            <span className={cn("text-[8px] font-black uppercase tracking-widest", isLowStock ? "text-amber-600" : "text-slate-500")}>STOCK: {stockValue}</span>
+            <span className={cn("text-[8px] font-black uppercase tracking-widest", isLowStock ? "text-amber-600" : "text-slate-500")}>
+                {isStaff 
+                    ? `STOCK: ${stockValue}` 
+                    : (stockValue > 10 ? "DISPONIBLE" : stockValue > 0 ? "ÚLTIMAS UNIDADES" : "SIN STOCK")
+                }
+            </span>
           </div>
           {quantityInCart > 0 && (
             <p className="text-[11px] font-black text-primary uppercase animate-in slide-in-from-left-2 duration-300">En Pedido: {quantityInCart}</p>
