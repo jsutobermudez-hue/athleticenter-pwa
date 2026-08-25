@@ -215,6 +215,50 @@ export function CashAuditModal({ isOpen, onClose, orders, periodFilter = 'all', 
     const filteredPayments = useMemo(() => {
         let result = breakdown.payments;
 
+        // FILTRADO REACTIVO POR PERÍODO Y RANGO DE FECHAS
+        const now = new Date();
+        const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+        if (activePeriod === 'today') {
+            result = result.filter(p => {
+                const d = p.date instanceof Date ? p.date : new Date(p.date);
+                return !isNaN(d.getTime()) && d >= todayStart;
+            });
+        } else if (activePeriod === '7d') {
+            const d7 = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+            result = result.filter(p => {
+                const d = p.date instanceof Date ? p.date : new Date(p.date);
+                return !isNaN(d.getTime()) && d >= d7;
+            });
+        } else if (activePeriod === 'this_month') {
+            const mStart = new Date(now.getFullYear(), now.getMonth(), 1);
+            result = result.filter(p => {
+                const d = p.date instanceof Date ? p.date : new Date(p.date);
+                return !isNaN(d.getTime()) && d >= mStart;
+            });
+        } else if (activePeriod === 'last_month') {
+            const lmStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+            const lmEnd = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59);
+            result = result.filter(p => {
+                const d = p.date instanceof Date ? p.date : new Date(p.date);
+                return !isNaN(d.getTime()) && d >= lmStart && d <= lmEnd;
+            });
+        } else if (activePeriod === 'custom') {
+            result = result.filter(p => {
+                const d = p.date instanceof Date ? p.date : new Date(p.date);
+                if (isNaN(d.getTime())) return true;
+                if (startDate) {
+                    const s = new Date(startDate + 'T00:00:00');
+                    if (d < s) return false;
+                }
+                if (endDate) {
+                    const e = new Date(endDate + 'T23:59:59');
+                    if (d > e) return false;
+                }
+                return true;
+            });
+        }
+
         if (statusFilter === 'solventes') {
             result = result.filter(p => {
                 const ord = p.rawOrder;
@@ -251,7 +295,7 @@ export function CashAuditModal({ isOpen, onClose, orders, periodFilter = 'all', 
         }
 
         return result;
-    }, [breakdown.payments, statusFilter, methodFilter, salespersonFilter, searchTerm]);
+    }, [breakdown.payments, activePeriod, startDate, endDate, statusFilter, methodFilter, salespersonFilter, searchTerm]);
 
     const kpis = useMemo(() => {
         let totalCash = 0;
@@ -492,26 +536,26 @@ export function CashAuditModal({ isOpen, onClose, orders, periodFilter = 'all', 
                             <div className="p-4 rounded-2xl bg-emerald-950/40 border border-emerald-500/20 space-y-1">
                                 <p className="text-[9px] font-black uppercase text-emerald-400 tracking-wider">Total Recaudado</p>
                                 <p className="text-xl font-black text-white tracking-tight">
-                                    ${kpis.totalCash.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                                    ${kpis.totalCash.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                 </p>
-                                <p className="text-[8px] text-slate-400 font-bold">Bs. {(kpis.totalCash * bcvRate).toLocaleString('es-VE', { maximumFractionDigits: 0 })}</p>
+                                <p className="text-[8px] text-slate-400 font-bold">Bs. {(kpis.totalCash * bcvRate).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
                             </div>
                             <div className="p-4 rounded-2xl bg-blue-950/40 border border-blue-500/20 space-y-1">
                                 <p className="text-[9px] font-black uppercase text-blue-400 tracking-wider">Efectivo USD</p>
                                 <p className="text-xl font-black text-white tracking-tight">
-                                    ${kpis.cashUsd.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                                    ${kpis.cashUsd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                 </p>
                             </div>
                             <div className="p-4 rounded-2xl bg-purple-950/40 border border-purple-500/20 space-y-1">
                                 <p className="text-[9px] font-black uppercase text-purple-400 tracking-wider">Zelle USD</p>
                                 <p className="text-xl font-black text-white tracking-tight">
-                                    ${kpis.zelleUsd.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                                    ${kpis.zelleUsd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                 </p>
                             </div>
                             <div className="p-4 rounded-2xl bg-sky-950/40 border border-sky-500/20 space-y-1">
                                 <p className="text-[9px] font-black uppercase text-sky-400 tracking-wider">Bolívares BCV</p>
                                 <p className="text-xl font-black text-white tracking-tight">
-                                    ${kpis.bcvVes.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                                    ${kpis.bcvVes.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                 </p>
                             </div>
                         </div>
