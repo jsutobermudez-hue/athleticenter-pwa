@@ -109,6 +109,52 @@ function NewOrderForm() {
     }, [isClient, currentUser]);
 
     useEffect(() => {
+        const reorderId = searchParams.get('reorderId');
+        if (reorderId && firestore) {
+            getDoc(doc(firestore, 'orders', reorderId)).then(snap => {
+                if (snap.exists()) {
+                    const pastOrder = snap.data() as any;
+                    const items = pastOrder.items || pastOrder.orderItems || [];
+                    if (pastOrder && Array.isArray(items) && items.length > 0) {
+                        setOrderItems(items.map((it: any) => {
+                            const pName = it.name || it.product?.name || 'Producto';
+                            const pPrice = it.unitPrice || it.price || 0;
+                            const pSku = it.sku || it.product?.sku || 'N/A';
+                            const pImg = it.imageUrl || it.product?.imageUrl || '';
+                            const pId = it.productId || it.id || 'prod-reorder';
+                            const pQty = it.quantity || 1;
+
+                            return {
+                                product: {
+                                    id: pId,
+                                    sku: pSku,
+                                    name: pName,
+                                    price: pPrice,
+                                    imageUrl: pImg,
+                                    stockLevel: 100,
+                                    discipline: it.discipline || 'ELITE',
+                                    category: it.category || 'General'
+                                } as Product,
+                                productId: pId,
+                                quantity: pQty,
+                                unitPrice: pPrice,
+                                size: it.size || undefined,
+                            } as OrderItemClient;
+                        }));
+                        if (pastOrder.customerId && !isClient) {
+                            setSelectedCustomerId(pastOrder.customerId);
+                        }
+                        toast({
+                            title: "🎉 Pedido Re-Cargado en 1-Clic",
+                            description: `Se han importado ${items.length} productos del expediente #${pastOrder.id || ''}.`
+                        });
+                    }
+                }
+            });
+        }
+    }, [searchParams, firestore, isClient, toast]);
+
+    useEffect(() => {
         if (firestore && selectedCustomerId && globalSettings) {
             const q = query(
                 collection(firestore, 'orders'), 

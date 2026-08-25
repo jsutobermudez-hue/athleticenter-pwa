@@ -635,6 +635,20 @@ export function OrderDetailsSheet({
                         )}
                     </div>
 
+                    {/* BOTÓN REPETIR PEDIDO EN 1-CLIC */}
+                    <Button 
+                        type="button"
+                        onClick={() => {
+                            onOpenChange(false);
+                            setTimeout(() => {
+                                router.push(`/dashboard/orders/new?reorderId=${order.id}`);
+                            }, 150);
+                        }}
+                        className="w-full h-11 bg-slate-900 hover:bg-slate-800 text-white font-black uppercase text-[10px] tracking-[0.2em] rounded-xl shadow-lg transition-all"
+                    >
+                        <Zap className="mr-2 h-4 w-4 text-emerald-400 animate-pulse" /> REPETIR ESTE PEDIDO EN 1-CLIC
+                    </Button>
+
                     {/* BLOQUE DE DOCUMENTOS Y COMUNICACIÓN ORGANIZADO */}
                     <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-sm space-y-3">
                         <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Documentación y Reportes</p>
