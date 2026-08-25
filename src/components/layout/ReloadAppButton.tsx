@@ -46,16 +46,31 @@ export function ReloadAppButton({ className, variant = 'header' }: ReloadAppButt
 
   const isSidebar = variant === 'sidebar';
 
+  if (!isSidebar) {
+    return (
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={handleReload}
+        className={cn(
+          "h-8 px-2.5 rounded-full bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border border-blue-200/80 dark:border-blue-800/80 hover:bg-blue-100 dark:hover:bg-blue-900/60 font-black text-[10px] uppercase tracking-wider flex items-center gap-1.5 shadow-2xs shrink-0 transition-all active:scale-95",
+          className
+        )}
+        title="Sincronizar y Recargar Sistema"
+      >
+        <RefreshCw className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
+        <span>Recargar</span>
+      </Button>
+    );
+  }
+
   return (
     <Button
       variant="ghost"
       size="icon"
       onClick={handleReload}
       className={cn(
-        "h-9 w-9 rounded-xl transition-all active:rotate-180 duration-500 shadow-2xs flex items-center justify-center shrink-0",
-        isSidebar 
-          ? "text-white/80 hover:bg-white/10 hover:text-white" 
-          : "text-slate-700 dark:text-slate-200 bg-slate-100/80 dark:bg-slate-800/80 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200/60 dark:border-slate-700/60",
+        "h-8 w-8 rounded-xl text-white/80 hover:bg-white/10 hover:text-white transition-all active:rotate-180 duration-500 flex items-center justify-center shrink-0",
         className
       )}
       title="Sincronizar y Recargar Sistema"

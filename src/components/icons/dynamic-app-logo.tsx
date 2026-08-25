@@ -38,20 +38,20 @@ export function DynamicAppLogo({ className, variant = 'light' }: DynamicAppLogoP
     }
   }, [companyProfile?.logoUrl]);
 
-  if (isLoadingProfile) {
-    return <Skeleton className={cn("rounded-xl bg-slate-200/50 h-10 w-10", className)} />;
-  }
-
   const isSidebar = variant === 'sidebar' || variant === 'transparent';
+
+  if (isLoadingProfile) {
+    return <Skeleton className={cn("rounded-xl h-8 w-8", isSidebar ? "bg-white/10 animate-pulse" : "bg-slate-200/50", className)} />;
+  }
 
   // Si hay logo cargado, se muestra en un contenedor adaptativo
   if (companyProfile?.logoUrl && !hasError) {
     return (
       <div className={cn(
-        "relative flex items-center justify-center overflow-hidden rounded-xl shadow-xs p-1 transition-all", 
+        "relative flex items-center justify-center overflow-hidden rounded-xl transition-all", 
         isSidebar 
-          ? "bg-white/10 border border-white/20 backdrop-blur-md" 
-          : "bg-white border border-slate-100 shadow-sm",
+          ? "bg-transparent border border-white/20 p-1" 
+          : "bg-white border border-slate-100 shadow-sm p-1",
         className || "h-10 w-10"
       )}>
         <img 
@@ -68,13 +68,13 @@ export function DynamicAppLogo({ className, variant = 'light' }: DynamicAppLogoP
   // Fallback al logo SVG original si no hay personalización
   return (
     <div className={cn(
-      "flex items-center justify-center p-1 rounded-xl shadow-xs transition-all", 
+      "flex items-center justify-center transition-all", 
       isSidebar 
-        ? "bg-white/10 border border-white/20 text-white backdrop-blur-md" 
-        : "bg-white border border-slate-100 text-slate-900 shadow-sm",
+        ? "bg-transparent text-white p-0" 
+        : "bg-white border border-slate-100 text-slate-900 shadow-sm rounded-xl p-1",
       className || "h-10 w-10"
     )}>
-      <AppLogo className={cn("w-full h-full", isSidebar ? "text-white" : "text-slate-900")} />
+      <AppLogo className="w-full h-full text-white" />
     </div>
   );
 }
