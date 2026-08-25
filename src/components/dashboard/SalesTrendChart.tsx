@@ -315,11 +315,11 @@ export function SalesTrendChart({ orders, isLoading = false }: SalesTrendChartPr
               onClick={handleExportPDF}
               disabled={isExportingPDF}
               variant="outline"
-              className="h-7 px-2.5 rounded-lg border-slate-200 text-slate-700 hover:bg-slate-50 font-black text-[9px] uppercase tracking-wider flex items-center gap-1 shadow-sm"
+              className="h-7 px-2 rounded-lg border-slate-200 text-slate-700 hover:bg-slate-50 font-black text-[8px] sm:text-[9px] uppercase tracking-wider flex items-center gap-1 shadow-sm shrink-0"
               title="Imprimir Gráfico Visual y Reporte PDF"
             >
               {isExportingPDF ? <Loader2 className="h-3 w-3 animate-spin" /> : <Printer className="h-3 w-3 text-primary" />}
-              <span>🖨️ Imprimir Gráfico</span>
+              <span className="truncate">Reporte PDF</span>
             </Button>
           </div>
         </div>

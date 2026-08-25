@@ -311,11 +311,11 @@ export function OrderStatusChart({ orders, isLoading = false }: OrderStatusChart
             onClick={() => handleExportPDF()}
             disabled={isExportingPDF}
             variant="outline"
-            className="h-9 px-3 rounded-2xl border-slate-200 text-slate-700 hover:bg-slate-50 font-black text-[9px] uppercase tracking-wider flex items-center gap-1.5 shadow-sm"
+            className="h-8 px-2.5 rounded-xl border-slate-200 text-slate-700 hover:bg-slate-50 font-black text-[8px] sm:text-[9px] uppercase tracking-wider flex items-center gap-1 shadow-sm shrink-0"
             title="Imprimir Gráfico Visual y Reporte PDF"
           >
             {isExportingPDF ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Printer className="h-3.5 w-3.5 text-primary" />}
-            <span className="inline">🖨️ Imprimir Gráfico</span>
+            <span className="truncate">Reporte PDF</span>
           </Button>
         </div>
       </CardHeader>

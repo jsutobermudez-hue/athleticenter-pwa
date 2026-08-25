@@ -409,8 +409,8 @@ export default function AdminDashboard() {
                     </Badge>
                   </div>
                 </CardHeader>
-                <CardContent className="p-8 grid grid-cols-1 md:grid-cols-4 gap-6">
-                  <div className="p-6 rounded-2xl bg-white/5 border border-white/10 space-y-3">
+                <CardContent className="p-5 sm:p-8 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 sm:gap-6">
+                  <div className="p-5 sm:p-6 rounded-2xl bg-white/5 border border-white/10 space-y-3">
                     <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Analista de Negocio IA</p>
                     <p className="text-xs font-medium text-slate-300">Consulta informes estratégicos y proyecciones financieras impulsadas por Genkit.</p>
                     <Button onClick={() => router.push('/dashboard/ai-analyst')} className="w-full h-10 rounded-xl bg-primary hover:bg-primary/90 text-white font-black text-[9px] uppercase tracking-wider">
@@ -418,7 +418,7 @@ export default function AdminDashboard() {
                     </Button>
                   </div>
 
-                  <div className="p-6 rounded-2xl bg-white/5 border border-white/10 space-y-3">
+                  <div className="p-5 sm:p-6 rounded-2xl bg-white/5 border border-white/10 space-y-3">
                     <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Bitácora de Auditoría en Vivo</p>
                     <p className="text-xs font-medium text-slate-300">Audita cada cambio de stock, tasa de cambio y ajustes de rol en la red.</p>
                     <Button onClick={() => router.push('/dashboard/audit')} variant="outline" className="w-full h-10 rounded-xl border-white/20 bg-transparent text-white font-black text-[9px] uppercase tracking-wider hover:bg-white/10">
@@ -428,7 +428,7 @@ export default function AdminDashboard() {
 
                   <div 
                     onClick={() => router.push('/dashboard/purchase-orders')}
-                    className="p-6 rounded-2xl bg-white/5 border border-white/10 space-y-3 cursor-pointer hover:bg-white/10 transition-colors"
+                    className="p-5 sm:p-6 rounded-2xl bg-white/5 border border-white/10 space-y-3 cursor-pointer hover:bg-white/10 transition-colors"
                   >
                     <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 flex items-center justify-between">
                       <span>Importación en Tránsito</span>
@@ -440,7 +440,7 @@ export default function AdminDashboard() {
                     <p className="text-[8px] font-bold text-slate-500 uppercase">Lotes Marítimos y Aéreos</p>
                   </div>
 
-                  <div className="p-6 rounded-2xl bg-white/5 border border-white/10 space-y-3">
+                  <div className="p-5 sm:p-6 rounded-2xl bg-white/5 border border-white/10 space-y-3">
                     <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Patrimonio Neto Operativo</p>
                     <p className="text-2xl font-black text-emerald-400 tracking-tighter">
                       ${(stats.inventoryValuation + stats.totalDebts + stats.inTransitValuation).toLocaleString('en-US', { maximumFractionDigits: 0 })}
@@ -452,7 +452,7 @@ export default function AdminDashboard() {
             )}
 
             {/* GRÁFICOS RECHARTS */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 px-1">
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 px-1">
                 <SalesTrendChart orders={orders} />
                 <OrderStatusChart orders={orders} />
             </div>
