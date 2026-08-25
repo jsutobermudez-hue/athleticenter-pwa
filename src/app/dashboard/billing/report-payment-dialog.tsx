@@ -308,9 +308,10 @@ export function ReportPaymentDialog({ invoice, mode = 'partial' }: { invoice: In
         earlyDiscountAmount,
         taxAmount,
         finalAmount: Number(finalAmountToTransfer.toFixed(2)), 
-        discountType 
+        discountType,
+        commDiscountPercent: bcvDiscountFactor * 100
     };
-  }, [globalSettings, inputAmount, accountingBase, documentType, earlyPaymentType, is7DaysEligible, is15DaysEligible, invoice?.remainingBalance, isTotalMode, inputMode]);
+  }, [globalSettings, inputAmount, accountingBase, documentType, earlyPaymentType, is7DaysEligible, is15DaysEligible, invoice?.remainingBalance, isTotalMode, inputMode, orderData]);
 
   useEffect(() => {
       if (selectedMethod && !['Zelle', 'Efectivo'].includes(selectedMethod)) {
@@ -503,20 +504,20 @@ export function ReportPaymentDialog({ invoice, mode = 'partial' }: { invoice: In
                                                 <div className={cn(
                                                     "flex items-center justify-between p-4 rounded-2xl border-2 cursor-pointer transition-all",
                                                     accountingBase === 'cash' ? "border-emerald-500 bg-emerald-50 shadow-sm" : "border-slate-100 hover:bg-slate-50",
-                                                    !['Zelle', 'Efectivo'].includes(selectedMethod) && "opacity-40 cursor-not-allowed grayscale"
+                                                    !['Zelle', 'Efectivo', 'Binance Pay / USDT', 'Binance Pay', 'Binance'].includes(selectedMethod) && "opacity-40 cursor-not-allowed grayscale"
                                                 )} onClick={() => {
-                                                    if (['Zelle', 'Efectivo'].includes(selectedMethod)) setValue('accountingBase', 'cash');
+                                                    if (['Zelle', 'Efectivo', 'Binance Pay / USDT', 'Binance Pay', 'Binance'].includes(selectedMethod)) setValue('accountingBase', 'cash');
                                                 }}>
                                                     <div className="flex flex-col gap-0.5">
                                                         <span className="text-[10px] font-black uppercase">Incentivo CASH</span>
-                                                        <span className="text-[7px] font-bold text-emerald-600 uppercase">Aplica Ahorro Red (~35%)</span>
+                                                        <span className="text-[7px] font-bold text-emerald-600 uppercase">Aplica Ahorro Red (-{calculation.commDiscountPercent.toFixed(0)}%)</span>
                                                     </div>
-                                                    <RadioGroupItem value="cash" disabled={!['Zelle', 'Efectivo'].includes(selectedMethod)} />
+                                                    <RadioGroupItem value="cash" disabled={!['Zelle', 'Efectivo', 'Binance Pay / USDT', 'Binance Pay', 'Binance'].includes(selectedMethod)} />
                                                 </div>
                                             </TooltipTrigger>
-                                            {!['Zelle', 'Efectivo'].includes(selectedMethod) && (
+                                            {!['Zelle', 'Efectivo', 'Binance Pay / USDT', 'Binance Pay', 'Binance'].includes(selectedMethod) && (
                                                 <TooltipContent className="bg-slate-900 text-white font-bold text-[9px] uppercase">
-                                                    El incentivo requiere método de pago: Zelle o Efectivo.
+                                                    El incentivo requiere método de pago: Zelle, Binance o Efectivo.
                                                 </TooltipContent>
                                             )}
                                         </Tooltip>
@@ -704,7 +705,7 @@ export function ReportPaymentDialog({ invoice, mode = 'partial' }: { invoice: In
                                         
                                         {calculation.cashDiscountAmount > 0 && (
                                             <div className="flex justify-between items-center text-emerald-400 animate-in slide-in-from-left-2">
-                                                <span className="text-[9px] font-black uppercase flex items-center gap-1"><TrendingDown className="h-3 w-3" /> Incentivo CASH (~35% OFF)</span>
+                                                <span className="text-[9px] font-black uppercase flex items-center gap-1"><TrendingDown className="h-3 w-3" /> Incentivo CASH (-{calculation.commDiscountPercent.toFixed(0)}%)</span>
                                                 <span className="text-sm font-black">-${calculation.cashDiscountAmount.toFixed(2)}</span>
                                             </div>
                                         )}
