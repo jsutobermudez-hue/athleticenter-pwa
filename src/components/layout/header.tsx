@@ -49,7 +49,7 @@ const spanishLabels: { [key: string]: string } = {
     notifications: 'Notificaciones',
     quotes: 'Cotizaciones',
     audit: 'Auditoría',
-}
+};
 
 function LiveClock() {
     const [timeStr, setTimeStr] = useState<string>('');
@@ -131,11 +131,11 @@ export function Header() {
     } catch (error) {
         console.error("Error signing out: ", error);
     }
-  }
+  };
 
   const getBreadcrumbLabel = (segment: string) => {
     return spanishLabels[segment] || segment.charAt(0).toUpperCase() + segment.slice(1);
-  }
+  };
 
   const showLogoInHeader = companyProfile?.headerShowLogo ?? true;
 
@@ -179,6 +179,7 @@ export function Header() {
           </div>
 
           <ConnectionStatus />
+          <Badge className="bg-slate-900 text-white font-black text-[9px] uppercase px-2 py-0.5 rounded-md shadow-2xs border border-white/10 hidden sm:inline-flex">v1.7.1</Badge>
           <ReloadAppButton />
           <NotificationsPopover />
         </div>
