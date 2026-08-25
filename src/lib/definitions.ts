@@ -378,6 +378,10 @@ export interface Offer extends Auditable {
   name: string;
   discountPercentage: number;
   isActive: boolean;
+  fixedPriceUSD?: number;
+  applicableBrand?: string;
+  applicableCategory?: string;
+  cashOnly?: boolean;
 }
 
 export interface StockHistory extends Auditable {

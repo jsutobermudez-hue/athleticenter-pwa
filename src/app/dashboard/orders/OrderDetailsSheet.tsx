@@ -220,6 +220,50 @@ export function OrderDetailsSheet({
     }
   };
 
+  const [isApplyingPromo, setIsApplyingPromo] = useState(false);
+
+  const handleApplySpartanPromo = async () => {
+    if (!firestore || !order?.id) return;
+    if (!window.confirm(`🔥 ¿Deseas conciliar y aplicar la tarifa de OFERTA SPARTAN ($14.00/u) a todos los balones de este pedido? El total se actualizará a $210.00 USD.`)) return;
+    
+    setIsApplyingPromo(true);
+    try {
+        const { getDocs, writeBatch } = await import('firebase/firestore');
+        const itemsSnap = await getDocs(collection(firestore, `orders/${order.id}/orderItems`));
+        const batch = writeBatch(firestore);
+        
+        let newTotal = 0;
+        itemsSnap.docs.forEach(docSnap => {
+            const data = docSnap.data();
+            const qty = Number(data.quantity || 1);
+            const promoPrice = 14.00;
+            batch.update(docSnap.ref, { unitPrice: promoPrice });
+            newTotal += (qty * promoPrice);
+        });
+
+        const orderRef = doc(firestore, 'orders', order.id);
+        batch.update(orderRef, { 
+            totalAmount: newTotal,
+            appliedDiscountPercent: 0,
+            isNetPrice: true,
+            incentivesApplied: true,
+            promoName: 'Oferta Spartan $14',
+            updatedAt: serverTimestamp()
+        });
+
+        await batch.commit();
+        toast({ 
+            title: "🔥 Oferta Spartan Aplicada ($14.00/u)", 
+            description: `Se actualizaron los precios del pedido. Nuevo Total Neto: $${newTotal.toFixed(2)} USD.` 
+        });
+    } catch (e: any) {
+        console.error("Error applying promo:", e);
+        toast({ variant: 'destructive', title: "Error al aplicar oferta", description: e.message || "No se pudo actualizar los precios." });
+    } finally {
+        setIsApplyingPromo(false);
+    }
+  };
+
   const handleShareWhatsApp = () => {
     const rawPhone = (customerData?.phone || fallbackCustomer?.phone || order.customerPhone || '').replace(/\D/g, '');
     const cleanPhone = rawPhone.length === 10 ? `58${rawPhone}` : rawPhone;
@@ -481,6 +525,18 @@ export function OrderDetailsSheet({
                                       </div>
                                       <Switch checked={pickingMode} onCheckedChange={setPickingMode} />
                                   </div>
+                              )}
+
+                              {isAdmin && (
+                                  <Button
+                                      onClick={handleApplySpartanPromo}
+                                      disabled={isApplyingPromo}
+                                      variant="outline"
+                                      className="w-full h-10 border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-900 font-black uppercase text-[9px] tracking-widest rounded-xl shadow-sm"
+                                  >
+                                      {isApplyingPromo ? <Loader2 className="h-4 w-4 animate-spin mr-1.5 text-amber-600" /> : <Zap className="h-4 w-4 text-amber-600 mr-1.5" />}
+                                      🔥 APLICAR OFERTA SPARTAN ($14.00/U)
+                                  </Button>
                               )}
                           </div>
                       </div>

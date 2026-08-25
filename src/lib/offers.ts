@@ -42,6 +42,18 @@ export function calculateOfferPrice(
     };
   }
 
+  const fixedPriceOffer = appliedOffers.find(o => o.fixedPriceUSD !== undefined && o.fixedPriceUSD > 0);
+  if (fixedPriceOffer && fixedPriceOffer.fixedPriceUSD) {
+    const finalPrice = fixedPriceOffer.fixedPriceUSD;
+    const totalDiscountPercentage = listPrice > 0 ? Math.max(0, (listPrice - finalPrice) / listPrice) : 0;
+    return {
+      finalPrice,
+      totalDiscountPercentage,
+      appliedOffers,
+      hasOffer: true,
+    };
+  }
+
   const totalDiscountPercentage = appliedOffers.reduce(
     (sum, offer) => sum + offer.discountPercentage,
     0
