@@ -110,6 +110,7 @@ export function OrderDetailsSheet({
   const [isPrintingLabels, setIsPrintingLabels] = useState(false);
   const [isCompleting, setIsCompleting] = useState(false);
   const [zoomImage, setZoomImage] = useState<string | null>(null);
+  const [simulatedMethod, setSimulatedMethod] = useState<'Zelle' | 'Binance Pay / USDT' | 'Efectivo' | 'Pago Móvil'>('Zelle');
 
   const companyProfileRef = useMemoFirebase(() => (firestore ? doc(firestore, 'companyProfile', 'main') : null), [firestore]);
   const { data: companyProfile } = useDoc<CompanyProfile>(companyProfileRef);
@@ -520,120 +521,236 @@ export function OrderDetailsSheet({
                         </div>
                     )}
 
-                    {/* TARJETA DE AUDITORÍA FINANCIERA DESTACADA Y AMPLIA */}
-                    <div className="p-5 rounded-2xl bg-white border border-slate-200 shadow-md space-y-4">
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-slate-100 gap-2">
-                            <div>
-                                <p className="text-[9px] font-black uppercase tracking-[0.2em] text-primary">Auditoría Financiera</p>
-                                <h4 className="text-xs font-black uppercase text-slate-900">Estado de Abonos ({orderPayments?.length || 0})</h4>
-                                {discountPercent > 0 && (
-                                    <p className="text-[9px] font-bold text-slate-500 mt-1">
-                                        Subtotal Bruto: <span className="line-through text-slate-400">${totalAmount.toFixed(2)}</span> • Desc. {discountPercent}% (<strong className="text-emerald-600">-${discountAmount.toFixed(2)}</strong>)
+                    {/* SIMULADOR DE PAGO INTERACTIVO Y AUDITORÍA FINANCIERA (CUÁNTO, CÓMO Y POR QUÉ) */}
+                    {pendingDebt <= 0.05 ? (
+                        <div className="p-5 rounded-2xl bg-emerald-950 text-white border border-emerald-500/30 shadow-xl space-y-4">
+                            <div className="flex items-center justify-between border-b border-emerald-800/60 pb-3">
+                                <div className="flex items-center gap-2">
+                                    <ShieldCheck className="h-5 w-5 text-emerald-400" />
+                                    <div>
+                                        <h4 className="text-xs font-black uppercase text-white">Factura 100% Solvente</h4>
+                                        <p className="text-[9px] font-mono text-emerald-300">Expediente totalmente liquidado</p>
+                                    </div>
+                                </div>
+                                <Badge className="bg-emerald-500 text-slate-950 font-black text-[9px] uppercase px-2.5 py-0.5">
+                                    PAGADO & VERIFICADO
+                                </Badge>
+                            </div>
+
+                            {/* 💰 CUÁNTO SE PAGÓ */}
+                            <div className="p-3.5 rounded-xl bg-slate-900/80 border border-emerald-500/20 space-y-1">
+                                <p className="text-[9px] font-black uppercase text-emerald-400 tracking-wider">💰 CUÁNTO SE PAGÓ</p>
+                                <p className="text-xl font-black text-white tracking-tight">
+                                    ${(paidAmount > 0 ? paidAmount : netPayableTotal).toFixed(2)} USD
+                                </p>
+                                <p className="text-[9px] font-bold text-slate-300">
+                                    Equivalente Oficial: <strong>Bs. {(((paidAmount > 0 ? paidAmount : netPayableTotal)) * (globalSettings?.bcvRate || 65.50)).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong> (Tasa BCV: Bs. {(globalSettings?.bcvRate || 65.50).toFixed(2)})
+                                </p>
+                            </div>
+
+                            {/* 💳 CÓMO SE PAGÓ */}
+                            <div className="p-3.5 rounded-xl bg-slate-900/80 border border-emerald-500/20 space-y-1.5">
+                                <p className="text-[9px] font-black uppercase text-emerald-400 tracking-wider">💳 CÓMO SE PAGÓ</p>
+                                {orderPayments && orderPayments.length > 0 ? (
+                                    <div className="space-y-1.5">
+                                        {orderPayments.map((p, i) => (
+                                            <div key={i} className="flex justify-between items-center text-xs font-bold text-slate-200">
+                                                <span>• {p.method} {p.referenceNumber ? `(Ref: ${p.referenceNumber})` : ''}</span>
+                                                <span className="font-mono text-emerald-300">${p.amount?.toFixed(2)}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <p className="text-xs font-bold text-slate-200">
+                                        • {(order as any).paymentMethod || 'Efectivo / Zelle / Binance'} (Pago Directo Certificado)
                                     </p>
                                 )}
                             </div>
-                            <div className="text-left sm:text-right">
-                                <p className="text-base font-black text-slate-900 tracking-tight">${paidAmount.toFixed(2)} / ${netPayableTotal.toFixed(2)}</p>
-                                <p className="text-[8px] font-bold text-slate-400 uppercase">{discountPercent > 0 ? 'Monto Neto Facturado' : 'Monto Total Expediente'}</p>
+
+                            {/* 📊 POR QUÉ (JUSTIFICACIÓN FINANCIERA DE TESORERÍA) */}
+                            <div className="p-3.5 rounded-xl bg-emerald-900/30 border border-emerald-600/30 space-y-1">
+                                <p className="text-[9px] font-black uppercase text-emerald-300 tracking-wider">📊 POR QUÉ (JUSTIFICACIÓN DE COBRO)</p>
+                                <p className="text-[10px] font-medium leading-relaxed text-slate-200">
+                                    {discountPercent > 0 
+                                        ? `Factura liquidada con Incentivo Comercial de Tesorería (-${discountPercent}% por pago en divisas). El cliente obtuvo un ahorro directo de -$${discountAmount.toFixed(2)} USD sobre el Subtotal Bruto de lista BCV ($${totalAmount.toFixed(2)} USD).`
+                                        : `Factura liquidada al 100% a tasa oficial BCV (Bs. ${(globalSettings?.bcvRate || 65.50).toFixed(2)}) sobre el monto nominal bruto ($${totalAmount.toFixed(2)} USD).`
+                                    }
+                                </p>
                             </div>
                         </div>
-
-                        {/* BARRA DE PROGRESO DE AMORTIZACIÓN */}
-                        <div className="space-y-1 bg-slate-50 p-3 rounded-xl border border-slate-100">
-                            <div className="flex justify-between text-[9px] font-black uppercase">
-                                <span className="text-slate-500">Amortizado: {paymentPct.toFixed(0)}%</span>
-                                <span className={pendingDebt > 0.05 ? "text-rose-600 font-extrabold" : "text-emerald-600 font-extrabold"}>
-                                    {pendingDebt > 0.05 ? `Adeudado: $${pendingDebt.toFixed(2)}` : '🎉 100% SOLVENTE'}
-                                </span>
+                    ) : (
+                        <div className="p-5 rounded-2xl bg-white border border-slate-200 shadow-md space-y-4">
+                            <div className="flex justify-between items-center pb-2 border-b border-slate-100">
+                                <div>
+                                    <p className="text-[9px] font-black uppercase tracking-[0.2em] text-primary">Simulador de Pago Vivo</p>
+                                    <h4 className="text-xs font-black uppercase text-slate-900">Proyección según Vía Seleccionada</h4>
+                                </div>
+                                <Badge variant="outline" className="text-[8px] font-black border-slate-300 text-slate-600 uppercase">
+                                    BCV: Bs. {(globalSettings?.bcvRate || 65.50).toFixed(2)}
+                                </Badge>
                             </div>
-                            <Progress value={paymentPct} className="h-2 bg-slate-200" />
-                        </div>
 
-                        {isLoadingPayments ? (
-                            <div className="flex justify-center p-4"><Loader2 className="animate-spin h-5 w-5 text-slate-400" /></div>
-                        ) : orderPayments && orderPayments.length > 0 ? (
-                            <div className="space-y-3">
-                                {orderPayments.map((p, idx) => {
-                                    const voucherImg = p.imageUrl || (p as any).paymentReceiptUrl || (p as any).comprobanteUrl || (p as any).receiptUrl || (p as any).retentionImageUrl || (p as any).voucherUrl || '';
+                            {/* BOTONES INTERACTIVOS DE MÉTODOS */}
+                            <div className="grid grid-cols-2 gap-2">
+                                {[
+                                    { id: 'Zelle', label: '⚡ Zelle', sub: 'Incentivo Divisas' },
+                                    { id: 'Binance Pay / USDT', label: '🟡 Binance Pay', sub: 'Incentivo Divisas' },
+                                    { id: 'Efectivo', label: '💵 Efectivo USD', sub: 'Incentivo Divisas' },
+                                    { id: 'Pago Móvil', label: '🇻🇪 Pago Móvil BCV', sub: 'Tasa Oficial VES' },
+                                ].map(m => {
+                                    const isSelected = (simulatedMethod || 'Zelle') === m.id;
                                     return (
-                                    <div key={idx} className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2.5">
-                                        <div className="flex items-center justify-between">
-                                            <div>
-                                                <p className="text-xs font-black uppercase text-slate-900 flex items-center gap-1.5">
-                                                    <span className="h-2 w-2 rounded-full bg-emerald-500"></span>
-                                                    {p.method} (Abono #{idx + 1})
-                                                </p>
-                                                <p className="text-[9px] font-mono text-slate-500">Ref: {p.referenceNumber || 'N/A'}</p>
-                                                {(p as any).registeredByName && (
-                                                    <p className="text-[8px] font-bold text-slate-400 uppercase">Reg: {(p as any).registeredByName}</p>
-                                                )}
-                                            </div>
-                                            <div className="text-right">
-                                                <p className="text-sm font-black text-emerald-600">${p.amount?.toFixed(2)}</p>
-                                                <Badge variant="outline" className={cn(
-                                                    "text-[8px] font-black uppercase border-none px-2 py-0.5",
-                                                    p.status === 'verified' ? "bg-emerald-100 text-emerald-800" :
-                                                    p.status === 'pending_verification' ? "bg-amber-100 text-amber-800" :
-                                                    "bg-rose-100 text-rose-800"
-                                                )}>
-                                                    {p.status === 'verified' ? 'Verificado' : p.status === 'pending_verification' ? 'Pendiente' : 'Rechazado'}
-                                                </Badge>
-                                            </div>
-                                        </div>
-
-                                        {voucherImg && (
-                                            <div className="flex items-center gap-2 pt-1">
-                                                <div 
-                                                    onClick={() => setZoomImage(voucherImg)} 
-                                                    className="relative group h-12 w-16 rounded-lg overflow-hidden border border-emerald-300 cursor-pointer shadow-sm shrink-0 bg-slate-900"
-                                                >
-                                                    <img src={voucherImg} alt="Comprobante" className="h-full w-full object-cover" />
-                                                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white">
-                                                        <Maximize2 className="h-3.5 w-3.5" />
-                                                    </div>
-                                                </div>
-                                                <span className="text-[8px] font-bold text-slate-400 uppercase">Ver voucher ampliado</span>
-                                            </div>
-                                        )}
-
-                                        <div className="grid grid-cols-2 gap-2 pt-1 border-t border-slate-200/60">
-                                            <Button
-                                                type="button"
-                                                onClick={() => generatePaymentReceiptPDF({
-                                                    payment: p,
-                                                    allPayments: orderPayments || [],
-                                                    order,
-                                                    companyProfile: companyProfile || undefined,
-                                                    bcvRate: globalSettings?.bcvRate || 65.50,
-                                                    paymentIndex: idx + 1
-                                                })}
-                                                className="h-7 px-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-[8px] font-black uppercase tracking-wider flex items-center justify-center gap-1 shadow-sm"
-                                            >
-                                                <Printer className="h-3 w-3 text-emerald-400" /> Recibo PDF
-                                            </Button>
-
-                                            <Button
-                                                type="button"
-                                                onClick={() => {
-                                                    const cleanPhone = (order.customerPhone || customerData?.phone || '').replace(/[^0-9]/g, '');
-                                                    const receiptCode = `#REC-${(order.id || '').replace('#','').substring(0,8)}-${idx+1}`;
-                                                    const statusStr = pendingDebt <= 0.05 ? 'SOLVENTE (100% Pagado)' : `Saldo pendiente adeudado: $${pendingDebt.toFixed(2)} USD`;
-                                                    const text = `Hola *${order.customerName}*! 👋 Se ha generado tu *Recibo Oficial de Pago N° ${receiptCode}* por *$${p.amount?.toFixed(2)} USD* (${p.method}, Ref: ${p.referenceNumber || 'N/A'}) correspondiente al pedido #${order.id}.\n\n📌 Estado de Cuenta: *${statusStr}*.\n\n¡Gracias por tu confianza y preferir Athleticenter Pro! 📦⚽`;
-                                                    window.open(`https://wa.me/${cleanPhone}?text=${encodeURIComponent(text)}`, '_blank');
-                                                }}
-                                                className="h-7 px-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[8px] font-black uppercase tracking-wider flex items-center justify-center gap-1 shadow-sm"
-                                            >
-                                                <Send className="h-3 w-3" /> WhatsApp
-                                            </Button>
-                                        </div>
-                                    </div>
+                                        <button
+                                            key={m.id}
+                                            type="button"
+                                            onClick={() => setSimulatedMethod(m.id as any)}
+                                            className={cn(
+                                                "p-2.5 rounded-xl border text-left transition-all",
+                                                isSelected
+                                                    ? "bg-slate-900 text-white border-slate-900 shadow-md scale-[1.02]"
+                                                    : "bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100"
+                                            )}
+                                        >
+                                            <p className="text-[11px] font-black uppercase">{m.label}</p>
+                                            <p className={cn("text-[8px] font-bold uppercase", isSelected ? "text-emerald-400" : "text-slate-400")}>{m.sub}</p>
+                                        </button>
                                     );
                                 })}
                             </div>
-                        ) : (
-                            <p className="text-[10px] font-bold text-slate-400 uppercase text-center py-2 italic">Sin abonos o comprobantes adjuntos.</p>
-                        )}
-                    </div>
+
+                            {/* RESULTADO VIVO DEL SIMULADOR */}
+                            {(() => {
+                                const activeMethod = simulatedMethod || 'Zelle';
+                                const isForeign = ['Zelle', 'Binance Pay / USDT', 'Binance', 'Efectivo'].includes(activeMethod);
+                                const simDiscountPct = isForeign ? (discountPercent > 0 ? discountPercent : (globalSettings?.defaultBcvDiscount || 25)) : 0;
+                                const simDiscountAmt = (totalAmount * simDiscountPct) / 100;
+                                const simNetTotal = Math.max(0, totalAmount - simDiscountAmt);
+                                const simVesTotal = simNetTotal * (globalSettings?.bcvRate || 65.50);
+
+                                return (
+                                    <div className="p-4 rounded-xl bg-slate-900 text-white space-y-2 font-mono">
+                                        <div className="flex justify-between text-[10px] text-slate-400">
+                                            <span>Subtotal Bruto BCV:</span>
+                                            <span className="font-bold text-white">${totalAmount.toFixed(2)}</span>
+                                        </div>
+                                        
+                                        {simDiscountAmt > 0 && (
+                                            <div className="flex justify-between text-[10px] text-emerald-400">
+                                                <span>Incentivo Cash Divisas (-{simDiscountPct}%):</span>
+                                                <span className="font-bold">-${simDiscountAmt.toFixed(2)}</span>
+                                            </div>
+                                        )}
+
+                                        <div className="pt-2 border-t border-slate-800 flex justify-between items-baseline">
+                                            <span className="text-[10px] font-sans font-black uppercase text-slate-300">Total Neto a Pagar:</span>
+                                            <div className="text-right">
+                                                <p className="text-lg font-black text-emerald-400">${simNetTotal.toFixed(2)} USD</p>
+                                                <p className="text-[9px] text-slate-400 font-bold">Bs. {simVesTotal.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            })()}
+
+                            <Button
+                                onClick={handleGoToBilling}
+                                className="w-full h-10 bg-emerald-600 hover:bg-emerald-500 text-white font-black uppercase text-[10px] tracking-widest rounded-xl shadow-lg"
+                            >
+                                <DollarSign className="mr-1.5 h-4 w-4" /> GESTIONAR ESTE PAGO EN FACTURACIÓN
+                            </Button>
+                        </div>
+                    )}
+
+                        {/* TARJETA DE AUDITORÍA DE COMPROBANTES REGISTRADOS */}
+                        <div className="p-5 rounded-2xl bg-white border border-slate-200 shadow-md space-y-4">
+                            <h4 className="text-xs font-black uppercase text-slate-900 pb-2 border-b border-slate-100">
+                                Comprobantes Registrados ({orderPayments?.length || 0})
+                            </h4>
+                            {isLoadingPayments ? (
+                                <div className="flex justify-center p-4"><Loader2 className="animate-spin h-5 w-5 text-slate-400" /></div>
+                            ) : orderPayments && orderPayments.length > 0 ? (
+                                <div className="space-y-3">
+                                    {orderPayments.map((p, idx) => {
+                                        const voucherImg = p.imageUrl || (p as any).paymentReceiptUrl || (p as any).comprobanteUrl || (p as any).receiptUrl || (p as any).retentionImageUrl || (p as any).voucherUrl || '';
+                                        return (
+                                        <div key={idx} className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2.5">
+                                            <div className="flex items-center justify-between">
+                                                <div>
+                                                    <p className="text-xs font-black uppercase text-slate-900 flex items-center gap-1.5">
+                                                        <span className="h-2 w-2 rounded-full bg-emerald-500"></span>
+                                                        {p.method} (Abono #{idx + 1})
+                                                    </p>
+                                                    <p className="text-[9px] font-mono text-slate-500">Ref: {p.referenceNumber || 'N/A'}</p>
+                                                    {(p as any).registeredByName && (
+                                                        <p className="text-[8px] font-bold text-slate-400 uppercase">Reg: {(p as any).registeredByName}</p>
+                                                    )}
+                                                </div>
+                                                <div className="text-right">
+                                                    <p className="text-sm font-black text-emerald-600">${p.amount?.toFixed(2)}</p>
+                                                    <Badge variant="outline" className={cn(
+                                                        "text-[8px] font-black uppercase border-none px-2 py-0.5",
+                                                        p.status === 'verified' ? "bg-emerald-100 text-emerald-800" :
+                                                        p.status === 'pending_verification' ? "bg-amber-100 text-amber-800" :
+                                                        "bg-rose-100 text-rose-800"
+                                                    )}>
+                                                        {p.status === 'verified' ? 'Verificado' : p.status === 'pending_verification' ? 'Pendiente' : 'Rechazado'}
+                                                    </Badge>
+                                                </div>
+                                            </div>
+
+                                            {voucherImg && (
+                                                <div className="flex items-center gap-2 pt-1">
+                                                    <div 
+                                                        onClick={() => setZoomImage(voucherImg)} 
+                                                        className="relative group h-12 w-16 rounded-lg overflow-hidden border border-emerald-300 cursor-pointer shadow-sm shrink-0 bg-slate-900"
+                                                    >
+                                                        <img src={voucherImg} alt="Comprobante" className="h-full w-full object-cover" />
+                                                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white">
+                                                            <Maximize2 className="h-3.5 w-3.5" />
+                                                        </div>
+                                                    </div>
+                                                    <span className="text-[8px] font-bold text-slate-400 uppercase">Ver voucher ampliado</span>
+                                                </div>
+                                            )}
+
+                                            <div className="grid grid-cols-2 gap-2 pt-1 border-t border-slate-200/60">
+                                                <Button
+                                                    type="button"
+                                                    onClick={() => generatePaymentReceiptPDF({
+                                                        payment: p,
+                                                        allPayments: orderPayments || [],
+                                                        order,
+                                                        companyProfile: companyProfile || undefined,
+                                                        bcvRate: globalSettings?.bcvRate || 65.50,
+                                                        paymentIndex: idx + 1
+                                                    })}
+                                                    className="h-7 px-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-[8px] font-black uppercase tracking-wider flex items-center justify-center gap-1 shadow-sm"
+                                                >
+                                                    <Printer className="h-3 w-3 text-emerald-400" /> Recibo PDF
+                                                </Button>
+
+                                                <Button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        const cleanPhone = (order.customerPhone || customerData?.phone || '').replace(/[^0-9]/g, '');
+                                                        const receiptCode = `#REC-${(order.id || '').replace('#','').substring(0,8)}-${idx+1}`;
+                                                        const statusStr = pendingDebt <= 0.05 ? 'SOLVENTE (100% Pagado)' : `Saldo pendiente adeudado: $${pendingDebt.toFixed(2)} USD`;
+                                                        const text = `Hola *${order.customerName}*! 👋 Se ha generado tu *Recibo Oficial de Pago N° ${receiptCode}* por *$${p.amount?.toFixed(2)} USD* (${p.method}, Ref: ${p.referenceNumber || 'N/A'}) correspondiente al pedido #${order.id}.\n\n📌 Estado de Cuenta: *${statusStr}*.\n\n¡Gracias por tu confianza y preferir Athleticenter Pro! 📦⚽`;
+                                                        window.open(`https://wa.me/${cleanPhone}?text=${encodeURIComponent(text)}`, '_blank');
+                                                    }}
+                                                    className="h-7 px-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[8px] font-black uppercase tracking-wider flex items-center justify-center gap-1 shadow-sm"
+                                                >
+                                                    <Send className="h-3 w-3" /> WhatsApp
+                                                </Button>
+                                            </div>
+                                        </div>
+                                        );
+                                    })}
+                                </div>
+                            ) : (
+                                <p className="text-[10px] font-bold text-slate-400 uppercase text-center py-2 italic">Sin abonos o comprobantes adjuntos.</p>
+                            )}
+                        </div>
 
                     {/* BOTÓN REPETIR PEDIDO EN 1-CLIC */}
                     <Button 
