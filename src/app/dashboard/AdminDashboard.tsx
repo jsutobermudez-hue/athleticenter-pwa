@@ -10,6 +10,7 @@ import {
     Boxes, 
     Users, 
     AlertTriangle, 
+    FileWarning,
     DollarSign,
     Zap,
     ArrowUpRight,
@@ -129,7 +130,7 @@ export default function AdminDashboard() {
 
     const stats = useMemo(() => {
         if (!orders || !products || !customers) return { 
-            revenue: 0, pending: 0, lowStock: 0, clients: 0, inventoryValuation: 0, totalDebts: 0, grossBcvDebt: 0, netCashDebt: 0, inTransitValuation: 0,
+            revenue: 0, pending: 0, lowStock: 0, clients: 0, inventoryValuation: 0, totalDebts: 0, grossBcvDebt: 0, netCashDebt: 0, vencido: 0, inTransitValuation: 0,
             recaudadoCash: 0, cashBreakdown: null,
             totalOrdersCount: 0, totalOrdersAmount: 0, liquidadosCount: 0, liquidadosAmount: 0 
         };
@@ -139,6 +140,7 @@ export default function AdminDashboard() {
         const totalDebts = globalMetrics.totalDebts;
         const grossBcvDebt = globalMetrics.grossBcvDebt;
         const netCashDebt = globalMetrics.netCashDebt;
+        const vencido = globalMetrics.vencido;
         const pending = globalMetrics.pendingOrdersCount;
 
         const lowStock = products.filter(p => (p.stockLevel ?? (p as any).stock ?? 0) < 10).length;
@@ -160,7 +162,7 @@ export default function AdminDashboard() {
         }
 
         return { 
-            revenue, pending, lowStock, clients, inventoryValuation, totalDebts, grossBcvDebt, netCashDebt, inTransitValuation,
+            revenue, pending, lowStock, clients, inventoryValuation, totalDebts, grossBcvDebt, netCashDebt, vencido, inTransitValuation,
             recaudadoCash: globalMetrics.recaudadoCash,
             cashBreakdown: globalMetrics.cashBreakdown,
             totalOrdersCount: globalMetrics.totalOrdersCount,
@@ -304,7 +306,7 @@ export default function AdminDashboard() {
                     </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
                     <DashboardMetricCard 
                         title="Pagos Registrados" 
                         value={`$${(stats.recaudadoCash || 0).toLocaleString('en-US', { maximumFractionDigits: 0 })}`} 
@@ -314,13 +316,23 @@ export default function AdminDashboard() {
                         onClick={() => setIsCashAuditModalOpen(true)}
                     />
                     <DashboardMetricCard 
-                        title="Cuentas por Cobrar (Lista BCV)" 
+                        title="Por Cobrar (Lista BCV)" 
                         value={`$${(stats.grossBcvDebt || stats.totalDebts || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} 
                         subtitle={`Neto Cash: $${(stats.netCashDebt || stats.totalDebts || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} 
                         tooltip="Doble Valoración Contable: Muestra el activo bruto total a Lista BCV ($35,668.00) y la proyección neta si liquida en divisas ($24,772.00)."
-                        icon={DollarSign} iconBg="bg-rose-50" iconColor="text-rose-500" 
+                        icon={DollarSign} iconBg="bg-blue-50" iconColor="text-blue-500" 
                         alert={(stats.grossBcvDebt || stats.totalDebts) > 0}
                         onClick={() => router.push('/dashboard/billing?status=pendientes')}
+                        onIconClick={() => setIsReceivablesModalOpen(true)}
+                    />
+                    <DashboardMetricCard 
+                        title="Mora Crítica (+30D)" 
+                        value={`$${(stats.vencido || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} 
+                        subtitle="Excedido 30 Días Crédito" 
+                        tooltip="Facturas o créditos vencidos con más de 30 días. Clic para auditar expedientes en riesgo y gestionar cobros."
+                        icon={FileWarning} iconBg="bg-rose-500/10" iconColor="text-rose-600 animate-pulse" 
+                        alert={(stats.vencido || 0) > 0}
+                        onClick={() => router.push('/dashboard/billing?status=Vencido')}
                         onIconClick={() => setIsReceivablesModalOpen(true)}
                     />
                     <DashboardMetricCard 
@@ -328,7 +340,7 @@ export default function AdminDashboard() {
                         value={`$${stats.inventoryValuation.toLocaleString('en-US', { maximumFractionDigits: 0 })}`} 
                         subtitle="Activos en Almacén" 
                         tooltip="Valoración económica total de las mercancías físicamente disponibles en almacén a precio de catálogo."
-                        icon={Boxes} iconBg="bg-blue-50" iconColor="text-blue-500" 
+                        icon={Boxes} iconBg="bg-slate-100" iconColor="text-slate-700" 
                         onClick={() => router.push('/dashboard/inventory')}
                     />
                     <DashboardMetricCard 

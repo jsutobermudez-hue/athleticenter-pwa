@@ -50,7 +50,7 @@ export function SalesTrendChart({ orders, isLoading = false }: SalesTrendChartPr
   const bcvRate = globalSettings?.bcvRate || 65.50;
 
   const [period, setPeriod] = useState<'7d' | '30d' | '6m'>('7d');
-  const [viewMode, setViewMode] = useState<'comparative' | 'sales' | 'cash'>('comparative');
+  const [viewMode, setViewMode] = useState<'comparative' | 'sales' | 'cash' | 'mora_critica'>('comparative');
   const [isExportingPDF, setIsExportingPDF] = useState(false);
 
   const chartData = useMemo(() => {
@@ -73,10 +73,24 @@ export function SalesTrendChart({ orders, isLoading = false }: SalesTrendChartPr
           return cDate && isSameDay(cDate, day) && cash > 0;
         }).reduce((sum, order) => sum + getEffectiveCashReceived(order), 0);
 
+        const moraTotal = orders.filter(order => {
+          if (!VALID_SALES_STATUSES.includes(order.status) || order.status === 'Pagado') return false;
+          const sDate = getSalesDate(order);
+          if (!sDate || sDate > day) return false;
+          const daysDiff = Math.max(0, Math.floor((day.getTime() - sDate.getTime()) / (1000 * 60 * 60 * 24)));
+          const paid = getEffectiveCashReceived(order);
+          const rem = Math.max(0, (order.totalAmount || 0) - paid);
+          return daysDiff > 30 && rem > 0.05;
+        }).reduce((sum, order) => {
+          const paid = getEffectiveCashReceived(order);
+          return sum + Math.max(0, (order.totalAmount || 0) - paid);
+        }, 0);
+
         return {
           name: format(day, 'dd/MM'),
           ventas: salesTotal,
           cobranzas: cashTotal,
+          moraCritica: moraTotal
         };
       });
     } else if (period === '30d') {
@@ -93,10 +107,24 @@ export function SalesTrendChart({ orders, isLoading = false }: SalesTrendChartPr
           return cDate && isSameDay(cDate, day) && cash > 0;
         }).reduce((sum, order) => sum + getEffectiveCashReceived(order), 0);
 
+        const moraTotal = orders.filter(order => {
+          if (!VALID_SALES_STATUSES.includes(order.status) || order.status === 'Pagado') return false;
+          const sDate = getSalesDate(order);
+          if (!sDate || sDate > day) return false;
+          const daysDiff = Math.max(0, Math.floor((day.getTime() - sDate.getTime()) / (1000 * 60 * 60 * 24)));
+          const paid = getEffectiveCashReceived(order);
+          const rem = Math.max(0, (order.totalAmount || 0) - paid);
+          return daysDiff > 30 && rem > 0.05;
+        }).reduce((sum, order) => {
+          const paid = getEffectiveCashReceived(order);
+          return sum + Math.max(0, (order.totalAmount || 0) - paid);
+        }, 0);
+
         return {
           name: format(day, 'dd/MM'),
           ventas: salesTotal,
           cobranzas: cashTotal,
+          moraCritica: moraTotal
         };
       });
     } else {
@@ -122,10 +150,24 @@ export function SalesTrendChart({ orders, isLoading = false }: SalesTrendChartPr
           return cDate && cDate >= mStart && cDate <= mEnd && cash > 0;
         }).reduce((sum, order) => sum + getEffectiveCashReceived(order), 0);
 
+        const moraTotal = orders.filter(order => {
+          if (!VALID_SALES_STATUSES.includes(order.status) || order.status === 'Pagado') return false;
+          const sDate = getSalesDate(order);
+          if (!sDate || sDate > mEnd) return false;
+          const daysDiff = Math.max(0, Math.floor((mEnd.getTime() - sDate.getTime()) / (1000 * 60 * 60 * 24)));
+          const paid = getEffectiveCashReceived(order);
+          const rem = Math.max(0, (order.totalAmount || 0) - paid);
+          return daysDiff > 30 && rem > 0.05;
+        }).reduce((sum, order) => {
+          const paid = getEffectiveCashReceived(order);
+          return sum + Math.max(0, (order.totalAmount || 0) - paid);
+        }, 0);
+
         return {
           name: format(m, 'MMM', { locale: es }).toUpperCase(),
           ventas: salesTotal,
           cobranzas: cashTotal,
+          moraCritica: moraTotal
         };
       });
     }
@@ -293,6 +335,7 @@ export function SalesTrendChart({ orders, isLoading = false }: SalesTrendChartPr
                 { id: 'comparative', label: '📊 Dual' },
                 { id: 'sales', label: '🔵 Ventas' },
                 { id: 'cash', label: '🟢 Cash' },
+                { id: 'mora_critica', label: '🚨 Mora Crítica' },
               ].map((v) => (
                 <button
                   key={v.id}
@@ -301,7 +344,7 @@ export function SalesTrendChart({ orders, isLoading = false }: SalesTrendChartPr
                   className={cn(
                     "px-2.5 py-1 rounded-lg text-[8px] font-black uppercase tracking-wider transition-all",
                     viewMode === v.id
-                      ? "bg-slate-900 text-white shadow-sm"
+                      ? v.id === 'mora_critica' ? "bg-rose-600 text-white shadow-sm" : "bg-slate-900 text-white shadow-sm"
                       : "text-slate-500 hover:text-slate-800"
                   )}
                 >
@@ -355,6 +398,10 @@ export function SalesTrendChart({ orders, isLoading = false }: SalesTrendChartPr
                   <stop offset="5%" stopColor="#10b981" stopOpacity={0.4}/>
                   <stop offset="95%" stopColor="#10b981" stopOpacity={0.0}/>
                 </linearGradient>
+                <linearGradient id="colorMora" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#ef4444" stopOpacity={0.4}/>
+                  <stop offset="95%" stopColor="#ef4444" stopOpacity={0.0}/>
+                </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
               <XAxis 
@@ -381,7 +428,7 @@ export function SalesTrendChart({ orders, isLoading = false }: SalesTrendChartPr
                 }}
                 formatter={(value: any, name: any) => [
                   `$${Number(value).toLocaleString('en-US', { minimumFractionDigits: 2 })} (Bs. ${(Number(value) * bcvRate).toLocaleString('es-VE', { minimumFractionDigits: 2 })})`,
-                  name === 'ventas' ? '🔵 Ventas Facturadas' : '🟢 Cobranzas Realizadas'
+                  name === 'ventas' ? '🔵 Ventas Facturadas' : name === 'cobranzas' ? '🟢 Cobranzas Realizadas' : '🚨 Mora Crítica (+30D)'
                 ]}
                 labelFormatter={(label) => `Periodo: ${label}`}
               />
@@ -403,6 +450,16 @@ export function SalesTrendChart({ orders, isLoading = false }: SalesTrendChartPr
                   strokeWidth={3} 
                   fillOpacity={1} 
                   fill="url(#colorCobranzas)" 
+                />
+              )}
+              {(viewMode === 'comparative' || viewMode === 'mora_critica') && (
+                <Area 
+                  type="monotone" 
+                  dataKey="moraCritica" 
+                  stroke="#ef4444" 
+                  strokeWidth={3} 
+                  fillOpacity={1} 
+                  fill="url(#colorMora)" 
                 />
               )}
             </AreaChart>

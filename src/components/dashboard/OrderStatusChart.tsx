@@ -45,7 +45,8 @@ const COLORS: { [key: string]: string } = {
   'Despachados': '#6366f1',      // Indigo
   'En Verificación': '#0284c7',  // Sky Blue
   'Pendientes': '#f59e0b',       // Warm Amber
-  'Cancelados': '#ef4444',       // Crimson Red
+  'Mora Crítica': '#ef4444',     // Crimson Red
+  'Cancelados': '#64748b',       // Slate Gray
 };
 
 export function OrderStatusChart({ orders, isLoading = false }: OrderStatusChartProps) {
@@ -58,12 +59,12 @@ export function OrderStatusChart({ orders, isLoading = false }: OrderStatusChart
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedOrderForSheet, setSelectedOrderForSheet] = useState<Order | null>(null);
-  const [activeTab, setActiveTab] = useState<'chart' | 'funnel'>('chart');
+  const [activeTab, setActiveTab] = useState<'chart' | 'funnel' | 'aging'>('chart');
   const [isExportingPDF, setIsExportingPDF] = useState(false);
 
   // Clasificación por embudo operativo
   const funnelData = useMemo(() => {
-    if (!orders) return { verification: [], warehouse: [], transit: [], completed: [], pending: [], cancelled: [] };
+    if (!orders) return { verification: [], warehouse: [], transit: [], completed: [], pending: [], cancelled: [], moraCritica: [], aging0_15: [], aging16_30: [], aging31_60: [], aging60Plus: [] };
 
     const verification: Order[] = [];
     const warehouse: Order[] = [];
@@ -71,8 +72,35 @@ export function OrderStatusChart({ orders, isLoading = false }: OrderStatusChart
     const completed: Order[] = [];
     const pending: Order[] = [];
     const cancelled: Order[] = [];
+    const moraCritica: Order[] = [];
+    const aging0_15: Order[] = [];
+    const aging16_30: Order[] = [];
+    const aging31_60: Order[] = [];
+    const aging60Plus: Order[] = [];
+
+    const now = new Date();
 
     orders.forEach(order => {
+      const rawDate = order.receptionDate || order.approvalDate || order.createdAt || order.orderDate;
+      let days = 0;
+      if (rawDate) {
+        const d = typeof (rawDate as any).toDate === 'function' ? (rawDate as any).toDate() : new Date(rawDate as any);
+        if (!isNaN(d.getTime())) days = Math.max(0, Math.floor((now.getTime() - d.getTime()) / (1000 * 60 * 60 * 24)));
+      }
+      const paid = typeof order.amountPaid === 'number' ? order.amountPaid : (typeof order.totalCashReceived === 'number' ? order.totalCashReceived : 0);
+      const rem = Math.max(0, (order.totalAmount || 0) - paid);
+
+      if (rem > 0.05 && order.status !== 'Pagado' && order.status !== 'Cancelado' && order.status !== 'Rechazado') {
+        if (days <= 15) aging0_15.push(order);
+        else if (days <= 30) aging16_30.push(order);
+        else if (days <= 60) aging31_60.push(order);
+        else aging60Plus.push(order);
+      }
+
+      if (days > 30 && rem > 0.05 && order.status !== 'Pagado' && order.status !== 'Cancelado' && order.status !== 'Rechazado') {
+        moraCritica.push(order);
+      }
+
       if (['En Verificación'].includes(order.status)) {
         verification.push(order);
       } else if (['Aprobado', 'En Preparación'].includes(order.status)) {
@@ -88,7 +116,7 @@ export function OrderStatusChart({ orders, isLoading = false }: OrderStatusChart
       }
     });
 
-    return { verification, warehouse, transit, completed, pending, cancelled };
+    return { verification, warehouse, transit, completed, pending, cancelled, moraCritica, aging0_15, aging16_30, aging31_60, aging60Plus };
   }, [orders]);
 
   const chartData = useMemo(() => {
@@ -97,6 +125,7 @@ export function OrderStatusChart({ orders, isLoading = false }: OrderStatusChart
 
     return [
       { name: 'Pagados / Liquidados', value: funnelData.completed.length, orders: funnelData.completed, color: COLORS['Pagados'], percent: Math.round((funnelData.completed.length / totalCount) * 100) },
+      { name: 'En Mora Crítica (+30D)', value: funnelData.moraCritica.length, orders: funnelData.moraCritica, color: COLORS['Mora Crítica'], percent: Math.round((funnelData.moraCritica.length / totalCount) * 100) },
       { name: 'En Almacén / Empaque', value: funnelData.warehouse.length, orders: funnelData.warehouse, color: COLORS['En Preparación'], percent: Math.round((funnelData.warehouse.length / totalCount) * 100) },
       { name: 'En Ruta / Despachados', value: funnelData.transit.length, orders: funnelData.transit, color: COLORS['Despachados'], percent: Math.round((funnelData.transit.length / totalCount) * 100) },
       { name: 'Verificación de Pago', value: funnelData.verification.length, orders: funnelData.verification, color: COLORS['En Verificación'], percent: Math.round((funnelData.verification.length / totalCount) * 100) },
@@ -305,6 +334,16 @@ export function OrderStatusChart({ orders, isLoading = false }: OrderStatusChart
             >
               ⚡ Embudo
             </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('aging')}
+              className={cn(
+                "px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all",
+                activeTab === 'aging' ? "bg-rose-600 text-white shadow-sm font-black" : "text-rose-600 hover:bg-rose-50 font-bold"
+              )}
+            >
+              🚨 Aging Crédito
+            </button>
           </div>
 
           <Button
@@ -321,7 +360,49 @@ export function OrderStatusChart({ orders, isLoading = false }: OrderStatusChart
       </CardHeader>
 
       <CardContent className="px-6 pb-6 pt-0 flex flex-col items-center justify-center flex-1 space-y-4">
-        {activeTab === 'funnel' ? (
+        {activeTab === 'aging' ? (
+          /* AGING DE CRÉDITO Y ANTIGÜEDAD DE DEUDA */
+          <div className="w-full space-y-3 pt-2">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+              <div onClick={() => openStatusAudit('Aging 0-15')} className="bg-emerald-50 border border-emerald-100 hover:border-emerald-300 p-3.5 rounded-2xl cursor-pointer transition-all space-y-1">
+                <div className="flex items-center justify-between">
+                  <span className="text-[8px] font-black uppercase tracking-widest text-emerald-700">🟢 0-15 Días</span>
+                  <Badge className="bg-emerald-600 text-white text-[8px] font-black px-1.5 py-0 rounded-lg">{funnelData.aging0_15.length}</Badge>
+                </div>
+                <div className="text-sm font-black text-emerald-900 font-mono">${funnelData.aging0_15.reduce((sum, o) => sum + Math.max(0, (o.totalAmount || 0) - (o.amountPaid || 0)), 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+                <p className="text-[8px] font-bold text-emerald-600 uppercase">Al Día / Por Vencer</p>
+              </div>
+              <div onClick={() => openStatusAudit('Aging 16-30')} className="bg-blue-50 border border-blue-100 hover:border-blue-300 p-3.5 rounded-2xl cursor-pointer transition-all space-y-1">
+                <div className="flex items-center justify-between">
+                  <span className="text-[8px] font-black uppercase tracking-widest text-blue-700">🟡 16-30 Días</span>
+                  <Badge className="bg-blue-600 text-white text-[8px] font-black px-1.5 py-0 rounded-lg">{funnelData.aging16_30.length}</Badge>
+                </div>
+                <div className="text-sm font-black text-blue-900 font-mono">${funnelData.aging16_30.reduce((sum, o) => sum + Math.max(0, (o.totalAmount || 0) - (o.amountPaid || 0)), 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+                <p className="text-[8px] font-bold text-blue-600 uppercase">Próximo Vencimiento</p>
+              </div>
+              <div onClick={() => openStatusAudit('En Mora Crítica (+30D)')} className="bg-rose-50 border border-rose-200 hover:border-rose-400 p-3.5 rounded-2xl cursor-pointer transition-all space-y-1">
+                <div className="flex items-center justify-between">
+                  <span className="text-[8px] font-black uppercase tracking-widest text-rose-700">🔴 31-60 Días</span>
+                  <Badge className="bg-rose-600 text-white text-[8px] font-black px-1.5 py-0 rounded-lg">{funnelData.aging31_60.length}</Badge>
+                </div>
+                <div className="text-sm font-black text-rose-900 font-mono">${funnelData.aging31_60.reduce((sum, o) => sum + Math.max(0, (o.totalAmount || 0) - (o.amountPaid || 0)), 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+                <p className="text-[8px] font-bold text-rose-600 uppercase">Mora Crítica</p>
+              </div>
+              <div onClick={() => openStatusAudit('En Mora Crítica (+30D)')} className="bg-rose-900 text-white border border-rose-800 p-3.5 rounded-2xl cursor-pointer transition-all space-y-1">
+                <div className="flex items-center justify-between">
+                  <span className="text-[8px] font-black uppercase tracking-widest text-rose-300">🚨 +60 Días</span>
+                  <Badge className="bg-rose-500 text-white text-[8px] font-black px-1.5 py-0 rounded-lg">{funnelData.aging60Plus.length}</Badge>
+                </div>
+                <div className="text-sm font-black text-white font-mono">${funnelData.aging60Plus.reduce((sum, o) => sum + Math.max(0, (o.totalAmount || 0) - (o.amountPaid || 0)), 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+                <p className="text-[8px] font-bold text-rose-300 uppercase">Mora Severa</p>
+              </div>
+            </div>
+            <div className="p-3 bg-slate-900 text-white rounded-2xl flex items-center justify-between">
+              <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">Total Cuentas en Mora Crítica: {funnelData.moraCritica.length} expedientes</span>
+              <span className="text-xs font-black text-rose-400 font-mono">Total Mora: ${funnelData.moraCritica.reduce((sum, o) => sum + Math.max(0, (o.totalAmount || 0) - (o.amountPaid || 0)), 0).toLocaleString('en-US', { minimumFractionDigits: 2 })} USD</span>
+            </div>
+          </div>
+        ) : activeTab === 'funnel' ? (
           /* EMBUDO TÁCTICO DE TRABAJO EN TIEMPO REAL */
           <div className="w-full space-y-3 pt-2">
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
