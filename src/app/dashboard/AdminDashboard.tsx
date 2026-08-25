@@ -306,7 +306,7 @@ export default function AdminDashboard() {
                     </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-4">
                     <DashboardMetricCard 
                         title="Pagos Registrados" 
                         value={`$${(stats.recaudadoCash || 0).toLocaleString('en-US', { maximumFractionDigits: 0 })}`} 

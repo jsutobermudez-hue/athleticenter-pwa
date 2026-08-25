@@ -44,6 +44,11 @@
   * {
     @apply border-border;
   }
+  html, body {
+    -webkit-overflow-scrolling: touch;
+    touch-action: manipulation;
+    overscroll-behavior-y: auto;
+  }
   body {
     @apply bg-background text-foreground;
     font-family: var(--font-inter);
@@ -59,6 +64,12 @@
 }
 
 @layer utilities {
+  .ios-touch-scroll {
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-y;
+    overscroll-behavior-y: contain;
+  }
+  
   .bg-sidebar-gradient {
     background: linear-gradient(180deg, #2871fa 0%, #6717cd 100%);
   }
