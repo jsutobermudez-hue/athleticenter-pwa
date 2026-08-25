@@ -4,12 +4,18 @@ import React from 'react';
 import { Button } from '@/components/ui/button';
 import { RefreshCw } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { cn } from '@/lib/utils';
+
+interface ReloadAppButtonProps {
+  className?: string;
+  variant?: 'sidebar' | 'header';
+}
 
 /**
  * Componente que permite recargar la aplicación de forma forzada.
- * Estilo adaptado para el nuevo Sidebar con degradado.
+ * Estilo adaptado para el Header y Sidebar en todos los dispositivos.
  */
-export function ReloadAppButton() {
+export function ReloadAppButton({ className, variant = 'header' }: ReloadAppButtonProps) {
   const { toast } = useToast();
 
   const handleReload = async () => {
@@ -38,13 +44,21 @@ export function ReloadAppButton() {
     }, 400);
   };
 
+  const isSidebar = variant === 'sidebar';
+
   return (
     <Button
       variant="ghost"
       size="icon"
       onClick={handleReload}
-      className="h-8 w-8 text-white/60 hover:bg-white/10 hover:text-white transition-all active:rotate-180 duration-500"
-      title="Recargar Aplicación"
+      className={cn(
+        "h-9 w-9 rounded-xl transition-all active:rotate-180 duration-500 shadow-2xs flex items-center justify-center shrink-0",
+        isSidebar 
+          ? "text-white/80 hover:bg-white/10 hover:text-white" 
+          : "text-slate-700 dark:text-slate-200 bg-slate-100/80 dark:bg-slate-800/80 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200/60 dark:border-slate-700/60",
+        className
+      )}
+      title="Sincronizar y Recargar Sistema"
     >
       <RefreshCw className="h-4 w-4" />
     </Button>

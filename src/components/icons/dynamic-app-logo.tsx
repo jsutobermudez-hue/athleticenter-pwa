@@ -13,11 +13,16 @@ interface CompanyProfile {
   logoFit?: 'contain' | 'cover';
 }
 
+interface DynamicAppLogoProps {
+  className?: string;
+  variant?: 'light' | 'sidebar' | 'transparent';
+}
+
 /**
- * LOGO DINÁMICO v15.0.0 (ULTRA RESILIENTE & ADAPTATIVO)
- * Saneado: Fondo blanco forzado y ajuste 'contain' para preservar la integridad de marca.
+ * LOGO DINÁMICO v15.1.0 (RESPONSIVE & ADAPTATIVO POR CONTEXTO)
+ * Saneado: Adaptabilidad de fondo según variante (dark/sidebar vs light).
  */
-export function DynamicAppLogo({ className }: { className?: string }) {
+export function DynamicAppLogo({ className, variant = 'light' }: DynamicAppLogoProps) {
   const firestore = useFirestore();
   const [hasError, setHasError] = useState(false);
   
@@ -37,11 +42,16 @@ export function DynamicAppLogo({ className }: { className?: string }) {
     return <Skeleton className={cn("rounded-xl bg-slate-200/50 h-10 w-10", className)} />;
   }
 
-  // Si hay logo cargado, se muestra en un contenedor blanco adaptativo
+  const isSidebar = variant === 'sidebar' || variant === 'transparent';
+
+  // Si hay logo cargado, se muestra en un contenedor adaptativo
   if (companyProfile?.logoUrl && !hasError) {
     return (
       <div className={cn(
-        "relative flex items-center justify-center overflow-hidden rounded-xl bg-white shadow-sm border border-slate-100 p-1", 
+        "relative flex items-center justify-center overflow-hidden rounded-xl shadow-xs p-1 transition-all", 
+        isSidebar 
+          ? "bg-white/10 border border-white/20 backdrop-blur-md" 
+          : "bg-white border border-slate-100 shadow-sm",
         className || "h-10 w-10"
       )}>
         <img 
@@ -57,8 +67,14 @@ export function DynamicAppLogo({ className }: { className?: string }) {
 
   // Fallback al logo SVG original si no hay personalización
   return (
-    <div className={cn("flex items-center justify-center p-1 bg-white rounded-xl shadow-sm border border-slate-100", className || "h-10 w-10")}>
-        <AppLogo className="h-full w-full" />
+    <div className={cn(
+      "flex items-center justify-center p-1 rounded-xl shadow-xs transition-all", 
+      isSidebar 
+        ? "bg-white/10 border border-white/20 text-white backdrop-blur-md" 
+        : "bg-white border border-slate-100 text-slate-900 shadow-sm",
+      className || "h-10 w-10"
+    )}>
+      <AppLogo className={cn("w-full h-full", isSidebar ? "text-white" : "text-slate-900")} />
     </div>
   );
 }

@@ -67,27 +67,27 @@ const mandoItems: MenuItem[] = [
   { href: '/dashboard/ai-analyst', label: 'Analista IA', icon: Sparkles, roles: ['superadmin', 'gerencia', 'admin', 'ventas'] },
 ];
 
-// --- GRUPO 2: CICLO COMERCIAL ---
+// --- GRUPO 2: CICLO COMERCIAL Y VENTAS ---
 const comercialItems: MenuItem[] = [
   { href: '/dashboard/clients', label: 'Clientes', icon: Users, roles: ['superadmin', 'gerencia', 'admin', 'ventas'] },
   { href: '/dashboard/quotes', label: 'Cotizaciones', icon: ClipboardList, roles: ['superadmin', 'gerencia', 'admin', 'ventas', 'cliente'] },
   { href: '/dashboard/orders', label: 'Ventas y Pedidos', icon: ShoppingCart, roles: ['superadmin', 'gerencia', 'admin', 'ventas', 'deposito', 'cliente'] },
+  { href: '/dashboard/inventory', label: 'Inventario / Catálogo', icon: Boxes, roles: ['superadmin', 'gerencia', 'admin', 'ventas', 'deposito', 'cliente'] },
 ];
 
-// --- GRUPO 3: CADENA DE SUMINISTRO (LOGÍSTICA) ---
+// --- GRUPO 3: CADENA DE SUMINISTRO Y LOGÍSTICA ---
 const logisticaItems: MenuItem[] = [
-  { href: '/dashboard/inventory', label: 'Inventario', icon: Boxes, roles: ['superadmin', 'gerencia', 'admin', 'ventas', 'deposito', 'cliente'] },
-  { href: '/dashboard/dispatch', label: 'Despacho', icon: Truck, roles: ['superadmin', 'gerencia', 'admin', 'deposito', 'cliente'] },
+  { href: '/dashboard/dispatch', label: 'Centro de Despacho', icon: Truck, roles: ['superadmin', 'gerencia', 'admin', 'deposito', 'cliente'] },
   { href: '/dashboard/purchase-orders', label: 'Importaciones (PO)', icon: Globe, roles: ['superadmin', 'gerencia'] },
   { href: '/dashboard/suppliers', label: 'Proveedores', icon: Contact, roles: ['superadmin', 'gerencia'] },
   { href: '/dashboard/carriers', label: 'Transportistas', icon: Ship, roles: ['superadmin', 'gerencia', 'admin', 'deposito'] },
 ];
 
-// --- GRUPO 4: INGENIERÍA FINANCIERA ---
+// --- GRUPO 4: FINANZAS Y COBRANZAS ---
 const financieraItems: MenuItem[] = [
-  { href: '/dashboard/billing', label: 'Facturación', icon: CreditCard, roles: ['superadmin', 'gerencia', 'admin', 'ventas', 'cliente'] },
-  { href: '/dashboard/commissions', label: 'Comisiones', icon: Tag, roles: ['superadmin', 'gerencia', 'admin', 'ventas'] },
+  { href: '/dashboard/billing', label: 'Facturación y Cobros', icon: CreditCard, roles: ['superadmin', 'gerencia', 'admin', 'ventas', 'cliente'] },
   { href: '/dashboard/treasury', label: 'Tesorería', icon: Landmark, roles: ['superadmin', 'gerencia', 'admin'] },
+  { href: '/dashboard/commissions', label: 'Comisiones', icon: Tag, roles: ['superadmin', 'gerencia', 'admin', 'ventas'] },
   { href: '/dashboard/break-even', label: 'Punto de Equilibrio', icon: Calculator, roles: ['superadmin', 'gerencia', 'admin'] },
   { href: '/dashboard/inventory/pricing-calculator', label: 'Calculadora Smart', icon: Calculator, roles: ['superadmin', 'gerencia', 'admin'] },
 ];
@@ -103,8 +103,8 @@ const inteligenciaItems: MenuItem[] = [
 // --- GRUPO 6: ADMINISTRACIÓN DE RED ---
 const administracionItems: MenuItem[] = [
   { href: '/dashboard/users', label: 'Gestión de Usuarios', icon: UserIcon, roles: ['superadmin', 'gerencia', 'admin'] },
-  { href: '/dashboard/offers', label: 'Gestión de Ofertas', icon: Percent, roles: ['superadmin', 'gerencia', 'admin'] },
   { href: '/dashboard/salespeople', label: 'Equipo de Vendedores', icon: Briefcase, roles: ['superadmin', 'gerencia', 'admin'] },
+  { href: '/dashboard/offers', label: 'Gestión de Ofertas', icon: Percent, roles: ['superadmin', 'gerencia', 'admin'] },
   { href: '/dashboard/settings', label: 'Configuración', icon: Settings, roles: ['superadmin', 'gerencia', 'admin'] },
   { href: '/dashboard/audit', label: 'Libro de Auditoría', icon: ShieldAlert, roles: ['superadmin'] },
 ];
@@ -220,13 +220,13 @@ export function AppSidebar() {
   return (
     <Sidebar variant="sidebar" collapsible="icon" className="border-r-0 bg-sidebar-gradient shadow-2xl overflow-x-hidden">
       <SidebarHeader className="pt-6 pb-4">
-        <div className="flex items-center gap-2 px-3 overflow-hidden">
-          <DynamicAppLogo className="h-7 w-auto shrink-0" />
+        <div className="flex items-center gap-2.5 px-3 overflow-hidden">
+          <DynamicAppLogo variant="sidebar" className="h-8 w-auto shrink-0" />
           <span className="text-lg font-black uppercase tracking-tighter text-white leading-none group-data-[collapsible=icon]:hidden truncate">
             Athleticenter
           </span>
           <div className="ml-auto flex items-center group-data-[collapsible=icon]:hidden">
-            <ReloadAppButton />
+            <ReloadAppButton variant="sidebar" />
           </div>
         </div>
       </SidebarHeader>
