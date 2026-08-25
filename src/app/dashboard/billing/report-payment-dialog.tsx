@@ -314,7 +314,8 @@ export function ReportPaymentDialog({ invoice, mode = 'partial' }: { invoice: In
   }, [globalSettings, inputAmount, accountingBase, documentType, earlyPaymentType, is7DaysEligible, is15DaysEligible, invoice?.remainingBalance, isTotalMode, inputMode, orderData]);
 
   useEffect(() => {
-      if (selectedMethod && !['Zelle', 'Efectivo'].includes(selectedMethod)) {
+      const isCashEligible = ['Zelle', 'Efectivo', 'Binance Pay / USDT', 'Binance Pay', 'Binance', 'USDT'].includes(selectedMethod);
+      if (selectedMethod && !isCashEligible) {
           setValue('accountingBase', 'bcv');
       }
   }, [selectedMethod, setValue]);
