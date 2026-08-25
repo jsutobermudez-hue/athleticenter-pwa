@@ -379,7 +379,7 @@ function NewQuoteForm() {
                                     <div className="space-y-0.5">
                                         <div className="flex items-baseline gap-2">
                                             <span className="text-3xl sm:text-4xl font-black text-primary tracking-tighter">${totalAmount.toFixed(2)}</span>
-                                            <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Estimación</span>
+                                            <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Base BCV</span>
                                         </div>
                                         <div className="flex items-center gap-3">
                                             <Badge variant="secondary" className="bg-slate-100 text-slate-600 font-black text-[9px] px-2 h-5 rounded-lg border-none">{quoteItems.length} MODELOS</Badge>
@@ -387,6 +387,39 @@ function NewQuoteForm() {
                                         </div>
                                     </div>
                                 </div>
+
+                                {/* SIMULADOR EXPRÉS DE PRONTO PAGO */}
+                                {quoteItems.length > 0 && (
+                                    <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-100 space-y-3 my-2 text-left">
+                                        <div className="flex items-center justify-between">
+                                            <div className="flex items-center gap-2 text-emerald-700">
+                                                <Sparkles className="h-4 w-4 animate-pulse" />
+                                                <span className="text-[10px] font-black uppercase tracking-widest">Simulador Exprés Pronto Pago (Asesor)</span>
+                                            </div>
+                                            <Badge className="bg-emerald-600 text-white text-[8px] font-black uppercase border-none px-2 h-4">Incentivos Activos</Badge>
+                                        </div>
+
+                                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                                            <div className="p-3 rounded-xl bg-white border border-emerald-100 space-y-0.5 shadow-sm">
+                                                <p className="text-[8px] font-black text-slate-400 uppercase tracking-wider">0-7 Días (-10%)</p>
+                                                <p className="text-lg font-black text-slate-900 tracking-tight">${(totalAmount * 0.90).toFixed(2)}</p>
+                                                <p className="text-[8px] font-bold text-emerald-600 uppercase">Ahorra ${(totalAmount * 0.10).toFixed(2)}</p>
+                                            </div>
+
+                                            <div className="p-3 rounded-xl bg-white border border-emerald-100 space-y-0.5 shadow-sm">
+                                                <p className="text-[8px] font-black text-slate-400 uppercase tracking-wider">8-15 Días (-5%)</p>
+                                                <p className="text-lg font-black text-slate-900 tracking-tight">${(totalAmount * 0.95).toFixed(2)}</p>
+                                                <p className="text-[8px] font-bold text-emerald-600 uppercase">Ahorra ${(totalAmount * 0.05).toFixed(2)}</p>
+                                            </div>
+
+                                            <div className="p-3 rounded-xl bg-emerald-600 text-white space-y-0.5 shadow-md">
+                                                <p className="text-[8px] font-black text-emerald-100 uppercase tracking-wider">Divisa CASH (-25%)</p>
+                                                <p className="text-lg font-black text-white tracking-tight">${(totalAmount * 0.75).toFixed(2)}</p>
+                                                <p className="text-[8px] font-bold text-emerald-200 uppercase">Ahorra ${(totalAmount * 0.25).toFixed(2)}</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
 
                                 <Button 
                                     type="button"
