@@ -5,7 +5,7 @@ import type { Order } from '@/lib/definitions';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { getEffectiveCashReceived } from '@/lib/billing';
+import { getInvoiceFromOrder, getEffectiveCashReceived } from '@/lib/billing';
 import { 
     Wallet, 
     FileWarning, 
@@ -39,30 +39,23 @@ const convertToDate = (value: any): Date => {
 export function ReceivablesAuditModal({ isOpen, onClose, orders, onSelectOrder }: ReceivablesAuditModalProps) {
     const router = useRouter();
 
-    // Filtrar únicamente órdenes que no estén canceladas ni 100% pagadas
+    // Filtrar únicamente órdenes con saldo neto pendiente
     const pendingOrders = useMemo(() => {
         if (!orders) return [];
-        const VALID_SALES = ['Entregado', 'Completado', 'Despachado', 'Pagado', 'Aprobado', 'En Preparación', 'En Verificación', 'Pendiente'];
-        
         return orders
             .filter(o => {
-                if (o.status === 'Cancelado' || o.status === 'Rechazado') return false;
-                if (!VALID_SALES.includes(o.status)) return false;
-                
-                const total = o.totalAmount || 0;
-                const paid = getEffectiveCashReceived(o);
-                const isPaid = o.status === 'Pagado' || paid >= (total - 0.05);
-                
-                return !isPaid && (total - paid) > 0.05;
+                if (o.status === 'Cancelado' || o.status === 'Rechazado' || o.status === 'Borrador') return false;
+                const inv = getInvoiceFromOrder(o);
+                return Boolean(inv && inv.remainingBalance > 0.05 && inv.status !== 'Pagado');
             })
             .sort((a, b) => {
                 const dateA = convertToDate(a.receptionDate || a.createdAt || a.orderDate);
                 const dateB = convertToDate(b.receptionDate || b.createdAt || b.orderDate);
-                return dateA.getTime() - dateB.getTime(); // Mostrar primero las más antiguas
+                return dateA.getTime() - dateB.getTime();
             });
     }, [orders]);
 
-    // Desglose de métricas de cartera
+    // Desglose de métricas de cartera basadas en getInvoiceFromOrder
     const metrics = useMemo(() => {
         const now = Date.now();
         let totalDebt = 0;
@@ -72,9 +65,9 @@ export function ReceivablesAuditModal({ isOpen, onClose, orders, onSelectOrder }
         let moraCount = 0;
 
         pendingOrders.forEach(o => {
-            const total = o.totalAmount || 0;
+            const inv = getInvoiceFromOrder(o);
+            const pending = inv ? inv.remainingBalance : 0;
             const paid = getEffectiveCashReceived(o);
-            const pending = Math.max(0, total - paid);
             
             totalDebt += pending;
             totalCashPaidUSD += paid;
@@ -82,7 +75,7 @@ export function ReceivablesAuditModal({ isOpen, onClose, orders, onSelectOrder }
             const orderDate = convertToDate(o.receptionDate || o.createdAt || o.orderDate).getTime();
             const daysOld = Math.floor((now - orderDate) / (1000 * 60 * 60 * 24));
 
-            if (daysOld >= 30) {
+            if (inv?.status === 'Vencido' || daysOld >= 30) {
                 totalMoraUSD += pending;
                 moraCount++;
             } else {

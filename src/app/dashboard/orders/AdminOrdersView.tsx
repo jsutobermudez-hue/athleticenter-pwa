@@ -36,6 +36,7 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { cn } from '@/lib/utils';
+import { getInvoiceFromOrder } from '@/lib/billing';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import jsPDF from 'jspdf';
@@ -150,9 +151,9 @@ export default function AdminOrdersView() {
                     routeCount += 1;
                     routeTotal += (o.totalAmount || 0);
                 }
-                if (o.status !== 'Pagado') {
-                    const paid = (o.totalCashReceived || o.amountPaid || 0);
-                    pendingDebt += Math.max(0, (o.totalAmount || 0) - paid);
+                const inv = getInvoiceFromOrder(o);
+                if (inv && inv.remainingBalance > 0.05 && inv.status !== 'Pagado') {
+                    pendingDebt += inv.remainingBalance;
                 }
             }
         });
