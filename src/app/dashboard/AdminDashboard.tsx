@@ -3,7 +3,7 @@
 import React, { useMemo, useState } from 'react';
 import { useCollection, useFirestore, useMemoFirebase, useUser, useDoc } from '@/firebase';
 import { collection, query, limit, doc } from 'firebase/firestore';
-import type { Order, Product, Customer, Offer, FinancialSettings, PurchaseOrder } from '@/lib/definitions';
+import type { Order, Product, Customer, Offer, FinancialSettings, PurchaseOrder, Invoice, OrderStatus } from '@/lib/definitions';
 import { 
     TrendingUp, 
     ShoppingCart, 
@@ -48,7 +48,7 @@ import { Badge } from '@/components/ui/badge';
 import { OrderSheetController } from './orders/OrderSheetController';
 import { ProductDetailsSheet } from '@/app/dashboard/inventory/product-details-sheet';
 import { cn } from '@/lib/utils';
-import { calculateGlobalFinancialMetrics } from '@/lib/billing';
+import { calculateGlobalFinancialMetrics, getInvoiceFromOrder } from '@/lib/billing';
 
 export default function AdminDashboard() {
     const router = useRouter();
@@ -167,6 +167,34 @@ export default function AdminDashboard() {
             liquidadosAmount: globalMetrics.liquidadosAmount
         };
     }, [orders, products, customers, purchaseOrders, kpiPeriod]);
+
+    const allInvoices = useMemo(() => {
+        if (!orders) return [];
+        const baseStatuses: OrderStatus[] = ['Entregado', 'En Verificación', 'Pagado', 'Despachado', 'Aprobado', 'En Preparación', 'Completado'];
+        const filtered = orders.filter(o => baseStatuses.includes(o.status));
+        return filtered.map(getInvoiceFromOrder).filter(Boolean) as Invoice[];
+    }, [orders]);
+
+    const cashFlowForecast = useMemo(() => {
+        if (!allInvoices) return { next7Days: 0, next15Days: 0, next30Days: 0, overdue: 0, totalProjected: 0 };
+        let next7Days = 0;
+        let next15Days = 0;
+        let next30Days = 0;
+        let overdue = 0;
+
+        allInvoices.forEach(inv => {
+            if (inv.remainingBalance > 0.05 && inv.status !== 'Pagado') {
+                const days = inv.remainingCreditDays;
+                if (days < 0) overdue += inv.remainingBalance;
+                else if (days <= 7) next7Days += inv.remainingBalance;
+                else if (days <= 15) next15Days += inv.remainingBalance;
+                else if (days <= 30) next30Days += inv.remainingBalance;
+            }
+        });
+
+        const totalProjected = next7Days + next15Days + next30Days;
+        return { next7Days, next15Days, next30Days, overdue, totalProjected };
+    }, [allInvoices]);
 
     const convertedBs = useMemo(() => {
         const usd = parseFloat(usdAmountInput) || 0;
@@ -309,6 +337,62 @@ export default function AdminDashboard() {
                         icon={ShoppingCart} iconBg="bg-indigo-50" iconColor="text-indigo-500" 
                         onClick={() => router.push('/dashboard/orders')}
                     />
+                </div>
+
+                {/* WIDGET PREDICTOR: PROYECCIÓN INTELIGENTE DE FLUJO DE CAJA (CASH FLOW FORECASTING) */}
+                <div className="p-6 sm:p-7 rounded-[2.2rem] bg-gradient-to-br from-slate-900 via-slate-800 to-slate-950 text-white shadow-2xl space-y-5 border border-white/10 text-left relative overflow-hidden mt-6">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-white/10 relative z-10">
+                        <div className="space-y-1">
+                            <div className="flex items-center gap-2">
+                                <Sparkles className="h-5 w-5 text-emerald-400 animate-pulse" />
+                                <h3 className="text-base sm:text-xl font-black uppercase tracking-tight text-white leading-none">Proyección Inteligente de Flujo de Caja</h3>
+                            </div>
+                            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-[0.2em]">
+                                Estimación predictiva de ingresos a 30 días según vencimientos de créditos activos
+                            </p>
+                        </div>
+                        <Badge className="w-fit bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-[10px] font-black uppercase px-3.5 h-7 rounded-xl">
+                            Proyección a 30 días: ${cashFlowForecast.totalProjected.toLocaleString('en-US', { minimumFractionDigits: 2 })} USD
+                        </Badge>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 relative z-10">
+                        <div className="p-4.5 rounded-2xl bg-white/5 border border-white/10 space-y-1.5 hover:bg-white/10 transition-all cursor-pointer group" onClick={() => router.push('/dashboard/billing?aging=0-7d')}>
+                            <div className="flex items-center justify-between">
+                                <span className="text-[9px] font-black uppercase text-emerald-400 tracking-wider">Próximos 7 Días</span>
+                                <Clock className="h-4 w-4 text-emerald-400" />
+                            </div>
+                            <p className="text-2xl font-black text-white tracking-tight">${cashFlowForecast.next7Days.toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
+                            <p className="text-[8px] font-bold text-slate-400 uppercase">Recaudación a corto plazo</p>
+                        </div>
+
+                        <div className="p-4.5 rounded-2xl bg-white/5 border border-white/10 space-y-1.5 hover:bg-white/10 transition-all cursor-pointer group" onClick={() => router.push('/dashboard/billing?aging=8-15d')}>
+                            <div className="flex items-center justify-between">
+                                <span className="text-[9px] font-black uppercase text-blue-400 tracking-wider">Días 8 a 15</span>
+                                <Clock className="h-4 w-4 text-blue-400" />
+                            </div>
+                            <p className="text-2xl font-black text-white tracking-tight">${cashFlowForecast.next15Days.toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
+                            <p className="text-[8px] font-bold text-slate-400 uppercase">Flujo a mediano plazo</p>
+                        </div>
+
+                        <div className="p-4.5 rounded-2xl bg-white/5 border border-white/10 space-y-1.5 hover:bg-white/10 transition-all cursor-pointer group" onClick={() => router.push('/dashboard/billing?aging=16-30d')}>
+                            <div className="flex items-center justify-between">
+                                <span className="text-[9px] font-black uppercase text-indigo-400 tracking-wider">Días 16 a 30</span>
+                                <Clock className="h-4 w-4 text-indigo-400" />
+                            </div>
+                            <p className="text-2xl font-black text-white tracking-tight">${cashFlowForecast.next30Days.toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
+                            <p className="text-[8px] font-bold text-slate-400 uppercase">Cierre mensual estimado</p>
+                        </div>
+
+                        <div className="p-4.5 rounded-2xl bg-rose-500/10 border border-rose-500/30 space-y-1.5 hover:bg-rose-500/20 transition-all cursor-pointer group" onClick={() => router.push('/dashboard/billing?status=Vencido')}>
+                            <div className="flex items-center justify-between">
+                                <span className="text-[9px] font-black uppercase text-rose-400 tracking-wider">Mora Crítica (Vencido)</span>
+                                <AlertTriangle className="h-4 w-4 text-rose-400" />
+                            </div>
+                            <p className="text-2xl font-black text-rose-300 tracking-tight">${cashFlowForecast.overdue.toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
+                            <p className="text-[8px] font-bold text-rose-400 uppercase">Cobranza crítica requerida</p>
+                        </div>
+                    </div>
                 </div>
             </div>
 
