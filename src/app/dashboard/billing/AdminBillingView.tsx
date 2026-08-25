@@ -445,57 +445,87 @@ export function AdminBillingView() {
       </div>
 
       {/* WIDGET PREDICTOR: PROYECCIÓN INTELIGENTE DE FLUJO DE CAJA (CASH FLOW FORECASTING) */}
-      <div className="p-6 sm:p-7 rounded-[2.2rem] bg-gradient-to-br from-slate-900 via-slate-800 to-slate-950 text-white shadow-2xl space-y-5 border border-white/10 mx-2 text-left relative overflow-hidden">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-white/10 relative z-10">
+      <div className="p-6 sm:p-7 rounded-[2.5rem] bg-white text-slate-900 shadow-xl space-y-5 border border-slate-100 mx-2 text-left relative overflow-hidden">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100 relative z-10">
             <div className="space-y-1">
-                <div className="flex items-center gap-2">
-                    <Sparkles className="h-5 w-5 text-emerald-400 animate-pulse" />
-                    <h3 className="text-base sm:text-xl font-black uppercase tracking-tight text-white leading-none">Proyección Inteligente de Flujo de Caja</h3>
+                <div className="flex items-center gap-2.5">
+                    <div className="h-8 w-8 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center shadow-xs">
+                        <Sparkles className="h-4.5 w-4.5 animate-pulse" />
+                    </div>
+                    <h3 className="text-base sm:text-xl font-black uppercase tracking-tight text-slate-900 leading-none">Proyección Inteligente de Flujo de Caja</h3>
                 </div>
                 <p className="text-[10px] text-slate-400 font-bold uppercase tracking-[0.2em]">
                     Estimación predictiva de ingresos según vencimientos de créditos activos
                 </p>
             </div>
-            <Badge className="w-fit bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-[10px] font-black uppercase px-3.5 h-7 rounded-xl">
-                Proyección a 30 días: ${cashFlowForecast.totalProjected.toLocaleString('en-US', { minimumFractionDigits: 2 })} USD
+            <Badge className="w-fit bg-emerald-50 text-emerald-700 border border-emerald-200/80 text-[10px] font-black uppercase px-3.5 h-7 rounded-xl shadow-xs">
+                Proyección Total: ${Math.round(cashFlowForecast.totalProjected).toLocaleString('en-US')} USD
             </Badge>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 relative z-10">
-            <div className="p-4.5 rounded-2xl bg-white/5 border border-white/10 space-y-1.5 hover:bg-white/10 transition-all cursor-pointer group" onClick={() => setAgingFilter('0-7d')}>
+            <div 
+                onClick={() => setAgingFilter('0-7d')}
+                className="p-5 rounded-[1.8rem] bg-emerald-50/60 border border-emerald-100 hover:border-emerald-300 hover:bg-emerald-100/50 transition-all cursor-pointer space-y-2 shadow-xs group"
+            >
                 <div className="flex items-center justify-between">
-                    <span className="text-[9px] font-black uppercase text-emerald-400 tracking-wider">Próximos 7 Días</span>
-                    <Clock className="h-4 w-4 text-emerald-400" />
+                    <span className="text-[9px] font-black uppercase text-emerald-800 tracking-wider">Próximos 7 Días</span>
+                    <div className="h-7 w-7 rounded-xl bg-emerald-100 text-emerald-600 flex items-center justify-center">
+                        <Clock className="h-3.5 w-3.5" />
+                    </div>
                 </div>
-                <p className="text-2xl font-black text-white tracking-tight">${cashFlowForecast.next7Days.toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
-                <p className="text-[8px] font-bold text-slate-400 uppercase">Recaudación a corto plazo</p>
+                <p className="text-2xl font-black text-slate-900 tracking-tight">
+                    ${cashFlowForecast.next7Days.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </p>
+                <p className="text-[8px] font-bold text-emerald-700 uppercase">Recaudación a Corto Plazo</p>
             </div>
 
-            <div className="p-4.5 rounded-2xl bg-white/5 border border-white/10 space-y-1.5 hover:bg-white/10 transition-all cursor-pointer group" onClick={() => setAgingFilter('8-15d')}>
+            <div 
+                onClick={() => setAgingFilter('8-15d')}
+                className="p-5 rounded-[1.8rem] bg-blue-50/60 border border-blue-100 hover:border-blue-300 hover:bg-blue-100/50 transition-all cursor-pointer space-y-2 shadow-xs group"
+            >
                 <div className="flex items-center justify-between">
-                    <span className="text-[9px] font-black uppercase text-blue-400 tracking-wider">Días 8 a 15</span>
-                    <Clock className="h-4 w-4 text-blue-400" />
+                    <span className="text-[9px] font-black uppercase text-blue-800 tracking-wider">Días 8 a 15</span>
+                    <div className="h-7 w-7 rounded-xl bg-blue-100 text-blue-600 flex items-center justify-center">
+                        <Clock className="h-3.5 w-3.5" />
+                    </div>
                 </div>
-                <p className="text-2xl font-black text-white tracking-tight">${cashFlowForecast.next15Days.toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
-                <p className="text-[8px] font-bold text-slate-400 uppercase">Flujo a mediano plazo</p>
+                <p className="text-2xl font-black text-slate-900 tracking-tight">
+                    ${cashFlowForecast.next15Days.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </p>
+                <p className="text-[8px] font-bold text-blue-700 uppercase">Flujo a Mediano Plazo</p>
             </div>
 
-            <div className="p-4.5 rounded-2xl bg-white/5 border border-white/10 space-y-1.5 hover:bg-white/10 transition-all cursor-pointer group" onClick={() => setAgingFilter('16-30d')}>
+            <div 
+                onClick={() => setAgingFilter('16-30d')}
+                className="p-5 rounded-[1.8rem] bg-indigo-50/60 border border-indigo-100 hover:border-indigo-300 hover:bg-indigo-100/50 transition-all cursor-pointer space-y-2 shadow-xs group"
+            >
                 <div className="flex items-center justify-between">
-                    <span className="text-[9px] font-black uppercase text-indigo-400 tracking-wider">Días 16 a 30</span>
-                    <Clock className="h-4 w-4 text-indigo-400" />
+                    <span className="text-[9px] font-black uppercase text-indigo-800 tracking-wider">Días 16 a 30</span>
+                    <div className="h-7 w-7 rounded-xl bg-indigo-100 text-indigo-600 flex items-center justify-center">
+                        <Clock className="h-3.5 w-3.5" />
+                    </div>
                 </div>
-                <p className="text-2xl font-black text-white tracking-tight">${cashFlowForecast.next30Days.toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
-                <p className="text-[8px] font-bold text-slate-400 uppercase">Cierre mensual estimado</p>
+                <p className="text-2xl font-black text-slate-900 tracking-tight">
+                    ${cashFlowForecast.next30Days.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </p>
+                <p className="text-[8px] font-bold text-indigo-700 uppercase">Cierre Mensual Estimado</p>
             </div>
 
-            <div className="p-4.5 rounded-2xl bg-rose-500/10 border border-rose-500/30 space-y-1.5 hover:bg-rose-500/20 transition-all cursor-pointer group" onClick={() => setAgingFilter('vencidos')}>
+            <div 
+                onClick={() => setAgingFilter('vencidos')}
+                className="p-5 rounded-[1.8rem] bg-rose-50/60 border border-rose-100 hover:border-rose-300 hover:bg-rose-100/50 transition-all cursor-pointer space-y-2 shadow-xs group"
+            >
                 <div className="flex items-center justify-between">
-                    <span className="text-[9px] font-black uppercase text-rose-400 tracking-wider">Mora Crítica (Vencido)</span>
-                    <FileWarning className="h-4 w-4 text-rose-400" />
+                    <span className="text-[9px] font-black uppercase text-rose-800 tracking-wider">Mora Crítica (Vencido)</span>
+                    <div className="h-7 w-7 rounded-xl bg-rose-100 text-rose-600 flex items-center justify-center">
+                        <FileWarning className="h-3.5 w-3.5" />
+                    </div>
                 </div>
-                <p className="text-2xl font-black text-rose-300 tracking-tight">${cashFlowForecast.overdue.toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
-                <p className="text-[8px] font-bold text-rose-400 uppercase">Cobranza crítica requerida</p>
+                <p className="text-2xl font-black text-rose-700 tracking-tight">
+                    ${cashFlowForecast.overdue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </p>
+                <p className="text-[8px] font-bold text-rose-700 uppercase">Cobranza Crítica Requerida</p>
             </div>
         </div>
       </div>
