@@ -155,6 +155,49 @@ export function getInvoiceFromOrder(order: Order): Invoice | null {
     } as any;
 }
 
+export function getPaymentSimulation(order: Order, bcvRate: number = 78.50) {
+    if (!order) return null;
+    const amountPaid = getEffectiveCashReceived(order);
+    const grossTotal = order.totalAmount || 0;
+    const grossRemaining = order.status === 'Pagado' ? 0 : Math.max(0, grossTotal - amountPaid);
+    
+    const commDiscountPercent = getOrderCommercialDiscountPercent(order);
+    const netTotal = Math.max(0, grossTotal - (grossTotal * commDiscountPercent / 100));
+    const netCashRemaining = order.status === 'Pagado' ? 0 : Math.max(0, netTotal - amountPaid);
+
+    // Pronto pago por días transcurridos
+    const rawDate = order.receptionDate || order.approvalDate || order.orderDate || order.createdAt;
+    let creditDays = 0;
+    if (rawDate) {
+        const startDate = typeof (rawDate as any).toDate === 'function' ? (rawDate as any).toDate() : new Date(rawDate as any);
+        if (!isNaN(startDate.getTime())) {
+            creditDays = Math.max(0, differenceInDays(new Date(), startDate));
+        }
+    }
+
+    const isOverdue = creditDays > 30 || (order.status as string) === 'Vencido';
+    
+    // Pronto pago 7 días (-10% extra) y 15 días (-5% extra) si no está en mora
+    let prontoPago7d = netCashRemaining;
+    let prontoPago15d = netCashRemaining;
+    
+    if (!isOverdue && netCashRemaining > 0) {
+        prontoPago7d = Math.max(0, netCashRemaining * 0.90);
+        prontoPago15d = Math.max(0, netCashRemaining * 0.95);
+    }
+
+    return {
+        grossBcvUsd: grossRemaining,
+        grossBcvVes: grossRemaining * bcvRate,
+        netCashUsd: isOverdue ? grossRemaining : netCashRemaining,
+        prontoPago7dUsd: isOverdue ? grossRemaining : prontoPago7d,
+        prontoPago15dUsd: isOverdue ? grossRemaining : prontoPago15d,
+        creditDays,
+        isOverdue,
+        appliedDiscountPercent: commDiscountPercent
+    };
+}
+
 export function calculateGlobalFinancialMetrics(
     orders: Order[] | null,
     periodFilter: 'today' | '7d' | 'this_month' | 'last_month' | 'all' = 'all'
@@ -163,6 +206,8 @@ export function calculateGlobalFinancialMetrics(
         return {
             totalRevenue: 0,
             totalDebts: 0,
+            grossBcvDebt: 0,
+            netCashDebt: 0,
             recaudadoCash: 0,
             cashBreakdown: { totalCash: 0, cashUsd: 0, zelle: 0, bcv: 0, custodia: 0, other: 0, payments: [] },
             vencido: 0,
@@ -200,6 +245,8 @@ export function calculateGlobalFinancialMetrics(
 
     let totalRevenue = 0;
     let totalDebts = 0;
+    let grossBcvDebt = 0;
+    let netCashDebt = 0;
     let recaudadoCash = 0;
     let vencido = 0;
     let porVencer = 0;
@@ -250,16 +297,27 @@ export function calculateGlobalFinancialMetrics(
 
         const invoice = getInvoiceFromOrder(order);
         if (invoice && matchesPeriod(salesDate)) {
-            if (invoice.status === 'Vencido') vencido += invoice.remainingBalance;
-            if (invoice.status === 'Por Vencer') porVencer += invoice.remainingBalance;
-            if (invoice.status === 'En Verificación') enVerificacion += invoice.remainingBalance;
-            totalDebts += invoice.remainingBalance;
+            const amountPaid = getEffectiveCashReceived(order);
+            const isPaid = order.status === 'Pagado' || invoice.remainingBalance <= 0.05;
+            
+            const grossRemaining = isPaid ? 0 : Math.max(0, order.totalAmount - amountPaid);
+            const netRemaining = invoice.remainingBalance;
+
+            grossBcvDebt += grossRemaining;
+            netCashDebt += netRemaining;
+            totalDebts += netRemaining;
+
+            if (invoice.status === 'Vencido') vencido += netRemaining;
+            if (invoice.status === 'Por Vencer') porVencer += netRemaining;
+            if (invoice.status === 'En Verificación') enVerificacion += netRemaining;
         }
     });
 
     return {
         totalRevenue,
         totalDebts,
+        grossBcvDebt,
+        netCashDebt,
         recaudadoCash,
         cashBreakdown: getCashBreakdown(orders, periodFilter),
         vencido,

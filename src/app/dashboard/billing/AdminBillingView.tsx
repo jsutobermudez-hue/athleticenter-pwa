@@ -154,7 +154,7 @@ export function AdminBillingView() {
   
   const metrics = useMemo(() => {
     if (!rawOrders) return { 
-      vencido: 0, porVencer: 0, enVerificacion: 0, totalPorCobrar: 0, recaudado: 0,
+      vencido: 0, porVencer: 0, enVerificacion: 0, totalPorCobrar: 0, grossBcvDebt: 0, netCashDebt: 0, recaudado: 0,
       totalOrdersCount: 0, totalOrdersAmount: 0, liquidadosCount: 0, liquidadosAmount: 0
     };
     const globalMetrics = calculateGlobalFinancialMetrics(rawOrders, dateFilter as any);
@@ -163,6 +163,8 @@ export function AdminBillingView() {
       porVencer: globalMetrics.porVencer,
       enVerificacion: globalMetrics.enVerificacion,
       totalPorCobrar: globalMetrics.totalDebts,
+      grossBcvDebt: globalMetrics.grossBcvDebt,
+      netCashDebt: globalMetrics.netCashDebt,
       recaudado: globalMetrics.recaudadoCash,
       totalOrdersCount: globalMetrics.totalOrdersCount,
       totalOrdersAmount: globalMetrics.totalOrdersAmount,
@@ -437,8 +439,8 @@ export function AdminBillingView() {
       </header>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 px-2">
-        <DashboardMetricCard title="Mora Crítica" value={`$${metrics.vencido.toLocaleString()}`} subtitle="Excedido +30D" icon={FileWarning} iconBg="bg-rose-50" iconColor="text-rose-500" onClick={() => setStatusFilter('Vencido')} isActive={statusFilter === 'Vencido'} tooltip="Facturas con vencimiento mayor a 30 días en crédito." />
-        <DashboardMetricCard title="Total por Cobrar" value={`$${metrics.totalPorCobrar.toLocaleString()}`} subtitle="Deuda Activa Clientes" icon={Wallet} iconBg="bg-blue-50" iconColor="text-blue-500" onClick={() => setStatusFilter('pendientes')} isActive={statusFilter === 'pendientes'} tooltip="Saldo pendiente neto por cobrar a la red de clientes." />
+        <DashboardMetricCard title="Mora Crítica" value={`$${metrics.vencido.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} subtitle="Excedido +30D" icon={FileWarning} iconBg="bg-rose-50" iconColor="text-rose-500" onClick={() => setStatusFilter('Vencido')} isActive={statusFilter === 'Vencido'} tooltip="Facturas con vencimiento mayor a 30 días en crédito." />
+        <DashboardMetricCard title="Por Cobrar (Lista BCV)" value={`$${(metrics.grossBcvDebt || metrics.totalPorCobrar || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} subtitle={`Neto Cash: $${(metrics.netCashDebt || metrics.totalPorCobrar || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} icon={Wallet} iconBg="bg-blue-50" iconColor="text-blue-500" onClick={() => setStatusFilter('pendientes')} isActive={statusFilter === 'pendientes'} tooltip="Doble Valoración Contable: Activo bruto total a Lista BCV ($35,668.00) vs proyección neta si se liquida en divisas ($24,772.00)." />
         <DashboardMetricCard title="En Auditoría" value={`$${metrics.enVerificacion.toLocaleString()}`} subtitle="Abonos por Conciliar" icon={Sparkles} iconBg="bg-amber-50" iconColor="text-amber-500" onClick={() => setStatusFilter('En Verificación')} isActive={statusFilter === 'En Verificación'} tooltip="Abonos registrados pendientes de verificación en caja." />
         <DashboardMetricCard title="Efectivo Real" value={`$${metrics.recaudado.toLocaleString()}`} subtitle="Ingreso Neto (CASH)" icon={TrendingUp} iconBg="bg-emerald-50" iconColor="text-emerald-500" onClick={() => setStatusFilter('Pagado')} isActive={statusFilter === 'Pagado'} tooltip="Recaudación total en efectivo o divisas efectivamente liquidada." />
         <DashboardMetricCard title="Pedidos Realizados" value={`${metrics.totalOrdersCount} Pedidos`} subtitle={`$${metrics.totalOrdersAmount.toLocaleString('en-US', { maximumFractionDigits: 0 })} Registrados`} icon={ShoppingCart} iconBg="bg-indigo-50" iconColor="text-indigo-500" onClick={() => router.push('/dashboard/orders')} tooltip="Volumen total de pedidos registrados. Haz clic para ir al módulo de pedidos." />

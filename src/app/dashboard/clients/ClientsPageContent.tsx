@@ -49,6 +49,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { User, Customer, Order } from '@/lib/definitions';
+import { getInvoiceFromOrder, getEffectiveCashReceived, getPaymentSimulation } from '@/lib/billing';
 import { NewUserDialog } from '../users/new-user-dialog';
 import { useCollection, useFirestore, useMemoFirebase, useUser } from '@/firebase';
 import { collection, query, where, limit, orderBy, getDocs, doc, getDoc } from 'firebase/firestore';
@@ -701,22 +702,31 @@ export default function ClientsPageContent() {
   const isLoading = isUserLoading || isLoadingCustomers || isLoadingUsers;
   const usersById = useMemo(() => new Map(allUsers?.map(u => [u.id, u]) || []), [allUsers]);
 
-  // MAPEO DE SALDOS PENDIENTES POR CLIENTE
+  // MAPEO DE SALDOS PENDIENTES POR CLIENTE (DOBLE VALORACIÓN)
   const customerPendingBalances = useMemo(() => {
-    const map = new Map<string, number>();
-    if (!allOrders) return map;
+    const grossMap = new Map<string, number>();
+    const netMap = new Map<string, number>();
+    if (!allOrders) return { grossMap, netMap };
     
-    const activeStatuses = ['Entregado', 'En Verificación', 'Despachado', 'Completado', 'En Preparación', 'Aprobado'];
     allOrders.forEach(o => {
-      if (activeStatuses.includes(o.status)) {
-        const paid = o.amountPaid || 0;
-        const pending = Math.max(0, o.totalAmount - paid);
-        if (pending > 0.05 && o.customerId) {
-          map.set(o.customerId, (map.get(o.customerId) || 0) + pending);
+      if (!o || o.status === 'Cancelado' || o.status === 'Rechazado' || o.status === 'Borrador') return;
+      const inv = getInvoiceFromOrder(o);
+      if (inv && o.customerId) {
+        const amountPaid = getEffectiveCashReceived(o);
+        const isPaid = o.status === 'Pagado' || inv.remainingBalance <= 0.05;
+        
+        const grossRem = isPaid ? 0 : Math.max(0, (o.totalAmount || 0) - amountPaid);
+        const netRem = inv.remainingBalance;
+
+        if (grossRem > 0.05) {
+          grossMap.set(o.customerId, (grossMap.get(o.customerId) || 0) + grossRem);
+        }
+        if (netRem > 0.05) {
+          netMap.set(o.customerId, (netMap.get(o.customerId) || 0) + netRem);
         }
       }
     });
-    return map;
+    return { grossMap, netMap };
   }, [allOrders]);
 
   // LISTA DE ASESORES PARA FILTRO ADMIN
@@ -727,26 +737,30 @@ export default function ClientsPageContent() {
 
   // METRICAS EJECUTIVAS
   const metrics = useMemo(() => {
-    if (!customers) return { total: 0, activos: 0, enMora: 0, remarketing: 0, totalDebt: 0 };
+    if (!customers) return { total: 0, activos: 0, enMora: 0, remarketing: 0, grossDebt: 0, netDebt: 0 };
     const now = new Date();
     
     let total = customers.length;
     let activos = 0;
     let enMora = 0;
     let remarketing = 0;
-    let totalDebt = 0;
+    let grossDebt = 0;
+    let netDebt = 0;
 
     customers.forEach(c => {
       const days = c.lastOrderDate ? differenceInDays(now, c.lastOrderDate.toDate()) : null;
-      const debt = c.id ? (customerPendingBalances.get(c.id) || 0) : 0;
-      totalDebt += debt;
+      const cGross = c.id ? (customerPendingBalances.grossMap.get(c.id) || 0) : 0;
+      const cNet = c.id ? (customerPendingBalances.netMap.get(c.id) || 0) : 0;
+      
+      grossDebt += cGross;
+      netDebt += cNet;
 
       if (days !== null && days <= 15) activos++;
       if (days === null || days > 30) remarketing++;
-      if (debt > 0.05 && days !== null && days > 30) enMora++;
+      if (cGross > 0.05 && days !== null && days > 30) enMora++;
     });
 
-    return { total, activos, enMora, remarketing, totalDebt };
+    return { total, activos, enMora, remarketing, grossDebt, netDebt };
   }, [customers, customerPendingBalances]);
 
   // FILTRADO DE CLIENTES EN TABLA
@@ -775,7 +789,7 @@ export default function ClientsPageContent() {
 
     if (debtFilter !== 'todos') {
       items = items.filter(c => {
-        const debt = c.id ? (customerPendingBalances.get(c.id) || 0) : 0;
+        const debt = c.id ? (customerPendingBalances.grossMap.get(c.id) || 0) : 0;
         if (debtFilter === 'con_deuda') return debt > 0.05;
         if (debtFilter === 'sin_deuda') return debt <= 0.05;
         return true;
@@ -806,13 +820,13 @@ export default function ClientsPageContent() {
     e.stopPropagation();
     const rawPhone = (customer.phone || '').replace(/\D/g, '');
     const cleanPhone = rawPhone.length === 10 ? `58${rawPhone}` : rawPhone;
-    const pendingDebt = customer.id ? (customerPendingBalances.get(customer.id) || 0) : 0;
+    const pendingDebt = customer.id ? (customerPendingBalances.grossMap.get(customer.id) || 0) : 0;
     
     const text = `*ATHLETICENTER C.A. - ATENCIÓN Y ASESORÍA B2B*\n\n` +
       `Estimado(a) *${customer.razonSocial}*,\n\n` +
       `Le saludamos del Departamento Comercial de Athleticenter. Queremos hacer seguimiento a su cuenta corporativa:\n\n` +
       `📄 *RIF Fiscal:* ${customer.rif}\n` +
-      (pendingDebt > 0.05 ? `💰 *Saldo Pendiente:* $${pendingDebt.toFixed(2)} USD\n` : `✅ *Estado de Cuenta:* Al Día\n`) +
+      (pendingDebt > 0.05 ? `💰 *Saldo Pendiente (Lista BCV):* $${pendingDebt.toFixed(2)} USD\n` : `✅ *Estado de Cuenta:* Al Día\n`) +
       `📍 *Asesor Asignado:* ${customer.assignedSalespersonName || 'Atención General'}\n\n` +
       `¿En qué podemos apoyarle hoy con el despacho de mercancía o actualización de ofertas?\n\n` +
       `¡Muchas gracias por su preferencia!`;
@@ -863,9 +877,9 @@ export default function ClientsPageContent() {
           isActive={inactivityFilter === 'activos'}
         />
         <DashboardMetricCard 
-          title="Cartera en Mora" 
-          value={metrics.enMora} 
-          subtitle={`Deuda Total $${metrics.totalDebt.toLocaleString('en-US', { maximumFractionDigits: 0 })}`} 
+          title="Deuda Total B2B (BCV)" 
+          value={`$${metrics.grossDebt.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} 
+          subtitle={`Neto Cash: $${metrics.netDebt.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} 
           icon={AlertTriangle} 
           iconBg="bg-rose-50" 
           iconColor="text-rose-500" 
@@ -981,7 +995,8 @@ export default function ClientsPageContent() {
                     <TableBody>
                         {isLoading && customers === null ? Array.from({ length: 3 }).map((_, i) => (<TableRow key={i}><TableCell colSpan={isAdmin ? 6 : 5} className="py-8 px-8"><Skeleton className="h-10 w-full rounded-xl" /></TableCell></TableRow>)) : filteredCustomers.length > 0 ? filteredCustomers.map((customer) => {
                             const daysInactive = customer.lastOrderDate ? differenceInDays(new Date(), customer.lastOrderDate.toDate()) : null;
-                            const pendingDebt = customer.id ? (customerPendingBalances.get(customer.id) || 0) : 0;
+                            const pendingDebt = customer.id ? (customerPendingBalances.grossMap.get(customer.id) || 0) : 0;
+                            const pendingNetDebt = customer.id ? (customerPendingBalances.netMap.get(customer.id) || 0) : 0;
 
                             return (
                             <TableRow key={customer.id} className="hover:bg-primary/5 cursor-pointer transition-colors border-b last:border-none group" onClick={() => setSelectedCustomer(customer)}>
@@ -1066,7 +1081,7 @@ export default function ClientsPageContent() {
       <CustomerDetailsSheet 
         customer={selectedCustomer} 
         user={selectedCustomer && selectedCustomer.id ? usersById.get(selectedCustomer.id) || null : null}
-        pendingBalance={selectedCustomer && selectedCustomer.id ? (customerPendingBalances.get(selectedCustomer.id) || 0) : 0}
+        pendingBalance={selectedCustomer && selectedCustomer.id ? (customerPendingBalances.grossMap.get(selectedCustomer.id) || 0) : 0}
         isOpen={!!selectedCustomer} 
         onOpenChange={(open) => !open && setSelectedCustomer(null)}
         onEdit={(user) => { setSelectedCustomer(null); setEditingUser(user); }}
