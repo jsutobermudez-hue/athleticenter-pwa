@@ -67,6 +67,9 @@ export function getOrderCommercialDiscountPercent(order: Order, paymentMethod?: 
         return 0;
     }
     // 1. Custodia inmutable por snapshot de Tesorería grabado al emitir la orden
+    if (typeof (order as any).bcvDiscountSnapshot === 'number') {
+        return (order as any).bcvDiscountSnapshot;
+    }
     if (typeof order.treasurySnapshot?.bcvDiscountPercent === 'number') {
         return order.treasurySnapshot.bcvDiscountPercent;
     }

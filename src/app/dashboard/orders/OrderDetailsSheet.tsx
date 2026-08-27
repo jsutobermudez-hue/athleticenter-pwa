@@ -318,7 +318,8 @@ export function OrderDetailsSheet({
             companyProfile: companyProfile || undefined,
             documentType: 'nota',
             globalSettings: globalSettings || undefined,
-            bcvRate: globalSettings?.bcvRate || 65.50
+            bcvRate: (order as any)?.receptionBcvRate || globalSettings?.bcvRate || 65.50,
+            order: order
         });
         toast({ title: "Nota Generada con Éxito" });
     } catch (e) {

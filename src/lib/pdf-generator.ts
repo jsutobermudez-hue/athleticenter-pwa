@@ -19,6 +19,7 @@ type GenerateOrderPdfParams = {
   documentType?: 'nota' | 'factura';
   globalSettings?: FinancialSettings;
   bcvRate?: number;
+  order?: Partial<Order>;
 };
 
 /**
@@ -44,8 +45,8 @@ async function getBase64ImageFromUrl(url: string): Promise<string> {
 }
 
 async function addFiscalHeader(doc: jsPDF, company: Partial<CompanyProfile> | undefined, title: string, refId: string, date: Date) {
-  const primaryColor = [37, 99, 235]; 
-  const accentColor = [30, 41, 59];
+  const primaryColor = [15, 23, 42]; 
+  const accentColor = [37, 99, 235]; 
 
   if (company?.logoUrl) {
     try { 
@@ -125,7 +126,8 @@ export async function generateOrderPDF({
   companyProfile, 
   documentType = 'nota',
   globalSettings,
-  bcvRate = 1
+  bcvRate,
+  order
 }: GenerateOrderPdfParams) {
   const doc = new jsPDF();
   const date = createdAt instanceof Timestamp ? createdAt.toDate() : (createdAt instanceof Date ? createdAt : new Date());
@@ -136,23 +138,27 @@ export async function generateOrderPDF({
   let totalBcvUSD = 0;
   let totalCashUSD = 0;
 
+  const isNetOrPromotional = 
+    (order as any)?.incentivesApplied === true ||
+    (order as any)?.isNetPrice === true ||
+    !!(order as any)?.promoName ||
+    (orderId || '').includes('P-CONV');
+
+  const bcvDiscountPct = isNetOrPromotional 
+    ? 0 
+    : ((order as any)?.bcvDiscountSnapshot !== undefined 
+        ? (order as any).bcvDiscountSnapshot 
+        : (globalSettings?.defaultBcvDiscount !== undefined ? globalSettings.defaultBcvDiscount : 25));
+
   const tableRows = orderItems.map(item => {
     const itemUnitPrice = item.unitPrice || item.product?.price || 0;
-    const pricing = calculatePricingTier({ 
-        costLanded: item.product?.cost || 0,
-        strategy: 'target_price', 
-        targetPriceUSD: itemUnitPrice
-    }, globalSettings);
+    const bcvPrice = itemUnitPrice;
 
-    const bcvPrice = pricing.priceListBCV;
-    const productCashPrice = item.product?.priceCashUSD;
-    const listPrice = item.product?.price || bcvPrice;
-
-    // Si el producto ya tiene un precio divisas (priceCashUSD), usar ese valor exacto o su proporción;
-    // de lo contrario utilizar el precio cash calculado según la tasa global de descuento.
-    const cashPrice = (productCashPrice && productCashPrice > 0 && listPrice > 0)
-      ? (itemUnitPrice / listPrice) * productCashPrice
-      : pricing.priceCashUSD;
+    const cashPrice = isNetOrPromotional
+      ? bcvPrice
+      : (item.product?.priceCashUSD && item.product.priceCashUSD > 0
+          ? item.product.priceCashUSD
+          : bcvPrice * (1 - bcvDiscountPct / 100));
     
     totalBcvUSD += (item.quantity * bcvPrice);
     totalCashUSD += (item.quantity * cashPrice);
@@ -183,7 +189,7 @@ export async function generateOrderPDF({
   });
 
   const finalY = (doc as any).lastAutoTable.finalY + 10;
-  const rate = bcvRate || globalSettings?.bcvRate || 1;
+  const rate = bcvRate || (order as any)?.receptionBcvRate || (order as any)?.bcvRate || globalSettings?.bcvRate || 65.50;
   const totalVES = totalBcvUSD * rate;
 
   doc.setFillColor(241, 245, 249);
@@ -289,7 +295,8 @@ export async function generateQuotePDF({
     expiryDate, 
     companyProfile, 
     globalSettings,
-    bcvRate = 1 
+    bcvRate = 1,
+    quote
 }: any) {
   const doc = new jsPDF();
   const date = new Date();
@@ -301,21 +308,26 @@ export async function generateQuotePDF({
   let totalBcvUSD = 0;
   let totalCashUSD = 0;
 
+  const isNetOrPromotional = 
+    (quote as any)?.incentivesApplied === true ||
+    (quote as any)?.isNetPrice === true ||
+    !!(quote as any)?.promoName;
+
+  const bcvDiscountPct = isNetOrPromotional 
+    ? 0 
+    : ((quote as any)?.bcvDiscountSnapshot !== undefined 
+        ? (quote as any).bcvDiscountSnapshot 
+        : (globalSettings?.defaultBcvDiscount !== undefined ? globalSettings.defaultBcvDiscount : 25));
+
   const tableRows = quoteItems.map((item: any) => {
     const itemUnitPrice = item.unitPrice || item.product?.price || 0;
-    const pricing = calculatePricingTier({ 
-        costLanded: item.product?.cost || 0,
-        strategy: 'target_price', 
-        targetPriceUSD: itemUnitPrice
-    }, globalSettings);
+    const bcvPrice = itemUnitPrice;
 
-    const bcvPrice = pricing.priceListBCV;
-    const productCashPrice = item.product?.priceCashUSD;
-    const listPrice = item.product?.price || bcvPrice;
-
-    const cashPrice = (productCashPrice && productCashPrice > 0 && listPrice > 0)
-      ? (itemUnitPrice / listPrice) * productCashPrice
-      : pricing.priceCashUSD;
+    const cashPrice = isNetOrPromotional
+      ? bcvPrice
+      : (item.product?.priceCashUSD && item.product.priceCashUSD > 0
+          ? item.product.priceCashUSD
+          : bcvPrice * (1 - bcvDiscountPct / 100));
     
     totalBcvUSD += (item.quantity * bcvPrice);
     totalCashUSD += (item.quantity * cashPrice);
@@ -597,6 +609,7 @@ export async function generatePaymentReceiptPDF({
     allPayments,
     order,
     companyProfile,
+    globalSettings,
     bcvRate = 65.50,
     paymentIndex = 1
 }: {
@@ -604,6 +617,7 @@ export async function generatePaymentReceiptPDF({
     allPayments?: (Partial<Payment> & { amount: number; method: string; referenceNumber?: string; registeredByName?: string; paymentDate?: any })[];
     order: Partial<Order>;
     companyProfile?: Partial<CompanyProfile>;
+    globalSettings?: FinancialSettings;
     bcvRate?: number;
     paymentIndex?: number;
 }) {
@@ -686,7 +700,9 @@ export async function generatePaymentReceiptPDF({
       return dType === '7days' || dType === '15days';
     }) || ((activePayment as any).discountType === '7days' || (activePayment as any).discountType === '15days');
 
-    let bcvDiscountPct = (order as any).bcvDiscountSnapshot !== undefined ? (order as any).bcvDiscountSnapshot : 25;
+    let bcvDiscountPct = (order as any).bcvDiscountSnapshot !== undefined 
+      ? (order as any).bcvDiscountSnapshot 
+      : (globalSettings?.defaultBcvDiscount !== undefined ? globalSettings.defaultBcvDiscount : 25);
     let early7dPct = hasEarlyPayment ? ((order as any).earlyPayment7dSnapshot !== undefined ? (order as any).earlyPayment7dSnapshot : 5) : 0;
 
     let cashDiscVal = 0;
