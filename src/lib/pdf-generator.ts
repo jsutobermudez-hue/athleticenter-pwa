@@ -668,22 +668,49 @@ export async function generatePaymentReceiptPDF({
     doc.text((order.salespersonName || 'Directo').toUpperCase(), 115, 67);
 
     const nominalTotal = Number(order.totalAmount || 0);
-    const bcvDiscountPct = (order as any).bcvDiscountSnapshot !== undefined ? (order as any).bcvDiscountSnapshot : 25;
-    const early7dPct = (order as any).earlyPayment7dSnapshot !== undefined ? (order as any).earlyPayment7dSnapshot : 5;
-    
-    const isCashOrZelle = (activePayment.method || '').toLowerCase().includes('zelle') || (activePayment.method || '').toLowerCase().includes('efectivo');
-    const cashDiscVal = isCashOrZelle ? nominalTotal * (bcvDiscountPct / 100) : 0;
-    const earlyDiscVal = nominalTotal * (early7dPct / 100);
-    const netExigible = Math.max(0, nominalTotal - cashDiscVal - earlyDiscVal);
+    const isNetOrPromotional = 
+      (order as any).incentivesApplied === true ||
+      (order as any).isNetPrice === true ||
+      !!(order as any).promoName ||
+      (order.id || '').includes('P-CONV');
+
+    const paymentsList = (allPayments && allPayments.length > 0) ? allPayments : [activePayment];
+
+    const hasForeignPayment = paymentsList.some(p => {
+      const norm = (p.method || '').toLowerCase();
+      return norm.includes('zelle') || norm.includes('efectivo') || norm.includes('binance') || norm.includes('usdt') || norm.includes('cash');
+    }) || ['zelle', 'efectivo', 'binance', 'usdt', 'cash'].some(m => (activePayment.method || '').toLowerCase().includes(m));
+
+    let bcvDiscountPct = (order as any).bcvDiscountSnapshot !== undefined ? (order as any).bcvDiscountSnapshot : 25;
+    let early7dPct = (order as any).earlyPayment7dSnapshot !== undefined ? (order as any).earlyPayment7dSnapshot : 0;
+
+    let cashDiscVal = 0;
+    let earlyDiscVal = 0;
+
+    if (isNetOrPromotional) {
+      cashDiscVal = 0;
+      earlyDiscVal = 0;
+      bcvDiscountPct = 0;
+      early7dPct = 0;
+    } else {
+      cashDiscVal = hasForeignPayment ? nominalTotal * (bcvDiscountPct / 100) : 0;
+      earlyDiscVal = nominalTotal * (early7dPct / 100);
+    }
+
+    const netExigible = isNetOrPromotional ? nominalTotal : Math.max(0, nominalTotal - cashDiscVal - earlyDiscVal);
 
     doc.setFillColor(241, 245, 249);
     doc.rect(14, 75, 182, 7, 'F');
     doc.setFontSize(8); doc.setFont("helvetica", "bold"); doc.setTextColor(30, 41, 59);
     doc.text("1. AMORTIZACIÓN E INCENTIVOS DEL PEDIDO (CONDICIONES INMUTABLES CONGELADAS)", 18, 80);
 
-    const amortRows = [
+    const amortRows = isNetOrPromotional ? [
         ["Monto Nominal Pedido (Lista BCV)", `$ ${nominalTotal.toFixed(2)} USD`, `Bs. ${(nominalTotal * bcvRate).toLocaleString('es-VE', { minimumFractionDigits: 2 })}`],
-        [`Descuento Divisas / Cash (${isCashOrZelle ? bcvDiscountPct : 0}%)`, `- $ ${cashDiscVal.toFixed(2)} USD`, `- Bs. ${(cashDiscVal * bcvRate).toLocaleString('es-VE', { minimumFractionDigits: 2 })}`],
+        [`TARIFA NETO OFERTA / PROMOCIONAL`, `$ ${nominalTotal.toFixed(2)} USD`, `Bs. ${(nominalTotal * bcvRate).toLocaleString('es-VE', { minimumFractionDigits: 2 })}`],
+        ["MONTO NETO EXIGIBLE EN DIVISAS", `$ ${netExigible.toFixed(2)} USD`, `Bs. ${(netExigible * bcvRate).toLocaleString('es-VE', { minimumFractionDigits: 2 })}`]
+    ] : [
+        ["Monto Nominal Pedido (Lista BCV)", `$ ${nominalTotal.toFixed(2)} USD`, `Bs. ${(nominalTotal * bcvRate).toLocaleString('es-VE', { minimumFractionDigits: 2 })}`],
+        [`Descuento Divisas / Cash (${hasForeignPayment ? bcvDiscountPct : 0}%)`, `- $ ${cashDiscVal.toFixed(2)} USD`, `- Bs. ${(cashDiscVal * bcvRate).toLocaleString('es-VE', { minimumFractionDigits: 2 })}`],
         [`Descuento Pronto Pago (${early7dPct}%)`, `- $ ${earlyDiscVal.toFixed(2)} USD`, `- Bs. ${(earlyDiscVal * bcvRate).toLocaleString('es-VE', { minimumFractionDigits: 2 })}`],
         ["MONTO NETO EXIGIBLE EN DIVISAS", `$ ${netExigible.toFixed(2)} USD`, `Bs. ${(netExigible * bcvRate).toLocaleString('es-VE', { minimumFractionDigits: 2 })}`]
     ];
@@ -707,8 +734,6 @@ export async function generatePaymentReceiptPDF({
     doc.rect(14, nextY, 182, 7, 'F');
     doc.setFontSize(8); doc.setFont("helvetica", "bold"); doc.setTextColor(16, 185, 129);
     doc.text("2. HISTORIAL COMPLETO DE ABONOS BANCARIOS CERTIFICADOS DE LA ORDEN", 18, nextY + 5);
-
-    const paymentsList = (allPayments && allPayments.length > 0) ? allPayments : [activePayment];
 
     const bankRows = paymentsList.map((p, idx) => {
         let pDateStr = format(new Date(), 'dd/MM/yy');
@@ -756,22 +781,31 @@ export async function generatePaymentReceiptPDF({
     doc.setFillColor(15, 23, 42);
     doc.roundedRect(14, nextY2, 182, 24, 3, 3, 'F');
 
-    doc.setFontSize(8); doc.setFont("helvetica", "bold"); doc.setTextColor(148, 163, 184);
-    doc.text("NETO EXIGIBLE", 20, nextY2 + 7);
-    doc.text("TOTAL ABONADO CUMULATIVO", 75, nextY2 + 7);
-    doc.text("SALDO ADICIONAL PENDIENTE", 145, nextY2 + 7);
+    doc.setFontSize(7.5); doc.setFont("helvetica", "bold"); doc.setTextColor(148, 163, 184);
+    doc.text("NETO EXIGIBLE", 20, nextY2 + 6);
+    doc.text("TOTAL ABONADO CUMULATIVO", 75, nextY2 + 6);
+    doc.text("SALDO ADICIONAL PENDIENTE", 145, nextY2 + 6);
 
-    doc.setFontSize(12); doc.setTextColor(255, 255, 255);
-    doc.text(`$${netExigible.toFixed(2)}`, 20, nextY2 + 16);
-    doc.setTextColor(16, 185, 129);
-    doc.text(`$${totalPaidSoFar.toFixed(2)}`, 75, nextY2 + 16);
+    doc.setFontSize(10); doc.setTextColor(255, 255, 255);
+    doc.text(`$${netExigible.toFixed(2)} USD`, 20, nextY2 + 13);
+    doc.setFontSize(7); doc.setTextColor(148, 163, 184);
+    doc.text(`Bs. ${(netExigible * bcvRate).toLocaleString('es-VE', { minimumFractionDigits: 2 })}`, 20, nextY2 + 18);
+
+    doc.setFontSize(10); doc.setTextColor(16, 185, 129);
+    doc.text(`$${totalPaidSoFar.toFixed(2)} USD`, 75, nextY2 + 13);
+    doc.setFontSize(7); doc.setTextColor(52, 211, 153);
+    doc.text(`Bs. ${(totalPaidSoFar * bcvRate).toLocaleString('es-VE', { minimumFractionDigits: 2 })}`, 75, nextY2 + 18);
 
     if (remainingBalance <= 0.05) {
-        doc.setTextColor(52, 211, 153);
-        doc.text("SOLVENTE (100%)", 145, nextY2 + 16);
+        doc.setFontSize(10); doc.setTextColor(52, 211, 153);
+        doc.text("SOLVENTE (100%)", 145, nextY2 + 13);
+        doc.setFontSize(7);
+        doc.text("0.00 DEUDA", 145, nextY2 + 18);
     } else {
-        doc.setTextColor(248, 113, 113);
-        doc.text(`$${remainingBalance.toFixed(2)}`, 145, nextY2 + 16);
+        doc.setFontSize(10); doc.setTextColor(248, 113, 113);
+        doc.text(`$${remainingBalance.toFixed(2)} USD`, 145, nextY2 + 13);
+        doc.setFontSize(7);
+        doc.text(`Bs. ${(remainingBalance * bcvRate).toLocaleString('es-VE', { minimumFractionDigits: 2 })}`, 145, nextY2 + 18);
     }
 
     doc.setFontSize(7.5); doc.setFont("helvetica", "normal"); doc.setTextColor(100);
