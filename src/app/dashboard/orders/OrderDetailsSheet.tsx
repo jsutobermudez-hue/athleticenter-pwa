@@ -459,45 +459,113 @@ export function OrderDetailsSheet({
                             <div className="divide-y divide-slate-100">
                                 {isLoadingItems ? (
                                     Array.from({ length: 3 }).map((_, i) => <div key={i} className="p-6"><Skeleton className="h-10 w-full rounded-xl" /></div>)
-                                ) : sortedItemsForPicking.map((item) => (
-                                    <div key={item.id} className={cn("p-4 sm:p-5 flex items-center gap-4 transition-all", item.picked && "bg-emerald-50/40")}>
-                                        <div className="relative h-14 w-14 shrink-0 rounded-xl overflow-hidden bg-slate-50 border border-slate-200 shadow-inner">
-                                            <Avatar className="h-full w-full rounded-none">
-                                                <AvatarImage src={item.product?.imageUrl} className="object-cover" />
-                                                <AvatarFallback className="rounded-none bg-slate-100">
-                                                    <Box className="h-6 w-6 text-slate-300" />
-                                                </AvatarFallback>
-                                            </Avatar>
-                                        </div>
+                                ) : sortedItemsForPicking.map((item) => {
+                                    const unitBcvPrice = item.unitPrice || item.product?.price || 0;
+                                    const isNetOrPromo = (order as any).incentivesApplied === true || (order as any).isNetPrice === true || !!(order as any).promoName;
+                                    const effectiveDiscountPct = isNetOrPromo 
+                                      ? 0 
+                                      : ((order as any).bcvDiscountSnapshot !== undefined 
+                                          ? (order as any).bcvDiscountSnapshot 
+                                          : (globalSettings?.defaultBcvDiscount ?? 25));
 
-                                        <div className="flex-1 min-w-0">
-                                            <div className="flex items-center gap-2 mb-1 min-w-0 flex-wrap">
-                                                <Badge variant="outline" className="bg-primary/5 text-primary border-primary/20 text-[8px] font-black h-4 uppercase px-1.5 shrink-0">
-                                                    {item.product?.warehouseLocation || 'S/U'}
-                                                </Badge>
-                                                <p className="text-xs sm:text-sm font-black uppercase truncate text-slate-900 leading-tight">{item.product?.name || '---'}</p>
+                                    const unitCashPrice = isNetOrPromo 
+                                      ? unitBcvPrice 
+                                      : (item.product?.priceCashUSD && item.product.priceCashUSD > 0 
+                                          ? item.product.priceCashUSD 
+                                          : unitBcvPrice * (1 - effectiveDiscountPct / 100));
+
+                                    const itemBcvSubtotal = item.quantity * unitBcvPrice;
+                                    const itemCashSubtotal = item.quantity * unitCashPrice;
+
+                                    return (
+                                        <div key={item.id} className={cn("p-4 sm:p-5 flex items-center gap-4 transition-all hover:bg-slate-50/50", item.picked && "bg-emerald-50/40")}>
+                                            <div className="relative h-14 w-14 shrink-0 rounded-xl overflow-hidden bg-slate-50 border border-slate-200 shadow-inner">
+                                                <Avatar className="h-full w-full rounded-none">
+                                                    <AvatarImage src={item.product?.imageUrl} className="object-cover" />
+                                                    <AvatarFallback className="rounded-none bg-slate-100">
+                                                        <Box className="h-6 w-6 text-slate-300" />
+                                                    </AvatarFallback>
+                                                </Avatar>
                                             </div>
-                                            <div className="flex items-center gap-3">
-                                                <span className="text-[9px] font-mono font-bold text-slate-400 uppercase tracking-tighter bg-slate-50 px-1.5 py-0.5 rounded">{item.product?.sku}</span>
-                                                <span className="text-[10px] font-black text-primary uppercase">CANT: {item.quantity}</span>
+
+                                            <div className="flex-1 min-w-0 space-y-1">
+                                                <div className="flex items-center gap-2 min-w-0 flex-wrap">
+                                                    <Badge variant="outline" className="bg-primary/5 text-primary border-primary/20 text-[8px] font-black h-4 uppercase px-1.5 shrink-0">
+                                                        {item.product?.warehouseLocation || 'S/U'}
+                                                    </Badge>
+                                                    <p className="text-xs sm:text-sm font-black uppercase truncate text-slate-900 leading-tight">{item.product?.name || '---'}</p>
+                                                </div>
+                                                <div className="flex items-center gap-2 flex-wrap text-[9px]">
+                                                    <span className="font-mono font-bold text-slate-400 uppercase tracking-tighter bg-slate-100 px-1.5 py-0.5 rounded">{item.product?.sku}</span>
+                                                    <span className="font-black text-slate-700 uppercase bg-primary/10 text-primary px-2 py-0.5 rounded-md">CANT: {item.quantity} UNID</span>
+                                                    <span className="font-bold text-slate-500 uppercase">Val. Unit: <strong className="text-slate-900">${unitBcvPrice.toFixed(2)}/u (BCV)</strong></span>
+                                                    {!isNetOrPromo && (
+                                                        <span className="font-bold text-emerald-600 uppercase">/ <strong className="text-emerald-700">${unitCashPrice.toFixed(2)}/u (Cash -{effectiveDiscountPct}%)</strong></span>
+                                                    )}
+                                                </div>
+                                            </div>
+
+                                            <div className="shrink-0 flex items-center">
+                                                {pickingMode ? (
+                                                    <Button 
+                                                        variant={item.picked ? "default" : "outline"} 
+                                                        size="icon" 
+                                                        className={cn("h-10 w-10 rounded-xl shadow-md transition-all active:scale-90", item.picked ? "bg-emerald-500" : "border-slate-200 text-slate-300")}
+                                                        onClick={() => handleTogglePicked(item)}
+                                                    >
+                                                        {item.picked ? <Check className="h-5 w-5 text-white" /> : <Box className="h-5 w-5" />}
+                                                    </Button>
+                                                ) : (
+                                                    <div className="text-right space-y-0.5">
+                                                        <p className="font-black text-base sm:text-lg text-slate-900 tracking-tighter">${itemBcvSubtotal.toFixed(2)} USD</p>
+                                                        {!isNetOrPromo && (
+                                                            <p className="text-[9px] font-black text-emerald-600 uppercase tracking-tight">
+                                                                Neto Cash: ${itemCashSubtotal.toFixed(2)}
+                                                            </p>
+                                                        )}
+                                                    </div>
+                                                )}
                                             </div>
                                         </div>
+                                    );
+                                })}
+                            </div>
 
-                                        <div className="shrink-0 flex items-center">
-                                            {pickingMode ? (
-                                                <Button 
-                                                    variant={item.picked ? "default" : "outline"} 
-                                                    size="icon" 
-                                                    className={cn("h-10 w-10 rounded-xl shadow-md transition-all active:scale-90", item.picked ? "bg-emerald-500" : "border-slate-200 text-slate-300")}
-                                                    onClick={() => handleTogglePicked(item)}
-                                                >
-                                                    {item.picked ? <Check className="h-5 w-5 text-white" /> : <Box className="h-5 w-5" />}
-                                                </Button>
-                                            ) : <p className="font-black text-base sm:text-xl text-slate-900 tracking-tighter">${(item.quantity * item.unitPrice).toFixed(2)}</p>}
+                            {/* BARRA CONSOLIDADA RESUMEN DE UNIDADES Y SUBTOTALES AL PIE */}
+                            {(() => {
+                                const totalUnits = itemsWithProductData.reduce((sum, item) => sum + (item.quantity || 0), 0);
+                                const totalBcvManifesto = itemsWithProductData.reduce((sum, item) => sum + ((item.quantity || 0) * (item.unitPrice || item.product?.price || 0)), 0);
+                                const isNetOrPromo = (order as any).incentivesApplied === true || (order as any).isNetPrice === true || !!(order as any).promoName;
+                                const effectiveDiscountPct = isNetOrPromo 
+                                  ? 0 
+                                  : ((order as any).bcvDiscountSnapshot !== undefined 
+                                      ? (order as any).bcvDiscountSnapshot 
+                                      : (globalSettings?.defaultBcvDiscount ?? 25));
+                                const totalCashManifesto = isNetOrPromo ? totalBcvManifesto : totalBcvManifesto * (1 - effectiveDiscountPct / 100);
+
+                                return (
+                                    <div className="p-3.5 bg-slate-900 text-white flex flex-wrap items-center justify-between gap-3 border-t border-slate-800">
+                                        <div className="flex items-center gap-2">
+                                            <Box className="h-4 w-4 text-emerald-400" />
+                                            <span className="text-[10px] font-black uppercase tracking-widest text-slate-300">
+                                                Carga Total: <strong className="text-white font-extrabold">{totalUnits} PIEZAS / UNIDADES</strong>
+                                            </span>
+                                        </div>
+                                        <div className="flex items-center gap-4 text-right">
+                                            <div className="flex flex-col">
+                                                <span className="text-[8px] font-black uppercase text-slate-400">Total Lista BCV</span>
+                                                <span className="text-xs font-black text-white font-mono">${totalBcvManifesto.toFixed(2)} USD</span>
+                                            </div>
+                                            {!isNetOrPromo && (
+                                                <div className="flex flex-col">
+                                                    <span className="text-[8px] font-black uppercase text-emerald-400">Total Neto Cash (-{effectiveDiscountPct}%)</span>
+                                                    <span className="text-xs font-black text-emerald-400 font-mono">${totalCashManifesto.toFixed(2)} USD</span>
+                                                </div>
+                                            )}
                                         </div>
                                     </div>
-                                ))}
-                            </div>
+                                );
+                            })()}
                         </div>
                     </div>
                 </div>
