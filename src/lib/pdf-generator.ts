@@ -681,8 +681,13 @@ export async function generatePaymentReceiptPDF({
       return norm.includes('zelle') || norm.includes('efectivo') || norm.includes('binance') || norm.includes('usdt') || norm.includes('cash');
     }) || ['zelle', 'efectivo', 'binance', 'usdt', 'cash'].some(m => (activePayment.method || '').toLowerCase().includes(m));
 
+    const hasEarlyPayment = paymentsList.some(p => {
+      const dType = (p as any).discountType || (p as any).earlyPaymentType;
+      return dType === '7days' || dType === '15days';
+    }) || ((activePayment as any).discountType === '7days' || (activePayment as any).discountType === '15days');
+
     let bcvDiscountPct = (order as any).bcvDiscountSnapshot !== undefined ? (order as any).bcvDiscountSnapshot : 25;
-    let early7dPct = (order as any).earlyPayment7dSnapshot !== undefined ? (order as any).earlyPayment7dSnapshot : 0;
+    let early7dPct = hasEarlyPayment ? ((order as any).earlyPayment7dSnapshot !== undefined ? (order as any).earlyPayment7dSnapshot : 5) : 0;
 
     let cashDiscVal = 0;
     let earlyDiscVal = 0;
@@ -694,7 +699,7 @@ export async function generatePaymentReceiptPDF({
       early7dPct = 0;
     } else {
       cashDiscVal = hasForeignPayment ? nominalTotal * (bcvDiscountPct / 100) : 0;
-      earlyDiscVal = nominalTotal * (early7dPct / 100);
+      earlyDiscVal = hasEarlyPayment ? nominalTotal * (early7dPct / 100) : 0;
     }
 
     const netExigible = isNetOrPromotional ? nominalTotal : Math.max(0, nominalTotal - cashDiscVal - earlyDiscVal);
