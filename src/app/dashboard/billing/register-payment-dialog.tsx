@@ -336,7 +336,7 @@ export function ConfirmPaymentDialog({ order }: { order: Order }) {
           <ShieldCheck className="mr-1.5 h-3.5 w-3.5" /> Verificar Abono
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-w-[95vw] sm:max-w-5xl p-0 overflow-hidden rounded-[2.5rem] border-none shadow-2xl flex flex-col h-[90vh]">
+      <DialogContent className="max-w-[95vw] sm:max-w-5xl p-0 overflow-hidden rounded-2xl sm:rounded-[2.5rem] border-none shadow-2xl flex flex-col h-[90dvh] max-h-[90dvh]">
         <DialogHeader className="p-6 sm:p-8 bg-slate-900 text-white shrink-0">
           <div className="flex items-center gap-4">
             <div className="p-3 rounded-2xl bg-emerald-500/20 text-emerald-400 shrink-0"><Receipt className="h-6 w-6" /></div>

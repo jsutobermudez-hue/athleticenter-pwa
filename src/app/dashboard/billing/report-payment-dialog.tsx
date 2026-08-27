@@ -444,7 +444,7 @@ export function ReportPaymentDialog({ invoice, mode = 'partial' }: { invoice: In
             {isTotalMode ? "Liquidar Factura" : "Reportar Pago"}
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-w-[95vw] sm:max-w-5xl p-0 overflow-hidden rounded-[2.5rem] border-none shadow-2xl flex flex-col h-[90vh]">
+      <DialogContent className="max-w-[95vw] sm:max-w-5xl p-0 overflow-hidden rounded-2xl sm:rounded-[2.5rem] border-none shadow-2xl flex flex-col h-[90dvh] max-h-[90dvh]">
         <DialogHeader className={cn("p-6 sm:p-8 text-white shrink-0", isTotalMode ? "bg-emerald-600" : "bg-slate-900")}>
           <div className="flex items-center gap-4">
             <div className="p-3 rounded-2xl bg-white/20 text-white shadow-xl shrink-0">
