@@ -186,8 +186,19 @@ export function OrderDetailsSheet({
       }
   };
 
+  const [pickingFilter, setPickingFilter] = useState<'all' | 'pending' | 'completed'>('all');
+
   const pickedCount = useMemo(() => itemsWithProductData.filter(i => i.picked).length, [itemsWithProductData]);
   const totalItems = itemsWithProductData.length;
+
+  const pickedUnitsCount = useMemo(() => itemsWithProductData.filter(i => i.picked).reduce((s, i) => s + (i.quantity || 0), 0), [itemsWithProductData]);
+  const totalUnitsCount = useMemo(() => itemsWithProductData.reduce((s, i) => s + (i.quantity || 0), 0), [itemsWithProductData]);
+
+  const filteredItemsForPicking = useMemo(() => {
+    if (pickingFilter === 'pending') return sortedItemsForPicking.filter(i => !i.picked);
+    if (pickingFilter === 'completed') return sortedItemsForPicking.filter(i => i.picked);
+    return sortedItemsForPicking;
+  }, [sortedItemsForPicking, pickingFilter]);
   const pickingPercentage = totalItems > 0 ? (pickedCount / totalItems) * 100 : 0;
   const isFullyPicked = totalItems > 0 && pickedCount === totalItems;
 
@@ -451,15 +462,75 @@ export function OrderDetailsSheet({
                     )}
 
                     <div className="space-y-4">
-                        <div className="flex items-center justify-between px-1">
-                            <h3 className="text-[10px] font-black uppercase tracking-[0.4em] text-slate-400 flex items-center gap-2"><Box className="h-4 w-4 text-primary" /> MANIFIESTO DE CARGA</h3>
-                            <span className="text-[10px] font-black text-slate-500 uppercase">{itemsWithProductData.length} Productos</span>
+                        <div className="flex flex-wrap items-center justify-between gap-2 px-1">
+                            <div>
+                                <h3 className="text-[10px] font-black uppercase tracking-[0.4em] text-slate-400 flex items-center gap-2">
+                                    <Box className="h-4 w-4 text-primary" /> MANIFIESTO DE CARGA & PICKING DIGITAL
+                                </h3>
+                                <p className="text-[10px] font-black text-slate-700 uppercase mt-0.5">
+                                    Recolectado: <strong className="text-emerald-600">{pickedCount} / {totalItems} ítems</strong> ({pickedUnitsCount} / {totalUnitsCount} piezas)
+                                </p>
+                            </div>
+
+                            {/* FILTROS RÁPIDOS DE PICKING */}
+                            <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl border border-slate-200 shadow-inner">
+                                <button
+                                    type="button"
+                                    onClick={() => setPickingFilter('all')}
+                                    className={cn(
+                                        "px-2.5 py-1 rounded-lg text-[9px] font-black uppercase transition-all",
+                                        pickingFilter === 'all' ? "bg-slate-900 text-white shadow-sm scale-105" : "text-slate-500 hover:text-slate-900"
+                                    )}
+                                >
+                                    Todos ({totalItems})
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setPickingFilter('pending')}
+                                    className={cn(
+                                        "px-2.5 py-1 rounded-lg text-[9px] font-black uppercase transition-all flex items-center gap-1",
+                                        pickingFilter === 'pending' ? "bg-amber-500 text-white shadow-sm scale-105" : "text-amber-700 hover:bg-amber-100"
+                                    )}
+                                >
+                                    ⏳ Pendientes ({totalItems - pickedCount})
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setPickingFilter('completed')}
+                                    className={cn(
+                                        "px-2.5 py-1 rounded-lg text-[9px] font-black uppercase transition-all flex items-center gap-1",
+                                        pickingFilter === 'completed' ? "bg-emerald-600 text-white shadow-sm scale-105" : "text-emerald-700 hover:bg-emerald-100"
+                                    )}
+                                >
+                                    ✅ Listos ({pickedCount})
+                                </button>
+                            </div>
                         </div>
+
+                        {/* BARRA VISUAL DE PROGRESO DE ALMACÉN EN TIEMPO REAL */}
+                        <div className="p-3 bg-slate-900 text-white rounded-2xl shadow-md space-y-1.5 border border-slate-800">
+                            <div className="flex justify-between items-center text-[9px] font-black uppercase">
+                                <span className="text-slate-300 tracking-wider flex items-center gap-1.5">
+                                    <ClipboardList className="h-3.5 w-3.5 text-emerald-400" /> AVANCE EN ESTANTERÍA Y ALMACÉN
+                                </span>
+                                <span className={cn(isFullyPicked ? "text-emerald-400 font-extrabold animate-pulse" : "text-slate-300")}>
+                                    {isFullyPicked ? '🎉 100% RECOLECTADO & COMPROBADO' : `${pickingPercentage.toFixed(0)}% COMPLETADO`}
+                                </span>
+                            </div>
+                            <Progress value={pickingPercentage} className="h-2 bg-white/10" />
+                        </div>
+
                         <div className="rounded-2xl border border-slate-200 overflow-hidden shadow-sm bg-white">
                             <div className="divide-y divide-slate-100">
                                 {isLoadingItems ? (
                                     Array.from({ length: 3 }).map((_, i) => <div key={i} className="p-6"><Skeleton className="h-10 w-full rounded-xl" /></div>)
-                                ) : sortedItemsForPicking.map((item) => {
+                                ) : filteredItemsForPicking.length === 0 ? (
+                                    <div className="p-8 text-center space-y-2 bg-slate-50/50">
+                                        <CheckCircle2 className="h-8 w-8 text-emerald-500 mx-auto" />
+                                        <p className="text-xs font-black uppercase text-slate-700">No hay productos en esta vista</p>
+                                        <p className="text-[9px] text-slate-400 uppercase font-bold">Cambia el filtro de picking para explorar los demás ítems</p>
+                                    </div>
+                                ) : filteredItemsForPicking.map((item) => {
                                     const unitBcvPrice = item.unitPrice || item.product?.price || 0;
                                     const isNetOrPromo = (order as any).incentivesApplied === true || (order as any).isNetPrice === true || !!(order as any).promoName;
                                     const effectiveDiscountPct = isNetOrPromo 
@@ -478,53 +549,80 @@ export function OrderDetailsSheet({
                                     const itemCashSubtotal = item.quantity * unitCashPrice;
 
                                     return (
-                                        <div key={item.id} className={cn("p-4 sm:p-5 flex items-center gap-4 transition-all hover:bg-slate-50/50", item.picked && "bg-emerald-50/40")}>
-                                            <div className="relative h-14 w-14 shrink-0 rounded-xl overflow-hidden bg-slate-50 border border-slate-200 shadow-inner">
-                                                <Avatar className="h-full w-full rounded-none">
-                                                    <AvatarImage src={item.product?.imageUrl} className="object-cover" />
-                                                    <AvatarFallback className="rounded-none bg-slate-100">
-                                                        <Box className="h-6 w-6 text-slate-300" />
-                                                    </AvatarFallback>
-                                                </Avatar>
-                                            </div>
-
-                                            <div className="flex-1 min-w-0 space-y-1">
-                                                <div className="flex items-center gap-2 min-w-0 flex-wrap">
-                                                    <Badge variant="outline" className="bg-primary/5 text-primary border-primary/20 text-[8px] font-black h-4 uppercase px-1.5 shrink-0">
-                                                        {item.product?.warehouseLocation || 'S/U'}
-                                                    </Badge>
-                                                    <p className="text-xs sm:text-sm font-black uppercase truncate text-slate-900 leading-tight">{item.product?.name || '---'}</p>
+                                        <div key={item.id} className={cn("p-4 sm:p-5 flex flex-wrap sm:flex-nowrap items-center justify-between gap-4 transition-all", item.picked ? "bg-emerald-50/50 border-l-4 border-l-emerald-500" : "hover:bg-slate-50/50")}>
+                                            <div className="flex items-center gap-3.5 min-w-0 flex-1">
+                                                <div className="relative h-14 w-14 shrink-0 rounded-xl overflow-hidden bg-slate-50 border border-slate-200 shadow-inner">
+                                                    <Avatar className="h-full w-full rounded-none">
+                                                        <AvatarImage src={item.product?.imageUrl} className="object-cover" />
+                                                        <AvatarFallback className="rounded-none bg-slate-100">
+                                                            <Box className="h-6 w-6 text-slate-300" />
+                                                        </AvatarFallback>
+                                                    </Avatar>
                                                 </div>
-                                                <div className="flex items-center gap-2 flex-wrap text-[9px]">
-                                                    <span className="font-mono font-bold text-slate-400 uppercase tracking-tighter bg-slate-100 px-1.5 py-0.5 rounded">{item.product?.sku}</span>
-                                                    <span className="font-black text-slate-700 uppercase bg-primary/10 text-primary px-2 py-0.5 rounded-md">CANT: {item.quantity} UNID</span>
-                                                    <span className="font-bold text-slate-500 uppercase">Val. Unit: <strong className="text-slate-900">${unitBcvPrice.toFixed(2)}/u (BCV)</strong></span>
-                                                    {!isNetOrPromo && (
-                                                        <span className="font-bold text-emerald-600 uppercase">/ <strong className="text-emerald-700">${unitCashPrice.toFixed(2)}/u (Cash -{effectiveDiscountPct}%)</strong></span>
-                                                    )}
-                                                </div>
-                                            </div>
 
-                                            <div className="shrink-0 flex items-center">
-                                                {pickingMode ? (
-                                                    <Button 
-                                                        variant={item.picked ? "default" : "outline"} 
-                                                        size="icon" 
-                                                        className={cn("h-10 w-10 rounded-xl shadow-md transition-all active:scale-90", item.picked ? "bg-emerald-500" : "border-slate-200 text-slate-300")}
-                                                        onClick={() => handleTogglePicked(item)}
-                                                    >
-                                                        {item.picked ? <Check className="h-5 w-5 text-white" /> : <Box className="h-5 w-5" />}
-                                                    </Button>
-                                                ) : (
-                                                    <div className="text-right space-y-0.5">
-                                                        <p className="font-black text-base sm:text-lg text-slate-900 tracking-tighter">${itemBcvSubtotal.toFixed(2)} USD</p>
+                                                <div className="space-y-1 min-w-0 flex-1">
+                                                    <div className="flex items-center gap-2 min-w-0 flex-wrap">
+                                                        <Badge variant="outline" className="bg-primary/5 text-primary border-primary/20 text-[8px] font-black h-4 uppercase px-1.5 shrink-0">
+                                                            Ubicación: {item.product?.warehouseLocation || 'S/U'}
+                                                        </Badge>
+
+                                                        {item.picked ? (
+                                                            <Badge className="bg-emerald-600 text-white text-[8px] font-black uppercase px-2 h-4 border-none shadow-sm flex items-center gap-1">
+                                                                <Check className="h-3 w-3" /> RECOLECTADO
+                                                            </Badge>
+                                                        ) : (
+                                                            <Badge variant="outline" className="bg-amber-50 text-amber-800 border-amber-300 text-[8px] font-black uppercase px-2 h-4 flex items-center gap-1">
+                                                                ⏳ PENDIENTE EN ESTANTE
+                                                            </Badge>
+                                                        )}
+                                                        
+                                                        <p className="text-xs sm:text-sm font-black uppercase truncate text-slate-900 leading-tight w-full sm:w-auto">{item.product?.name || '---'}</p>
+                                                    </div>
+                                                    
+                                                    <div className="flex items-center gap-2 flex-wrap text-[9px]">
+                                                        <span className="font-mono font-bold text-slate-400 uppercase tracking-tighter bg-slate-100 px-1.5 py-0.5 rounded">{item.product?.sku}</span>
+                                                        <span className="font-black text-slate-700 uppercase bg-primary/10 text-primary px-2 py-0.5 rounded-md">CANT: {item.quantity} UNID</span>
+                                                        <span className="font-bold text-slate-500 uppercase">Val. Unit: <strong className="text-slate-900">${unitBcvPrice.toFixed(2)}/u (BCV)</strong></span>
                                                         {!isNetOrPromo && (
-                                                            <p className="text-[9px] font-black text-emerald-600 uppercase tracking-tight">
-                                                                Neto Cash: ${itemCashSubtotal.toFixed(2)}
-                                                            </p>
+                                                            <span className="font-bold text-emerald-600 uppercase">/ <strong className="text-emerald-700">${unitCashPrice.toFixed(2)}/u (Cash -{effectiveDiscountPct}%)</strong></span>
                                                         )}
                                                     </div>
-                                                )}
+                                                </div>
+                                            </div>
+
+                                            <div className="shrink-0 flex items-center gap-3 w-full sm:w-auto justify-between sm:justify-end border-t sm:border-t-0 pt-2 sm:pt-0 border-slate-100">
+                                                <div className="text-left sm:text-right space-y-0.5">
+                                                    <p className="font-black text-base sm:text-lg text-slate-900 tracking-tighter">${itemBcvSubtotal.toFixed(2)} USD</p>
+                                                    {!isNetOrPromo && (
+                                                        <p className="text-[9px] font-black text-emerald-600 uppercase tracking-tight">
+                                                            Neto Cash: ${itemCashSubtotal.toFixed(2)}
+                                                        </p>
+                                                    )}
+                                                </div>
+
+                                                {/* BOTÓN DIGITAL TÁCTIL DE VERIFICACIÓN 1-TAP */}
+                                                <Button 
+                                                    type="button"
+                                                    variant={item.picked ? "default" : "outline"} 
+                                                    size="sm" 
+                                                    className={cn(
+                                                        "h-9 px-3 rounded-xl font-black text-[9px] uppercase tracking-wider shadow-sm transition-all active:scale-95 flex items-center gap-1.5",
+                                                        item.picked ? "bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-200" : "border-slate-300 hover:border-emerald-500 hover:bg-emerald-50 text-slate-700 hover:text-emerald-700"
+                                                    )}
+                                                    onClick={() => handleTogglePicked(item)}
+                                                >
+                                                    {item.picked ? (
+                                                        <>
+                                                            <Check className="h-4 w-4 text-white" />
+                                                            <span>Listo</span>
+                                                        </>
+                                                    ) : (
+                                                        <>
+                                                            <Box className="h-3.5 w-3.5 text-primary" />
+                                                            <span>Marcar Carga</span>
+                                                        </>
+                                                    )}
+                                                </Button>
                                             </div>
                                         </div>
                                     );
