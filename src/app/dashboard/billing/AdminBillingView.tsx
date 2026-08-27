@@ -87,16 +87,6 @@ export function AdminBillingView() {
   const [isCashAuditModalOpen, setIsCashAuditModalOpen] = useState(false);
   const [isExportingPDF, setIsExportingPDF] = useState(false);
   const [viewMode, setViewMode] = useState<'cards' | 'kanban' | 'table'>('cards');
-
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      if (window.innerWidth > 1024) {
-        setViewMode('table');
-      } else {
-        setViewMode('cards');
-      }
-    }
-  }, []);
   
   const isGlobalStaff = useMemo(() => currentUser && ['admin', 'superadmin', 'gerencia', 'deposito'].includes(currentUser.role), [currentUser]);
 
