@@ -810,13 +810,13 @@ export default function AdminOrdersView() {
                 </div>
             )}
 
-            {/* VISTA 3: TABLA EJECUTIVA COMPACTA */}
+            {/* VISTA 3: TABLA EJECUTIVA COMPACTA (CON SCROLL PERMANENTE Y CABECERA FIJA) */}
             {viewMode === 'table' && (
                 <div className="w-full px-1 sm:px-2">
                     <div className="w-full rounded-[2.5rem] border border-slate-100 shadow-xl bg-white overflow-hidden">
-                        <div className="w-full overflow-x-auto">
+                        <div className="w-full max-h-[calc(100vh-280px)] min-h-[400px] overflow-auto custom-scrollbar">
                             <Table className="w-full">
-                                <TableHeader className="bg-slate-900">
+                                <TableHeader className="bg-slate-900 sticky top-0 z-20 shadow-sm">
                                     <TableRow className="hover:bg-transparent border-none">
                                         <TableHead className="text-[10px] font-black uppercase tracking-widest py-4 pl-6 text-white w-28">N° Pedido</TableHead>
                                         <TableHead className="text-[10px] font-black uppercase tracking-widest text-white min-w-[180px]">Cliente / Razón Social</TableHead>

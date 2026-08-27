@@ -928,12 +928,12 @@ export function AdminBillingView() {
                 </div>
             )}
 
-            {/* VISTA 3: TABLA EJECUTIVA TRADICIONAL (OPTIMIZADA PARA DESKTOP) */}
+            {/* VISTA 3: TABLA EJECUTIVA TRADICIONAL (OPTIMIZADA PARA DESKTOP CON SCROLL PERMANENTE) */}
             {viewMode === 'table' && (
                 <div className="w-full rounded-[2.5rem] border border-slate-100 shadow-xl bg-white overflow-hidden">
-                    <div className="w-full overflow-x-auto">
+                    <div className="w-full max-h-[calc(100vh-280px)] min-h-[400px] overflow-auto custom-scrollbar">
                         <Table className="w-full">
-                            <TableHeader className="bg-slate-900">
+                            <TableHeader className="bg-slate-900 sticky top-0 z-20 shadow-sm">
                                 <TableRow className="hover:bg-transparent border-none">
                                     <TableHead className="text-[10px] font-black uppercase tracking-widest py-4 pl-6 text-white w-28">Expediente</TableHead>
                                     <TableHead className="text-[10px] font-black uppercase tracking-widest text-white min-w-[180px]">Entidad Comercial</TableHead>
