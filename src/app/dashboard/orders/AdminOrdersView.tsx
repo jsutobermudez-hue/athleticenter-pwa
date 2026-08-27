@@ -28,7 +28,15 @@ import {
     ArrowUpRight, 
     Download,
     Printer,
-    Send
+    Send,
+    LayoutGrid,
+    Columns3,
+    Table as TableIcon,
+    FileText,
+    Eye,
+    User2,
+    Filter,
+    Info
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { Label } from '@/components/ui/label';
@@ -39,6 +47,8 @@ import { cn } from '@/lib/utils';
 import { getInvoiceFromOrder } from '@/lib/billing';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
@@ -109,6 +119,7 @@ export default function AdminOrdersView() {
     const [startDate, setStartDate] = useState<string>('');
     const [endDate, setEndDate] = useState<string>('');
     const [isExportingPDF, setIsExportingPDF] = useState(false);
+    const [viewMode, setViewMode] = useState<'cards' | 'kanban' | 'table'>('cards');
 
     const canListAll = useMemo(() => 
         currentUser && ['superadmin', 'admin', 'gerencia', 'deposito'].includes(currentUser.role),
@@ -673,61 +684,209 @@ export default function AdminOrdersView() {
                         </div>
                     </div>
 
-                    <div className="flex items-center gap-2">
-                        <Button variant="ghost" onClick={() => { setSearchTerm(''); setStatusFilter('todos'); setSalespersonFilter('todos'); setDateFilter('todos'); setSortBy('orderDate'); setSortOrder('desc'); }} className="h-10 text-[9px] font-black uppercase text-slate-400 hover:text-slate-900">
-                            Limpiar
-                        </Button>
+                    <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-slate-100">
+                        <div className="flex items-center gap-2">
+                            <Button variant="ghost" onClick={() => { setSearchTerm(''); setStatusFilter('todos'); setSalespersonFilter('todos'); setDateFilter('todos'); setSortBy('orderDate'); setSortOrder('desc'); }} className="h-10 text-[9px] font-black uppercase text-slate-400 hover:text-slate-900">
+                                Limpiar Filtros
+                            </Button>
+                        </div>
+
+                        {/* SELECTOR ADAPTATIVO TRI-MODAL (TARJETAS POR DEFECTO, KANBAN, TABLA) */}
+                        <div className="flex items-center gap-1 bg-slate-900 p-1 rounded-xl shadow-md border border-slate-800">
+                            <button
+                                type="button"
+                                onClick={() => setViewMode('cards')}
+                                className={cn(
+                                    "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer",
+                                    viewMode === 'cards' ? "bg-emerald-500 text-slate-950 shadow-md font-extrabold" : "text-slate-300 hover:text-white"
+                                )}
+                            >
+                                <LayoutGrid className="h-3.5 w-3.5" /> Tarjetas
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setViewMode('kanban')}
+                                className={cn(
+                                    "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer",
+                                    viewMode === 'kanban' ? "bg-emerald-500 text-slate-950 shadow-md font-extrabold" : "text-slate-300 hover:text-white"
+                                )}
+                            >
+                                <Columns3 className="h-3.5 w-3.5" /> Kanban
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setViewMode('table')}
+                                className={cn(
+                                    "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer",
+                                    viewMode === 'table' ? "bg-emerald-500 text-slate-950 shadow-md font-extrabold" : "text-slate-300 hover:text-white"
+                                )}
+                            >
+                                <TableIcon className="h-3.5 w-3.5" /> Tabla
+                            </button>
+                        </div>
                     </div>
                 </div>
                 </CardContent>
             </Card>
 
-            {/* SECCIONES ACORDEÓN DE EXPEDIENTES */}
-            {isLoading ? (
-                <div className="p-8 space-y-4">
-                    <Skeleton className="h-12 w-full rounded-2xl" />
-                    <Skeleton className="h-12 w-full rounded-2xl" />
-                </div>
-            ) : (
-                <div className="space-y-4 px-1 sm:px-2">
-                    <Accordion type="multiple" value={openSections.length > 0 ? openSections : visibleSections.map(s => s.key)} onValueChange={setOpenSections} className="space-y-3">
-                        {visibleSections.map(section => (
-                            <AccordionItem key={section.key} value={section.key} className="border-none shadow-sm rounded-2xl bg-white overflow-hidden">
-                                <AccordionTrigger className="px-5 py-4 hover:no-underline hover:bg-slate-50/50 transition-colors">
-                                    <div className="flex items-center gap-3 w-full">
-                                        <div className={cn("p-2 rounded-xl shadow-sm", section.alert && section.orders.length > 0 ? "bg-rose-100 text-rose-600" : `bg-${section.color}-50 text-${section.color}-600`)}>
-                                            <section.icon className="h-4.5 w-4.5" />
+            {/* VISTA 1: TARJETAS TÁCTILES POR DEFECTO (REJILLA CON ACORDEONES) */}
+            {viewMode === 'cards' && (
+                isLoading ? (
+                    <div className="p-8 space-y-4">
+                        <Skeleton className="h-12 w-full rounded-2xl" />
+                        <Skeleton className="h-12 w-full rounded-2xl" />
+                    </div>
+                ) : (
+                    <div className="space-y-4 px-1 sm:px-2">
+                        <Accordion type="multiple" value={openSections.length > 0 ? openSections : visibleSections.map(s => s.key)} onValueChange={setOpenSections} className="space-y-3">
+                            {visibleSections.map(section => (
+                                <AccordionItem key={section.key} value={section.key} className="border-none shadow-sm rounded-2xl bg-white overflow-hidden">
+                                    <AccordionTrigger className="px-5 py-4 hover:no-underline hover:bg-slate-50/50 transition-colors">
+                                        <div className="flex items-center gap-3 w-full">
+                                            <div className={cn("p-2 rounded-xl shadow-sm", section.alert && section.orders.length > 0 ? "bg-rose-100 text-rose-600" : `bg-${section.color}-50 text-${section.color}-600`)}>
+                                                <section.icon className="h-4.5 w-4.5" />
+                                            </div>
+                                            <div className="space-y-0.5">
+                                                <h3 className="text-xs font-black uppercase tracking-tight text-slate-900">{section.label}</h3>
+                                                <p className="text-[8px] text-muted-foreground font-black uppercase tracking-[0.2em]">{section.orders.length} EXPEDIENTES EN COLA</p>
+                                            </div>
+                                            {section.orders.length > 0 && section.alert && (
+                                                <Badge variant="destructive" className="ml-auto bg-rose-600 text-white font-black text-[9px] uppercase px-2.5 py-0.5 rounded-lg animate-pulse shadow-sm flex items-center gap-1">
+                                                    <AlertTriangle className="h-3 w-3" /> REVISIÓN REQUERIDA ({section.orders.length})
+                                                </Badge>
+                                            )}
                                         </div>
-                                        <div className="space-y-0.5">
-                                            <h3 className="text-xs font-black uppercase tracking-tight text-slate-900">{section.label}</h3>
-                                            <p className="text-[8px] text-muted-foreground font-black uppercase tracking-[0.2em]">{section.orders.length} EXPEDIENTES EN COLA</p>
-                                        </div>
-                                        {section.orders.length > 0 && section.alert && (
-                                            <Badge variant="destructive" className="ml-auto bg-rose-600 text-white font-black text-[9px] uppercase px-2.5 py-0.5 rounded-lg animate-pulse shadow-sm flex items-center gap-1">
-                                                <AlertTriangle className="h-3 w-3" /> REVISIÓN REQUERIDA ({section.orders.length})
-                                            </Badge>
-                                        )}
-                                    </div>
-                                </AccordionTrigger>
-                                <AccordionContent className="px-5 pb-5">
-                                    {section.orders.length > 0 ? (
-                                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                                            {section.orders.map(order => <OrderCard key={order.id} order={order} onSelect={setSelectedOrder} />)}
-                                        </div>
-                                    ) : <div className="h-14 flex items-center justify-center border-2 border-dashed rounded-2xl opacity-30"><p className="text-[8px] font-black uppercase tracking-widest text-slate-400">Sin expedientación activa en esta fase</p></div>}
-                                </AccordionContent>
-                            </AccordionItem>
-                        ))}
-                    </Accordion>
-                    
-                    {allOrders && allOrders.length >= queryLimit && (
-                        <div className="flex justify-center pt-4">
-                            <Button variant="ghost" onClick={() => setQueryLimit(prev => prev + 50)} className="font-black uppercase text-[8px] tracking-[0.3em] text-primary h-11 px-8 rounded-2xl border border-dashed border-primary/30 hover:bg-primary/5">
-                                {isLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-2" /> : <Plus className="h-3.5 w-3.5 mr-2" />}
-                                Cargar Más Expedientes Comercial...
-                            </Button>
+                                    </AccordionTrigger>
+                                    <AccordionContent className="px-5 pb-5">
+                                        {section.orders.length > 0 ? (
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                                                {section.orders.map(order => <OrderCard key={order.id} order={order} onSelect={setSelectedOrder} />)}
+                                            </div>
+                                        ) : <div className="h-14 flex items-center justify-center border-2 border-dashed rounded-2xl opacity-30"><p className="text-[8px] font-black uppercase tracking-widest text-slate-400">Sin expedientación activa en esta fase</p></div>}
+                                    </AccordionContent>
+                                </AccordionItem>
+                            ))}
+                        </Accordion>
+                        
+                        {allOrders && allOrders.length >= queryLimit && (
+                            <div className="flex justify-center pt-4">
+                                <Button variant="ghost" onClick={() => setQueryLimit(prev => prev + 50)} className="font-black uppercase text-[8px] tracking-[0.3em] text-primary h-11 px-8 rounded-2xl border border-dashed border-primary/30 hover:bg-primary/5">
+                                    {isLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-2" /> : <Plus className="h-3.5 w-3.5 mr-2" />}
+                                    Cargar Más Expedientes Comercial...
+                                </Button>
+                            </div>
+                        )}
+                    </div>
+                )
+            )}
+
+            {/* VISTA 2: KANBAN DESLIZABLE CON SWIPE TÁCTIL PARA IPAD Y CELULARES */}
+            {viewMode === 'kanban' && (
+                <div className="flex gap-4 overflow-x-auto pb-4 custom-scrollbar snap-x snap-mandatory mx-1 sm:mx-2">
+                    {[
+                        { title: 'Comercial / Pendientes', color: 'border-amber-500/30 bg-amber-500/5 text-amber-600', orders: [...groups.solicitudes, ...groups.borradores, ...groups.comercial] },
+                        { title: 'Almacén / Preparación', color: 'border-indigo-500/30 bg-indigo-500/5 text-indigo-600', orders: [...groups.revisiones, ...groups.operativo] },
+                        { title: 'Despachados / En Ruta', color: 'border-sky-500/30 bg-sky-500/5 text-sky-600', orders: groups.logistica },
+                        { title: 'Entregados / Cobranzas', color: 'border-emerald-500/30 bg-emerald-500/5 text-emerald-600', orders: groups.cobranzas },
+                    ].map((col, idx) => (
+                        <div key={idx} className="min-w-[320px] max-w-[360px] flex-1 snap-start rounded-[2.2rem] border border-slate-200/80 bg-slate-50/50 p-4 space-y-4">
+                            <div className={cn("p-3 rounded-2xl border flex items-center justify-between", col.color)}>
+                                <span className="text-[10px] font-black uppercase tracking-wider">{col.title}</span>
+                                <Badge className="bg-white/80 font-black text-[10px] text-slate-900 px-2 py-0.5 rounded-lg border-none shadow-2xs">
+                                    {col.orders.length}
+                                </Badge>
+                            </div>
+                            <div className="space-y-3 max-h-[75vh] overflow-y-auto custom-scrollbar pr-1">
+                                {col.orders.length > 0 ? (
+                                    col.orders.map(order => (
+                                        <OrderCard key={order.id} order={order} onSelect={setSelectedOrder} />
+                                    ))
+                                ) : (
+                                    <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 text-center py-8 opacity-40">Sin pedidos en esta fase</p>
+                                )}
+                            </div>
                         </div>
-                    )}
+                    ))}
+                </div>
+            )}
+
+            {/* VISTA 3: TABLA EJECUTIVA COMPACTA */}
+            {viewMode === 'table' && (
+                <div className="w-full px-1 sm:px-2">
+                    <div className="w-full rounded-[2.5rem] border border-slate-100 shadow-xl bg-white overflow-hidden">
+                        <div className="w-full overflow-x-auto">
+                            <Table className="w-full">
+                                <TableHeader className="bg-slate-900">
+                                    <TableRow className="hover:bg-transparent border-none">
+                                        <TableHead className="text-[10px] font-black uppercase tracking-widest py-4 pl-6 text-white w-28">N° Pedido</TableHead>
+                                        <TableHead className="text-[10px] font-black uppercase tracking-widest text-white min-w-[180px]">Cliente / Razón Social</TableHead>
+                                        <TableHead className="text-right text-[10px] font-black uppercase tracking-widest text-white min-w-[140px]">Monto Total ($)</TableHead>
+                                        <TableHead className="text-center text-[10px] font-black uppercase tracking-widest text-white min-w-[130px]">Fase Operativa</TableHead>
+                                        <TableHead className="text-right text-[10px] font-black uppercase tracking-widest pr-6 text-white min-w-[160px]">Acciones</TableHead>
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                    {isLoading ? (
+                                        Array.from({ length: 5 }).map((_, i) => <TableRow key={i}><TableCell colSpan={5} className="py-8"><Skeleton className="h-10 w-full rounded-xl" /></TableCell></TableRow>)
+                                    ) : allOrders && allOrders.length > 0 ? (
+                                        allOrders.map(order => {
+                                            return (
+                                                <TableRow key={order.id} className="hover:bg-primary/5 cursor-pointer transition-all border-b group" onClick={() => setSelectedOrder(order)}>
+                                                    <TableCell className="py-4 pl-6">
+                                                        <div className="flex flex-col">
+                                                            <span className="font-mono text-[11px] font-black text-primary">#{order.id.substring(0, 8)}</span>
+                                                            <span className="text-[8px] font-bold text-slate-400 uppercase mt-0.5">{order.orderDate ? format(order.orderDate.toDate(), 'dd/MM/yy') : ''}</span>
+                                                        </div>
+                                                    </TableCell>
+                                                    <TableCell className="py-4">
+                                                        <div className="flex items-center gap-3">
+                                                            <Avatar className="h-9 w-9 rounded-xl border-2 border-white shadow-sm shrink-0">
+                                                                <AvatarFallback className="bg-slate-900 text-white font-black text-[10px] uppercase">{order.customerName.charAt(0)}</AvatarFallback>
+                                                            </Avatar>
+                                                            <div className="flex flex-col min-w-0">
+                                                                <span className="font-black text-[12px] uppercase text-slate-900 leading-none truncate">{order.customerName}</span>
+                                                                <span className="text-[8px] text-slate-400 font-bold uppercase mt-1 flex items-center gap-1.5"><User2 className="h-2.5 w-2.5" /> Asesor: {order.salespersonName || 'Directo'}</span>
+                                                            </div>
+                                                        </div>
+                                                    </TableCell>
+                                                    <TableCell className="text-right py-4">
+                                                        <div className="flex flex-col items-end">
+                                                            <span className="font-black text-base tracking-tighter text-slate-900">${order.totalAmount.toFixed(2)} USD</span>
+                                                            <span className="text-[8px] font-bold text-slate-400 uppercase">Bs. {(order.totalAmount * bcvRate).toLocaleString('es-VE', { minimumFractionDigits: 2 })}</span>
+                                                        </div>
+                                                    </TableCell>
+                                                    <TableCell className="text-center py-4">
+                                                        <Badge className="text-[9px] font-black uppercase border px-3 py-1 shadow-none rounded-xl whitespace-nowrap bg-slate-100 text-slate-800 border-slate-300">
+                                                            {order.status}
+                                                        </Badge>
+                                                    </TableCell>
+                                                    <TableCell className="text-right pr-6 py-4" onClick={(e) => e.stopPropagation()}>
+                                                        <div className="flex items-center justify-end gap-2">
+                                                            <Button 
+                                                                variant="outline" 
+                                                                size="sm" 
+                                                                onClick={() => setSelectedOrder(order)}
+                                                                className="h-8 px-3 rounded-xl border-slate-200 text-slate-800 font-black text-[9px] uppercase tracking-wider flex items-center gap-1"
+                                                            >
+                                                                <Eye className="h-3 w-3 text-primary" /> Detalle
+                                                            </Button>
+                                                        </div>
+                                                    </TableCell>
+                                                </TableRow>
+                                            );
+                                        })
+                                    ) : (
+                                        <TableRow>
+                                            <TableCell colSpan={5} className="h-60 text-center flex flex-col items-center justify-center gap-4 opacity-30">
+                                                <Info className="h-12 w-12 text-slate-300" />
+                                                <p className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400">Sin expedientes activos.</p>
+                                            </TableCell>
+                                        </TableRow>
+                                    )}
+                                </TableBody>
+                            </Table>
+                        </div>
+                    </div>
                 </div>
             )}
 
