@@ -37,7 +37,16 @@ import {
     Download,
     ShoppingCart,
     CheckCircle2,
-    Banknote
+    Banknote,
+    LayoutGrid,
+    Columns3,
+    Table as TableIcon,
+    FileText,
+    Eye,
+    MessageCircle,
+    Printer,
+    Send,
+    DollarSign
 } from 'lucide-react';
 import { ConfirmPaymentDialog } from './register-payment-dialog';
 import { getInvoiceFromOrder, calculateGlobalFinancialMetrics } from '@/lib/billing';
@@ -49,7 +58,6 @@ import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { DashboardMetricCard } from '@/components/dashboard/DashboardMetricCard';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { Printer, Send } from 'lucide-react';
 import { generatePaymentReceiptPDF } from '@/lib/pdf-generator';
 
 import { doc } from 'firebase/firestore';
@@ -78,6 +86,17 @@ export function AdminBillingView() {
   const [selectedOrderForSheet, setSelectedOrderForSheet] = useState<Order | null>(null);
   const [isCashAuditModalOpen, setIsCashAuditModalOpen] = useState(false);
   const [isExportingPDF, setIsExportingPDF] = useState(false);
+  const [viewMode, setViewMode] = useState<'cards' | 'kanban' | 'table'>('cards');
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      if (window.innerWidth > 1024) {
+        setViewMode('table');
+      } else {
+        setViewMode('cards');
+      }
+    }
+  }, []);
   
   const isGlobalStaff = useMemo(() => currentUser && ['admin', 'superadmin', 'gerencia', 'deposito'].includes(currentUser.role), [currentUser]);
 
@@ -666,7 +685,7 @@ export function AdminBillingView() {
                 )}
             </div>
 
-            {/* RESUMEN DE RESULTADOS FILTRADOS */}
+            {/* RESUMEN DE RESULTADOS FILTRADOS Y SELECTOR DE VISTAS */}
             <div className="flex flex-wrap items-center justify-between gap-4 p-4 rounded-2xl bg-slate-900 text-white shadow-lg">
                 <div className="flex items-center gap-3">
                     <Filter className="h-4 w-4 text-primary" />
@@ -674,8 +693,43 @@ export function AdminBillingView() {
                         Resultados Filtrados: <span className="text-white font-bold">{filteredInvoices.length} expedientes</span>
                     </p>
                 </div>
-                <div className="flex items-center gap-6">
-                    <div className="text-right">
+                
+                <div className="flex flex-wrap items-center gap-4">
+                    {/* CONTROL TRI-MODAL (TARJETAS, KANBAN, TABLA) */}
+                    <div className="flex items-center gap-1 bg-slate-800/90 p-1 rounded-xl border border-white/10 shadow-inner">
+                        <button
+                            type="button"
+                            onClick={() => setViewMode('cards')}
+                            className={cn(
+                                "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer",
+                                viewMode === 'cards' ? "bg-emerald-500 text-slate-950 shadow-md font-extrabold" : "text-slate-300 hover:text-white"
+                            )}
+                        >
+                            <LayoutGrid className="h-3.5 w-3.5" /> Tarjetas
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setViewMode('kanban')}
+                            className={cn(
+                                "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer",
+                                viewMode === 'kanban' ? "bg-emerald-500 text-slate-950 shadow-md font-extrabold" : "text-slate-300 hover:text-white"
+                            )}
+                        >
+                            <Columns3 className="h-3.5 w-3.5" /> Kanban
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setViewMode('table')}
+                            className={cn(
+                                "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer",
+                                viewMode === 'table' ? "bg-emerald-500 text-slate-950 shadow-md font-extrabold" : "text-slate-300 hover:text-white"
+                            )}
+                        >
+                            <TableIcon className="h-3.5 w-3.5" /> Tabla
+                        </button>
+                    </div>
+
+                    <div className="text-right hidden sm:block">
                         <span className="text-[8px] font-black uppercase tracking-widest text-slate-400 block">Deuda Pendiente Coincidente</span>
                         <span className="text-base font-black text-amber-400 tracking-tighter">${filteredMetrics.totalRemaining.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</span>
                     </div>
@@ -684,139 +738,342 @@ export function AdminBillingView() {
         </div>
 
         <div className="w-full px-2">
-            <div className="w-full rounded-[2.5rem] border border-slate-100 shadow-xl bg-white overflow-hidden">
-                <div className="w-full overflow-x-auto">
-                    <Table className="w-full">
-                        <TableHeader className="bg-slate-900">
-                            <TableRow className="hover:bg-transparent border-none">
-                                <TableHead className="text-[10px] font-black uppercase tracking-widest py-4 pl-6 text-white w-28">Expediente</TableHead>
-                                <TableHead className="text-[10px] font-black uppercase tracking-widest text-white min-w-[180px]">Entidad Comercial</TableHead>
-                                <TableHead className="text-right text-[10px] font-black uppercase tracking-widest text-white min-w-[150px]">Saldo Pendiente</TableHead>
-                                <TableHead className="text-center text-[10px] font-black uppercase tracking-widest text-white min-w-[130px]">Estado Cobro</TableHead>
-                                <TableHead className="text-right text-[10px] font-black uppercase tracking-widest pr-6 text-white min-w-[200px]">Acciones</TableHead>
-                            </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                            {isLoadingOrders ? (
-                                Array.from({ length: 5 }).map((_, i) => <TableRow key={i}><TableCell colSpan={5} className="py-8"><Skeleton className="h-10 w-full rounded-xl" /></TableCell></TableRow>)
-                            ) : filteredInvoices.length > 0 ? filteredInvoices.map((invoice) => {
-                                const orderForInvoice = rawOrders?.find(o => o.id === invoice.id);
-                                const isPendingVerification = invoice.status === 'En Verificación';
+            {/* VISTA 1: TARJETAS TÁCTILES FLOTANTES (SMART CARDS) */}
+            {viewMode === 'cards' && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {isLoadingOrders ? (
+                        Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-56 w-full rounded-[2rem]" />)
+                    ) : filteredInvoices.length > 0 ? (
+                        filteredInvoices.map((invoice) => {
+                            const orderForInvoice = rawOrders?.find(o => o.id === invoice.id);
+                            const isPendingVerification = invoice.status === 'En Verificación';
+                            const paidPct = invoice.amountTotal > 0 ? Math.min(100, Math.round((invoice.amountPaid / invoice.amountTotal) * 100)) : 0;
+                            const netCash = (invoice as any).netCashBalance !== undefined ? (invoice as any).netCashBalance : invoice.remainingBalance * 0.75;
+                            const isPaid = invoice.remainingBalance <= 0.05;
 
-                                return (
-                                    <TableRow key={invoice.id} className="hover:bg-primary/5 cursor-pointer transition-all border-b group" onClick={() => orderForInvoice && setSelectedOrderForSheet(orderForInvoice)}>
-                                        <TableCell className="py-4 pl-6">
-                                            <div className="flex flex-col">
-                                                <span className="font-mono text-[11px] font-black text-primary">#{invoice.id.substring(0, 8)}</span>
-                                                <span className="text-[8px] font-bold text-slate-400 uppercase mt-0.5">Vence: {format(invoice.dueDate as any, 'dd/MM/yy')}</span>
-                                            </div>
-                                        </TableCell>
-                                        <TableCell className="py-4">
-                                            <div className="flex items-center gap-3">
-                                                <Avatar className="h-9 w-9 rounded-xl border-2 border-white shadow-sm shrink-0">
-                                                    <AvatarFallback className="bg-slate-100 text-slate-400 font-black text-[10px] uppercase">{invoice.customerName.charAt(0)}</AvatarFallback>
-                                                </Avatar>
-                                                <div className="flex flex-col min-w-0">
-                                                    <span className="font-black text-[12px] uppercase text-slate-900 leading-none truncate">{invoice.customerName}</span>
-                                                    <span className="text-[8px] text-slate-400 font-bold uppercase mt-1 flex items-center gap-1.5"><User2 className="h-2.5 w-2.5" /> Asesor: {invoice.salespersonName}</span>
-                                                </div>
-                                            </div>
-                                        </TableCell>
-                                        <TableCell className="text-right py-4">
-                                            <div className="flex flex-col items-end gap-1">
-                                                <span className={cn("font-black text-base tracking-tighter", invoice.remainingBalance <= 0.05 ? "text-emerald-600 font-extrabold" : "text-slate-900")}>
-                                                    ${invoice.remainingBalance.toFixed(2)}
+                            return (
+                                <div 
+                                    key={invoice.id}
+                                    onClick={() => orderForInvoice && setSelectedOrderForSheet(orderForInvoice)}
+                                    className="p-5 rounded-[2rem] bg-white border border-slate-200/80 shadow-lg hover:shadow-xl transition-all space-y-4 relative overflow-hidden group cursor-pointer"
+                                >
+                                    <div className={cn("absolute left-0 top-0 bottom-0 w-2.5", 
+                                        isPaid ? "bg-emerald-500" :
+                                        invoice.status === 'Vencido' ? "bg-rose-500" :
+                                        isPendingVerification ? "bg-amber-500" : "bg-blue-500"
+                                    )} />
+
+                                    <div className="flex items-start justify-between gap-3 pl-2">
+                                        <div className="flex items-center gap-3 min-w-0">
+                                            <Avatar className="h-10 w-10 rounded-2xl border-2 border-white shadow-md shrink-0">
+                                                <AvatarFallback className="bg-slate-900 text-white font-black text-xs uppercase">{invoice.customerName.charAt(0)}</AvatarFallback>
+                                            </Avatar>
+                                            <div className="flex flex-col min-w-0">
+                                                <span className="font-black text-sm uppercase text-slate-900 leading-tight truncate">{invoice.customerName}</span>
+                                                <span className="text-[9px] font-mono font-black text-primary mt-0.5 flex items-center gap-1">
+                                                    #{invoice.id.substring(0, 8)} • <User2 className="h-2.5 w-2.5" /> {invoice.salespersonName}
                                                 </span>
-                                                {(() => {
-                                                    const paidPct = invoice.amountTotal > 0 ? Math.min(100, Math.round((invoice.amountPaid / invoice.amountTotal) * 100)) : 0;
-                                                    const netCash = (invoice as any).netCashBalance !== undefined ? (invoice as any).netCashBalance : invoice.remainingBalance * 0.75;
-                                                    return (
-                                                        <div className="flex flex-col items-end gap-0.5">
-                                                            {invoice.remainingBalance > 0.05 && (
-                                                                <span className="text-[9px] font-black text-emerald-600 uppercase tracking-tight">
-                                                                    Neto Cash: ${netCash.toFixed(2)}
-                                                                </span>
-                                                            )}
-                                                            <div className="flex items-center gap-1 text-[8px] font-bold text-slate-400 uppercase">
-                                                                <span>${invoice.amountPaid.toFixed(2)} de ${invoice.amountTotal.toFixed(2)}</span>
-                                                                <span className="font-black text-slate-700">({paidPct}%)</span>
-                                                            </div>
-                                                            <div className="w-24 h-1.5 bg-slate-100 rounded-full overflow-hidden border border-slate-200">
-                                                                <div className={cn("h-full transition-all duration-500 rounded-full", paidPct >= 100 ? "bg-emerald-500" : "bg-blue-500")} style={{ width: `${paidPct}%` }} />
-                                                            </div>
-                                                        </div>
-                                                    );
-                                                })()}
                                             </div>
-                                        </TableCell>
-                                        <TableCell className="text-center py-4">
-                                            <Badge className={cn(
-                                                "text-[9px] font-black uppercase border px-3 py-1 shadow-none rounded-xl whitespace-nowrap", 
-                                                invoice.remainingBalance <= 0.05 ? 'bg-emerald-50 text-emerald-700 border-emerald-300' : 
-                                                invoice.status === 'Vencido' ? 'bg-rose-50 text-rose-700 border-rose-300' : 
-                                                invoice.status === 'En Verificación' ? 'bg-amber-50 text-amber-800 border-amber-300 animate-pulse' :
-                                                'bg-blue-50 text-blue-700 border-blue-300'
-                                            )}>
-                                                {invoice.remainingBalance <= 0.05 ? '🎉 TOTALMENTE PAGADO' : invoice.statusText}
-                                            </Badge>
-                                        </TableCell>
-                                        <TableCell className="text-right pr-6 py-4" onClick={(e) => e.stopPropagation()}>
-                                            <div className="flex items-center justify-end gap-2">
-                                                {isPendingVerification && orderForInvoice && isGlobalStaff && (
-                                                    <ConfirmPaymentDialog order={orderForInvoice} />
-                                                )}
-                                                {invoice.remainingBalance > 0.05 ? (
-                                                    <div className="flex gap-2">
-                                                        <Button 
-                                                            variant="outline" 
-                                                            size="sm" 
-                                                            className="h-8 px-2.5 rounded-xl border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 font-black text-[9px] uppercase tracking-wider"
-                                                            onClick={() => handleSendWhatsAppInvoiceReminder(invoice, orderForInvoice)}
-                                                        >
-                                                            <MessageSquare className="h-3 w-3 text-emerald-600 mr-1" /> WhatsApp
-                                                        </Button>
-                                                        <ReportPaymentDialog invoice={invoice} mode="partial" />
-                                                        <ReportPaymentDialog invoice={invoice} mode="total" />
+                                        </div>
+                                        <Badge className={cn("px-3 py-1 rounded-xl text-[9px] font-black uppercase tracking-wider shadow-2xs shrink-0 whitespace-nowrap",
+                                            isPaid ? "bg-emerald-50 text-emerald-700 border border-emerald-300" :
+                                            invoice.status === 'Vencido' ? "bg-rose-50 text-rose-700 border border-rose-300 animate-pulse" :
+                                            isPendingVerification ? "bg-amber-50 text-amber-700 border border-amber-300 animate-pulse" : "bg-blue-50 text-blue-700 border border-blue-300"
+                                        )}>
+                                            {isPaid ? '🎉 PAGADO' : invoice.statusText}
+                                        </Badge>
+                                    </div>
+
+                                    <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-100 space-y-2">
+                                        <div className="flex items-center justify-between text-[10px] font-bold">
+                                            <span className="text-slate-500 uppercase">Progreso Amortización:</span>
+                                            <span className="text-slate-900 font-black">${invoice.amountPaid.toFixed(2)} / ${invoice.amountTotal.toFixed(2)} ({paidPct}%)</span>
+                                        </div>
+                                        <div className="w-full h-2 bg-slate-200 rounded-full overflow-hidden border border-slate-200/60">
+                                            <div className={cn("h-full transition-all duration-500 rounded-full", paidPct >= 100 ? "bg-emerald-500" : "bg-blue-500")} style={{ width: `${paidPct}%` }} />
+                                        </div>
+
+                                        <div className="flex items-center justify-between pt-1.5 border-t border-slate-200/60">
+                                            <div>
+                                                <span className="text-[8px] font-black uppercase text-slate-400 block">Deuda Lista BCV</span>
+                                                <span className={cn("text-base font-black tracking-tight", isPaid ? "text-emerald-600 font-extrabold" : "text-slate-900")}>
+                                                    ${invoice.remainingBalance.toFixed(2)} USD
+                                                </span>
+                                            </div>
+                                            {!isPaid && (
+                                                <div className="text-right">
+                                                    <span className="text-[8px] font-black uppercase text-emerald-600 block">Neto Cash (Divisa)</span>
+                                                    <span className="text-base font-black text-emerald-600 tracking-tight">${netCash.toFixed(2)} USD</span>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    <div className="flex flex-wrap items-center gap-2 pt-1" onClick={(e) => e.stopPropagation()}>
+                                        {isPendingVerification && orderForInvoice && isGlobalStaff && (
+                                            <ConfirmPaymentDialog order={orderForInvoice} />
+                                        )}
+                                        {!isPaid ? (
+                                            <>
+                                                <ReportPaymentDialog invoice={invoice} mode="partial" />
+                                                <ReportPaymentDialog invoice={invoice} mode="total" />
+                                                <Button 
+                                                    variant="outline" 
+                                                    size="sm" 
+                                                    className="h-9 px-3 rounded-xl border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 font-black text-[9px] uppercase tracking-wider flex-1 shadow-2xs"
+                                                    onClick={() => handleSendWhatsAppInvoiceReminder(invoice, orderForInvoice)}
+                                                >
+                                                    <MessageSquare className="h-3.5 w-3.5 text-emerald-600 mr-1" /> WhatsApp
+                                                </Button>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <Button 
+                                                    variant="outline" 
+                                                    size="sm" 
+                                                    className="h-9 px-3.5 rounded-xl border-slate-200 bg-slate-900 text-white hover:bg-slate-800 font-black text-[9px] uppercase tracking-wider shadow-2xs flex-1"
+                                                    onClick={() => generatePaymentReceiptPDF({
+                                                        payment: { amount: invoice.amountTotal, method: 'Transferencia Bancaria', paymentDate: new Date() },
+                                                        order: orderForInvoice || { id: invoice.id, customerName: invoice.customerName, totalAmount: invoice.amountTotal }
+                                                    })}
+                                                >
+                                                    <Printer className="h-3.5 w-3.5 text-emerald-400 mr-1.5" /> Recibo PDF
+                                                </Button>
+                                                <Button 
+                                                    variant="outline" 
+                                                    size="sm" 
+                                                    className="h-9 px-3 rounded-xl border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 font-black text-[9px] uppercase tracking-wider shadow-2xs"
+                                                    onClick={() => handleSendWhatsAppInvoiceReminder(invoice, orderForInvoice)}
+                                                >
+                                                    <MessageSquare className="h-3.5 w-3.5 text-emerald-600 mr-1" /> WhatsApp
+                                                </Button>
+                                            </>
+                                        )}
+                                    </div>
+                                </div>
+                            );
+                        })
+                    ) : (
+                        <div className="col-span-full h-60 text-center flex flex-col items-center justify-center gap-4 opacity-30">
+                            <Info className="h-12 w-12 text-slate-300" />
+                            <p className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400">Sin registros financieros coincidentes.</p>
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {/* VISTA 2: KANBAN DE COBRANZA TÁCTIL POR COLUMNAS (SWIPE EN IPAD) */}
+            {viewMode === 'kanban' && (
+                <div className="flex gap-4 overflow-x-auto pb-4 custom-scrollbar snap-x snap-mandatory">
+                    {[
+                        { title: 'Por Vencer (En Plazo)', color: 'border-blue-500/30 bg-blue-500/5 text-blue-600', invoices: filteredInvoices.filter(i => i.remainingBalance > 0.05 && i.status !== 'Vencido' && i.status !== 'En Verificación') },
+                        { title: 'En Auditoría', color: 'border-amber-500/30 bg-amber-500/5 text-amber-600', invoices: filteredInvoices.filter(i => i.remainingBalance > 0.05 && i.status === 'En Verificación') },
+                        { title: 'Mora Crítica (+30D)', color: 'border-rose-500/30 bg-rose-500/5 text-rose-600', invoices: filteredInvoices.filter(i => i.remainingBalance > 0.05 && i.status === 'Vencido') },
+                        { title: 'Solvente (Pagado)', color: 'border-emerald-500/30 bg-emerald-500/5 text-emerald-600', invoices: filteredInvoices.filter(i => i.remainingBalance <= 0.05 || i.status === 'Pagado') },
+                    ].map((col, idx) => (
+                        <div key={idx} className="min-w-[320px] max-w-[360px] flex-1 snap-start rounded-[2.2rem] border border-slate-200/80 bg-slate-50/50 p-4 space-y-4">
+                            <div className={cn("p-3 rounded-2xl border flex items-center justify-between", col.color)}>
+                                <span className="text-[10px] font-black uppercase tracking-wider">{col.title}</span>
+                                <Badge className="bg-white/80 font-black text-[10px] text-slate-900 px-2 py-0.5 rounded-lg border-none shadow-2xs">
+                                    {col.invoices.length}
+                                </Badge>
+                            </div>
+                            <div className="space-y-3 max-h-[70vh] overflow-y-auto custom-scrollbar pr-1">
+                                {col.invoices.length > 0 ? (
+                                    col.invoices.map(invoice => {
+                                        const orderForInvoice = rawOrders?.find(o => o.id === invoice.id);
+                                        const paidPct = invoice.amountTotal > 0 ? Math.min(100, Math.round((invoice.amountPaid / invoice.amountTotal) * 100)) : 0;
+                                        const netCash = (invoice as any).netCashBalance !== undefined ? (invoice as any).netCashBalance : invoice.remainingBalance * 0.75;
+                                        const isPaid = invoice.remainingBalance <= 0.05;
+
+                                        return (
+                                            <div 
+                                                key={invoice.id}
+                                                onClick={() => orderForInvoice && setSelectedOrderForSheet(orderForInvoice)}
+                                                className="p-4 rounded-2xl bg-white border border-slate-200/80 shadow-md hover:shadow-lg transition-all space-y-3 cursor-pointer"
+                                            >
+                                                <div className="flex items-center justify-between gap-2">
+                                                    <span className="font-black text-xs uppercase text-slate-900 truncate">{invoice.customerName}</span>
+                                                    <span className="font-mono text-[10px] font-black text-primary">#{invoice.id.substring(0, 6)}</span>
+                                                </div>
+                                                <div className="flex items-center justify-between text-[11px] font-black">
+                                                    <span className="text-slate-500 uppercase text-[9px]">Saldo:</span>
+                                                    <span className={cn(isPaid ? "text-emerald-600" : "text-slate-900")}>${invoice.remainingBalance.toFixed(2)} USD</span>
+                                                </div>
+                                                {!isPaid && (
+                                                    <div className="flex items-center justify-between text-[10px] font-bold text-emerald-600">
+                                                        <span className="uppercase text-[8px]">Neto Cash:</span>
+                                                        <span className="font-black">${netCash.toFixed(2)} USD</span>
                                                     </div>
-                                                ) : (
-                                                    <div className="flex gap-2">
+                                                )}
+                                                <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                                                    <div className={cn("h-full rounded-full", paidPct >= 100 ? "bg-emerald-500" : "bg-blue-500")} style={{ width: `${paidPct}%` }} />
+                                                </div>
+                                                <div className="flex items-center gap-1.5 pt-1" onClick={(e) => e.stopPropagation()}>
+                                                    {!isPaid ? (
+                                                        <ReportPaymentDialog invoice={invoice} mode="partial" />
+                                                    ) : (
                                                         <Button 
                                                             variant="outline" 
                                                             size="sm" 
-                                                            className="h-8 px-2.5 rounded-xl border-slate-200 bg-slate-900 text-white hover:bg-slate-800 font-black text-[9px] uppercase tracking-wider shadow-sm flex items-center gap-1"
+                                                            className="h-7 px-2 rounded-lg bg-slate-900 text-white text-[8px] font-black uppercase w-full"
                                                             onClick={() => generatePaymentReceiptPDF({
                                                                 payment: { amount: invoice.amountTotal, method: 'Transferencia Bancaria', paymentDate: new Date() },
                                                                 order: orderForInvoice || { id: invoice.id, customerName: invoice.customerName, totalAmount: invoice.amountTotal }
                                                             })}
                                                         >
-                                                            <Printer className="h-3 w-3 text-emerald-400" /> Recibo PDF
+                                                            <Printer className="h-3 w-3 text-emerald-400 mr-1" /> PDF
                                                         </Button>
-                                                        <Button 
-                                                            variant="outline" 
-                                                            size="sm" 
-                                                            className="h-8 px-2.5 rounded-xl border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 font-black text-[9px] uppercase tracking-wider"
-                                                            onClick={() => handleSendWhatsAppInvoiceReminder(invoice, orderForInvoice)}
-                                                        >
-                                                            <MessageSquare className="h-3.5 w-3.5 text-emerald-600 mr-1" /> WhatsApp Solvente
-                                                        </Button>
-                                                    </div>
-                                                )}
+                                                    )}
+                                                </div>
                                             </div>
+                                        );
+                                    })
+                                ) : (
+                                    <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 text-center py-6">Sin expedientes</p>
+                                )}
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            )}
+
+            {/* VISTA 3: TABLA EJECUTIVA TRADICIONAL (OPTIMIZADA PARA DESKTOP) */}
+            {viewMode === 'table' && (
+                <div className="w-full rounded-[2.5rem] border border-slate-100 shadow-xl bg-white overflow-hidden">
+                    <div className="w-full overflow-x-auto">
+                        <Table className="w-full">
+                            <TableHeader className="bg-slate-900">
+                                <TableRow className="hover:bg-transparent border-none">
+                                    <TableHead className="text-[10px] font-black uppercase tracking-widest py-4 pl-6 text-white w-28">Expediente</TableHead>
+                                    <TableHead className="text-[10px] font-black uppercase tracking-widest text-white min-w-[180px]">Entidad Comercial</TableHead>
+                                    <TableHead className="text-right text-[10px] font-black uppercase tracking-widest text-white min-w-[150px]">Saldo Pendiente</TableHead>
+                                    <TableHead className="text-center text-[10px] font-black uppercase tracking-widest text-white min-w-[130px]">Estado Cobro</TableHead>
+                                    <TableHead className="text-right text-[10px] font-black uppercase tracking-widest pr-6 text-white min-w-[200px]">Acciones</TableHead>
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                {isLoadingOrders ? (
+                                    Array.from({ length: 5 }).map((_, i) => <TableRow key={i}><TableCell colSpan={5} className="py-8"><Skeleton className="h-10 w-full rounded-xl" /></TableCell></TableRow>)
+                                ) : filteredInvoices.length > 0 ? filteredInvoices.map((invoice) => {
+                                    const orderForInvoice = rawOrders?.find(o => o.id === invoice.id);
+                                    const isPendingVerification = invoice.status === 'En Verificación';
+
+                                    return (
+                                        <TableRow key={invoice.id} className="hover:bg-primary/5 cursor-pointer transition-all border-b group" onClick={() => orderForInvoice && setSelectedOrderForSheet(orderForInvoice)}>
+                                            <TableCell className="py-4 pl-6">
+                                                <div className="flex flex-col">
+                                                    <span className="font-mono text-[11px] font-black text-primary">#{invoice.id.substring(0, 8)}</span>
+                                                    <span className="text-[8px] font-bold text-slate-400 uppercase mt-0.5">Vence: {format(invoice.dueDate as any, 'dd/MM/yy')}</span>
+                                                </div>
+                                            </TableCell>
+                                            <TableCell className="py-4">
+                                                <div className="flex items-center gap-3">
+                                                    <Avatar className="h-9 w-9 rounded-xl border-2 border-white shadow-sm shrink-0">
+                                                        <AvatarFallback className="bg-slate-100 text-slate-400 font-black text-[10px] uppercase">{invoice.customerName.charAt(0)}</AvatarFallback>
+                                                    </Avatar>
+                                                    <div className="flex flex-col min-w-0">
+                                                        <span className="font-black text-[12px] uppercase text-slate-900 leading-none truncate">{invoice.customerName}</span>
+                                                        <span className="text-[8px] text-slate-400 font-bold uppercase mt-1 flex items-center gap-1.5"><User2 className="h-2.5 w-2.5" /> Asesor: {invoice.salespersonName}</span>
+                                                    </div>
+                                                </div>
+                                            </TableCell>
+                                            <TableCell className="text-right py-4">
+                                                <div className="flex flex-col items-end gap-1">
+                                                    <span className={cn("font-black text-base tracking-tighter", invoice.remainingBalance <= 0.05 ? "text-emerald-600 font-extrabold" : "text-slate-900")}>
+                                                        ${invoice.remainingBalance.toFixed(2)}
+                                                    </span>
+                                                    {(() => {
+                                                        const paidPct = invoice.amountTotal > 0 ? Math.min(100, Math.round((invoice.amountPaid / invoice.amountTotal) * 100)) : 0;
+                                                        const netCash = (invoice as any).netCashBalance !== undefined ? (invoice as any).netCashBalance : invoice.remainingBalance * 0.75;
+                                                        return (
+                                                            <div className="flex flex-col items-end gap-0.5">
+                                                                {invoice.remainingBalance > 0.05 && (
+                                                                    <span className="text-[9px] font-black text-emerald-600 uppercase tracking-tight">
+                                                                        Neto Cash: ${netCash.toFixed(2)}
+                                                                    </span>
+                                                                )}
+                                                                <div className="flex items-center gap-1 text-[8px] font-bold text-slate-400 uppercase">
+                                                                    <span>${invoice.amountPaid.toFixed(2)} de ${invoice.amountTotal.toFixed(2)}</span>
+                                                                    <span className="font-black text-slate-700">({paidPct}%)</span>
+                                                                </div>
+                                                                <div className="w-24 h-1.5 bg-slate-100 rounded-full overflow-hidden border border-slate-200">
+                                                                    <div className={cn("h-full transition-all duration-500 rounded-full", paidPct >= 100 ? "bg-emerald-500" : "bg-blue-500")} style={{ width: `${paidPct}%` }} />
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    })()}
+                                                </div>
+                                            </TableCell>
+                                            <TableCell className="text-center py-4">
+                                                <Badge className={cn(
+                                                    "text-[9px] font-black uppercase border px-3 py-1 shadow-none rounded-xl whitespace-nowrap", 
+                                                    invoice.remainingBalance <= 0.05 ? 'bg-emerald-50 text-emerald-700 border-emerald-300' : 
+                                                    invoice.status === 'Vencido' ? 'bg-rose-50 text-rose-700 border-rose-300' : 
+                                                    invoice.status === 'En Verificación' ? 'bg-amber-50 text-amber-800 border-amber-300 animate-pulse' :
+                                                    'bg-blue-50 text-blue-700 border-blue-300'
+                                                )}>
+                                                    {invoice.remainingBalance <= 0.05 ? '🎉 TOTALMENTE PAGADO' : invoice.statusText}
+                                                </Badge>
+                                            </TableCell>
+                                            <TableCell className="text-right pr-6 py-4" onClick={(e) => e.stopPropagation()}>
+                                                <div className="flex items-center justify-end gap-2">
+                                                    {isPendingVerification && orderForInvoice && isGlobalStaff && (
+                                                        <ConfirmPaymentDialog order={orderForInvoice} />
+                                                    )}
+                                                    {invoice.remainingBalance > 0.05 ? (
+                                                        <div className="flex gap-2">
+                                                            <Button 
+                                                                variant="outline" 
+                                                                size="sm" 
+                                                                className="h-8 px-2.5 rounded-xl border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 font-black text-[9px] uppercase tracking-wider"
+                                                                onClick={() => handleSendWhatsAppInvoiceReminder(invoice, orderForInvoice)}
+                                                            >
+                                                                <MessageSquare className="h-3 w-3 text-emerald-600 mr-1" /> WhatsApp
+                                                            </Button>
+                                                            <ReportPaymentDialog invoice={invoice} mode="partial" />
+                                                            <ReportPaymentDialog invoice={invoice} mode="total" />
+                                                        </div>
+                                                    ) : (
+                                                        <div className="flex gap-2">
+                                                            <Button 
+                                                                variant="outline" 
+                                                                size="sm" 
+                                                                className="h-8 px-2.5 rounded-xl border-slate-200 bg-slate-900 text-white hover:bg-slate-800 font-black text-[9px] uppercase tracking-wider shadow-sm flex items-center gap-1"
+                                                                onClick={() => generatePaymentReceiptPDF({
+                                                                    payment: { amount: invoice.amountTotal, method: 'Transferencia Bancaria', paymentDate: new Date() },
+                                                                    order: orderForInvoice || { id: invoice.id, customerName: invoice.customerName, totalAmount: invoice.amountTotal }
+                                                                })}
+                                                            >
+                                                                <Printer className="h-3 w-3 text-emerald-400" /> Recibo PDF
+                                                            </Button>
+                                                            <Button 
+                                                                variant="outline" 
+                                                                size="sm" 
+                                                                className="h-8 px-2.5 rounded-xl border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 font-black text-[9px] uppercase tracking-wider"
+                                                                onClick={() => handleSendWhatsAppInvoiceReminder(invoice, orderForInvoice)}
+                                                            >
+                                                                <MessageSquare className="h-3.5 w-3.5 text-emerald-600 mr-1" /> WhatsApp Solvente
+                                                            </Button>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </TableCell>
+                                        </TableRow>
+                                    );
+                                }) : (
+                                    <TableRow>
+                                        <TableCell colSpan={5} className="h-60 text-center flex flex-col items-center justify-center gap-4 opacity-30">
+                                            <Info className="h-12 w-12 text-slate-300" />
+                                            <p className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400">Sin registros financieros.</p>
                                         </TableCell>
                                     </TableRow>
-                                );
-                            }) : (
-                                <TableRow>
-                                    <TableCell colSpan={5} className="h-60 text-center flex flex-col items-center justify-center gap-4 opacity-30">
-                                        <Info className="h-12 w-12 text-slate-300" />
-                                        <p className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400">Sin registros financieros.</p>
-                                    </TableCell>
-                                </TableRow>
-                            )}
-                        </TableBody>
-                    </Table>
+                                )}
+                            </TableBody>
+                        </Table>
+                    </div>
                 </div>
-            </div>
+            )}
 
             {/* RESUMEN DINÁMICO AL PIE DE LA TABLA */}
             <div className="bg-slate-900 text-white p-4 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-3 text-xs font-mono font-bold mt-2 shadow-lg">
