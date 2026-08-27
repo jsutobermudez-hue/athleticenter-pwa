@@ -314,15 +314,15 @@ export function calculateGlobalFinancialMetrics(
             const isPaid = order.status === 'Pagado' || invoice.remainingBalance <= 0.05;
             
             const grossRemaining = isPaid ? 0 : Math.max(0, order.totalAmount - amountPaid);
-            const netRemaining = invoice.remainingBalance;
+            const netRemaining = isPaid ? 0 : ((invoice as any).netCashBalance !== undefined ? (invoice as any).netCashBalance : Math.max(0, ((invoice as any).netPayableTotal || order.totalAmount) - amountPaid));
 
             grossBcvDebt += grossRemaining;
             netCashDebt += netRemaining;
-            totalDebts += netRemaining;
+            totalDebts += grossRemaining;
 
-            if (invoice.status === 'Vencido') vencido += netRemaining;
-            if (invoice.status === 'Por Vencer') porVencer += netRemaining;
-            if (invoice.status === 'En Verificación') enVerificacion += netRemaining;
+            if (invoice.status === 'Vencido') vencido += grossRemaining;
+            if (invoice.status === 'Por Vencer') porVencer += grossRemaining;
+            if (invoice.status === 'En Verificación') enVerificacion += grossRemaining;
         }
     });
 
