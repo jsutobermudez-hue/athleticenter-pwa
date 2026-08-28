@@ -17,6 +17,7 @@ import { format, differenceInDays, subDays, startOfDay, isSameDay } from 'date-f
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
+import { dispatchUniversalWhatsApp } from '@/lib/whatsapp-universal';
 
 const ALL_STATUSES: QuoteStatus[] = ['Borrador', 'Enviada', 'Aceptada', 'Convertida', 'Vencida', 'Cancelada'];
 
@@ -95,8 +96,12 @@ function QuoteCard({ quote, onSelect }: { quote: Quote; onSelect: (q: Quote) => 
           `📍 *Asesor Comercial:* ${quote.salespersonName || 'Atención General'}\n\n` +
           `Quedamos atentos para formalizar su pedido de mercancía. ¡Muchas gracias por su preferencia!`;
 
-        const url = cleanPhone ? `https://wa.me/${cleanPhone}?text=${encodeURIComponent(text)}` : `https://wa.me/?text=${encodeURIComponent(text)}`;
-        window.open(url, '_blank');
+        dispatchUniversalWhatsApp({
+            phone: cleanPhone,
+            message: text,
+            quoteId: quote.id,
+            module: 'quotes'
+        });
     };
 
     return (

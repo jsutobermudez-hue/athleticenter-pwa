@@ -49,6 +49,7 @@ import { cn } from '@/lib/utils';
 import { generateOrderPDF, generatePickingListPDF, generatePackageLabelsPDF, generatePaymentReceiptPDF } from '@/lib/pdf-generator';
 import { statusConfig } from '@/lib/status-config';
 import { getOrderCommercialDiscountPercent, roundCurrency } from '@/lib/billing';
+import { dispatchUniversalWhatsApp } from '@/lib/whatsapp-universal';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
@@ -296,11 +297,12 @@ export function OrderDetailsSheet({
       (itemsWithProductData.length > 5 ? `\n...y ${itemsWithProductData.length - 5} más.` : '') +
       `\n\nQuedamos atentos a cualquier solicitud. ¡Gracias por confiar en Athleticenter!`;
 
-    const url = cleanPhone 
-      ? `https://wa.me/${cleanPhone}?text=${encodeURIComponent(text)}` 
-      : `https://wa.me/?text=${encodeURIComponent(text)}`;
-
-    window.open(url, '_blank');
+    dispatchUniversalWhatsApp({
+      phone: cleanPhone,
+      message: text,
+      orderId: order.id,
+      module: 'orders'
+    });
   };
 
   const handleGoToBilling = () => {

@@ -38,6 +38,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import type { Order, OrderStatus, OrderItem, OrderItemClient, Product, CompanyProfile, Customer } from '@/lib/definitions';
 import { Timestamp, getDocs, collection, query, limit, doc, getDoc } from 'firebase/firestore';
+import { dispatchUniversalWhatsApp } from '@/lib/whatsapp-universal';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
@@ -98,8 +99,12 @@ function LogisticsOrderCard({ order, onOpenDialog, onNavigateToDetails, onZoom }
             `📦 *Bultos:* ${order.packageCount || 1}\n\n` +
             `Quedamos atentos a su confirmación de recepción. ¡Muchas gracias!`;
 
-        const url = cleanPhone ? `https://wa.me/${cleanPhone}?text=${encodeURIComponent(text)}` : `https://wa.me/?text=${encodeURIComponent(text)}`;
-        window.open(url, '_blank');
+        dispatchUniversalWhatsApp({
+            phone: cleanPhone,
+            message: text,
+            orderId: order.id,
+            module: 'dispatch'
+        });
     };
 
     const renderPrimaryAction = () => {
