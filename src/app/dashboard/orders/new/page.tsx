@@ -257,12 +257,15 @@ function NewOrderForm() {
         const prefix = isDraft ? 'BORR' : 'P';
         const finalOrderId = `${prefix}-${acronym}-${Date.now().toString().slice(-4)}`;
         
-        const safeTotalAmount = isNaN(totalAmount) ? 0 : totalAmount;
+const safeTotalAmount = isNaN(totalAmount) ? 0 : totalAmount;
         const spId = isSalesperson ? currentUser.id : (selectedCustomer?.assignedSalespersonId || currentUser.id);
         const spName = isSalesperson ? currentUser.name : (selectedCustomer?.assignedSalespersonName || currentUser.name || 'Sistema');
 
         runTransaction(firestore, async (transaction) => {
             const orderRef = doc(firestore, 'orders', finalOrderId);
+            const hasNetOrPromoItems = orderItems.some(i => (i as any).isNetPrice || (i.product as any)?.isNetPrice || !!(i.product as any)?.promoName);
+            const effectiveBcvDiscount = hasNetOrPromoItems ? 0 : (globalSettings?.defaultBcvDiscount !== undefined ? globalSettings.defaultBcvDiscount : 25);
+
             const orderData: any = {
                 id: finalOrderId, 
                 customerId: selectedCustomerId, 
@@ -275,16 +278,10 @@ function NewOrderForm() {
                 createdAt: serverTimestamp(), 
                 totalAmount: safeTotalAmount, 
                 amountPaid: 0, 
-                treasurySnapshot: {
-                    bcvDiscountPercent: globalSettings?.defaultBcvDiscount !== undefined ? globalSettings.defaultBcvDiscount : 25,
-                    earlyPayment7dPercent: globalSettings?.earlyPayment7Days !== undefined ? globalSettings.earlyPayment7Days : 10,
-                    earlyPayment15dPercent: globalSettings?.earlyPayment15Days !== undefined ? globalSettings.earlyPayment15Days : 5,
-                    bcvRate: globalSettings?.bcvRate || 65.50,
-                    snapshotDate: new Date()
-                },
-                bcvDiscountSnapshot: globalSettings?.defaultBcvDiscount !== undefined ? globalSettings.defaultBcvDiscount : 25,
-                earlyPayment7dSnapshot: globalSettings?.earlyPayment7Days !== undefined ? globalSettings.earlyPayment7Days : 10,
-                earlyPayment15dSnapshot: globalSettings?.earlyPayment15Days !== undefined ? globalSettings.earlyPayment15Days : 5,
+                isNetPrice: hasNetOrPromoItems,
+                bcvDiscountSnapshot: effectiveBcvDiscount,
+                earlyPayment7dSnapshot: hasNetOrPromoItems ? 0 : (globalSettings?.earlyPayment7Days !== undefined ? globalSettings.earlyPayment7Days : 10),
+                earlyPayment15dSnapshot: hasNetOrPromoItems ? 0 : (globalSettings?.earlyPayment15Days !== undefined ? globalSettings.earlyPayment15Days : 5),
                 bcvRateSnapshot: globalSettings?.bcvRate || 65.50,
                 status: isDraft ? 'Borrador' : 'Pendiente',
                 updatedAt: serverTimestamp()

@@ -190,7 +190,12 @@ export async function generateOrderPDF({
     }
   });
 
-  const finalY = (doc as any).lastAutoTable.finalY + 10;
+  let finalY = (doc as any).lastAutoTable.finalY + 10;
+  if (finalY + 45 > 280) {
+    doc.addPage();
+    finalY = 20;
+  }
+
   const rate = bcvRate || (order as any)?.receptionBcvRate || (order as any)?.bcvRate || globalSettings?.bcvRate || 65.50;
   const totalVES = totalBcvUSD * rate;
 
@@ -360,7 +365,11 @@ export async function generateQuotePDF({
     }
   });
 
-  const finalY = (doc as any).lastAutoTable.finalY + 10;
+  let finalY = (doc as any).lastAutoTable.finalY + 10;
+  if (finalY + 45 > 280) {
+    doc.addPage();
+    finalY = 20;
+  }
 
   doc.setFillColor(241, 245, 249);
   doc.rect(14, finalY, 85, 30, 'F');

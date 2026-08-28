@@ -22,7 +22,7 @@ import { useToast } from '@/hooks/use-toast';
 import type { Product, FinancialSettings, PricingStrategy } from '@/lib/definitions';
 import { useDoc, useFirestore, useUser, useMemoFirebase } from '@/firebase';
 import { ImageUploader } from '@/components/ui/image-uploader';
-import { doc, serverTimestamp, runTransaction, getDoc } from 'firebase/firestore';
+import { doc, serverTimestamp, runTransaction, getDoc, collection } from 'firebase/firestore';
 import { generateProductDescription } from '@/ai/flows/generate-product-description';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
@@ -246,6 +246,21 @@ export function EditProductDialog({ product, useTriggerButton = false }: { produ
                     updatedBy: currentUser.id
                 };
                 transaction.set(pricingRef, pricingPayload, { merge: true });
+            }
+
+            const oldPrice = prodSnap.data()?.price || 0;
+            const newPrice = results.priceListBCV;
+            if (Math.abs(oldPrice - newPrice) > 0.001) {
+                const historyRef = doc(collection(firestore, `products/${product.id}/priceHistory`));
+                transaction.set(historyRef, {
+                    previousPrice: oldPrice,
+                    newPrice,
+                    previousCashPrice: prodSnap.data()?.priceCashUSD || 0,
+                    newCashPrice: results.priceCashUSD,
+                    updatedBy: currentUser.id,
+                    updatedByName: currentUser.name || 'Admin',
+                    timestamp: serverTimestamp()
+                });
             }
 
             transaction.update(productRef, productPayload as any);
