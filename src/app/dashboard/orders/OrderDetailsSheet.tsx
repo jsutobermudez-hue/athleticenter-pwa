@@ -48,7 +48,7 @@ import {
 import { cn } from '@/lib/utils';
 import { generateOrderPDF, generatePickingListPDF, generatePackageLabelsPDF, generatePaymentReceiptPDF } from '@/lib/pdf-generator';
 import { statusConfig } from '@/lib/status-config';
-import { getOrderCommercialDiscountPercent } from '@/lib/billing';
+import { getOrderCommercialDiscountPercent, roundCurrency } from '@/lib/billing';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
@@ -541,12 +541,10 @@ export function OrderDetailsSheet({
 
                                     const unitCashPrice = isNetOrPromo 
                                       ? unitBcvPrice 
-                                      : (item.product?.priceCashUSD && item.product.priceCashUSD > 0 
-                                          ? item.product.priceCashUSD 
-                                          : unitBcvPrice * (1 - effectiveDiscountPct / 100));
+                                      : roundCurrency(unitBcvPrice * (1 - effectiveDiscountPct / 100));
 
-                                    const itemBcvSubtotal = item.quantity * unitBcvPrice;
-                                    const itemCashSubtotal = item.quantity * unitCashPrice;
+                                    const itemBcvSubtotal = roundCurrency(item.quantity * unitBcvPrice);
+                                    const itemCashSubtotal = roundCurrency(item.quantity * unitCashPrice);
 
                                     return (
                                         <div key={item.id} className={cn("p-4 sm:p-5 flex flex-wrap sm:flex-nowrap items-center justify-between gap-4 transition-all", item.picked ? "bg-emerald-50/50 border-l-4 border-l-emerald-500" : "hover:bg-slate-50/50")}>
@@ -632,14 +630,14 @@ export function OrderDetailsSheet({
                             {/* BARRA CONSOLIDADA RESUMEN DE UNIDADES Y SUBTOTALES AL PIE */}
                             {(() => {
                                 const totalUnits = itemsWithProductData.reduce((sum, item) => sum + (item.quantity || 0), 0);
-                                const totalBcvManifesto = itemsWithProductData.reduce((sum, item) => sum + ((item.quantity || 0) * (item.unitPrice || item.product?.price || 0)), 0);
+                                const totalBcvManifesto = roundCurrency(itemsWithProductData.reduce((sum, item) => sum + ((item.quantity || 0) * (item.unitPrice || item.product?.price || 0)), 0));
                                 const isNetOrPromo = (order as any).incentivesApplied === true || (order as any).isNetPrice === true || !!(order as any).promoName;
                                 const effectiveDiscountPct = isNetOrPromo 
                                   ? 0 
                                   : ((order as any).bcvDiscountSnapshot !== undefined 
                                       ? (order as any).bcvDiscountSnapshot 
                                       : (globalSettings?.defaultBcvDiscount ?? 25));
-                                const totalCashManifesto = isNetOrPromo ? totalBcvManifesto : totalBcvManifesto * (1 - effectiveDiscountPct / 100);
+                                const totalCashManifesto = isNetOrPromo ? totalBcvManifesto : roundCurrency(totalBcvManifesto * (1 - effectiveDiscountPct / 100));
 
                                 return (
                                     <div className="p-3.5 bg-slate-900 text-white flex flex-wrap items-center justify-between gap-3 border-t border-slate-800">

@@ -2,6 +2,10 @@ import { addDays, differenceInDays, subDays, startOfDay, isSameDay } from 'date-
 import { Timestamp } from 'firebase/firestore';
 import type { Order, Invoice } from './definitions';
 
+export function roundCurrency(value: number): number {
+    return Math.round((Number(value || 0) + Number.EPSILON) * 100) / 100;
+}
+
 export function getEffectiveCashReceived(o: Order): number {
     if (!o) return 0;
     if (o.status === 'Pagado' || (o as any).isPaid === true || (o as any).paymentStatus === 'Pagado') {

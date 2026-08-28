@@ -6,6 +6,7 @@ import QRCode from 'qrcode';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { calculatePricingTier } from './pricing';
+import { roundCurrency } from './billing';
 
 type GenerateOrderPdfParams = {
   customerName: string;
@@ -151,17 +152,18 @@ export async function generateOrderPDF({
         : (globalSettings?.defaultBcvDiscount !== undefined ? globalSettings.defaultBcvDiscount : 25));
 
   const tableRows = orderItems.map(item => {
-    const itemUnitPrice = item.unitPrice || item.product?.price || 0;
+    const itemUnitPrice = roundCurrency(item.unitPrice || item.product?.price || 0);
     const bcvPrice = itemUnitPrice;
 
     const cashPrice = isNetOrPromotional
       ? bcvPrice
-      : (item.product?.priceCashUSD && item.product.priceCashUSD > 0
-          ? item.product.priceCashUSD
-          : bcvPrice * (1 - bcvDiscountPct / 100));
+      : roundCurrency(bcvPrice * (1 - bcvDiscountPct / 100));
     
-    totalBcvUSD += (item.quantity * bcvPrice);
-    totalCashUSD += (item.quantity * cashPrice);
+    const rowBcvTotal = roundCurrency(item.quantity * bcvPrice);
+    const rowCashTotal = roundCurrency(item.quantity * cashPrice);
+
+    totalBcvUSD += rowBcvTotal;
+    totalCashUSD += rowCashTotal;
     
     return [
       item.product?.sku || 'N/A', 
@@ -169,7 +171,7 @@ export async function generateOrderPDF({
       item.quantity, 
       `$ ${bcvPrice.toFixed(2)}`, 
       `$ ${cashPrice.toFixed(2)}`, 
-      `$ ${(item.quantity * bcvPrice).toFixed(2)}`
+      `$ ${rowBcvTotal.toFixed(2)}`
     ];
   });
 
@@ -320,17 +322,18 @@ export async function generateQuotePDF({
         : (globalSettings?.defaultBcvDiscount !== undefined ? globalSettings.defaultBcvDiscount : 25));
 
   const tableRows = quoteItems.map((item: any) => {
-    const itemUnitPrice = item.unitPrice || item.product?.price || 0;
+    const itemUnitPrice = roundCurrency(item.unitPrice || item.product?.price || 0);
     const bcvPrice = itemUnitPrice;
 
     const cashPrice = isNetOrPromotional
       ? bcvPrice
-      : (item.product?.priceCashUSD && item.product.priceCashUSD > 0
-          ? item.product.priceCashUSD
-          : bcvPrice * (1 - bcvDiscountPct / 100));
+      : roundCurrency(bcvPrice * (1 - bcvDiscountPct / 100));
     
-    totalBcvUSD += (item.quantity * bcvPrice);
-    totalCashUSD += (item.quantity * cashPrice);
+    const rowBcvTotal = roundCurrency(item.quantity * bcvPrice);
+    const rowCashTotal = roundCurrency(item.quantity * cashPrice);
+
+    totalBcvUSD += rowBcvTotal;
+    totalCashUSD += rowCashTotal;
     
     return [
       item.product?.sku || 'N/A', 
@@ -338,7 +341,7 @@ export async function generateQuotePDF({
       item.quantity, 
       `$ ${bcvPrice.toFixed(2)}`, 
       `$ ${cashPrice.toFixed(2)}`, 
-      `$ ${(item.quantity * bcvPrice).toFixed(2)}`
+      `$ ${rowBcvTotal.toFixed(2)}`
     ];
   });
 
