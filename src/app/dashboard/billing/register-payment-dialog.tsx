@@ -50,6 +50,7 @@ import Image from 'next/image';
 import { createAppNotifications } from '@/lib/notifications';
 import { cn } from '@/lib/utils';
 import { generateOrderPDF, generatePaymentReceiptPDF } from '@/lib/pdf-generator';
+import { sendBackgroundWhatsAppMessage } from '@/lib/whatsapp-gateway';
 
 const paymentSchema = z.object({
   amount: z.coerce.number().min(0.01, 'El monto debe ser mayor a cero.'),
@@ -292,15 +293,11 @@ export function ConfirmPaymentDialog({ order }: { order: Order }) {
 
         const customerPhone = (order as any).customerPhone || (order as any).phone || (order as any).telefono || '';
         if (customerPhone) {
-            try {
-                const cleanPhone = customerPhone.replace(/[^\d]/g, '');
-                const whatsappMsg = encodeURIComponent(
-                    `¡Hola ${order.customerName}! Tu abono por $${actualCash.toFixed(2)} USD para el pedido #${order.id} ha sido conciliado exitosamente. Estatus: ${isFullyPaid ? 'SOLVENTE (100% Pagado)' : `Abonado (Saldo pendiente: $${Math.max(0, order.totalAmount - newTotalPaid).toFixed(2)})`}. ¡Muchas gracias por tu preferencia!`
-                );
-                window.open(`https://wa.me/${cleanPhone}?text=${whatsappMsg}`, '_blank');
-            } catch (waErr) {
-                console.warn("WhatsApp popup blocked:", waErr);
-            }
+            sendBackgroundWhatsAppMessage({
+                phone: customerPhone,
+                message: `¡Hola ${order.customerName}! Tu abono por $${actualCash.toFixed(2)} USD para el pedido #${order.id} ha sido conciliado exitosamente. Estatus: ${isFullyPaid ? 'SOLVENTE (100% Pagado)' : `Abonado (Saldo pendiente: $${Math.max(0, order.totalAmount - newTotalPaid).toFixed(2)})`}. ¡Muchas gracias por tu preferencia!`,
+                orderId: order.id
+            }).catch(err => console.warn("Aviso: Despacho de WhatsApp de fondo completado en fallback:", err));
         }
 
         toast({ title: isFullyPaid ? '🎉 ¡Pedido Liquidado y Solvente!' : '¡Abono Conciliado!', description: `Deuda actualizada y Recibo Oficial PDF emitido.` });
