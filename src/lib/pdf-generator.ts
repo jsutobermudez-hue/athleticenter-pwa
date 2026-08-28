@@ -768,10 +768,11 @@ export async function generatePaymentReceiptPDF({
         }
 
         const amtUSD = Number(p.amount || 0);
+        const pBcvRate = (p as any).bcvRate || (p as any).bcvRateSnapshot || (order as any).receptionBcvRate || bcvRate;
         const isVES = isVESPaymentMethod(p.method);
         const amountDisplay = isVES 
-            ? `Bs. ${(amtUSD * bcvRate).toLocaleString('es-VE', { minimumFractionDigits: 2 })} ($${amtUSD.toFixed(2)} USD)`
-            : `$ ${amtUSD.toLocaleString('en-US', { minimumFractionDigits: 2 })} USD`;
+            ? `Bs. ${(amtUSD * pBcvRate).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ($${amtUSD.toFixed(2)} @ Bs.${pBcvRate.toFixed(2)})`
+            : `$ ${amtUSD.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD`;
 
         return [
             `Abono #${idx + 1}\n(${pDateStr})`,
