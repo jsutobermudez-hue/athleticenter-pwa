@@ -290,6 +290,19 @@ export function ConfirmPaymentDialog({ order }: { order: Order }) {
             roles: ['admin', 'gerencia', 'deposito'],
         });
 
+        const customerPhone = (order as any).customerPhone || (order as any).phone || (order as any).telefono || '';
+        if (customerPhone) {
+            try {
+                const cleanPhone = customerPhone.replace(/[^\d]/g, '');
+                const whatsappMsg = encodeURIComponent(
+                    `¡Hola ${order.customerName}! Tu abono por $${actualCash.toFixed(2)} USD para el pedido #${order.id} ha sido conciliado exitosamente. Estatus: ${isFullyPaid ? 'SOLVENTE (100% Pagado)' : `Abonado (Saldo pendiente: $${Math.max(0, order.totalAmount - newTotalPaid).toFixed(2)})`}. ¡Muchas gracias por tu preferencia!`
+                );
+                window.open(`https://wa.me/${cleanPhone}?text=${whatsappMsg}`, '_blank');
+            } catch (waErr) {
+                console.warn("WhatsApp popup blocked:", waErr);
+            }
+        }
+
         toast({ title: isFullyPaid ? '🎉 ¡Pedido Liquidado y Solvente!' : '¡Abono Conciliado!', description: `Deuda actualizada y Recibo Oficial PDF emitido.` });
         setIsOpen(false);
     })
