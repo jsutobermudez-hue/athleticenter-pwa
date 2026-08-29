@@ -64,7 +64,10 @@ import { doc } from 'firebase/firestore';
 import { useDoc } from '@/firebase';
 import type { FinancialSettings } from '@/lib/definitions';
 
+import { useToast } from '@/hooks/use-toast';
+
 export function AdminBillingView() {
+  const { toast } = useToast();
   const firestore = useFirestore();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -116,12 +119,63 @@ export function AdminBillingView() {
       setDateFilter('todos');
       setAgingFilter('todos');
       setSalespersonFilter('todos');
-      
       const cleanTerm = orderQuery.replace('#', '').trim();
       setSearchInput(cleanTerm);
       setSearchTerm(cleanTerm);
     }
   }, [searchParams]);
+
+  const [selectedInvoiceIds, setSelectedInvoiceIds] = useState<string[]>([]);
+  const [isBatchReconciling, setIsBatchReconciling] = useState(false);
+
+  const toggleSelectInvoice = (id: string) => {
+    setSelectedInvoiceIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
+  };
+
+  const toggleSelectAllInvoices = () => {
+    if (!filteredInvoices) return;
+    if (selectedInvoiceIds.length === filteredInvoices.length) {
+      setSelectedInvoiceIds([]);
+    } else {
+      setSelectedInvoiceIds(filteredInvoices.map(i => i.id));
+    }
+  };
+
+  const handleBatchReconcile = async () => {
+    if (selectedInvoiceIds.length === 0 || !firestore) return;
+    setIsBatchReconciling(true);
+    try {
+      const { runTransaction, doc, serverTimestamp } = await import('firebase/firestore');
+      
+      await runTransaction(firestore, async (transaction) => {
+        for (const id of selectedInvoiceIds) {
+          const orderRef = doc(firestore, 'orders', id);
+          const orderSnap = await transaction.get(orderRef);
+          if (orderSnap.exists()) {
+            const data = orderSnap.data();
+            const total = data.totalAmount || 0;
+            transaction.update(orderRef, {
+              status: 'Pagado',
+              isPaid: true,
+              amountPaid: total,
+              paidAt: serverTimestamp(),
+              updatedAt: serverTimestamp()
+            });
+          }
+        }
+      });
+
+      toast({ 
+        title: `🎉 ¡${selectedInvoiceIds.length} Factura(s) Conciliadas en Lote!`, 
+        description: "Los expedientes pasaron a estado Pagado y el saldo quedó en $0.00 USD." 
+      });
+      setSelectedInvoiceIds([]);
+    } catch (e) {
+      toast({ variant: 'destructive', title: "Error en Conciliación Masiva" });
+    } finally {
+      setIsBatchReconciling(false);
+    }
+  };
 
   const handleExecuteSearch = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -295,6 +349,9 @@ export function AdminBillingView() {
     return { totalRemaining, countPending };
   }, [filteredInvoices]);
 
+  const totalFilteredSalesUSD = useMemo(() => filteredInvoices.reduce((sum, i) => sum + i.amountTotal, 0), [filteredInvoices]);
+  const totalFilteredPendingUSD = useMemo(() => filteredInvoices.reduce((sum, i) => sum + i.remainingBalance, 0), [filteredInvoices]);
+
   const handleSendWhatsAppInvoiceReminder = (invoice: Invoice, order?: Order) => {
     const rawPhone = (order?.customerPhone || '').replace(/\D/g, '');
     const cleanPhone = rawPhone.length === 10 ? `58${rawPhone}` : rawPhone;
@@ -323,9 +380,6 @@ export function AdminBillingView() {
     setSearchTerm('');
     setSearchInput('');
   };
-
-  const totalFilteredSalesUSD = useMemo(() => filteredInvoices.reduce((sum, i) => sum + i.amountTotal, 0), [filteredInvoices]);
-  const totalFilteredPendingUSD = useMemo(() => filteredInvoices.reduce((sum, i) => sum + i.remainingBalance, 0), [filteredInvoices]);
 
   const exportInvoicesToCSV = () => {
     if (!filteredInvoices || filteredInvoices.length === 0) return;
@@ -424,7 +478,9 @@ export function AdminBillingView() {
     window.open(`/api/reports/salesperson-receivables-pdf?salespersonId=${salespersonFilter}`, '_blank');
   };
 
-  if (isUserLoading || !currentUser) return <div className="flex h-screen items-center justify-center"><Loader2 className="h-10 w-10 animate-spin text-primary" /></div>;
+  if (isUserLoading || !currentUser) {
+    return <div className="flex h-screen items-center justify-center"><Loader2 className="h-10 w-10 animate-spin text-primary" /></div>;
+  }
 
   return (
     <div className="w-full max-w-full mx-auto flex flex-col gap-8 pb-32 animate-in fade-in-50 duration-500">
@@ -928,6 +984,35 @@ export function AdminBillingView() {
                 </div>
             )}
 
+            {/* BARRA DE CONCILIACIÓN MASIVA EN LOTE */}
+            {selectedInvoiceIds.length > 0 && (
+                <div className="bg-emerald-950 text-white p-4 rounded-2xl border border-emerald-500/40 flex flex-wrap items-center justify-between gap-4 shadow-2xl animate-in slide-in-from-top-3 my-4">
+                    <div className="flex items-center gap-3">
+                        <Badge className="bg-emerald-500 text-slate-950 font-black text-xs px-3 h-7">
+                            {selectedInvoiceIds.length} SELECCIONADO(S)
+                        </Badge>
+                        <span className="text-xs font-bold text-emerald-200 uppercase">
+                            Presiona para conciliar y liquidar el saldo total de los expedientes seleccionados en 1-clic.
+                        </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <Button
+                            onClick={handleBatchReconcile}
+                            disabled={isBatchReconciling}
+                            className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black uppercase text-xs h-10 px-5 rounded-xl shadow-lg"
+                        >
+                            {isBatchReconciling ? <Loader2 className="animate-spin" /> : "⚡ CONCILIAR LOTE EN 1-CLIC"}
+                        </Button>
+                        <Button
+                            variant="ghost"
+                            onClick={() => setSelectedInvoiceIds([])}
+                            className="text-emerald-200 hover:text-white h-10 px-3"
+                        >
+                            <X className="h-4 w-4" />
+                        </Button>
+                    </div>
+                </div>
+            )}
             {/* VISTA 3: TABLA EJECUTIVA TRADICIONAL (OPTIMIZADA PARA DESKTOP CON SCROLL PERMANENTE) */}
             {viewMode === 'table' && (
                 <div className="w-full rounded-[2.5rem] border border-slate-100 shadow-xl bg-white overflow-hidden">
@@ -935,7 +1020,15 @@ export function AdminBillingView() {
                         <Table className="w-full">
                             <TableHeader className="bg-slate-900 sticky top-0 z-20 shadow-sm">
                                 <TableRow className="hover:bg-transparent border-none">
-                                    <TableHead className="text-[10px] font-black uppercase tracking-widest py-4 pl-6 text-white w-28">Expediente</TableHead>
+                                    <TableHead className="w-12 pl-6">
+                                        <input 
+                                            type="checkbox" 
+                                            className="h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer"
+                                            checked={filteredInvoices.length > 0 && selectedInvoiceIds.length === filteredInvoices.length}
+                                            onChange={toggleSelectAllInvoices}
+                                        />
+                                    </TableHead>
+                                    <TableHead className="text-[10px] font-black uppercase tracking-widest py-4 text-white w-28">Expediente</TableHead>
                                     <TableHead className="text-[10px] font-black uppercase tracking-widest text-white min-w-[180px]">Entidad Comercial</TableHead>
                                     <TableHead className="text-right text-[10px] font-black uppercase tracking-widest text-white min-w-[150px]">Saldo Pendiente</TableHead>
                                     <TableHead className="text-center text-[10px] font-black uppercase tracking-widest text-white min-w-[130px]">Estado Cobro</TableHead>
@@ -944,13 +1037,21 @@ export function AdminBillingView() {
                             </TableHeader>
                             <TableBody>
                                 {isLoadingOrders ? (
-                                    Array.from({ length: 5 }).map((_, i) => <TableRow key={i}><TableCell colSpan={5} className="py-8"><Skeleton className="h-10 w-full rounded-xl" /></TableCell></TableRow>)
+                                    Array.from({ length: 5 }).map((_, i) => <TableRow key={i}><TableCell colSpan={6} className="py-8"><Skeleton className="h-10 w-full rounded-xl" /></TableCell></TableRow>)
                                 ) : filteredInvoices.length > 0 ? filteredInvoices.map((invoice) => {
                                     const orderForInvoice = rawOrders?.find(o => o.id === invoice.id);
                                     const isPendingVerification = invoice.status === 'En Verificación';
 
                                     return (
                                         <TableRow key={invoice.id} className="hover:bg-primary/5 cursor-pointer transition-all border-b group" onClick={() => orderForInvoice && setSelectedOrderForSheet(orderForInvoice)}>
+                                            <TableCell className="pl-6 py-4" onClick={(e) => e.stopPropagation()}>
+                                                <input 
+                                                    type="checkbox" 
+                                                    className="h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer"
+                                                    checked={selectedInvoiceIds.includes(invoice.id)}
+                                                    onChange={() => toggleSelectInvoice(invoice.id)}
+                                                />
+                                            </TableCell>
                                             <TableCell className="py-4 pl-6">
                                                 <div className="flex flex-col">
                                                     <span className="font-mono text-[11px] font-black text-primary">#{invoice.id.substring(0, 8)}</span>
@@ -1053,7 +1154,7 @@ export function AdminBillingView() {
                                     );
                                 }) : (
                                     <TableRow>
-                                        <TableCell colSpan={5} className="h-60 text-center flex flex-col items-center justify-center gap-4 opacity-30">
+                                        <TableCell colSpan={6} className="h-60 text-center flex flex-col items-center justify-center gap-4 opacity-30">
                                             <Info className="h-12 w-12 text-slate-300" />
                                             <p className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400">Sin registros financieros.</p>
                                         </TableCell>
@@ -1082,13 +1183,6 @@ export function AdminBillingView() {
         <OrderSheetController 
             order={selectedOrderForSheet} 
             onOpenChange={(open) => !open && setSelectedOrderForSheet(null)} 
-        />
-      )}
-
-      {selectedInvoiceForPayment && (
-        <ReportPaymentDialog
-            invoice={selectedInvoiceForPayment}
-            mode="partial"
         />
       )}
 
