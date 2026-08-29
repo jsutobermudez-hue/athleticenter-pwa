@@ -18,66 +18,45 @@ export async function POST(req: Request) {
       cleanPhone = '58' + cleanPhone;
     }
 
-    const gatewayUrl = process.env.WHATSAPP_GATEWAY_URL || process.env.NEXT_PUBLIC_WHATSAPP_GATEWAY_URL;
-    const apiKey = process.env.WHATSAPP_GATEWAY_API_KEY || process.env.NEXT_PUBLIC_WHATSAPP_GATEWAY_API_KEY;
-    const provider = process.env.WHATSAPP_GATEWAY_PROVIDER || 'evolution';
+    const instanceId = process.env.WHATSAPP_GATEWAY_INSTANCE_ID || 'instance189931';
+    const apiKey = process.env.WHATSAPP_GATEWAY_API_KEY || 'ze6y0kdj1j7n0ekw';
+    const provider = process.env.WHATSAPP_GATEWAY_PROVIDER || 'ultramsg';
+    const rawGatewayUrl = process.env.WHATSAPP_GATEWAY_URL || `https://api.ultramsg.com/${instanceId}`;
 
-    console.log(`[WhatsApp Gateway API] Procesando envío para +${cleanPhone} (Orden: #${orderId || 'N/A'}) - Proveedor: ${provider}`);
+    console.log(`[WhatsApp Gateway API] Despachando mensaje a +${cleanPhone} (Orden: #${orderId || 'N/A'}) - Proveedor: ${provider}`);
 
-    // Si existe una URL de Gateway externa configurada en variables de entorno o servidor
-    if (gatewayUrl) {
-      let externalPayload: any = {};
-      let headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (provider === 'ultramsg' || rawGatewayUrl.includes('ultramsg')) {
+      const isDocument = Boolean(media?.base64);
+      const targetEndpoint = isDocument 
+        ? `https://api.ultramsg.com/${instanceId}/messages/document`
+        : `https://api.ultramsg.com/${instanceId}/messages/chat`;
 
-      if (provider === 'ultramsg') {
-        // Formato UltraMsg API
-        externalPayload = {
-          token: apiKey,
-          to: `${cleanPhone}@c.us`,
-          body: text
-        };
-        if (media?.base64) {
-          externalPayload.document = `data:application/pdf;base64,${media.base64}`;
-          externalPayload.filename = media.filename || 'Recibo_Oficial.pdf';
-        }
+      const params = new URLSearchParams();
+      params.append('token', apiKey);
+      params.append('to', cleanPhone);
+
+      if (isDocument) {
+        params.append('document', media.base64);
+        params.append('filename', media.filename || 'Recibo_Oficial_Athleticenter.pdf');
+        params.append('caption', text || '');
       } else {
-        // Formato Evolution API / Baileys Standard
-        if (apiKey) {
-          headers['apikey'] = apiKey;
-          headers['Authorization'] = `Bearer ${apiKey}`;
-        }
-        externalPayload = {
-          number: cleanPhone,
-          text: text,
-          options: {
-            delay: 1200,
-            presence: 'composing'
-          }
-        };
-        if (media?.base64) {
-          externalPayload.media = {
-            base64: media.base64,
-            fileName: media.filename || 'Recibo_Oficial.pdf',
-            mimetype: 'application/pdf',
-            caption: text
-          };
-        }
+        params.append('body', text || '');
       }
 
-      const externalRes = await fetch(gatewayUrl, {
+      const externalRes = await fetch(targetEndpoint, {
         method: 'POST',
-        headers,
-        body: JSON.stringify(externalPayload),
-        signal: AbortSignal.timeout(10000)
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: params.toString(),
+        signal: AbortSignal.timeout(12000)
       });
 
       if (externalRes.ok) {
         const data = await externalRes.json().catch(() => ({}));
-        console.log(`[WhatsApp Gateway API] ✅ Enviado con éxito vía proveedor externo.`);
-        return NextResponse.json({ success: true, messageId: data.id || data.messageId || 'GATEWAY_SENT_OK' });
+        console.log(`[WhatsApp Gateway UltraMsg] ✅ Mensaje despachado con éxito:`, data);
+        return NextResponse.json({ success: true, messageId: data.id || data.messageId || 'ULTRAMSG_OK' });
       } else {
         const errText = await externalRes.text().catch(() => '');
-        console.warn(`[WhatsApp Gateway API] Servidor externo respondió (${externalRes.status}):`, errText);
+        console.warn(`[WhatsApp Gateway UltraMsg] Error en respuesta de UltraMsg (${externalRes.status}):`, errText);
       }
     }
 
