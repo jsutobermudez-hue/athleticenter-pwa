@@ -78,6 +78,7 @@ function SettingsContent() {
          <DeviceLinkingWidget />
          <AutomatedNotificationsControlWidget />
          {isAdmin && <WhatsAppGatewayWidget />}
+         {isAdmin && <WhatsAppLiveTesterWidget />}
          {isAdmin && <CompanyProfileWidget />}
          {isAdmin && <TreasuryCentralLinkWidget />}
          <NotificationTestWidget />
@@ -527,6 +528,74 @@ function AutomatedNotificationsControlWidget() {
                     </div>
                     <Switch checked={enabledTriggers.churnPrevention} onCheckedChange={(v) => setEnabledTriggers(prev => ({ ...prev, churnPrevention: v }))} />
                 </div>
+            </CardContent>
+        </Card>
+    );
+}
+
+function WhatsAppLiveTesterWidget() {
+    const { toast } = useToast();
+    const [phoneInput, setPhoneInput] = useState('');
+    const [isSending, setIsSending] = useState(false);
+
+    const handleSendTest = async (type: 'text' | 'pdf') => {
+        if (!phoneInput) {
+            toast({ variant: 'destructive', title: "Ingresa un número", description: "Coloca tu número telefónico para la prueba." });
+            return;
+        }
+        setIsSending(true);
+        try {
+            const { dispatchUniversalWhatsApp } = await import('@/lib/whatsapp-universal');
+            const result = await dispatchUniversalWhatsApp({
+                phone: phoneInput,
+                message: `*ATHLETICENTER PRO C.A. - PRUEBA DE SERVIDOR WHATSAPP EN VÍO SILENCIOSO*\n\nHola! 👋 Este es un mensaje de prueba 100% automático enviado desde la instancia de UltraMsg (instance189931).\n\n📅 Fecha: ${new Date().toLocaleString()}\n🚀 Estado: Conexión Exitosa.`,
+                module: 'marketing'
+            });
+
+            if (result.success) {
+                toast({ 
+                    title: "🚀 ¡Mensaje Despachado!", 
+                    description: `Prueba enviada exitosamente a +${phoneInput} vía UltraMsg (instance189931). Revisa tu WhatsApp.` 
+                });
+            } else {
+                toast({ variant: 'destructive', title: "Aviso de Servidor", description: "No se pudo completar el despacho silencioso." });
+            }
+        } catch (e: any) {
+            toast({ variant: 'destructive', title: "Error de Envío", description: e?.message || "Fallo al conectar." });
+        } finally {
+            setIsSending(false);
+        }
+    };
+
+    return (
+        <Card className="terminal-card border-emerald-500/30">
+            <CardHeader className="py-6 px-8 border-b bg-emerald-950/10">
+                <div className="flex items-center justify-between">
+                    <CardTitle className="text-xs font-black uppercase tracking-widest text-emerald-700 flex items-center gap-2">
+                        <Smartphone className="h-4 w-4" /> 🧪 Prueba en Vivo de WhatsApp (UltraMsg instance189931)
+                    </CardTitle>
+                    <Badge className="bg-emerald-600 text-white font-black text-[9px]">100% AUTOMÁTICO</Badge>
+                </div>
+            </CardHeader>
+            <CardContent className="p-8 space-y-4">
+                <div className="space-y-1.5">
+                    <Label className="text-xs font-black uppercase tracking-tight text-slate-700">Número de Teléfono para la Prueba</Label>
+                    <Input 
+                        placeholder="Ej: 04121234567 o 584121234567" 
+                        value={phoneInput} 
+                        onChange={(e) => setPhoneInput(e.target.value)}
+                        className="h-11 rounded-xl border-slate-200 text-sm font-mono font-bold"
+                    />
+                    <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Ingresa tu número de WhatsApp para recibir el mensaje de prueba instantáneo.</p>
+                </div>
+
+                <Button 
+                    onClick={() => handleSendTest('text')} 
+                    disabled={isSending} 
+                    className="w-full h-12 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-black uppercase text-[10px] tracking-widest shadow-lg"
+                >
+                    {isSending ? <Loader2 className="animate-spin" /> : "🚀 DISPARAR PRUEBA DE ENVÍO SILENCIOSO"}
+                </Button>
             </CardContent>
         </Card>
     );
