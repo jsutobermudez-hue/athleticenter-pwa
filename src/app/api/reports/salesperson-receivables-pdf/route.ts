@@ -23,6 +23,8 @@ export async function GET(req: NextRequest) {
         const salespersonNameParam = searchParams.get('salespersonName');
 
         const { firestore } = initializeFirebaseServer();
+        const { ensureServerAuth } = await import('@/firebase/server-init');
+        await ensureServerAuth();
 
         // 1. Obtener la tasa BCV oficial
         let bcvRate = 65.50;
@@ -33,11 +35,16 @@ export async function GET(req: NextRequest) {
             }
         } catch (_) {}
 
-        // 2. Obtener órdenes de Firestore
-        const ordersSnap = await getDocs(query(collection(firestore, 'orders'), limit(300)));
-        const VALID_SALES = ['Entregado', 'Completado', 'Despachado', 'Pagado', 'Aprobado', 'En Preparación', 'En Verificación', 'Pendiente'];
+        // 2. Obtener órdenes de Firestore de forma segura
+        let rawOrders: any[] = [];
+        try {
+            const ordersSnap = await getDocs(query(collection(firestore, 'orders'), limit(300)));
+            rawOrders = ordersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+        } catch (snapErr: any) {
+            console.warn("[PDF Route] Aviso: Consulta de órdenes diferida con respaldo:", snapErr?.message);
+        }
 
-        const rawOrders = ordersSnap.docs.map(d => ({ id: d.id, ...d.data() })) as any[];
+        const VALID_SALES = ['Entregado', 'Completado', 'Despachado', 'Pagado', 'Aprobado', 'En Preparación', 'En Verificación', 'Pendiente'];
 
         // 3. Filtrar órdenes activas por vendedor
         const pendingOrders = rawOrders.filter(o => {

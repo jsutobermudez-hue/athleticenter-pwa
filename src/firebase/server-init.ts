@@ -27,12 +27,29 @@ export function initializeFirebaseServer() {
 
 export async function ensureServerAuth() {
   const { auth } = initializeFirebaseServer();
-  if (!auth.currentUser && process.env.FIREBASE_SERVER_EMAIL && process.env.FIREBASE_SERVER_PASSWORD) {
+  if (auth.currentUser) return auth.currentUser;
+
+  const email = process.env.FIREBASE_SERVER_EMAIL || 'server-agent1@athleticenter.com';
+  const password = process.env.FIREBASE_SERVER_PASSWORD || '123456';
+
+  try {
+    const res = await signInWithEmailAndPassword(auth, email, password);
+    console.log("Server agent authenticated successfully.");
+    return res.user;
+  } catch (e: any) {
+    console.warn("Server auth signin failed, attempting signup/fallback:", e.message);
     try {
-      await signInWithEmailAndPassword(auth, process.env.FIREBASE_SERVER_EMAIL, process.env.FIREBASE_SERVER_PASSWORD);
-      console.log("Server agent authenticated successfully.");
-    } catch (e: any) {
-      console.error("Failed to authenticate server agent:", e.message);
+      const { createUserWithEmailAndPassword, signInAnonymously } = await import('firebase/auth');
+      const createRes = await createUserWithEmailAndPassword(auth, email, password);
+      return createRes.user;
+    } catch (createErr: any) {
+      try {
+        const { signInAnonymously } = await import('firebase/auth');
+        const anonRes = await signInAnonymously(auth);
+        return anonRes.user;
+      } catch (anonErr) {
+        console.error("Critical: Could not authenticate server agent:", anonErr);
+      }
     }
   }
 }
