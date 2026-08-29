@@ -146,12 +146,37 @@ export async function logActivity(
         const auditRef = collection(firestore, 'auditLogs');
         const humanReadableAction = getHumanReadableAction(params.action);
         
+        const severity = params.severity || 'info';
         await addDoc(auditRef, {
             ...params,
             humanReadableAction,
-            severity: params.severity || 'info',
+            severity,
             createdAt: serverTimestamp(),
         });
+
+        // Si la severidad es CRÍTICA, despachar alerta instantánea de seguridad al WhatsApp de Gerencia
+        if (severity === 'critical') {
+            try {
+                const { sendBackgroundWhatsAppMessage } = await import('./whatsapp-gateway');
+                const alertMessage = `🚨 *ALERTA DE SEGURIDAD Y AUDITORÍA CRÍTICA - ATHLETICENTER*\n\n` +
+                    `Se ha ejecutado una operación de alto impacto en el sistema:\n\n` +
+                    `👤 *Operario:* ${params.userName} (${params.userRole || 'Admin'})\n` +
+                    `⚡ *Acción:* ${humanReadableAction}\n` +
+                    `📦 *Módulo:* ${(params.module || params.resource || 'Sistema').toUpperCase()}\n` +
+                    `📄 *Detalle:* ${params.details}\n` +
+                    `📅 *Fecha:* ${new Date().toLocaleString('es-VE')}\n\n` +
+                    `Inspeccione el registro maestro en: https://athleticenter-pwa.web.app/dashboard/audit`;
+
+                // Despachar a la línea corporativa registrada de UltraMsg
+                const targetAdminPhone = process.env.WHATSAPP_ADMIN_PHONE || '584121234567';
+                await sendBackgroundWhatsAppMessage({
+                    phone: targetAdminPhone,
+                    message: alertMessage
+                });
+            } catch (secErr) {
+                console.warn("[Audit] Alerta de seguridad WhatsApp diferida:", secErr);
+            }
+        }
     } catch (e) {
         console.warn("[Audit] Fallo al registrar log de actividad:", e);
     }

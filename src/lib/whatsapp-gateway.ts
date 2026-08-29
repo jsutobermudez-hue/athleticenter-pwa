@@ -19,6 +19,23 @@ export interface WhatsAppGatewayResponse {
 }
 
 /**
+ * Sanitizador Inteligente de Números Telefónicos de Venezuela (E.164)
+ * Convierte formatos como 0412-1234567, 4141234567 o +58 424 1234567 a 584121234567
+ */
+export function formatVenezuelaPhoneE164(phone: string): string {
+  if (!phone) return '';
+  let clean = String(phone).replace(/[^\d]/g, '');
+
+  if (clean.startsWith('0')) {
+    clean = '58' + clean.substring(1);
+  }
+  if (!clean.startsWith('58') && (clean.startsWith('412') || clean.startsWith('414') || clean.startsWith('424') || clean.startsWith('416') || clean.startsWith('426') || clean.length === 10)) {
+    clean = '58' + clean;
+  }
+  return clean;
+}
+
+/**
  * Despacha un mensaje de WhatsApp y/o PDF de fondo sin abrir ventanas emergentes
  */
 export async function sendBackgroundWhatsAppMessage({
@@ -32,14 +49,7 @@ export async function sendBackgroundWhatsAppMessage({
     return { success: false, error: 'Número de teléfono no provisto' };
   }
 
-  // Limpiar número telefónico a formato internacional (Ej: 584121234567)
-  let cleanPhone = phone.replace(/[^\d]/g, '');
-  if (cleanPhone.startsWith('0')) {
-    cleanPhone = '58' + cleanPhone.substring(1);
-  }
-  if (!cleanPhone.startsWith('58') && cleanPhone.length === 10) {
-    cleanPhone = '58' + cleanPhone;
-  }
+  const cleanPhone = formatVenezuelaPhoneE164(phone);
 
   const gatewayUrl = '/api/whatsapp-gateway';
 
