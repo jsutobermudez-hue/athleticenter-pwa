@@ -224,6 +224,26 @@ export function OrderDetailsSheet({
         });
 
         toast({ title: "Picking Finalizado", description: "Pedido completado exitosamente." });
+
+        try {
+            const { logActivity } = await import('@/lib/audit');
+            await logActivity(firestore, {
+                userId: currentUser.id,
+                userName: currentUser.name || 'Operario',
+                userRole: currentUser.role,
+                action: 'UPDATE_ORDER_STATUS',
+                resource: 'orders',
+                module: 'orders',
+                resourceId: order.id,
+                severity: 'info',
+                details: `El operario ${currentUser.name} completó el picking y empaque del pedido #${order.id.substring(0, 8)}. Estado: Completado.`,
+                previousState: { status: order.status },
+                newState: { status: 'Completado' }
+            });
+        } catch (auditErr) {
+            console.warn("[Audit] Error al registrar auditoría de orden:", auditErr);
+        }
+
         setPickingMode(false);
     } catch (e) {
         toast({ variant: 'destructive', title: 'Error de Red', description: 'No se pudo sincronizar el cierre de picking.' });

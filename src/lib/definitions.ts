@@ -187,11 +187,17 @@ export interface Customer extends Auditable {
 export interface AuditLog extends Auditable {
     userId: string;
     userName: string;
+    userRole?: string;
     action: string;
+    humanReadableAction?: string;
     resource: 'users' | 'products' | 'system' | 'orders' | 'quotes' | 'invoices' | 'customers' | 'notifications';
+    module?: 'billing' | 'inventory' | 'orders' | 'users' | 'settings' | 'quotes' | 'notifications' | 'system';
     resourceId?: string;
     details: string;
     severity: 'info' | 'warning' | 'critical';
+    previousState?: any;
+    newState?: any;
+    ipAddress?: string;
 }
 
 export interface Quote extends Auditable {

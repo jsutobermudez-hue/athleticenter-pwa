@@ -64,6 +64,7 @@ import { doc } from 'firebase/firestore';
 import { useDoc } from '@/firebase';
 import type { FinancialSettings } from '@/lib/definitions';
 
+import { logActivity } from '@/lib/audit';
 import { useToast } from '@/hooks/use-toast';
 
 export function AdminBillingView() {
@@ -163,6 +164,17 @@ export function AdminBillingView() {
             });
           }
         }
+      });
+
+      await logActivity(firestore, {
+        userId: currentUser?.id || 'system',
+        userName: currentUser?.name || 'Administrador',
+        userRole: currentUser?.role,
+        action: 'BATCH_RECONCILE_PAYMENTS',
+        resource: 'invoices',
+        module: 'billing',
+        severity: 'critical',
+        details: `Se conciliaron en lote ${selectedInvoiceIds.length} expedientes de pago. Todos pasaron a estado Solvente/Pagado.`
       });
 
       toast({ 

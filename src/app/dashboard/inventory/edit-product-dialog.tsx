@@ -268,6 +268,31 @@ export function EditProductDialog({ product, useTriggerButton = false }: { produ
 
         toast({ title: '¡Producto Sincronizado!' });
 
+        try {
+            const { logActivity } = await import('@/lib/audit');
+            const oldPrice = product.price || 0;
+            const newPrice = results.priceListBCV;
+            const isPriceChange = Math.abs(oldPrice - newPrice) > 0.001;
+
+            await logActivity(firestore, {
+                userId: currentUser.id,
+                userName: currentUser.name || 'Admin',
+                userRole: currentUser.role,
+                action: isPriceChange ? 'EDIT_PRODUCT_PRICE' : 'CREATE_PRODUCT',
+                resource: 'products',
+                module: 'inventory',
+                resourceId: product.id,
+                severity: isPriceChange ? 'warning' : 'info',
+                details: isPriceChange 
+                    ? `Se actualizó el precio de "${data.name}" (SKU: ${product.sku}) de $${oldPrice.toFixed(2)} USD a $${newPrice.toFixed(2)} USD.`
+                    : `Se actualizaron los datos del producto "${data.name}" (SKU: ${product.sku}, Stock: ${data.stockLevel} un.).`,
+                previousState: { price: oldPrice, stock: product.stockLevel },
+                newState: { price: newPrice, stock: data.stockLevel }
+            });
+        } catch (auditErr) {
+            console.warn("[Audit] Error al registrar auditoría de producto:", auditErr);
+        }
+
         if (stockIncreased) {
             try {
                 await createAppNotifications(firestore, {

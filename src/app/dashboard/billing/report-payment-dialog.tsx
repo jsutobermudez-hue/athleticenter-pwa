@@ -417,6 +417,23 @@ export function ReportPaymentDialog({ invoice, mode = 'partial' }: { invoice: In
         console.warn("Aviso: Notificación de reporte diferida:", notifErr);
       }
 
+      try {
+        const { logActivity } = await import('@/lib/audit');
+        await logActivity(firestore, {
+          userId: currentUser?.id || authUser?.uid || 'system',
+          userName: registeredByName,
+          userRole: currentUser?.role,
+          action: 'REGISTER_PAYMENT',
+          resource: 'invoices',
+          module: 'billing',
+          resourceId: invoice.id,
+          severity: 'info',
+          details: `Se registró un abono de $${(Number(calculation.finalAmount) || 0).toFixed(2)} USD vía ${data.method || 'Transferencia'} con Ref #${data.referenceNumber || 'N/A'} para el expediente #${invoice.id.substring(0, 8)}.`
+        });
+      } catch (auditErr) {
+        console.warn("Aviso: Registro de auditoría de pago diferido:", auditErr);
+      }
+
       toast({ 
         title: '¡Abono Reportado Exitosamente!', 
         description: 'Administración verificará su comprobante pronto.' 
