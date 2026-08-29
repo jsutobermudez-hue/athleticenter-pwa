@@ -24,9 +24,11 @@ import {
   ClipboardList,
   Contact,
   Users,
-  LifeBuoy
+  LifeBuoy,
+  Download,
+  FileText
 } from 'lucide-react';
-import { formatDistanceToNow, format } from 'date-fns';
+import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { useRouter } from 'next/navigation';
 import type { Notification, NotificationCategory } from '@/lib/definitions';
@@ -70,6 +72,13 @@ export function NotificationDetailDialog({
     ? format(notification.createdAt.toDate(), 'PPP, hh:mm a', { locale: es }) 
     : 'Reciente';
 
+  const isPdfReport = Boolean(
+    notification.link?.includes('/api/reports') || 
+    notification.link?.includes('pdf') || 
+    notification.message.toLowerCase().includes('pdf') ||
+    notification.title.toLowerCase().includes('cartera')
+  );
+
   const handleMarkAsRead = () => {
     if (firestore && notification.userId && notification.id && !notification.isRead) {
       updateDoc(doc(firestore, `users/${notification.userId}/notifications`, notification.id), { isRead: true }).catch(() => {});
@@ -80,7 +89,11 @@ export function NotificationDetailDialog({
     handleMarkAsRead();
     onOpenChange(false);
     if (notification.link && notification.link !== '#') {
-      router.push(notification.link);
+      if (isPdfReport) {
+        window.open(notification.link, '_blank');
+      } else {
+        router.push(notification.link);
+      }
     }
   };
 
@@ -94,14 +107,15 @@ export function NotificationDetailDialog({
 
   return (
     <Dialog open={isOpen} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg w-full p-0 rounded-[2.5rem] overflow-hidden border-none shadow-2xl bg-white">
+      <DialogContent className="max-w-xl w-full p-0 rounded-[2.2rem] overflow-hidden border-none shadow-2xl bg-white">
+        {/* ENCABEZADO FLEXIBLE SIN RECORTES DE TEXTO */}
         <DialogHeader className="p-6 sm:p-8 bg-slate-900 text-white relative">
-          <div className="flex items-center gap-4">
+          <div className="flex items-start gap-4 w-full min-w-0">
             <div className={cn("h-14 w-14 rounded-2xl border flex items-center justify-center shadow-lg shrink-0", config.color)}>
               <Icon className="h-7 w-7" />
             </div>
-            <div className="space-y-1">
-              <div className="flex items-center gap-2">
+            <div className="space-y-1.5 flex-1 min-w-0 pr-6">
+              <div className="flex flex-wrap items-center gap-2">
                 <Badge variant="secondary" className="bg-white/10 text-white font-black text-[9px] uppercase tracking-widest px-2.5 py-0.5 border-none">
                   {notification.category}
                 </Badge>
@@ -111,54 +125,66 @@ export function NotificationDetailDialog({
                   </Badge>
                 )}
               </div>
-              <DialogTitle className="text-xl font-black uppercase tracking-tight text-white leading-tight">
+              <DialogTitle className="text-lg sm:text-xl font-black uppercase tracking-tight text-white leading-snug break-words w-full pr-2">
                 {notification.title}
               </DialogTitle>
             </div>
           </div>
         </DialogHeader>
 
+        {/* CUERPO DEL MENSAJE */}
         <div className="p-6 sm:p-8 space-y-6 bg-white">
           <div className="space-y-2">
             <p className="text-[10px] font-black uppercase text-slate-400 tracking-[0.2em] flex items-center gap-1.5">
               <Clock className="h-3.5 w-3.5 text-primary" /> Emitido: {formattedTime}
             </p>
-            <div className="p-5 rounded-3xl bg-slate-50 border border-slate-100 text-slate-700 font-medium text-sm leading-relaxed shadow-inner">
+            <div className="p-5 rounded-3xl bg-slate-50 border border-slate-100 text-slate-800 font-medium text-sm leading-relaxed shadow-inner">
               {notification.message}
             </div>
           </div>
         </div>
 
-        <DialogFooter className="p-6 sm:p-8 bg-slate-50/50 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-3">
+        {/* PIE CON BOTONES ADAPTATIVOS SIN RECORTES */}
+        <DialogFooter className="p-6 sm:p-8 bg-slate-50 border-t border-slate-100 flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-between gap-3">
           <Button
             variant="ghost"
             size="sm"
             onClick={() => onOpenChange(false)}
-            className="w-full sm:w-auto h-11 px-5 rounded-xl font-black text-[10px] uppercase tracking-widest text-slate-500 hover:bg-slate-100"
+            className="w-full sm:w-auto h-11 px-5 rounded-xl font-black text-[10px] uppercase tracking-widest text-slate-500 hover:bg-slate-200"
           >
             Cerrar
           </Button>
 
-          <div className="flex flex-col sm:flex-row items-center gap-2 w-full sm:w-auto">
+          <div className="flex flex-col sm:flex-row items-center gap-2.5 w-full sm:w-auto">
             {onReplyClick && (
               <Button
                 onClick={handleOpenReply}
                 size="sm"
-                className="w-full sm:w-auto h-11 px-6 rounded-xl font-black text-[10px] uppercase tracking-widest bg-primary hover:bg-primary/90 text-white shadow-lg shadow-primary/20 transition-all flex items-center gap-2"
+                className="w-full sm:w-auto h-11 px-5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-primary hover:bg-primary/90 text-white shadow-md transition-all flex items-center justify-center gap-2"
               >
-                <MessageSquare className="h-4 w-4" /> Responder / Abrir Chat
+                <MessageSquare className="h-4 w-4" /> Chat Directo
               </Button>
             )}
 
             {notification.link && notification.link !== '#' && (
-              <Button
-                onClick={handleNavigate}
-                variant="outline"
-                size="sm"
-                className="w-full sm:w-auto h-11 px-6 rounded-xl font-black text-[10px] uppercase tracking-widest border-slate-200 hover:bg-slate-100 text-slate-800 flex items-center gap-2"
-              >
-                <ExternalLink className="h-4 w-4" /> Ir a la Sección
-              </Button>
+              isPdfReport ? (
+                <Button
+                  onClick={handleNavigate}
+                  size="sm"
+                  className="w-full sm:w-auto h-11 px-5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-emerald-600 hover:bg-emerald-500 text-white shadow-md flex items-center justify-center gap-2"
+                >
+                  <Download className="h-4 w-4 text-emerald-200" /> Descargar PDF
+                </Button>
+              ) : (
+                <Button
+                  onClick={handleNavigate}
+                  variant="outline"
+                  size="sm"
+                  className="w-full sm:w-auto h-11 px-5 rounded-xl font-black text-[10px] uppercase tracking-widest border-slate-300 hover:bg-slate-100 text-slate-900 flex items-center justify-center gap-2"
+                >
+                  <ExternalLink className="h-4 w-4" /> Ver Sección
+                </Button>
+              )
             )}
           </div>
         </DialogFooter>
