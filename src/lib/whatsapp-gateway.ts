@@ -41,8 +41,7 @@ export async function sendBackgroundWhatsAppMessage({
     cleanPhone = '58' + cleanPhone;
   }
 
-  const gatewayUrl = process.env.WHATSAPP_GATEWAY_URL || process.env.NEXT_PUBLIC_WHATSAPP_GATEWAY_URL || 'https://gateway.athleticenter.pro/api/send';
-  const apiKey = process.env.WHATSAPP_GATEWAY_API_KEY || 'ATHLETICENTER_PRO_SECRET_KEY';
+  const gatewayUrl = '/api/whatsapp-gateway';
 
   console.log(`[WhatsApp Gateway] Despachando mensaje en segundo plano a +${cleanPhone} para orden #${orderId || 'N/A'}`);
 
@@ -61,12 +60,10 @@ export async function sendBackgroundWhatsAppMessage({
     const response = await fetch(gatewayUrl, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`
+        'Content-Type': 'application/json'
       },
       body: JSON.stringify(payload),
-      // Timeout de 8 segundos para no bloquear la UI
-      signal: AbortSignal.timeout(8000)
+      signal: AbortSignal.timeout(10000)
     });
 
     if (response.ok) {
