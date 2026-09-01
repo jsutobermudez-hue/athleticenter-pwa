@@ -199,21 +199,19 @@ export default function AdminDashboard() {
         let next7Days = 0;
         let next15Days = 0;
         let next30Days = 0;
-        let overdue = 0;
 
         allInvoices.forEach(inv => {
             if (inv.remainingBalance > 0.05 && inv.status !== 'Pagado') {
                 const days = inv.remainingCreditDays;
-                if (days < 0) overdue += inv.remainingBalance;
-                else if (days <= 7) next7Days += inv.remainingBalance;
-                else if (days <= 15) next15Days += inv.remainingBalance;
-                else if (days <= 30) next30Days += inv.remainingBalance;
+                if (days >= 0 && days <= 7) next7Days += inv.remainingBalance;
+                else if (days >= 0 && days <= 15) next15Days += inv.remainingBalance;
+                else if (days >= 0 && days <= 30) next30Days += inv.remainingBalance;
             }
         });
 
         const totalProjected = next7Days + next15Days + next30Days;
-        return { next7Days, next15Days, next30Days, overdue, totalProjected };
-    }, [allInvoices]);
+        return { next7Days, next15Days, next30Days, overdue: stats.vencido, totalProjected };
+    }, [allInvoices, stats.vencido]);
 
     const convertedBs = useMemo(() => {
         const usd = parseFloat(usdAmountInput) || 0;
