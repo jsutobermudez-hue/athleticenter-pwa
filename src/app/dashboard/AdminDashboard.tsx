@@ -132,7 +132,8 @@ export default function AdminDashboard() {
         if (!orders || !products || !customers) return { 
             revenue: 0, pending: 0, lowStock: 0, clients: 0, inventoryValuation: 0, totalDebts: 0, grossBcvDebt: 0, netCashDebt: 0, vencido: 0, inTransitValuation: 0,
             recaudadoCash: 0, cashBreakdown: null,
-            totalOrdersCount: 0, totalOrdersAmount: 0, liquidadosCount: 0, liquidadosAmount: 0 
+            totalOrdersCount: 0, totalOrdersAmount: 0, liquidadosCount: 0, liquidadosAmount: 0,
+            topSalesperson: { name: 'Venta Directa', totalUSD: 0, count: 0 }
         };
         
         const globalMetrics = calculateGlobalFinancialMetrics(orders, kpiPeriod);
@@ -161,8 +162,22 @@ export default function AdminDashboard() {
             });
         }
 
+        // Cálculo dinámico del Top Vendedor del Mes
+        const salesBySalesperson: Record<string, { name: string; totalUSD: number; count: number }> = {};
+        orders.forEach(o => {
+            if (o.status === 'Cancelado' || o.status === 'Rechazado' || o.status === 'Borrador') return;
+            const sName = o.salespersonName || (o as any).vendedor || 'Venta Directa';
+            if (!salesBySalesperson[sName]) {
+                salesBySalesperson[sName] = { name: sName, totalUSD: 0, count: 0 };
+            }
+            salesBySalesperson[sName].totalUSD += (o.totalAmount || 0);
+            salesBySalesperson[sName].count += 1;
+        });
+        const topSalesperson = Object.values(salesBySalesperson).sort((a, b) => b.totalUSD - a.totalUSD)[0] || { name: 'Venta Directa', totalUSD: 0, count: 0 };
+
         return { 
             revenue, pending, lowStock, clients, inventoryValuation, totalDebts, grossBcvDebt, netCashDebt, vencido, inTransitValuation,
+            topSalesperson,
             recaudadoCash: globalMetrics.recaudadoCash,
             cashBreakdown: globalMetrics.cashBreakdown,
             totalOrdersCount: globalMetrics.totalOrdersCount,
@@ -306,7 +321,7 @@ export default function AdminDashboard() {
                     </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
                     <DashboardMetricCard 
                         title="Pagos Registrados" 
                         value={`$${(stats.recaudadoCash || 0).toLocaleString('en-US', { maximumFractionDigits: 0 })}`} 
@@ -350,6 +365,14 @@ export default function AdminDashboard() {
                         tooltip="Volumen acumulado de órdenes comerciales ingresadas al sistema en todas sus fases operativas."
                         icon={ShoppingCart} iconBg="bg-indigo-50" iconColor="text-indigo-500" 
                         onClick={() => router.push('/dashboard/orders')}
+                    />
+                    <DashboardMetricCard 
+                        title="Top Vendedor" 
+                        value={stats.topSalesperson.name.length > 16 ? stats.topSalesperson.name.substring(0, 16) + '...' : stats.topSalesperson.name} 
+                        subtitle={`$${stats.topSalesperson.totalUSD.toLocaleString('en-US', { maximumFractionDigits: 0 })} (${stats.topSalesperson.count} Pedidos)`} 
+                        tooltip="Vendedor o asesor comercial líder del mes con mayor volumen de ventas. Clic para ver comisiones y ranking completo."
+                        icon={Award} iconBg="bg-amber-50" iconColor="text-amber-500" 
+                        onClick={() => router.push('/dashboard/salespeople')}
                     />
                 </div>
 
