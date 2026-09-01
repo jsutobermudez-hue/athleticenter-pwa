@@ -227,6 +227,8 @@ export function ReportPaymentDialog({ invoice, mode = 'partial' }: { invoice: In
   const is7DaysEligible = elapsedDays <= 7;
   const is15DaysEligible = elapsedDays <= 15;
 
+  const [isDiscountOverridden, setIsDiscountOverridden] = useState(false);
+
   useEffect(() => {
     const isCashEligibleMethod = ['Zelle', 'Efectivo', 'Binance Pay / USDT', 'Binance Pay', 'Binance', 'USDT'].includes(selectedMethod);
     if (isCashEligibleMethod) {
@@ -258,10 +260,10 @@ export function ReportPaymentDialog({ invoice, mode = 'partial' }: { invoice: In
       setValue('earlyPaymentType', '7days');
     } else if (is15DaysEligible) {
       setValue('earlyPaymentType', '15days');
-    } else {
+    } else if (!isDiscountOverridden) {
       setValue('earlyPaymentType', 'none');
     }
-  }, [isOpen, elapsedDays, is7DaysEligible, is15DaysEligible, isNetOrPromotional, setValue]);
+  }, [isOpen, elapsedDays, is7DaysEligible, is15DaysEligible, isNetOrPromotional, isDiscountOverridden, setValue]);
 
   // LÓGICA DE CÁLCULO BI-DIRECCIONAL EN TIEMPO REAL v8.4 (CUSTODIA DE TESORERÍA & PREVENCIÓN DE DOBLE DESCUENTO)
   const calculation = useMemo(() => {
@@ -286,10 +288,10 @@ export function ReportPaymentDialog({ invoice, mode = 'partial' }: { invoice: In
     if (accountingBase === 'cash' && !isAlreadyDiscounted) discountType = 'cash';
 
     if (!isAlreadyDiscounted) {
-      if (earlyPaymentType === '7days' && is7DaysEligible) {
+      if (earlyPaymentType === '7days' && (is7DaysEligible || isDiscountOverridden)) {
         earlyDiscountPct = early7Factor;
         if (discountType === 'none') discountType = '7days';
-      } else if (earlyPaymentType === '15days' && is15DaysEligible) {
+      } else if (earlyPaymentType === '15days' && (is15DaysEligible || isDiscountOverridden)) {
         earlyDiscountPct = early15Factor;
         if (discountType === 'none') discountType = '15days';
       }
@@ -357,6 +359,15 @@ export function ReportPaymentDialog({ invoice, mode = 'partial' }: { invoice: In
 
     if (!data.referenceNumber) {
       toast({ variant: 'destructive', title: 'Referencia Requerida', description: 'Por favor ingrese el número de referencia.' });
+      return;
+    }
+
+    if (isDiscountOverridden && (!data.notes || !data.notes.trim())) {
+      toast({
+        variant: 'destructive',
+        title: '⚠️ Justificación Obligatoria',
+        description: 'Debe ingresar una nota en Observaciones que explique por qué se otorga el descuento por excepción.'
+      });
       return;
     }
 
@@ -721,17 +732,67 @@ export function ReportPaymentDialog({ invoice, mode = 'partial' }: { invoice: In
                                     label="Captura del Comprobante" 
                                 />
 
+                                {/* EXCEPCIÓN AUTORIZADA DE PRONTO PAGO */}
+                                <div className="p-4 rounded-2xl bg-amber-50/80 border border-amber-200 space-y-2 mt-3">
+                                    <div className="flex items-center justify-between">
+                                        <label className="flex items-center gap-2 cursor-pointer">
+                                            <input
+                                                type="checkbox"
+                                                checked={isDiscountOverridden}
+                                                onChange={(e) => {
+                                                    setIsDiscountOverridden(e.target.checked);
+                                                    if (e.target.checked && earlyPaymentType === 'none') {
+                                                        setValue('earlyPaymentType', '7days');
+                                                    }
+                                                }}
+                                                className="h-4 w-4 rounded border-amber-300 text-amber-600 focus:ring-amber-500"
+                                            />
+                                            <span className="text-[10px] font-black uppercase text-amber-900 flex items-center gap-1">
+                                                🏷️ Forzar Descuento Pronto Pago (Excepción Autorizada)
+                                            </span>
+                                        </label>
+                                        {isDiscountOverridden && (
+                                            <Badge variant="outline" className="text-[7px] font-black uppercase bg-amber-200 text-amber-900 border-amber-400">
+                                                Nota Obligatoria
+                                            </Badge>
+                                        )}
+                                    </div>
+                                    {isDiscountOverridden && (
+                                        <div className="flex items-center gap-2 pt-1 animate-in fade-in duration-200">
+                                            <button
+                                                type="button"
+                                                onClick={() => setValue('earlyPaymentType', '7days')}
+                                                className={cn("px-3 py-1.5 rounded-xl text-[9px] font-black uppercase transition-all shadow-sm", earlyPaymentType === '7days' ? "bg-amber-600 text-white" : "bg-white text-slate-700 border border-slate-200 hover:bg-slate-50")}
+                                            >
+                                                10% OFF (7 Días)
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => setValue('earlyPaymentType', '15days')}
+                                                className={cn("px-3 py-1.5 rounded-xl text-[9px] font-black uppercase transition-all shadow-sm", earlyPaymentType === '15days' ? "bg-amber-600 text-white" : "bg-white text-slate-700 border border-slate-200 hover:bg-slate-50")}
+                                            >
+                                                5% OFF (15 Días)
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+
                                 <div className="space-y-1.5 pt-2">
                                     <Label className="text-[9px] font-black uppercase text-slate-500 px-1 flex items-center justify-between">
                                         <span>Notas y Observaciones del Pago</span>
-                                        <span className="text-slate-400 text-[8px] font-bold">Conciliación / Titularidad</span>
+                                        <span className={cn("text-[8px] font-bold uppercase", isDiscountOverridden ? "text-amber-600 font-extrabold" : "text-slate-400")}>
+                                            {isDiscountOverridden ? "⚠️ Nota Justificativa Requerida" : "Conciliación / Titularidad"}
+                                        </span>
                                     </Label>
                                     <Controller name="notes" control={control} render={({ field }) => (
                                         <textarea
                                             {...field}
                                             rows={3}
-                                            placeholder="Ej: Transferencia Zelle proveniente del titular María Pérez (esposa). Pago a tasa BCV acordada..."
-                                            className="w-full p-3.5 font-semibold text-xs rounded-xl bg-slate-50 border border-slate-200 shadow-inner focus:outline-none focus:ring-2 focus:ring-primary/20 text-slate-900 leading-relaxed"
+                                            placeholder={isDiscountOverridden ? "REQUERIDO: Ingrese la justificación del descuento otorgado fuera de término (ej. Pago realizado el 31/08 dentro del plazo de 7 días)..." : "Ej: Transferencia Zelle proveniente del titular María Pérez (esposa). Pago a tasa BCV acordada..."}
+                                            className={cn(
+                                                "w-full p-3.5 font-semibold text-xs rounded-xl shadow-inner focus:outline-none focus:ring-2 text-slate-900 leading-relaxed transition-all",
+                                                isDiscountOverridden && !field.value?.trim() ? "bg-amber-50/50 border-2 border-amber-400 focus:ring-amber-500/20" : "bg-slate-50 border border-slate-200 focus:ring-primary/20"
+                                            )}
                                         />
                                     )} />
                                 </div>
