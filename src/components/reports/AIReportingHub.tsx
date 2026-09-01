@@ -37,6 +37,114 @@ interface Message {
     timestamp: Date;
 }
 
+function parseMarkdownTable(markdownStr: string) {
+  const lines = markdownStr.split('\n').map(l => l.trim());
+  const tableLines: string[] = [];
+  const narrativeBefore: string[] = [];
+  const narrativeAfter: string[] = [];
+
+  let inTable = false;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (line.includes('|') && (line.startsWith('|') || line.endsWith('|') || line.split('|').length > 2)) {
+      inTable = true;
+      tableLines.push(line);
+    } else if (inTable && line === '') {
+      inTable = false;
+    } else if (inTable) {
+      narrativeAfter.push(line);
+    } else {
+      narrativeBefore.push(line);
+    }
+  }
+
+  if (tableLines.length < 2) return null;
+
+  const rawHeaders = tableLines[0].split('|').map(s => s.trim()).filter(Boolean);
+  const rows: string[][] = [];
+  for (let i = 1; i < tableLines.length; i++) {
+    if (tableLines[i].includes('---') || tableLines[i].includes(':--')) continue;
+    const rowCells = tableLines[i].split('|').map(s => s.trim()).filter(Boolean);
+    if (rowCells.length > 0) {
+      rows.push(rowCells);
+    }
+  }
+
+  return {
+    narrativeBefore: narrativeBefore.join('\n').trim(),
+    headers: rawHeaders,
+    rows,
+    narrativeAfter: narrativeAfter.join('\n').trim()
+  };
+}
+
+function FormattedMessage({ content }: { content: string }) {
+  const cleanText = content.replace(/\[GENERAR_PDF\]/g, '').trim();
+  const parsedTable = parseMarkdownTable(cleanText);
+
+  if (parsedTable && parsedTable.headers.length > 0 && parsedTable.rows.length > 0) {
+    return (
+      <div className="space-y-4">
+        {parsedTable.narrativeBefore && (
+          <div className="whitespace-pre-line text-sm font-bold text-slate-800 leading-relaxed uppercase tracking-tight">
+            {parsedTable.narrativeBefore}
+          </div>
+        )}
+
+        <div className="rounded-2xl border border-slate-200 bg-white shadow-md overflow-hidden my-3">
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead className="bg-slate-900 text-white">
+                <tr>
+                  {parsedTable.headers.map((h, idx) => (
+                    <th key={idx} className="px-4 py-3 text-left font-black uppercase tracking-wider text-[10px] text-slate-200">
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {parsedTable.rows.map((row, rIdx) => (
+                  <tr key={rIdx} className="hover:bg-blue-50/50 transition-colors">
+                    {row.map((cell, cIdx) => {
+                      const isAmount = cell.includes('$');
+                      const isId = cell.startsWith('P-') || cell.startsWith('#') || cell.includes('P-MUS');
+                      return (
+                        <td key={cIdx} className="px-4 py-3 text-slate-800 font-bold uppercase text-[11px]">
+                          {isAmount ? (
+                            <span className="font-mono font-black text-emerald-600 bg-emerald-50 px-2 py-1 rounded-md border border-emerald-100">{cell}</span>
+                          ) : isId ? (
+                            <span className="font-mono font-black text-slate-900 bg-slate-100 px-2 py-0.5 rounded border border-slate-200 text-[10px]">{cell}</span>
+                          ) : (
+                            cell
+                          )}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {parsedTable.narrativeAfter && (
+          <div className="whitespace-pre-line text-sm font-bold text-slate-800 leading-relaxed uppercase tracking-tight">
+            {parsedTable.narrativeAfter}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="whitespace-pre-line text-sm font-bold text-slate-800 leading-relaxed uppercase tracking-tight space-y-2">
+      {cleanText}
+    </div>
+  );
+}
+
 export function AIReportingHub() {
     const { profile } = useUser();
     const { toast } = useToast();
@@ -261,10 +369,14 @@ export function AIReportingHub() {
                                             ? "bg-white text-slate-700 border border-slate-100 rounded-tl-none"
                                             : "bg-rose-50 text-rose-700 border border-rose-100 rounded-tl-none"
                                     )}>
-                                        {msg.content.replace(/\[GENERAR_PDF\]/g, '')}
+                                        {msg.role === 'user' ? (
+                                            msg.content
+                                        ) : (
+                                            <FormattedMessage content={msg.content} />
+                                        )}
 
                                         {/* Botón Destacado de Descarga de PDF Directa */}
-                                        {msg.role === 'assistant' && (msg.content.includes('[GENERAR_PDF]') || msg.content.toLowerCase().includes('pdf')) && (
+                                        {msg.role === 'assistant' && (msg.content.includes('[GENERAR_PDF]') || msg.content.toLowerCase().includes('pdf') || msg.content.includes('|')) && (
                                             <div className="pt-4 mt-4 border-t border-slate-100 flex items-center justify-start">
                                                 <Button 
                                                     onClick={() => exportToPDF(msg.data, msg.content)}
