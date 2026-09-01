@@ -121,11 +121,13 @@ export function OrderStatusChart({ orders, isLoading = false }: OrderStatusChart
 
   const chartData = useMemo(() => {
     if (!orders) return [];
-    const totalCount = orders.length || 1;
+    
+    // Suma de categorías físicas mutuamente excluyentes para dona 100% exacta
+    const totalPhysical = funnelData.completed.length + funnelData.warehouse.length + funnelData.transit.length + funnelData.verification.length + funnelData.pending.length + funnelData.cancelled.length;
+    const totalCount = totalPhysical || 1;
 
     return [
       { name: 'Pagados / Liquidados', value: funnelData.completed.length, orders: funnelData.completed, color: COLORS['Pagados'], percent: Math.round((funnelData.completed.length / totalCount) * 100) },
-      { name: 'En Mora Crítica (+30D)', value: funnelData.moraCritica.length, orders: funnelData.moraCritica, color: COLORS['Mora Crítica'], percent: Math.round((funnelData.moraCritica.length / totalCount) * 100) },
       { name: 'En Almacén / Empaque', value: funnelData.warehouse.length, orders: funnelData.warehouse, color: COLORS['En Preparación'], percent: Math.round((funnelData.warehouse.length / totalCount) * 100) },
       { name: 'En Ruta / Despachados', value: funnelData.transit.length, orders: funnelData.transit, color: COLORS['Despachados'], percent: Math.round((funnelData.transit.length / totalCount) * 100) },
       { name: 'Verificación de Pago', value: funnelData.verification.length, orders: funnelData.verification, color: COLORS['En Verificación'], percent: Math.round((funnelData.verification.length / totalCount) * 100) },
@@ -544,6 +546,18 @@ export function OrderStatusChart({ orders, isLoading = false }: OrderStatusChart
                   </span>
                 </button>
               ))}
+              {funnelData.moraCritica.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => openStatusAudit('En Mora Crítica (+30D)')}
+                  className="px-2.5 py-1 rounded-xl bg-rose-50 border border-rose-200 hover:bg-rose-100 transition-all flex items-center gap-1.5 cursor-pointer text-left group"
+                >
+                  <span className="h-2 w-2 rounded-full bg-rose-500 shrink-0 animate-pulse" />
+                  <span className="text-[9px] font-black uppercase text-rose-800 tracking-wider">
+                    En Mora Crítica (+30D): {funnelData.moraCritica.length} <span className="text-rose-500 font-extrabold">(Auditar Mora)</span>
+                  </span>
+                </button>
+              )}
             </div>
           </>
         )}
