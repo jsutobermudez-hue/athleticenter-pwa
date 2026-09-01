@@ -247,6 +247,7 @@ export function AdminDispatchKanban({ groups, onOpenDialog, onNavigateToDetails,
     const [openSections, setOpenSections] = useState<string[]>([]);
     const [searchTerm, setSearchTerm] = useState('');
     const [carrierFilter, setCarrierFilter] = useState('todos');
+    const [sortOrder, setSortOrder] = useState<'recent' | 'oldest' | 'highestAmount' | 'customerName'>('recent');
     const [zoomImage, setZoomImage] = useState<string | null>(null);
 
     const sections = [
@@ -263,10 +264,10 @@ export function AdminDispatchKanban({ groups, onOpenDialog, onNavigateToDetails,
 
     return (
         <div className="space-y-6">
-            {/* BARRA DE BÚSQUEDA Y FILTRO LOGÍSTICO */}
+            {/* BARRA DE BÚSQUEDA Y FILTRO LOGÍSTICO CON ORDENAMIENTO */}
             <Card className="border-none shadow-sm rounded-2xl bg-white overflow-hidden">
-                <CardContent className="p-4 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 items-end">
-                    <div className="space-y-1">
+                <CardContent className="p-4 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 items-end">
+                    <div className="space-y-1 md:col-span-1">
                         <Label className="text-[8px] font-black uppercase tracking-widest text-slate-400">Búsqueda Táctica de Despacho</Label>
                         <div className="relative">
                             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
@@ -295,12 +296,27 @@ export function AdminDispatchKanban({ groups, onOpenDialog, onNavigateToDetails,
                         </Select>
                     </div>
 
-                    {(searchTerm || carrierFilter !== 'todos') && (
+                    <div className="space-y-1">
+                        <Label className="text-[8px] font-black uppercase tracking-widest text-slate-400">Orden del Historial</Label>
+                        <Select value={sortOrder} onValueChange={(val: any) => setSortOrder(val)}>
+                            <SelectTrigger className="h-10 text-[10px] font-bold uppercase rounded-xl border-none bg-slate-50 shadow-inner">
+                                <SelectValue placeholder="Orden" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="recent" className="text-[10px] font-bold uppercase">📅 Más Recientes Primero</SelectItem>
+                                <SelectItem value="oldest" className="text-[10px] font-bold uppercase">🗓️ Más Antiguos Primero</SelectItem>
+                                <SelectItem value="highestAmount" className="text-[10px] font-bold uppercase">💰 Mayor Monto ($ USD)</SelectItem>
+                                <SelectItem value="customerName" className="text-[10px] font-bold uppercase">🏢 Cliente (A-Z)</SelectItem>
+                            </SelectContent>
+                        </Select>
+                    </div>
+
+                    {(searchTerm || carrierFilter !== 'todos' || sortOrder !== 'recent') && (
                         <div className="flex justify-end">
                             <Button 
                                 variant="ghost" 
                                 size="sm" 
-                                onClick={() => { setSearchTerm(''); setCarrierFilter('todos'); }}
+                                onClick={() => { setSearchTerm(''); setCarrierFilter('todos'); setSortOrder('recent'); }}
                                 className="h-10 text-[9px] font-black uppercase text-primary px-3 rounded-xl hover:bg-primary/5"
                             >
                                 Limpiar Filtros <X className="ml-1 h-3 w-3" />
@@ -314,7 +330,7 @@ export function AdminDispatchKanban({ groups, onOpenDialog, onNavigateToDetails,
                 {visibleSections.map(section => {
                     const rawGroup = groups[section.key as OrderStatus] || { orders: [], count: 0, total: 0 };
                     
-                    // FILTRADO EN VIVO DE ÓRDENES
+                    // FILTRADO EN VIVO Y ORDENAMIENTO CRONOLÓGICO DE ÓRDENES
                     const filteredOrders = rawGroup.orders.filter(o => {
                         const term = searchTerm.toLowerCase().trim();
                         const matchesSearch = !term || o.id.toLowerCase().includes(term) || o.customerName.toLowerCase().includes(term) || (o.customerRif || '').toLowerCase().includes(term) || (o.trackingNumber || '').toLowerCase().includes(term);
@@ -322,9 +338,26 @@ export function AdminDispatchKanban({ groups, onOpenDialog, onNavigateToDetails,
                         return matchesSearch && matchesCarrier;
                     });
 
-                    const groupCount = filteredOrders.length;
-                    const groupTotal = filteredOrders.reduce((sum, o) => sum + (o.totalAmount || 0), 0);
-                    const hasCriticalAlert = groupCount > 0 && (section.key === 'Aprobado' || section.key === 'En Preparación' || filteredOrders.some(o => o.cancellationRequested));
+                    const sortedOrders = [...filteredOrders].sort((a, b) => {
+                        if (sortOrder === 'highestAmount') {
+                            return (b.totalAmount || 0) - (a.totalAmount || 0);
+                        }
+                        if (sortOrder === 'customerName') {
+                            return (a.customerName || '').localeCompare(b.customerName || '');
+                        }
+                        const dateA = (a.receptionDate as any)?.seconds || (a.updatedAt as any)?.seconds || (a.orderDate as any)?.seconds || 0;
+                        const dateB = (b.receptionDate as any)?.seconds || (b.updatedAt as any)?.seconds || (b.orderDate as any)?.seconds || 0;
+                        
+                        if (sortOrder === 'oldest') {
+                            return dateA - dateB;
+                        }
+                        // Default 'recent' (más recientes primero)
+                        return dateB - dateA;
+                    });
+
+                    const groupCount = sortedOrders.length;
+                    const groupTotal = sortedOrders.reduce((sum, o) => sum + (o.totalAmount || 0), 0);
+                    const hasCriticalAlert = groupCount > 0 && (section.key === 'Aprobado' || section.key === 'En Preparación' || sortedOrders.some(o => o.cancellationRequested));
                     
                     return (
                         <AccordionItem key={section.key} value={section.key} className="border-none rounded-[1.8rem] sm:rounded-[2.5rem] bg-white shadow-sm ring-1 ring-primary/5 overflow-hidden transition-all">
@@ -359,7 +392,7 @@ export function AdminDispatchKanban({ groups, onOpenDialog, onNavigateToDetails,
                             <AccordionContent className="px-5 sm:px-8 pb-6 sm:pb-8 pt-2">
                                 {groupCount > 0 ? (
                                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                                        {filteredOrders.map(order => (
+                                        {sortedOrders.map(order => (
                                             <LogisticsOrderCard 
                                                 key={order.id} 
                                                 order={order} 
