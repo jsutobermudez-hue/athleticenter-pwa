@@ -65,13 +65,14 @@ export function SalesTrendChart({ orders, isLoading = false }: SalesTrendChartPr
         }).reduce((sum, order) => sum + getEffectiveCashReceived(order), 0);
 
         const moraTotal = orders.filter(order => {
-          if (!VALID_SALES_STATUSES.includes(order.status) || order.status === 'Pagado') return false;
+          const isVencidoStatus = (order.status as string) === 'Vencido';
+          if (!isVencidoStatus && (!VALID_SALES_STATUSES.includes(order.status) || order.status === 'Pagado')) return false;
           const sDate = getSalesDate(order);
           if (!sDate || sDate > day) return false;
           const daysDiff = Math.max(0, Math.floor((day.getTime() - sDate.getTime()) / (1000 * 60 * 60 * 24)));
           const paid = getEffectiveCashReceived(order);
           const rem = Math.max(0, (order.totalAmount || 0) - paid);
-          return daysDiff > 30 && rem > 0.05;
+          return (isVencidoStatus || daysDiff > 30) && rem > 0.05;
         }).reduce((sum, order) => {
           const paid = getEffectiveCashReceived(order);
           return sum + Math.max(0, (order.totalAmount || 0) - paid);
@@ -99,13 +100,14 @@ export function SalesTrendChart({ orders, isLoading = false }: SalesTrendChartPr
         }).reduce((sum, order) => sum + getEffectiveCashReceived(order), 0);
 
         const moraTotal = orders.filter(order => {
-          if (!VALID_SALES_STATUSES.includes(order.status) || order.status === 'Pagado') return false;
+          const isVencidoStatus = (order.status as string) === 'Vencido';
+          if (!isVencidoStatus && (!VALID_SALES_STATUSES.includes(order.status) || order.status === 'Pagado')) return false;
           const sDate = getSalesDate(order);
           if (!sDate || sDate > day) return false;
           const daysDiff = Math.max(0, Math.floor((day.getTime() - sDate.getTime()) / (1000 * 60 * 60 * 24)));
           const paid = getEffectiveCashReceived(order);
           const rem = Math.max(0, (order.totalAmount || 0) - paid);
-          return daysDiff > 30 && rem > 0.05;
+          return (isVencidoStatus || daysDiff > 30) && rem > 0.05;
         }).reduce((sum, order) => {
           const paid = getEffectiveCashReceived(order);
           return sum + Math.max(0, (order.totalAmount || 0) - paid);
