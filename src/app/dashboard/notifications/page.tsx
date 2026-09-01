@@ -126,22 +126,38 @@ export default function NotificationsPage() {
     }
   };
 
-  // Marcar todos como leídos
+  // Marcar todos como leídos (Limpieza Atómica del 100% en Firestore)
   const handleMarkAllAsRead = async () => {
-    if (!firestore || !user || !allNotifications) return;
+    if (!firestore || !user) return;
     setIsMarking(true);
     try {
-      const unread = allNotifications.filter(n => !n.isRead);
-      if (unread.length === 0) return;
-      const batch = writeBatch(firestore);
-      unread.forEach(n => {
-        const ref = doc(firestore, `users/${user.uid}/notifications`, n.id);
-        batch.update(ref, { isRead: true });
-      });
-      await batch.commit();
-      toast({ title: '¡Avisos marcados como leídos!' });
-    } catch (e) {
-      toast({ variant: 'destructive', title: 'Error al actualizar avisos' });
+      const unreadSnap = await getDocs(
+        query(
+          collection(firestore, `users/${user.uid}/notifications`),
+          where('isRead', '==', false)
+        )
+      );
+
+      if (unreadSnap.empty) {
+        toast({ title: '✅ No tienes avisos sin leer' });
+        setIsMarking(false);
+        return;
+      }
+
+      const docs = unreadSnap.docs;
+      for (let i = 0; i < docs.length; i += 400) {
+        const batch = writeBatch(firestore);
+        const chunk = docs.slice(i, i + 400);
+        chunk.forEach(d => {
+          batch.update(d.ref, { isRead: true });
+        });
+        await batch.commit();
+      }
+
+      toast({ title: '🎉 ¡Todas las notificaciones marcadas como leídas!', description: `Se actualizaron ${docs.length} avisos en sistema.` });
+    } catch (e: any) {
+      console.error("Error marking all notifications read:", e);
+      toast({ variant: 'destructive', title: 'Error al actualizar avisos', description: e?.message });
     } finally {
       setIsMarking(false);
     }

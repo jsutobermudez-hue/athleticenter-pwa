@@ -120,8 +120,7 @@ export function AppSidebar() {
       user && firestore
         ? query(
             collection(firestore, `users/${user.uid}/notifications`),
-            where('isRead', '==', false),
-            limit(50)
+            where('isRead', '==', false)
           )
         : null,
     [user, firestore]
@@ -133,8 +132,7 @@ export function AppSidebar() {
       user && firestore
         ? query(
             collection(firestore, `users/${user.uid}/directMessages`),
-            where('isRead', '==', false),
-            limit(50)
+            where('isRead', '==', false)
           )
         : null,
     [user, firestore]
