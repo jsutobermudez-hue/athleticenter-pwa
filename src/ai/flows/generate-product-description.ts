@@ -29,7 +29,7 @@ export async function generateProductDescription(
 
 const prompt = ai.definePrompt({
   name: 'generateProductDescriptionPrompt',
-  model: 'googleai/gemini-2.5-flash',
+  model: 'googleai/gemini-1.5-flash',
   input: { schema: GenerateProductDescriptionInputSchema },
   output: { schema: GenerateProductDescriptionOutputSchema },
   prompt: `Eres un experto en marketing de equipos deportivos para un distribuidor B2B. Tu tarea es escribir una descripción de producto atractiva y concisa en ESPAÑOL.

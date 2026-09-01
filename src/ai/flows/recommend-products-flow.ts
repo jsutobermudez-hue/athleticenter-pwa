@@ -32,7 +32,7 @@ export async function recommendProducts(input: z.infer<typeof RecommendProductsI
 
 const prompt = ai.definePrompt({
   name: 'recommendProductsPrompt',
-  model: 'googleai/gemini-2.5-flash',
+  model: 'googleai/gemini-1.5-flash',
   input: { schema: RecommendProductsInputSchema },
   output: { schema: RecommendProductsOutputSchema },
   prompt: `Eres un estratega de ventas B2B para Athleticenter. Tu objetivo es sugerir productos que aumenten el valor del pedido.

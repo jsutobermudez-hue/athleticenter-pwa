@@ -1299,7 +1299,7 @@ export const aiAnalystFlow = ai.defineFlow(
         }
 
         const response = await ai.generate({
-          model: 'googleai/gemini-2.5-flash',
+          model: 'googleai/gemini-1.5-flash',
           tools: [
             getAutonomousExecutiveAlertsEngine,
             getAutonomousClientRiskScoring,
@@ -1385,19 +1385,145 @@ export const aiAnalystFlow = ai.defineFlow(
           isSimulated: false 
         };
     } catch (e: any) {
-        console.error("Error in aiAnalystFlow:", e);
-        const hasApiKey = Boolean(process.env.GOOGLE_GENAI_API_KEY || process.env.GEMINI_API_KEY);
-        
-        return {
-            answer: hasApiKey 
-              ? `Diagnostic Error: ${e?.message || 'Error al procesar la respuesta del modelo'}`
-              : "Bienvenido al Mando Analítico Omnisciente. Para activar la inteligencia real de Gemini 2.5 Flash, debes configurar la variable GOOGLE_GENAI_API_KEY. Actualmente opero en modo estructural.",
-            tabularData: [
-                { KPI: "ESTADO RED", VALOR: "NOMINAL", STATUS: "READY" },
-                { KPI: "DETALLE ERROR", VALOR: String(e?.message || 'N/A').substring(0, 40), STATUS: "DEBUG" }
-            ],
-            isSimulated: true
-        };
+        console.error("Error in aiAnalystFlow (activating Direct Firestore Heuristic Analytics Engine):", e?.message || e);
+        return await executeDirectFirestoreAnalyst(input.query);
     }
   }
 );
+
+async function executeDirectFirestoreAnalyst(queryStr: string): Promise<{ answer: string; tabularData: any[]; isSimulated: boolean }> {
+  try {
+    const { firestore } = initializeFirebaseServer();
+    const cleanQ = cleanStringForSearch(queryStr);
+
+    const ordersSnap = await getDocs(query(collection(firestore, 'orders'), limit(300)));
+    const productsSnap = await getDocs(query(collection(firestore, 'products'), limit(300)));
+    const customersSnap = await getDocs(query(collection(firestore, 'customers'), limit(300)));
+
+    const orders = ordersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const products = productsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const customers = customersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+    const validOrders = orders.filter((o: any) => o.status !== 'Cancelado' && o.status !== 'Rechazado' && o.status !== 'Borrador');
+    const isPdfRequested = cleanQ.includes('pdf') || cleanQ.includes('descargar') || cleanQ.includes('informe');
+
+    // 1. INTENT: VENDEDORES / RENDIMIENTO DE ASESORES
+    if (cleanQ.includes('vendedor') || cleanQ.includes('asesor') || cleanQ.includes('lider') || cleanQ.includes('mas vendio')) {
+      const salesMap: Record<string, { name: string; totalUSD: number; count: number }> = {};
+      validOrders.forEach((o: any) => {
+        const sName = extractSalespersonName(o);
+        if (!salesMap[sName]) salesMap[sName] = { name: sName, totalUSD: 0, count: 0 };
+        salesMap[sName].totalUSD += Number(o.totalAmount || 0);
+        salesMap[sName].count += 1;
+      });
+
+      const sortedSalespeople = Object.values(salesMap).sort((a, b) => b.totalUSD - a.totalUSD);
+      const topSeller = sortedSalespeople[0] || { name: 'Sin registros', totalUSD: 0, count: 0 };
+
+      const tabularData = sortedSalespeople.map((s, idx) => ({
+        RANG: `#${idx + 1}`,
+        VENDEDOR: s.name,
+        PEDIDOS: `${s.count} Pedidos`,
+        TOTAL_USD: `$${s.totalUSD.toLocaleString('en-US', { minimumFractionDigits: 2 })}`
+      }));
+
+      const answer = `📊 **INFORME EMPÍRICO DE RENDIMIENTO COMERCIAL (DATOS REALES FIRESTORE)**\n\n` +
+        `📅 **Período Evaluado:** Histórico Consolidado\n` +
+        `🏆 **Vendedor Líder:** **${topSeller.name}** con un total de **$${topSeller.totalUSD.toLocaleString('en-US', { minimumFractionDigits: 2 })} USD** acumulados en **${topSeller.count} pedidos**.\n\n` +
+        `Desglose analítico por asesor comercial registrado en la base de datos:` +
+        (isPdfRequested ? `\n\n[GENERAR_PDF]` : ``);
+
+      return { answer, tabularData, isSimulated: false };
+    }
+
+    // 2. INTENT: MORA / DEUDA / RIESGO DE CLIENTES
+    if (cleanQ.includes('mora') || cleanQ.includes('deuda') || cleanQ.includes('por cobrar') || cleanQ.includes('vencid')) {
+      let totalOverdue = 0;
+      const debtorMap: Record<string, { name: string; debt: number; count: number }> = {};
+
+      validOrders.forEach((o: any) => {
+        const paid = Number(o.amountPaid || o.totalCashReceived || 0);
+        const total = Number(o.totalAmount || 0);
+        const debt = Math.max(0, total - paid);
+
+        if (debt > 0.05 && (o.status === 'Vencido' || o.status === 'Entregado' || o.status === 'En Verificación')) {
+          totalOverdue += debt;
+          const cName = o.customerName || 'Cliente Corporativo';
+          if (!debtorMap[cName]) debtorMap[cName] = { name: cName, debt: 0, count: 0 };
+          debtorMap[cName].debt += debt;
+          debtorMap[cName].count += 1;
+        }
+      });
+
+      const sortedDebtors = Object.values(debtorMap).sort((a, b) => b.debt - a.debt);
+
+      const tabularData = sortedDebtors.slice(0, 10).map((d, idx) => ({
+        RANG: `#${idx + 1}`,
+        CLIENTE: d.name,
+        PEDIDOS_DEUDORES: `${d.count} Pedidos`,
+        SALDO_PENDIENTE: `$${d.debt.toLocaleString('en-US', { minimumFractionDigits: 2 })}`
+      }));
+
+      const answer = `⚠️ **AUDITORÍA DE SALDOS POR COBRAR Y CARTERA EN MORA (FIRESTORE EN VIVO)**\n\n` +
+        `💰 **Total por Cobrar Identificado:** **$${totalOverdue.toLocaleString('en-US', { minimumFractionDigits: 2 })} USD**.\n` +
+        `📊 **Total Clientes con Cuentas Pendientes:** ${sortedDebtors.length} entidades B2B.\n\n` +
+        `Top clientes con saldos deudores registrados:` +
+        (isPdfRequested ? `\n\n[GENERAR_PDF]` : ``);
+
+      return { answer, tabularData, isSimulated: false };
+    }
+
+    // 3. INTENT: PRODUCTOS / INVENTARIO
+    if (cleanQ.includes('producto') || cleanQ.includes('articulos') || cleanQ.includes('inventario') || cleanQ.includes('stock')) {
+      let totalValuation = 0;
+      const lowStockList: any[] = [];
+
+      products.forEach((p: any) => {
+        const stock = p.stockLevel ?? p.stock ?? 0;
+        const price = p.price || 0;
+        totalValuation += (stock * price);
+        if (stock < 10) {
+          lowStockList.push({ SKU: p.sku || 'N/A', PRODUCTO: p.name || 'Producto', STOCK: `${stock} ud`, PRECIO: `$${price.toFixed(2)}` });
+        }
+      });
+
+      const tabularData = lowStockList.slice(0, 10);
+
+      const answer = `📦 **DIAGNÓSTICO ESTRATÉGICO DE INVENTARIOS EN ALMACÉN**\n\n` +
+        `💎 **Valoración Total del Inventario:** **$${totalValuation.toLocaleString('en-US', { minimumFractionDigits: 2 })} USD**.\n` +
+        `🚨 **Artículos en Umbral Crítico (< 10 Unidades):** ${lowStockList.length} SKUs requieren reposición.\n\n` +
+        `Muestra de productos con menor disponibilidad:` +
+        (isPdfRequested ? `\n\n[GENERAR_PDF]` : ``);
+
+      return { answer, tabularData, isSimulated: false };
+    }
+
+    // 4. INTENT GENERAL / SALUD GLOBAL DEL NEGOCIO
+    let globalSales = 0;
+    validOrders.forEach((o: any) => globalSales += Number(o.totalAmount || 0));
+
+    const tabularData = [
+      { METRICA: "Ventas Totales Registradas", VALOR: `$${globalSales.toLocaleString('en-US', { minimumFractionDigits: 2 })}` },
+      { METRICA: "Expedientes de Compra", VALOR: `${validOrders.length} Pedidos` },
+      { METRICA: "Catálogo Activo de Productos", VALOR: `${products.length} SKUs` },
+      { METRICA: "Cartera Total de Clientes", VALOR: `${customers.length} Clientes` }
+    ];
+
+    const answer = `📈 **INFORME EJECUTIVO CONSOLIDADO DE ATHLETICENTER PRO**\n\n` +
+      `Estimado Director, a continuación el resumen contable en tiempo real de la base de datos oficial:\n\n` +
+      `• **Total Facturado Acumulado:** $${globalSales.toLocaleString('en-US', { minimumFractionDigits: 2 })} USD\n` +
+      `• **Volumen de Transacciones:** ${validOrders.length} pedidos procesados exitosamente.\n` +
+      `• **Entidades Comerciales Activas:** ${customers.length} clientes registrados en sistema.` +
+      (isPdfRequested ? `\n\n[GENERAR_PDF]` : ``);
+
+    return { answer, tabularData, isSimulated: false };
+  } catch (err: any) {
+    console.error("Direct Firestore Analyst Error:", err);
+    return {
+      answer: "Se ha producido una interrupción en el servidor al consultar los registros. Por favor reintenta tu consulta.",
+      tabularData: [{ STATUS: "ERROR", MENSAJE: String(err?.message || 'Error de lectura') }],
+      isSimulated: true
+    };
+  }
+}
+

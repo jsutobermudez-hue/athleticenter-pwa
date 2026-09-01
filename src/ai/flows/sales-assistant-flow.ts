@@ -58,7 +58,7 @@ export const salesAssistantFlow = ai.defineFlow(
   },
   async (input) => {
     const response = await ai.generate({
-      model: 'googleai/gemini-2.5-flash',
+      model: 'googleai/gemini-1.5-flash',
       tools: [getInventoryTool],
       system: `Eres el Asistente Táctico de Athleticenter. 
       Ayudas a vendedores a cerrar tratos analizando stock y pedidos recientes. 

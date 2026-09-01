@@ -100,7 +100,7 @@ export async function POST(req: NextRequest) {
 
     // Intentar llamadas a Gemini 2.5 Flash / 1.5 Flash
     const modelsToTry = [
-      'gemini-2.5-flash',
+      'gemini-1.5-flash',
       'gemini-1.5-flash'
     ];
 

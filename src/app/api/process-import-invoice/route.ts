@@ -175,7 +175,7 @@ export async function POST(req: NextRequest) {
     }
 
     const modelsToTry = [
-      'gemini-2.5-flash',
+      'gemini-1.5-flash',
       'gemini-1.5-flash'
     ];
 

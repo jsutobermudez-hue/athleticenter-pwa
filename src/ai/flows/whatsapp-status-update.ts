@@ -28,7 +28,7 @@ export async function generateWhatsAppStatusUpdate(input: WhatsAppStatusUpdateIn
 
 const whatsAppPrompt = ai.definePrompt({
   name: 'whatsAppStatusUpdatePrompt',
-  model: 'googleai/gemini-2.5-flash',
+  model: 'googleai/gemini-1.5-flash',
   input: { schema: WhatsAppStatusUpdateInputSchema },
   output: { schema: WhatsAppStatusUpdateOutputSchema },
   prompt: `Eres un asistente de servicio al cliente para Athleticenter. Tu tarea es generar un mensaje de WhatsApp claro y amigable en ESPAÑOL para notificar a un cliente sobre un cambio en el estado de su pedido.

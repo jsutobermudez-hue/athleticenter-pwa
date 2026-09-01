@@ -28,7 +28,7 @@ export async function generateWhatsAppReminder(input: WhatsAppReminderInput): Pr
 
 const whatsAppPrompt = ai.definePrompt({
   name: 'whatsAppCreditReminderPrompt',
-  model: 'googleai/gemini-2.5-flash',
+  model: 'googleai/gemini-1.5-flash',
   input: {schema: WhatsAppReminderInputSchema},
   output: {schema: WhatsAppReminderOutputSchema},
   prompt: `Eres un asistente útil que genera mensajes de WhatsApp para recordar a los clientes sobre su crédito y descuentos.
