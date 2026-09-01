@@ -129,14 +129,19 @@ export function getInvoiceFromOrder(order: Order, fallbackTreasuryDiscount: numb
         status = 'En Verificación';
         statusText = 'Abono en Verificación';
         discount = 0;
+    } else if (remainingDays <= 0) {
+        // CORRECCIÓN LÓGICA V8.1: Si los días llegaron a 0 o menos, es VENCIDO (Deuda Crítica), tenga o no abonos parciales
+        status = 'Vencido';
+        statusText = remainingDays === 0 ? 'Vence Hoy' : `Vencido hace ${Math.abs(remainingDays)} días`;
+        discount = 0;
     } else if (amountPaid > 0) {
         status = 'Por Vencer';
-        statusText = `Abono Parcial ($${amountPaid.toFixed(2)})`;
+        statusText = `Abono Parcial ($${amountPaid.toFixed(2)}) • ${remainingDays}d restantes`;
         discount = 0;
-    } else if (remainingDays <= 0) {
-        status = 'Vencido';
-        statusText = `Vencido hace ${Math.abs(remainingDays)} días`;
-        discount = 0;
+    } else {
+        status = 'Por Vencer';
+        statusText = `Vence en ${remainingDays} días`;
+        discount = 10;
     }
 
     return {
@@ -316,20 +321,23 @@ export function calculateGlobalFinancialMetrics(
         }
 
         const invoice = getInvoiceFromOrder(order);
-        if (invoice && matchesPeriod(salesDate)) {
+        if (invoice) {
             const amountPaid = getEffectiveCashReceived(order);
             const isPaid = order.status === 'Pagado' || invoice.remainingBalance <= 0.05;
             
             const grossRemaining = isPaid ? 0 : Math.max(0, order.totalAmount - amountPaid);
             const netRemaining = isPaid ? 0 : ((invoice as any).netCashBalance !== undefined ? (invoice as any).netCashBalance : Math.max(0, ((invoice as any).netPayableTotal || order.totalAmount) - amountPaid));
 
-            grossBcvDebt += grossRemaining;
-            netCashDebt += netRemaining;
-            totalDebts += grossRemaining;
+            // Si coincide con el periodo O si es deuda viva no pagada, se acumula para reflejar el estado real de cartera
+            if (matchesPeriod(salesDate) || grossRemaining > 0.05) {
+                grossBcvDebt += grossRemaining;
+                netCashDebt += netRemaining;
+                totalDebts += grossRemaining;
 
-            if (invoice.status === 'Vencido') vencido += grossRemaining;
-            if (invoice.status === 'Por Vencer') porVencer += grossRemaining;
-            if (invoice.status === 'En Verificación') enVerificacion += grossRemaining;
+                if (invoice.status === 'Vencido') vencido += grossRemaining;
+                if (invoice.status === 'Por Vencer') porVencer += grossRemaining;
+                if (invoice.status === 'En Verificación') enVerificacion += grossRemaining;
+            }
         }
     });
 
