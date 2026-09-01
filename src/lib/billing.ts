@@ -135,9 +135,12 @@ export function getInvoiceFromOrder(order: Order, fallbackTreasuryDiscount: numb
     let statusText = `Vence en ${remainingDays} días`;
     let discount = 10;
     
-    if (isExplicitlyPaid || grossRemainingBalance <= 0.05) {
+    // Tolerancia por Redondeo de Centavos ($0.50 USD / ~20 Bs)
+    const PENNY_TOLERANCE = 0.50;
+    
+    if (isExplicitlyPaid || grossRemainingBalance <= PENNY_TOLERANCE) {
         status = 'Pagado';
-        statusText = 'Totalmente Pagado';
+        statusText = grossRemainingBalance > 0 ? 'Pagado (Ajuste Centavos)' : 'Totalmente Pagado';
         discount = 0;
     } else if (order.status === 'En Verificación') {
         status = 'En Verificación';

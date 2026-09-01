@@ -183,9 +183,67 @@ export function AdminBillingView() {
       });
       setSelectedInvoiceIds([]);
     } catch (e) {
-      toast({ variant: 'destructive', title: "Error en Conciliación Masiva" });
+      toast({ variant: 'destructive', title: 'Error en Conciliación en Lote' });
     } finally {
       setIsBatchReconciling(false);
+    }
+  };
+
+  const handleReversePayment = async (orderId: string, paymentId: string, amountToReverse: number, reason: string) => {
+    if (!firestore || !currentUser) return;
+    try {
+      const { runTransaction, doc, serverTimestamp, increment } = await import('firebase/firestore');
+      
+      await runTransaction(firestore, async (transaction) => {
+        const orderRef = doc(firestore, 'orders', orderId);
+        const paymentRef = doc(firestore, `orders/${orderId}/payments`, paymentId);
+        
+        const orderSnap = await transaction.get(orderRef);
+        if (!orderSnap.exists()) throw new Error("Pedido no encontrado");
+        const orderData = orderSnap.data() as Order;
+        
+        const newPaid = Math.max(0, (orderData.amountPaid || orderData.totalCashReceived || 0) - amountToReverse);
+        const isPaid = newPaid >= (orderData.totalAmount - 0.50);
+        
+        transaction.update(paymentRef, {
+          status: 'rejected',
+          reversedByUserId: currentUser.id,
+          reversalReason: reason,
+          reversedAt: serverTimestamp(),
+          updatedAt: serverTimestamp()
+        });
+        
+        transaction.update(orderRef, {
+          amountPaid: newPaid,
+          totalCashReceived: newPaid,
+          status: isPaid ? 'Pagado' : 'Entregado',
+          paymentStatus: isPaid ? 'Pagado' : 'Abono Parcial',
+          updatedAt: serverTimestamp()
+        });
+        
+        if (orderData.customerId) {
+          const customerRef = doc(firestore, 'customers', orderData.customerId);
+          transaction.update(customerRef, {
+            creditUsed: increment(amountToReverse),
+            updatedAt: serverTimestamp()
+          });
+        }
+      });
+      
+      await logActivity(firestore, {
+        userId: currentUser.id,
+        userName: currentUser.name || 'Administrador',
+        userRole: currentUser.role,
+        action: 'PAYMENT_REVERSED_CONTRACARGO',
+        resource: 'orders',
+        module: 'billing',
+        severity: 'critical',
+        details: `Se revirtió un abono de $${amountToReverse.toFixed(2)} por contracargo/reverso bancario en pedido #${orderId}. Motivo: ${reason}`
+      });
+      
+      toast({ title: '🛑 Pago Revocado por Reverso Bancario', description: `Se reabrió el saldo deudor por $${amountToReverse.toFixed(2)} USD.` });
+    } catch (e: any) {
+      toast({ variant: 'destructive', title: 'Error al Revertir Pago', description: e?.message });
     }
   };
 

@@ -175,6 +175,14 @@ export interface Payment extends Auditable {
     orderAllocations?: Array<{ orderId: string; orderNumber?: string; allocatedAmount: number }>;
     reconciliationNotes?: string;
     surplusAmount?: number;
+    isTaxRetention?: boolean;
+    retentionType?: 'iva_75' | 'iva_100' | 'islr';
+    retentionVoucherNumber?: string;
+    retentionFileUrl?: string;
+    bankCommission?: number;
+    reversedByUserId?: string;
+    reversalReason?: string;
+    reversedAt?: Timestamp;
 }
 
 export interface Customer extends Auditable {
@@ -192,6 +200,7 @@ export interface Customer extends Auditable {
   retentionPercentage?: 75 | 100;
   creditLimit: number;
   creditUsed: number;
+  creditBalance?: number;
 }
 
 export interface AuditLog extends Auditable {

@@ -382,6 +382,7 @@ export function ReportPaymentDialog({ invoice, mode = 'partial' }: { invoice: In
       baseAmount: isNaN(Number(calculation.baseAmount)) ? 0 : Number(calculation.baseAmount), 
       discountAmount: isNaN(Number(calculation.discountAmount)) ? 0 : Number(calculation.discountAmount), 
       taxAmount: isNaN(Number(calculation.taxAmount)) ? 0 : Number(calculation.taxAmount),
+      surplusAmount: Math.max(0, Number(calculation.baseAmount) - (((invoice as any).totalAmount || 0) - ((invoice as any).amountPaid || 0))),
       discountType: calculation.discountType || 'none', 
       incentivesApplied: Boolean(calculation.discountAmount && calculation.discountAmount > 0), 
       documentType: data.documentType || 'nota', 
