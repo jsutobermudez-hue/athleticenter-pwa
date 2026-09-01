@@ -44,7 +44,7 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { cn } from '@/lib/utils';
-import { getInvoiceFromOrder } from '@/lib/billing';
+import { getInvoiceFromOrder, calculateGlobalFinancialMetrics } from '@/lib/billing';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
@@ -139,6 +139,10 @@ export default function AdminOrdersView() {
     }, [allOrders]);
 
     const [kpiPeriod, setKpiPeriod] = useState<'today' | '7d' | 'this_month' | 'last_month' | 'all'>('all');
+
+    const globalFinancialMetrics = useMemo(() => {
+        return calculateGlobalFinancialMetrics(allOrders || []);
+    }, [allOrders]);
 
     const metrics = useMemo(() => {
         if (!allOrders) return { totalVolume: 0, totalCount: 0, prepCount: 0, prepTotal: 0, routeCount: 0, routeTotal: 0, pendingDebt: 0 };
@@ -506,9 +510,9 @@ export default function AdminOrdersView() {
                     isActive={activeTab === 'logistica'}
                 />
                 <DashboardMetricCard 
-                    title="Por Cobrar ($)" 
-                    value={`$${metrics.pendingDebt.toLocaleString('en-US', { maximumFractionDigits: 0 })}`} 
-                    subtitle="Saldo Pendiente de Cobro" 
+                    title="Por Cobrar (Lista BCV)" 
+                    value={`$${(globalFinancialMetrics?.grossBcvDebt || metrics.pendingDebt).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} 
+                    subtitle={`Neto Cash: $${(globalFinancialMetrics?.netCashDebt || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} 
                     icon={Wallet} 
                     iconBg="bg-rose-50" 
                     iconColor="text-rose-600" 
