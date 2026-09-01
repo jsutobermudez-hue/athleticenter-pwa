@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { useToast } from '@/hooks/use-toast';
 import { 
     MoreHorizontal, 
     Loader2, 
@@ -128,6 +129,125 @@ function DashboardMetricCard({
   );
 }
 
+function OrderHistoryCard({ order, firestore }: { order: Order; firestore: any }) {
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [items, setItems] = useState<any[]>([]);
+  const [isLoadingItems, setIsLoadingItems] = useState(false);
+
+  const toggleExpand = async () => {
+    if (!isExpanded && items.length === 0 && firestore && order.id) {
+      const existingItems = (order as any).items || [];
+      if (existingItems.length > 0) {
+        setItems(existingItems);
+      } else {
+        setIsLoadingItems(true);
+        try {
+          const snap = await getDocs(collection(firestore, `orders/${order.id}/orderItems`));
+          setItems(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+        } catch (e) {
+          console.error("Error cargando orderItems", e);
+        } finally {
+          setIsLoadingItems(false);
+        }
+      }
+    }
+    setIsExpanded(!isExpanded);
+  };
+
+  const paid = order.amountPaid || order.totalCashReceived || 0;
+  const pending = Math.max(0, order.totalAmount - paid);
+  const isPaid = order.status === 'Pagado' || pending <= 0.05;
+
+  const orderDateStr = order.orderDate ? ((order.orderDate as any).toDate ? format((order.orderDate as any).toDate(), 'dd/MM/yyyy') : 'Reciente') : 'Reciente';
+  const receptionDateStr = order.receptionDate ? ((order.receptionDate as any).toDate ? format((order.receptionDate as any).toDate(), 'dd/MM/yyyy') : 'Pendiente') : 'Pendiente';
+
+  return (
+    <div className="rounded-2xl bg-white border border-slate-200/80 shadow-sm overflow-hidden transition-all">
+      <div 
+        onClick={toggleExpand}
+        className="p-4 cursor-pointer hover:bg-slate-50 flex items-center justify-between gap-4 transition-colors"
+      >
+        <div className="space-y-1">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-black uppercase text-slate-900 font-mono">#{order.id.substring(0, 10)}</span>
+            <Badge className={cn("text-[8px] font-black uppercase px-2 py-0.5 border-none", isPaid ? "bg-emerald-600 text-white" : "bg-slate-900 text-white")}>
+              {order.status}
+            </Badge>
+          </div>
+          <div className="flex items-center gap-3 text-[9px] font-bold text-slate-500 uppercase">
+            <span>📅 Pedido: {orderDateStr}</span>
+            <span>🚚 Entrega: {receptionDateStr}</span>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-4">
+          <div className="text-right shrink-0">
+            <p className="text-sm font-black uppercase text-slate-900 font-mono">
+              ${order.totalAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+            </p>
+            {pending > 0.05 ? (
+              <span className="text-[8px] font-black uppercase text-rose-600 block">Deuda: ${pending.toFixed(2)}</span>
+            ) : (
+              <span className="text-[8px] font-black uppercase text-emerald-600 block">Totalmente Pagado</span>
+            )}
+          </div>
+          <ChevronRight className={cn("h-4 w-4 text-slate-400 transition-transform duration-200", isExpanded && "rotate-90 text-slate-900")} />
+        </div>
+      </div>
+
+      {isExpanded && (
+        <div className="p-4 bg-slate-50 border-t border-slate-100 space-y-3 animate-in slide-in-from-top-2 duration-200">
+          <div className="flex items-center justify-between text-[9px] font-black uppercase text-slate-400 tracking-wider">
+            <span>Detalle de Productos ({items.length})</span>
+            <span>Asesor: {order.salespersonName || 'Atención General'}</span>
+          </div>
+
+          {isLoadingItems ? (
+            <div className="py-6 text-center text-slate-400 flex items-center justify-center gap-2">
+              <Loader2 className="h-4 w-4 animate-spin text-primary" />
+              <span className="text-[9px] font-black uppercase">Cargando Productos...</span>
+            </div>
+          ) : items.length > 0 ? (
+            <div className="space-y-2">
+              {items.map((item, idx) => {
+                const qty = item.quantity || 1;
+                const unitPrice = item.unitPrice || item.price || 0;
+                const subtotal = item.total || (unitPrice * qty);
+
+                return (
+                  <div key={idx} className="p-3 rounded-xl bg-white border border-slate-200/60 flex items-center justify-between gap-3 shadow-2xs">
+                    <div className="flex items-center gap-3">
+                      {item.imageUrl ? (
+                        /* eslint-disable-next-line @next/next/no-img-element */
+                        <img src={item.imageUrl} alt={item.name} className="h-9 w-9 rounded-lg object-cover border border-slate-100 shrink-0" />
+                      ) : (
+                        <div className="h-9 w-9 rounded-lg bg-slate-900 text-white flex items-center justify-center font-black text-xs shrink-0">
+                          📦
+                        </div>
+                      )}
+                      <div>
+                        <p className="text-xs font-black uppercase text-slate-800 leading-tight">{item.name || `Producto ${idx + 1}`}</p>
+                        <span className="text-[9px] font-extrabold uppercase text-primary">
+                          {qty} Unidades x ${unitPrice.toFixed(2)} USD
+                        </span>
+                      </div>
+                    </div>
+                    <div className="text-right font-mono font-black text-xs text-slate-900">
+                      ${subtotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="text-[9px] font-bold uppercase text-slate-400 text-center py-2">Sin detalle de productos grabado en este expediente</p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function CustomerDetailsSheet({ 
     customer, 
     user,
@@ -144,7 +264,32 @@ function CustomerDetailsSheet({
     onEdit: (user: User) => void;
 }) {
     const firestore = useFirestore();
+    const { toast } = useToast();
     const [selectedProofUrl, setSelectedProofUrl] = useState<string | null>(null);
+    const [isEditingLimit, setIsEditingLimit] = useState(false);
+    const [newLimitVal, setNewLimitVal] = useState<number>(customer?.creditLimit || 2000);
+    const [isSavingLimit, setIsSavingLimit] = useState(false);
+
+    useEffect(() => {
+      if (customer) setNewLimitVal(customer.creditLimit || 2000);
+    }, [customer]);
+
+    const handleSaveCreditLimit = async () => {
+      if (!firestore || !customer?.id) return;
+      setIsSavingLimit(true);
+      try {
+        const { updateDoc, doc } = await import('firebase/firestore');
+        await updateDoc(doc(firestore, 'customers', customer.id), {
+          creditLimit: Number(newLimitVal)
+        });
+        toast({ title: "💳 Límite de Crédito Actualizado", description: `Nuevo límite asignado: $${Number(newLimitVal).toFixed(2)} USD.` });
+        setIsEditingLimit(false);
+      } catch (e: any) {
+        toast({ variant: "destructive", title: "Error al actualizar límite", description: e?.message });
+      } finally {
+        setIsSavingLimit(false);
+      }
+    };
 
     const daysInactive = customer?.lastOrderDate ? differenceInDays(new Date(), customer.lastOrderDate.toDate()) : null;
 
@@ -314,6 +459,17 @@ function CustomerDetailsSheet({
 
     if (!customer) return null;
 
+    const currentLimit = customer.creditLimit || 2000;
+    const creditPercent = Math.min(100, Math.round((pendingBalance / currentLimit) * 100));
+    
+    // SCORING CREDITICIO B2B INTELIGENTE (0 - 100 PTS)
+    let score = 98;
+    if (pendingBalance > 0.05) {
+      if (daysInactive !== null && daysInactive > 30) score = 65;
+      else if (creditPercent > 80) score = 75;
+      else score = 88;
+    } else if (daysInactive !== null && daysInactive > 60) score = 80;
+
     const handleWhatsAppClick = () => {
         const rawPhone = (customer.phone || '').replace(/\D/g, '');
         const cleanPhone = rawPhone.length === 10 ? `58${rawPhone}` : rawPhone;
@@ -323,6 +479,7 @@ function CustomerDetailsSheet({
           `📄 *RIF Fiscal:* ${customer.rif}\n` +
           `📊 *Total Comprado:* $${analytics.totalSpent.toFixed(2)} USD\n` +
           (pendingBalance > 0.05 ? `💰 *Saldo Pendiente:* $${pendingBalance.toFixed(2)} USD\n` : `✅ *Estado de Cuenta:* Al Día\n`) +
+          `💳 *Límite de Crédito:* $${currentLimit.toFixed(2)} USD\n` +
           `📍 *Asesor Asignado:* ${customer.assignedSalespersonName || 'Atención General'}\n\n` +
           `¿Desea realizar algún requerimiento de reposición de mercancía?\n\n` +
           `¡Quedamos a sus enteras órdenes!`;
@@ -361,6 +518,71 @@ function CustomerDetailsSheet({
 
                 <ScrollArea className="flex-1">
                     <div className="p-6 sm:p-8 space-y-6">
+                        {/* WIDGET BARÓMETRO DE LÍMITE DE CRÉDITO B2B & SCORING */}
+                        <div className="p-6 rounded-[2rem] bg-gradient-to-br from-slate-900 via-slate-800 to-slate-950 text-white shadow-xl space-y-4 border border-white/10">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2.5">
+                              <div className="h-9 w-9 rounded-xl bg-primary/20 text-primary flex items-center justify-center font-black">
+                                <Wallet className="h-5 w-5" />
+                              </div>
+                              <div>
+                                <h3 className="text-sm font-black uppercase tracking-wider text-white">Límite de Crédito Autorizado</h3>
+                                <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">Evaluación de Solvencia B2B</p>
+                              </div>
+                            </div>
+                            
+                            <Badge className={cn("text-[9px] font-black uppercase px-3 py-1 border-none", 
+                              score >= 90 ? "bg-emerald-500 text-white" : score >= 70 ? "bg-amber-500 text-white" : "bg-rose-600 text-white"
+                            )}>
+                              {score >= 90 ? `🟢 VIP (${score} PTS)` : score >= 70 ? `🟡 Moderado (${score} PTS)` : `🔴 Riesgo (${score} PTS)`}
+                            </Badge>
+                          </div>
+
+                          <div className="space-y-2">
+                            <div className="flex justify-between items-end">
+                              <div>
+                                <span className="text-[9px] font-black uppercase text-slate-400">Crédito Consumido (Deuda):</span>
+                                <p className="text-xl font-black text-rose-400 font-mono">${pendingBalance.toFixed(2)} USD</p>
+                              </div>
+                              <div className="text-right">
+                                <span className="text-[9px] font-black uppercase text-slate-400">Límite Autorizado:</span>
+                                {isEditingLimit ? (
+                                  <div className="flex items-center gap-1.5 mt-1">
+                                    <Input 
+                                      type="number" 
+                                      value={newLimitVal} 
+                                      onChange={(e) => setNewLimitVal(Number(e.target.value))} 
+                                      className="h-8 w-28 bg-white text-slate-900 font-mono font-bold text-xs rounded-lg" 
+                                    />
+                                    <Button size="sm" onClick={handleSaveCreditLimit} disabled={isSavingLimit} className="h-8 bg-emerald-600 text-white font-black text-[9px] uppercase px-2 rounded-lg">
+                                      {isSavingLimit ? <Loader2 className="h-3 w-3 animate-spin" /> : "Guardar"}
+                                    </Button>
+                                  </div>
+                                ) : (
+                                  <div className="flex items-center justify-end gap-1.5 cursor-pointer hover:opacity-80" onClick={() => setIsEditingLimit(true)}>
+                                    <p className="text-xl font-black text-emerald-400 font-mono">${currentLimit.toFixed(2)} USD</p>
+                                    <Edit className="h-3.5 w-3.5 text-slate-400" />
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* BARRA DE PROGRESO DE CRÉDITO */}
+                            <div className="h-3 w-full bg-white/10 rounded-full overflow-hidden p-0.5 border border-white/5">
+                              <div 
+                                className={cn("h-full rounded-full transition-all duration-500", 
+                                  creditPercent > 90 ? "bg-rose-500" : creditPercent > 70 ? "bg-amber-500" : "bg-emerald-500"
+                                )} 
+                                style={{ width: `${Math.min(100, creditPercent)}%` }} 
+                              />
+                            </div>
+                            <div className="flex justify-between text-[8px] font-black uppercase text-slate-400">
+                              <span>{creditPercent.toFixed(1)}% del Límite Utilizado</span>
+                              <span className="text-emerald-400">Disponible: ${Math.max(0, currentLimit - pendingBalance).toFixed(2)} USD</span>
+                            </div>
+                          </div>
+                        </div>
+
                         {/* PESTAÑAS 360° DE NAVEGACIÓN */}
                         <Tabs defaultValue="resumen" className="w-full">
                             <TabsList className="w-full grid grid-cols-4 bg-slate-200/60 p-1 rounded-2xl mb-6">
@@ -533,37 +755,9 @@ function CustomerDetailsSheet({
                                     <div className="flex h-32 items-center justify-center"><Loader2 className="animate-spin text-primary" /></div>
                                 ) : analytics.orderList.length > 0 ? (
                                     <div className="space-y-3">
-                                        {analytics.orderList.map((order) => {
-                                            const paid = order.amountPaid || 0;
-                                            const pending = Math.max(0, order.totalAmount - paid);
-
-                                            return (
-                                                <div key={order.id} className="p-4 rounded-2xl bg-white border border-slate-100 shadow-sm flex items-center justify-between gap-4">
-                                                    <div className="space-y-1">
-                                                        <div className="flex items-center gap-2">
-                                                            <span className="text-xs font-black uppercase text-slate-900 font-mono">#{order.id.substring(0, 8)}</span>
-                                                            <Badge className="bg-slate-900 text-white text-[8px] font-black uppercase px-2 py-0.5 border-none">
-                                                                {order.status}
-                                                            </Badge>
-                                                        </div>
-                                                        <p className="text-[9px] font-bold uppercase text-slate-500">
-                                                            Items: {((order as any).items || []).length} productos
-                                                        </p>
-                                                    </div>
-
-                                                    <div className="text-right shrink-0 space-y-0.5">
-                                                        <p className="text-xs font-black uppercase text-slate-900 font-mono">
-                                                            ${order.totalAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                                                        </p>
-                                                        {pending > 0.05 ? (
-                                                            <span className="text-[8px] font-black uppercase text-rose-600 block">Deuda: ${pending.toFixed(2)}</span>
-                                                        ) : (
-                                                            <span className="text-[8px] font-black uppercase text-emerald-600 block">Totalmente Pagado</span>
-                                                        )}
-                                                    </div>
-                                                </div>
-                                            );
-                                        })}
+                                        {analytics.orderList.map((order) => (
+                                            <OrderHistoryCard key={order.id} order={order} firestore={firestore} />
+                                        ))}
                                     </div>
                                 ) : (
                                     <div className="p-12 text-center bg-white rounded-3xl border border-slate-100 space-y-2">
