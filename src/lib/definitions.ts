@@ -165,6 +165,10 @@ export interface Payment extends Auditable {
     documentType: 'nota' | 'factura';
     accountingBase: 'bcv' | 'cash';
     incentivesApplied: boolean;
+    relatedOrderIds?: string[];
+    orderAllocations?: Array<{ orderId: string; orderNumber?: string; allocatedAmount: number }>;
+    reconciliationNotes?: string;
+    surplusAmount?: number;
 }
 
 export interface Customer extends Auditable {

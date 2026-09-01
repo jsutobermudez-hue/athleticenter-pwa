@@ -941,6 +941,15 @@ export function OrderDetailsSheet({
                                                 </div>
                                             </div>
 
+                                            {p.notes && (
+                                                <div className="p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-slate-800 space-y-0.5">
+                                                    <p className="text-[8px] font-black uppercase text-amber-700 flex items-center gap-1">
+                                                        <FileText className="h-3 w-3 text-amber-600" /> Nota / Observación:
+                                                    </p>
+                                                    <p className="text-[10px] font-medium leading-tight italic text-slate-700">"{p.notes}"</p>
+                                                </div>
+                                            )}
+
                                             {voucherImg && (
                                                 <div className="flex items-center gap-2 pt-1">
                                                     <div 

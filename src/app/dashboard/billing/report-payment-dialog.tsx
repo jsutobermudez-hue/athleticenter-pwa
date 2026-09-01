@@ -719,6 +719,21 @@ export function ReportPaymentDialog({ invoice, mode = 'partial' }: { invoice: In
                                     onImageUploaded={setUploadedImageUrl} 
                                     label="Captura del Comprobante" 
                                 />
+
+                                <div className="space-y-1.5 pt-2">
+                                    <Label className="text-[9px] font-black uppercase text-slate-500 px-1 flex items-center justify-between">
+                                        <span>Notas y Observaciones del Pago</span>
+                                        <span className="text-slate-400 text-[8px] font-bold">Conciliación / Titularidad</span>
+                                    </Label>
+                                    <Controller name="notes" control={control} render={({ field }) => (
+                                        <textarea
+                                            {...field}
+                                            rows={3}
+                                            placeholder="Ej: Transferencia Zelle proveniente del titular María Pérez (esposa). Pago a tasa BCV acordada..."
+                                            className="w-full p-3.5 font-semibold text-xs rounded-xl bg-slate-50 border border-slate-200 shadow-inner focus:outline-none focus:ring-2 focus:ring-primary/20 text-slate-900 leading-relaxed"
+                                        />
+                                    )} />
+                                </div>
                             </section>
                         </div>
 
