@@ -8,9 +8,6 @@ export function roundCurrency(value: number): number {
 
 export function getEffectiveCashReceived(o: Order): number {
     if (!o) return 0;
-    if (o.status === 'Pagado' || (o as any).isPaid === true || (o as any).paymentStatus === 'Pagado') {
-        return o.totalAmount || 0;
-    }
     const cash = typeof o.totalCashReceived === 'number' && o.totalCashReceived > 0 ? o.totalCashReceived : 0;
     const paid = typeof o.amountPaid === 'number' && o.amountPaid > 0 ? o.amountPaid : 0;
     const altPaid = (o as any).paidAmount || (o as any).totalPaid || (o as any).montoPagado || 0;
@@ -18,11 +15,27 @@ export function getEffectiveCashReceived(o: Order): number {
     
     let sumPayments = 0;
     if (Array.isArray((o as any).payments)) {
-        sumPayments = (o as any).payments.reduce((s: number, p: any) => s + (Number(p.amount || p.monto) || 0), 0);
+        sumPayments = (o as any).payments.reduce((s: number, p: any) => {
+            if (p.status === 'verified' || !p.status) {
+                return s + (Number(p.amount || p.monto) || 0);
+            }
+            return s;
+        }, 0);
     }
     
-    const effectivePaid = Math.max(cash, paid, numAltPaid, sumPayments);
-    return Math.min(effectivePaid, o.totalAmount || effectivePaid);
+    const explicitCash = Math.max(cash, paid, numAltPaid, sumPayments);
+    if (explicitCash > 0) {
+        return Math.min(explicitCash, o.totalAmount || explicitCash);
+    }
+
+    if (o.status === 'Pagado' || (o as any).isPaid === true || (o as any).paymentStatus === 'Pagado') {
+        const discountPct = (o as any).bcvDiscountSnapshot ?? o.treasurySnapshot?.bcvDiscountPercent ?? 25;
+        const isNet = (o as any).incentivesApplied === true || (o as any).isNetPrice === true;
+        const netVal = isNet ? o.totalAmount : (o.totalAmount || 0) * (1 - (discountPct / 100));
+        return roundCurrency(netVal > 0 ? netVal : o.totalAmount || 0);
+    }
+
+    return 0;
 }
 
 export function getCashDate(o: Order): Date {

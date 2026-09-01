@@ -3,6 +3,7 @@
 import React, { useMemo, useState } from 'react';
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
 import type { Order, FinancialSettings } from '@/lib/definitions';
+import { getEffectiveCashReceived } from '@/lib/billing';
 import { format, subDays, startOfDay, isSameDay } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -18,16 +19,6 @@ interface SalesTrendChartProps {
   orders: Order[] | null;
   isLoading?: boolean;
 }
-
-const getEffectiveCashReceived = (o: Order): number => {
-  if (!o) return 0;
-  if (typeof o.totalCashReceived === 'number' && o.totalCashReceived > 0) return o.totalCashReceived;
-  if (typeof o.amountPaid === 'number' && o.amountPaid > 0) return o.amountPaid;
-  const altPaid = (o as any).paidAmount || (o as any).totalPaid || (o as any).montoPagado;
-  if (typeof altPaid === 'number' && altPaid > 0) return altPaid;
-  if (o.status === 'Pagado' || (o as any).isPaid === true || (o as any).paymentStatus === 'Pagado') return o.totalAmount || 0;
-  return 0;
-};
 
 const getDate = (ts: any): Date | null => {
   if (!ts) return null;
