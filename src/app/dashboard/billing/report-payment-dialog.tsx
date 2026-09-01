@@ -245,9 +245,7 @@ export function ReportPaymentDialog({ invoice, mode = 'partial' }: { invoice: In
            (invoice as any)?.incentivesApplied === true ||
            (invoice as any)?.isNetPrice === true ||
            !!(invoice as any)?.promoName ||
-           (invoice as any)?.promoName === 'Oferta Spartan $14' ||
-           (invoice?.id || '').includes('P-CONV') ||
-           (orderData?.id || '').includes('P-CONV');
+           (invoice as any)?.promoName === 'Oferta Spartan $14';
   }, [orderData, invoice]);
 
   useEffect(() => {
