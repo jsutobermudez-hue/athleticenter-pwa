@@ -353,7 +353,11 @@ export function calculateGlobalFinancialMetrics(
 
                 if (invoice.status === 'Vencido') vencido += grossRemaining;
                 if (invoice.status === 'Por Vencer') porVencer += grossRemaining;
-                if (invoice.status === 'En Verificación') enVerificacion += grossRemaining;
+                
+                const hasPendingPaymentInSubcollection = Array.isArray((order as any).payments) && (order as any).payments.some((p: any) => p.status === 'pending_verification');
+                if (invoice.status === 'En Verificación' || order.status === 'En Verificación' || hasPendingPaymentInSubcollection) {
+                    enVerificacion += grossRemaining;
+                }
             }
         }
     });
