@@ -99,7 +99,8 @@ export function getInvoiceFromOrder(order: Order, fallbackTreasuryDiscount: numb
         return null;
     }
     
-    const dueDate = addDays(creditStartDate, 30);
+    const extension = typeof order.extensionDays === 'number' && order.extensionDays > 0 ? order.extensionDays : 0;
+    const dueDate = addDays(creditStartDate, 30 + extension);
     const today = new Date();
     const remainingDays = differenceInDays(dueDate, today);
     const amountPaid = getEffectiveCashReceived(order);

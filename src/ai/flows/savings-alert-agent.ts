@@ -14,6 +14,7 @@ import { initializeFirebaseServer } from '@/firebase/server-init';
 import { differenceInHours, addDays } from 'date-fns';
 import type { Order } from '@/lib/definitions';
 import { createAppNotifications } from '@/lib/notifications';
+import { sendBackgroundWhatsAppMessage } from '@/lib/whatsapp-gateway';
 
 const SavingsAgentResultSchema = z.object({
   scannedOrders: z.number().describe('Total de órdenes auditadas en este ciclo.'),
@@ -91,9 +92,19 @@ export const savingsAlertAgentFlow = ai.defineFlow(
                   initiatorId: 'system_savings_agent',
                   userIds: [order.customerId, order.salespersonId],
               });
+
+              // Envío Automático por WhatsApp al Teléfono del Cliente
+              const phone = order.customerPhone || (order as any).phone || '';
+              if (phone) {
+                const waMessage = `👋 Hola ${order.customerName || 'Estimado Cliente'}, le saludamos de Athleticenter.\n\n` +
+                  `⚡ *${title}*\n${message}\n\n` +
+                  `📄 Pedido: #${order.id}\n💰 Monto Total: $${(order.totalAmount || 0).toFixed(2)} USD\n\n` +
+                  `¡Aprovecha tu beneficio de pronto pago antes del vencimiento!`;
+                await sendBackgroundWhatsAppMessage({ phone, message: waMessage });
+              }
               
               alertsTriggered++;
-              console.log(`[Savings Agent] Alerta ${alertType} enviada para pedido ${order.id}`);
+              console.log(`[Savings Agent] Alerta ${alertType} enviada por App y WhatsApp para pedido ${order.id}`);
           } catch (e: any) {
               errors.push(`Fallo en alerta ${order.id}: ${e.message}`);
           }

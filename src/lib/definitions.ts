@@ -113,10 +113,16 @@ export interface Order extends Auditable {
   deliveryImageUrl?: string;
   deliveryNotes?: string;
   alertsSent?: string[];
-  stockRestored?: boolean; 
   cancellationRequested?: boolean;
   cancellationNotes?: string;
   bypassMoraReason?: string;
+  extensionDays?: number;
+  extensionReason?: string;
+  extensionApprovedBy?: string;
+  hasDiscrepancy?: boolean;
+  discrepancyAmount?: number;
+  discrepancyReason?: string;
+  digitalSignatureUrl?: string;
 }
 
 export type OrderStatus = 'Borrador' | 'Pendiente' | 'Aprobado' | 'En Preparación' | 'Completado' | 'Despachado' | 'Entregado' | 'Cancelado' | 'En Verificación' | 'Pagado' | 'Rechazado';

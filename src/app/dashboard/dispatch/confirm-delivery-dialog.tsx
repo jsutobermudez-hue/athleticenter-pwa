@@ -30,12 +30,18 @@ export function ConfirmDeliveryDialog({ order, isOpen, onOpenChange }: { order: 
   const [receptionDate, setReceptionDate] = useState('');
   const [deliveryNotes, setDeliveryNotes] = useState('');
   const [deliveryImageUrl, setDeliveryImageUrl] = useState<string | null>(null);
+  const [hasDiscrepancy, setHasDiscrepancy] = useState(false);
+  const [discrepancyAmount, setDiscrepancyAmount] = useState(0);
+  const [discrepancyReason, setDiscrepancyReason] = useState('');
 
   useEffect(() => {
     if (isOpen) {
       setReceptionDate(new Date().toISOString().split('T')[0]);
       setDeliveryNotes('');
       setDeliveryImageUrl(null);
+      setHasDiscrepancy(false);
+      setDiscrepancyAmount(0);
+      setDiscrepancyReason('');
     }
   }, [isOpen]);
 
@@ -45,11 +51,14 @@ export function ConfirmDeliveryDialog({ order, isOpen, onOpenChange }: { order: 
     
     setIsPending(true);
     const batch = writeBatch(firestore);
-    const updateData = {
+    const updateData: any = {
         status: 'Entregado',
         receptionDate: Timestamp.fromDate(new Date(receptionDate)),
         deliveryNotes: deliveryNotes,
         deliveryImageUrl: deliveryImageUrl || '',
+        hasDiscrepancy,
+        discrepancyAmount: hasDiscrepancy ? Number(discrepancyAmount) : 0,
+        discrepancyReason: hasDiscrepancy ? discrepancyReason : '',
         updatedAt: serverTimestamp(),
         updatedBy: authUser.uid
     };
@@ -127,7 +136,48 @@ export function ConfirmDeliveryDialog({ order, isOpen, onOpenChange }: { order: 
                         </div>
                         <div className="space-y-1.5">
                             <Label className="text-[9px] font-black uppercase text-slate-500 px-1">Notas de Entrega</Label>
-                            <Textarea value={deliveryNotes} onChange={(e) => setDeliveryNotes(e.target.value)} placeholder="Ej. Entregado en recepción..." className="rounded-xl bg-slate-50 border-none shadow-inner min-h-[120px] text-sm" />
+                            <Textarea value={deliveryNotes} onChange={(e) => setDeliveryNotes(e.target.value)} placeholder="Ej. Entregado en recepción..." className="rounded-xl bg-slate-50 border-none shadow-inner min-h-[80px] text-sm" />
+                        </div>
+
+                        {/* NOVEDAD EN RECEPCIÓN / DEVOLUCIÓN PARCIAL */}
+                        <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 space-y-3">
+                            <label className="flex items-center gap-2 cursor-pointer">
+                                <input
+                                    type="checkbox"
+                                    checked={hasDiscrepancy}
+                                    onChange={(e) => setHasDiscrepancy(e.target.checked)}
+                                    className="h-4 w-4 rounded border-amber-400 text-amber-600 focus:ring-amber-500"
+                                />
+                                <span className="text-[10px] font-black uppercase text-amber-800">
+                                    ⚠️ Registrar Novedad / Faltante / Devolución Parcial
+                                </span>
+                            </label>
+
+                            {hasDiscrepancy && (
+                                <div className="space-y-3 pt-1 animate-in fade-in duration-300">
+                                    <div className="space-y-1">
+                                        <Label className="text-[8px] font-black uppercase text-amber-700">Monto Afectado ($ USD)</Label>
+                                        <Input
+                                            type="number"
+                                            step="0.01"
+                                            value={discrepancyAmount}
+                                            onChange={(e) => setDiscrepancyAmount(Number(e.target.value))}
+                                            placeholder="Monto a descontar..."
+                                            className="h-9 font-bold bg-white border-amber-300 rounded-lg text-xs"
+                                        />
+                                    </div>
+                                    <div className="space-y-1">
+                                        <Label className="text-[8px] font-black uppercase text-amber-700">Motivo del Reclamo</Label>
+                                        <Input
+                                            type="text"
+                                            value={discrepancyReason}
+                                            onChange={(e) => setDiscrepancyReason(e.target.value)}
+                                            placeholder="Ej. 1 balón con válvula defectuosa..."
+                                            className="h-9 font-bold bg-white border-amber-300 rounded-lg text-xs"
+                                        />
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     </div>
                 </div>

@@ -6,9 +6,12 @@ import {
     DialogContent, 
     DialogDescription, 
     DialogHeader, 
-    DialogTitle 
+    DialogTitle,
+    DialogFooter 
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
@@ -112,6 +115,31 @@ export function OrderDetailsSheet({
   const [isCompleting, setIsCompleting] = useState(false);
   const [zoomImage, setZoomImage] = useState<string | null>(null);
   const [simulatedMethod, setSimulatedMethod] = useState<'Zelle' | 'Binance Pay / USDT' | 'Efectivo' | 'Pago Móvil'>('Zelle');
+
+  // ESTADO PARA PRÓRROGA DE CRÉDITO
+  const [isExtensionDialogOpen, setIsExtensionDialogOpen] = useState(false);
+  const [extensionDaysInput, setExtensionDaysInput] = useState(10);
+  const [extensionReasonInput, setExtensionReasonInput] = useState('');
+  const [isGrantingExtension, setIsGrantingExtension] = useState(false);
+
+  const handleGrantExtension = async () => {
+    if (!firestore || !order?.id || !currentUser) return;
+    setIsGrantingExtension(true);
+    try {
+      await updateDoc(doc(firestore, 'orders', order.id), {
+        extensionDays: Number(extensionDaysInput),
+        extensionReason: extensionReasonInput,
+        extensionApprovedBy: currentUser.name || currentUser.email || 'Gerencia',
+        updatedAt: serverTimestamp()
+      });
+      toast({ title: '⏳ ¡Prórroga Otorgada con Éxito!', description: `Se añadieron +${extensionDaysInput} días de crédito autorizado.` });
+      setIsExtensionDialogOpen(false);
+    } catch (e: any) {
+      toast({ variant: 'destructive', title: 'Error al Otorgar Prórroga', description: e?.message });
+    } finally {
+      setIsGrantingExtension(false);
+    }
+  };
 
   const companyProfileRef = useMemoFirebase(() => (firestore ? doc(firestore, 'companyProfile', 'main') : null), [firestore]);
   const { data: companyProfile } = useDoc<CompanyProfile>(companyProfileRef);
@@ -686,6 +714,27 @@ export function OrderDetailsSheet({
                             })()}
                         </div>
                     </div>
+
+                    {/* BOTÓN Y DIÁLOGO DE PRÓRROGA AUTORIZADA POR GERENCIA */}
+                    {isAdmin && pendingDebt > 0.05 && (
+                        <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 space-y-2">
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <p className="text-[9px] font-black uppercase text-amber-800 tracking-wider">⏳ Crédito Autorizado por Gerencia</p>
+                                    <p className="text-[10px] font-bold text-amber-700">
+                                        {order.extensionDays ? `Prórroga activa: +${order.extensionDays} Días extra (${order.extensionApprovedBy || 'Gerencia'})` : 'Sin prórroga concedida'}
+                                    </p>
+                                </div>
+                                <Button
+                                    type="button"
+                                    onClick={() => setIsExtensionDialogOpen(true)}
+                                    className="h-8 px-3 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-black text-[9px] uppercase tracking-wider shadow-sm"
+                                >
+                                    <Clock className="h-3 w-3 mr-1" /> {order.extensionDays ? 'Modificar Prórroga' : 'Otorgar Prórroga'}
+                                </Button>
+                            </div>
+                        </div>
+                    )}
                 </div>
 
                 {/* COLUMNA DERECHA: AUDITORÍA FINANCIERA Y ACCIONES ORGANIZADAS (5 COLS) */}
@@ -1095,6 +1144,46 @@ export function OrderDetailsSheet({
     <Dialog open={!!zoomImage} onOpenChange={() => setZoomImage(null)}>
         <DialogContent className="max-w-[95vw] sm:max-w-4xl p-0 border-none bg-black/95 flex items-center justify-center rounded-[2rem] overflow-hidden shadow-2xl">
             {zoomImage && <img src={zoomImage} alt="Evidencia Full" className="max-w-full max-h-[85vh] object-contain" />}
+        </DialogContent>
+    </Dialog>
+
+    {/* DIÁLOGO DE OTORGAR PRÓRROGA */}
+    <Dialog open={isExtensionDialogOpen} onOpenChange={setIsExtensionDialogOpen}>
+        <DialogContent className="max-w-md bg-white rounded-3xl p-6 space-y-4">
+            <DialogHeader>
+                <DialogTitle className="text-lg font-black uppercase text-slate-900 flex items-center gap-2">
+                    <Clock className="h-5 w-5 text-amber-500" /> Otorgar Prórroga de Crédito
+                </DialogTitle>
+                <DialogDescription className="text-xs font-semibold text-slate-500">
+                    Asigna días de extensión autorizados por Gerencia para congelar el contador de mora.
+                </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-3">
+                <div className="space-y-1">
+                    <Label className="text-[10px] font-black uppercase text-slate-500">Días de Extensión Autorizados</Label>
+                    <Input
+                        type="number"
+                        value={extensionDaysInput}
+                        onChange={(e) => setExtensionDaysInput(Number(e.target.value))}
+                        className="h-11 font-black text-lg rounded-xl bg-slate-50 border-slate-200"
+                    />
+                </div>
+                <div className="space-y-1">
+                    <Label className="text-[10px] font-black uppercase text-slate-500">Justificación / Motivo de Gerencia</Label>
+                    <Textarea
+                        value={extensionReasonInput}
+                        onChange={(e) => setExtensionReasonInput(e.target.value)}
+                        placeholder="Ej. Cliente solicitó 10 días adicionales autorizados por Director Comercial..."
+                        className="rounded-xl bg-slate-50 border-slate-200 text-xs min-h-[80px]"
+                    />
+                </div>
+            </div>
+            <DialogFooter className="flex gap-2">
+                <Button variant="ghost" onClick={() => setIsExtensionDialogOpen(false)} className="rounded-xl font-black text-xs uppercase">Cancelar</Button>
+                <Button onClick={handleGrantExtension} disabled={isGrantingExtension} className="rounded-xl font-black text-xs uppercase bg-amber-600 hover:bg-amber-700 text-white">
+                    {isGrantingExtension ? <Loader2 className="animate-spin h-4 w-4" /> : 'Confirmar Prórroga'}
+                </Button>
+            </DialogFooter>
         </DialogContent>
     </Dialog>
     </>
