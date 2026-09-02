@@ -25,6 +25,24 @@ export interface Auditable {
   updatedAt?: Timestamp;
 }
 
+export interface OrderHistoryEvent {
+  id: string;
+  stage: 'Creado' | 'Aprobado' | 'Picking' | 'Embalado' | 'Despachado' | 'Entregado' | 'Cancelado' | 'Nota';
+  title: string;
+  description: string;
+  timestamp: any;
+  actorName: string;
+  actorRole?: string;
+  metadata?: {
+    carrier?: string;
+    trackingNumber?: string;
+    packageCount?: number;
+    imageUrl?: string;
+    receivedBy?: string;
+    justification?: string;
+  };
+}
+
 export interface User extends Auditable {
   id: string;
   name: string;

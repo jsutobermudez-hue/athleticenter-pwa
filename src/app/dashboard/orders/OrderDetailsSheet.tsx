@@ -61,6 +61,7 @@ import { QRScanner } from '@/components/ui/qr-scanner';
 import { Separator } from '@/components/ui/separator';
 import { Progress } from '@/components/ui/progress';
 import { createAppNotifications } from '@/lib/notifications';
+import { OrderTimelineModal } from '@/components/dashboard/OrderTimelineModal';
 
 interface OrderDetailsSheetProps {
     order: Order; 
@@ -114,6 +115,7 @@ export function OrderDetailsSheet({
   const [isPrintingLabels, setIsPrintingLabels] = useState(false);
   const [isCompleting, setIsCompleting] = useState(false);
   const [zoomImage, setZoomImage] = useState<string | null>(null);
+  const [isTimelineOpen, setIsTimelineOpen] = useState(false);
   const [simulatedMethod, setSimulatedMethod] = useState<'Zelle' | 'Binance Pay / USDT' | 'Efectivo' | 'Pago Móvil'>('Zelle');
 
   // ESTADO PARA PRÓRROGA DE CRÉDITO
@@ -431,7 +433,15 @@ export function OrderDetailsSheet({
                 </div>
                 <DialogDescription className="font-black text-[10px] sm:text-[12px] uppercase tracking-[0.2em] text-primary-foreground/90 truncate mt-0.5">{order.customerName}</DialogDescription>
             </div>
-            <div className="flex items-center gap-3 shrink-0 mr-8">
+            <div className="flex items-center gap-2.5 shrink-0 mr-8">
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={() => setIsTimelineOpen(true)}
+                  className="bg-white/10 hover:bg-white/20 text-white border-white/20 font-black text-[9px] uppercase px-3 h-7 rounded-xl flex items-center gap-1.5 shadow-sm"
+                >
+                  <Clock className="h-3.5 w-3.5 text-emerald-400" /> 📜 HISTORIAL & TRAZA 360°
+                </Button>
                 <Badge className={cn(statusConfig[order.status]?.color, "font-black uppercase text-[10px] sm:text-[11px] px-3.5 h-7 border-none shadow-md")}>{order.status}</Badge>
                 {isCancellationPending && <Badge variant="destructive" className="animate-pulse text-[8px] font-black uppercase h-5 px-2">Anulación Pendiente</Badge>}
             </div>
@@ -1186,6 +1196,12 @@ export function OrderDetailsSheet({
             </DialogFooter>
         </DialogContent>
     </Dialog>
+
+    <OrderTimelineModal 
+      order={order} 
+      isOpen={isTimelineOpen} 
+      onOpenChange={setIsTimelineOpen} 
+    />
     </>
   );
 }
