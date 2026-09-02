@@ -117,10 +117,8 @@ export async function createAppNotifications(
 
   try {
     await batch.commit();
-    // LOG DE WHATSAPP (Simulado para auditoría interna)
-    await sendWhatsAppMessage('LOG_SYSTEM', `Notificación emitida: ${title}`);
-    
-    // Disparar notificaciones Push nativas en segundo plano (WebPush)
+
+    // 1. DISPARAR NOTIFICACIONES PUSH NATIVAS WEBPUSH (SEGUNDO PLANO)
     try {
       const { triggerPushNotificationAction } = await import('@/app/actions');
       await triggerPushNotificationAction(finalTargetIds, {
@@ -130,6 +128,28 @@ export async function createAppNotifications(
       });
     } catch (pushErr) {
       console.warn("[Notifications] Error al invocar la acción de envío push:", pushErr);
+    }
+
+    // 2. DISPARAR NOTIFICACIÓN OMNICANAL AUTOMÁTICA POR WHATSAPP EN SEGUNDO PLANO
+    try {
+      const { dispatchUniversalWhatsApp } = await import('./whatsapp-universal');
+      // Buscar teléfonos de los usuarios destinatarios o cliente
+      const userSnaps = await Promise.all(finalTargetIds.slice(0, 5).map(id => getDocs(query(collection(firestore, 'users'), where('__name__', '==', id), limit(1)))));
+      
+      for (const uSnap of userSnaps) {
+        if (!uSnap.empty) {
+          const uData = uSnap.docs[0].data();
+          if (uData.phone) {
+            dispatchUniversalWhatsApp({
+              phone: uData.phone,
+              message: `📱 *ATHLETICENTER OMNICANAL*\n\n*${title}*\n\n${message}`,
+              module: 'orders'
+            }).catch(e => console.warn("[Notifications] Error en despacho WhatsApp:", e));
+          }
+        }
+      }
+    } catch (waErr) {
+      console.warn("[Notifications] Error en motor omnicanal de WhatsApp:", waErr);
     }
   } catch (e) {
     console.error("[Notifications] Fallo crítico al guardar notificaciones en base de datos:", e);
