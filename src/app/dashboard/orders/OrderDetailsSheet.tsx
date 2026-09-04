@@ -591,16 +591,20 @@ export function OrderDetailsSheet({
                                         <p className="text-[9px] text-slate-400 uppercase font-bold">Cambia el filtro de picking para explorar los demás ítems</p>
                                     </div>
                                 ) : filteredItemsForPicking.map((item) => {
-                                    const unitBcvPrice = item.unitPrice || item.product?.price || 0;
-                                    const isNetOrPromo = (order as any).incentivesApplied === true || (order as any).isNetPrice === true || !!(order as any).promoName;
+                                    const catalogPrice = item.product?.price && item.product.price > 0 ? item.product.price : (item.unitPrice || 0);
+                                    const rawItemPrice = item.unitPrice || catalogPrice;
+                                    const isAlreadyDiscounted = catalogPrice > 0 && rawItemPrice < (catalogPrice * 0.95);
+                                    const isNetOrPromo = (order as any).incentivesApplied === true || (order as any).isNetPrice === true || !!(order as any).promoName || isAlreadyDiscounted;
+
                                     const effectiveDiscountPct = isNetOrPromo 
                                       ? 0 
                                       : ((order as any).bcvDiscountSnapshot !== undefined 
                                           ? (order as any).bcvDiscountSnapshot 
                                           : (globalSettings?.defaultBcvDiscount ?? 25));
 
-                                    const unitCashPrice = isNetOrPromo 
-                                      ? unitBcvPrice 
+                                    const unitBcvPrice = isAlreadyDiscounted ? catalogPrice : rawItemPrice;
+                                    const unitCashPrice = isAlreadyDiscounted || isNetOrPromo 
+                                      ? rawItemPrice 
                                       : roundCurrency(unitBcvPrice * (1 - effectiveDiscountPct / 100));
 
                                     const itemBcvSubtotal = roundCurrency(item.quantity * unitBcvPrice);
@@ -690,14 +694,29 @@ export function OrderDetailsSheet({
                             {/* BARRA CONSOLIDADA RESUMEN DE UNIDADES Y SUBTOTALES AL PIE */}
                             {(() => {
                                 const totalUnits = itemsWithProductData.reduce((sum, item) => sum + (item.quantity || 0), 0);
-                                const totalBcvManifesto = roundCurrency(itemsWithProductData.reduce((sum, item) => sum + ((item.quantity || 0) * (item.unitPrice || item.product?.price || 0)), 0));
-                                const isNetOrPromo = (order as any).incentivesApplied === true || (order as any).isNetPrice === true || !!(order as any).promoName;
-                                const effectiveDiscountPct = isNetOrPromo 
-                                  ? 0 
-                                  : ((order as any).bcvDiscountSnapshot !== undefined 
-                                      ? (order as any).bcvDiscountSnapshot 
-                                      : (globalSettings?.defaultBcvDiscount ?? 25));
-                                const totalCashManifesto = isNetOrPromo ? totalBcvManifesto : roundCurrency(totalBcvManifesto * (1 - effectiveDiscountPct / 100));
+                                const totalBcvManifesto = roundCurrency(itemsWithProductData.reduce((sum, item) => {
+                                  const catP = item.product?.price && item.product.price > 0 ? item.product.price : (item.unitPrice || 0);
+                                  const rawP = item.unitPrice || catP;
+                                  const isDisc = catP > 0 && rawP < (catP * 0.95);
+                                  return sum + ((item.quantity || 0) * (isDisc ? catP : rawP));
+                                }, 0));
+
+                                const totalCashManifesto = roundCurrency(itemsWithProductData.reduce((sum, item) => {
+                                  const catP = item.product?.price && item.product.price > 0 ? item.product.price : (item.unitPrice || 0);
+                                  const rawP = item.unitPrice || catP;
+                                  const isDisc = catP > 0 && rawP < (catP * 0.95);
+                                  const isNet = (order as any).incentivesApplied === true || (order as any).isNetPrice === true || !!(order as any).promoName || isDisc;
+                                  const effDisc = isNet ? 0 : ((order as any).bcvDiscountSnapshot ?? 25);
+                                  const cashP = isNet ? rawP : roundCurrency(rawP * (1 - effDisc / 100));
+                                  return sum + ((item.quantity || 0) * cashP);
+                                }, 0));
+
+                                const hasAnyDiscounted = itemsWithProductData.some(item => {
+                                  const catP = item.product?.price && item.product.price > 0 ? item.product.price : (item.unitPrice || 0);
+                                  return catP > 0 && item.unitPrice < (catP * 0.95);
+                                });
+                                const isNetOrPromo = (order as any).incentivesApplied === true || (order as any).isNetPrice === true || !!(order as any).promoName || hasAnyDiscounted;
+                                const effectiveDiscountPct = isNetOrPromo ? 0 : ((order as any).bcvDiscountSnapshot ?? 25);
 
                                 return (
                                     <div className="p-3.5 bg-slate-900 text-white flex flex-wrap items-center justify-between gap-3 border-t border-slate-800">

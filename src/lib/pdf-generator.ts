@@ -153,13 +153,12 @@ export async function generateOrderPDF({
 
   const tableRows = orderItems.map(item => {
     const itemUnitPrice = roundCurrency(item.unitPrice || item.product?.price || 0);
-    const catalogPrice = item.product?.price || itemUnitPrice;
-    const isItemNet = isNetOrPromotional || (item as any).isNetPrice || (catalogPrice > 0 && itemUnitPrice < catalogPrice);
+    const catalogPrice = item.product?.price && item.product.price > 0 ? item.product.price : itemUnitPrice;
+    const isItemNet = isNetOrPromotional || (item as any).isNetPrice || (catalogPrice > 0 && itemUnitPrice < (catalogPrice * 0.95));
 
-    const bcvPrice = itemUnitPrice;
-
+    const bcvPrice = isItemNet ? catalogPrice : itemUnitPrice;
     const cashPrice = isItemNet
-      ? bcvPrice
+      ? itemUnitPrice
       : roundCurrency(bcvPrice * (1 - bcvDiscountPct / 100));
     
     const rowBcvTotal = roundCurrency(item.quantity * bcvPrice);
@@ -331,13 +330,12 @@ export async function generateQuotePDF({
 
   const tableRows = quoteItems.map((item: any) => {
     const itemUnitPrice = roundCurrency(item.unitPrice || item.product?.price || 0);
-    const catalogPrice = item.product?.price || itemUnitPrice;
-    const isItemNet = isNetOrPromotional || item.isNetPrice || (catalogPrice > 0 && itemUnitPrice < catalogPrice);
+    const catalogPrice = item.product?.price && item.product.price > 0 ? item.product.price : itemUnitPrice;
+    const isItemNet = isNetOrPromotional || item.isNetPrice || (catalogPrice > 0 && itemUnitPrice < (catalogPrice * 0.95));
 
-    const bcvPrice = itemUnitPrice;
-
+    const bcvPrice = isItemNet ? catalogPrice : itemUnitPrice;
     const cashPrice = isItemNet
-      ? bcvPrice
+      ? itemUnitPrice
       : roundCurrency(bcvPrice * (1 - bcvDiscountPct / 100));
     
     const rowBcvTotal = roundCurrency(item.quantity * bcvPrice);
