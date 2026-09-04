@@ -153,9 +153,12 @@ export async function generateOrderPDF({
 
   const tableRows = orderItems.map(item => {
     const itemUnitPrice = roundCurrency(item.unitPrice || item.product?.price || 0);
+    const catalogPrice = item.product?.price || itemUnitPrice;
+    const isItemNet = isNetOrPromotional || (item as any).isNetPrice || (catalogPrice > 0 && itemUnitPrice < catalogPrice);
+
     const bcvPrice = itemUnitPrice;
 
-    const cashPrice = isNetOrPromotional
+    const cashPrice = isItemNet
       ? bcvPrice
       : roundCurrency(bcvPrice * (1 - bcvDiscountPct / 100));
     
@@ -328,9 +331,12 @@ export async function generateQuotePDF({
 
   const tableRows = quoteItems.map((item: any) => {
     const itemUnitPrice = roundCurrency(item.unitPrice || item.product?.price || 0);
+    const catalogPrice = item.product?.price || itemUnitPrice;
+    const isItemNet = isNetOrPromotional || item.isNetPrice || (catalogPrice > 0 && itemUnitPrice < catalogPrice);
+
     const bcvPrice = itemUnitPrice;
 
-    const cashPrice = isNetOrPromotional
+    const cashPrice = isItemNet
       ? bcvPrice
       : roundCurrency(bcvPrice * (1 - bcvDiscountPct / 100));
     

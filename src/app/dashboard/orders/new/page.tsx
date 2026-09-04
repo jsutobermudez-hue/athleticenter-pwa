@@ -205,10 +205,12 @@ function NewOrderForm() {
                 return newItems;
             }
 
+            const isItemNet = offer.hasOffer || (product.price ? offer.finalPrice < product.price : false);
             return [...prev, { 
                 productId: product.id!, 
                 quantity: newQuantity, 
                 unitPrice: offer.finalPrice, 
+                isNetPrice: isItemNet,
                 product: product, 
                 customerId: selectedCustomerId, 
                 salespersonId: '',
@@ -263,7 +265,12 @@ const safeTotalAmount = isNaN(totalAmount) ? 0 : totalAmount;
 
         runTransaction(firestore, async (transaction) => {
             const orderRef = doc(firestore, 'orders', finalOrderId);
-            const hasNetOrPromoItems = orderItems.some(i => (i as any).isNetPrice || (i.product as any)?.isNetPrice || !!(i.product as any)?.promoName);
+            const hasNetOrPromoItems = orderItems.some(i => 
+              (i as any).isNetPrice || 
+              (i.product?.price && i.unitPrice < i.product.price) ||
+              (i.product as any)?.isNetPrice || 
+              !!(i.product as any)?.promoName
+            );
             const effectiveBcvDiscount = hasNetOrPromoItems ? 0 : (globalSettings?.defaultBcvDiscount !== undefined ? globalSettings.defaultBcvDiscount : 25);
 
             const orderData: any = {
