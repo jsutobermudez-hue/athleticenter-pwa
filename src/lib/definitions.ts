@@ -43,6 +43,33 @@ export interface OrderHistoryEvent {
   };
 }
 
+export interface GroupChannel {
+  id: string;
+  name: string;
+  description: string;
+  iconName?: string;
+  rolesAllowed?: string[];
+  membersCount?: number;
+  lastMessage?: string;
+  lastMessageAt?: Timestamp;
+  createdBy?: string;
+  isSystemDefault?: boolean;
+  createdAt?: Timestamp;
+}
+
+export interface GroupChatMessage {
+  id: string;
+  channelId: string;
+  senderId: string;
+  senderName: string;
+  senderRole?: string;
+  senderAvatarUrl?: string;
+  body: string;
+  orderIdRef?: string;
+  attachments?: { url: string; type: 'image' | 'pdf' }[];
+  createdAt: any;
+}
+
 export interface User extends Auditable {
   id: string;
   name: string;

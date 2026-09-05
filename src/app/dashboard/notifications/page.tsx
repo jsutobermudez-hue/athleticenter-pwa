@@ -7,13 +7,14 @@ import {
   useMemoFirebase,
   useUser,
 } from '@/firebase';
-import { collection, orderBy, query, where, getDocs, writeBatch, limit, doc, updateDoc } from 'firebase/firestore';
-import type { Notification, SentMessage, DirectMessage, User as AppUser } from '@/lib/definitions';
+import { collection, orderBy, query, where, getDocs, writeBatch, limit, doc, updateDoc, setDoc, serverTimestamp } from 'firebase/firestore';
+import type { Notification, DirectMessage, User as AppUser, GroupChannel, Order } from '@/lib/definitions';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { 
   CheckCheck, 
   Loader2, 
@@ -40,16 +41,30 @@ import {
   Clock,
   User as UserIcon,
   ChevronRight,
-  Inbox
+  Inbox,
+  Users,
+  PlusCircle,
+  Hash,
+  Package
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { NewMessageDialog } from './NewMessageDialog';
 import { DirectMessageThreadDialog, type ChatContact } from './DirectMessageThreadDialog';
-import { Card, CardContent } from '@/components/ui/card';
+import { GroupChatWindow } from '@/components/dashboard/GroupChatWindow';
+import { CreateGroupDialog } from '@/components/dashboard/CreateGroupDialog';
+import { OrderTimelineModal } from '@/components/dashboard/OrderTimelineModal';
 import { cn } from '@/lib/utils';
 import { useRouter } from 'next/navigation';
+
+const DEFAULT_SYSTEM_GROUPS: Omit<GroupChannel, 'id'>[] = [
+  { name: '#general-anuncios', description: 'Comunicados corporativos para todo el equipo', iconName: 'Bell', isSystemDefault: true },
+  { name: '#equipo-ventas', description: 'Cotizaciones, ventas y atención a clientes B2B', iconName: 'ShoppingCart', isSystemDefault: true },
+  { name: '#almacen-despacho', description: 'Picking, empaque, rótulos QR y encomiendas', iconName: 'Truck', isSystemDefault: true },
+  { name: '#cobranzas-tesoreria', description: 'Verificación de pagos, facturación y finanzas', iconName: 'CreditCard', isSystemDefault: true },
+  { name: '#gerencia-superadmin', description: 'Canal de decisiones estratégicas y auditoría', iconName: 'ShieldAlert', isSystemDefault: true },
+];
 
 export default function NotificationsPage() {
   const { user, profile: currentUser } = useUser();
@@ -57,19 +72,22 @@ export default function NotificationsPage() {
   const router = useRouter();
   const { toast } = useToast();
 
+  const [activeTab, setActiveTab] = useState<'notifications' | 'dms' | 'groups'>('notifications');
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [categoryFilter, setCategoryFilter] = useState<string>('todos');
   const [onlyUnread, setOnlyUnread] = useState<boolean>(false);
   const [isMarking, setIsMarking] = useState(false);
   const [isNewMessageOpen, setIsNewMessageOpen] = useState(false);
+  const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
 
   const [selectedNotification, setSelectedNotification] = useState<Notification | null>(null);
-  const [replyText, setReplyText] = useState<string>('');
-  const [isSendingReply, setIsSendingReply] = useState<boolean>(false);
-
+  const [selectedGroup, setSelectedGroup] = useState<GroupChannel | null>(null);
   const [activeThreadContact, setActiveThreadContact] = useState<ChatContact | null>(null);
-  const [activeThreadSubject, setActiveThreadSubject] = useState<string>('Conversación de Soporte');
   const [isThreadOpen, setIsThreadOpen] = useState(false);
+
+  // Modal para Traza 360° si se selecciona una orden
+  const [timelineOrderId, setTimelineOrderId] = useState<string | null>(null);
+  const [timelineOrder, setTimelineOrder] = useState<Order | null>(null);
 
   // Consulta de Notificaciones del Usuario
   const notificationsQuery = useMemoFirebase(
@@ -85,6 +103,28 @@ export default function NotificationsPage() {
   );
   const { data: allNotifications, isLoading: isLoadingInbox } = useCollection<Notification>(notificationsQuery);
 
+  // Consulta de Canales Grupales
+  const groupsQuery = useMemoFirebase(() => {
+    if (!firestore) return null;
+    return query(collection(firestore, 'group_channels'), orderBy('name', 'asc'), limit(50));
+  }, [firestore]);
+  const { data: dbGroups } = useCollection<GroupChannel>(groupsQuery);
+
+  // Inicializar grupos predeterminados si la colección está vacía
+  useEffect(() => {
+    if (firestore && dbGroups && dbGroups.length === 0 && currentUser?.role === 'superadmin') {
+      DEFAULT_SYSTEM_GROUPS.forEach(async (g) => {
+        const id = g.name.replace(/[^a-z0-9-]/gi, '-').toLowerCase();
+        await setDoc(doc(firestore, 'group_channels', id), {
+          ...g,
+          id,
+          membersCount: 1,
+          createdAt: serverTimestamp()
+        });
+      });
+    }
+  }, [firestore, dbGroups, currentUser?.role]);
+
   // Consulta de Usuarios para Mensajería Directa
   const allUsersQuery = useMemoFirebase(() => {
     if (!firestore || !currentUser) return null;
@@ -99,396 +139,471 @@ export default function NotificationsPage() {
     }
   }, [allNotifications, selectedNotification]);
 
-  // Contadores Inteligentes
-  const unreadCount = useMemo(() => allNotifications?.filter(n => !n.isRead).length || 0, [allNotifications]);
-  const reportsCount = useMemo(() => allNotifications?.filter(n => n.title.toLowerCase().includes('cartera') || n.link?.includes('/api/reports')).length || 0, [allNotifications]);
-
-  // Filtrado Multidimensional de Avisos
+  // Filtrado de Notificaciones
   const filteredNotifications = useMemo(() => {
     if (!allNotifications) return [];
-    const term = searchTerm.toLowerCase().trim();
     return allNotifications.filter(n => {
-      const matchesCategory = categoryFilter === 'todos' || n.category === categoryFilter;
+      const matchesSearch = n.title.toLowerCase().includes(searchTerm.toLowerCase()) || 
+                            n.message.toLowerCase().includes(searchTerm.toLowerCase());
+      const matchesCat = categoryFilter === 'todos' || n.category === categoryFilter;
       const matchesUnread = !onlyUnread || !n.isRead;
-      const matchesSearch = !term || 
-        n.title.toLowerCase().includes(term) || 
-        n.message.toLowerCase().includes(term) ||
-        n.category.toLowerCase().includes(term);
-      return matchesCategory && matchesUnread && matchesSearch;
+      return matchesSearch && matchesCat && matchesUnread;
     });
-  }, [allNotifications, categoryFilter, onlyUnread, searchTerm]);
+  }, [allNotifications, searchTerm, categoryFilter, onlyUnread]);
 
-  // Marcar individual como leído al seleccionar
-  const handleSelectNotification = (n: Notification) => {
-    setSelectedNotification(n);
-    if (firestore && user && n.id && !n.isRead) {
-      updateDoc(doc(firestore, `users/${user.uid}/notifications`, n.id), { isRead: true }).catch(() => {});
-    }
-  };
+  const unreadCount = useMemo(() => {
+    if (!allNotifications) return 0;
+    return allNotifications.filter(n => !n.isRead).length;
+  }, [allNotifications]);
 
-  // Marcar todos como leídos (Limpieza Atómica del 100% en Firestore)
   const handleMarkAllAsRead = async () => {
-    if (!firestore || !user) return;
+    if (!user || !firestore || unreadCount === 0) return;
     setIsMarking(true);
     try {
-      const unreadSnap = await getDocs(
-        query(
-          collection(firestore, `users/${user.uid}/notifications`),
-          where('isRead', '==', false)
-        )
+      const q = query(
+        collection(firestore, `users/${user.uid}/notifications`),
+        where('isRead', '==', false),
+        limit(400)
       );
-
-      if (unreadSnap.empty) {
-        toast({ title: '✅ No tienes avisos sin leer' });
-        setIsMarking(false);
-        return;
-      }
-
-      const docs = unreadSnap.docs;
-      for (let i = 0; i < docs.length; i += 400) {
+      const snap = await getDocs(q);
+      if (!snap.empty) {
         const batch = writeBatch(firestore);
-        const chunk = docs.slice(i, i + 400);
-        chunk.forEach(d => {
-          batch.update(d.ref, { isRead: true });
-        });
+        snap.forEach(d => batch.update(d.ref, { isRead: true }));
         await batch.commit();
+        toast({ title: "Bandeja Limpia", description: "Notificaciones marcadas como leídas." });
       }
-
-      toast({ title: '🎉 ¡Todas las notificaciones marcadas como leídas!', description: `Se actualizaron ${docs.length} avisos en sistema.` });
     } catch (e: any) {
-      console.error("Error marking all notifications read:", e);
-      toast({ variant: 'destructive', title: 'Error al actualizar avisos', description: e?.message });
+      toast({ variant: 'destructive', title: "Error", description: e.message });
     } finally {
       setIsMarking(false);
     }
   };
 
-  // Abrir hilo de chat directo desde la notificación
-  const handleOpenChatFromSelected = () => {
-    if (!selectedNotification) return;
-    const n = selectedNotification;
-    const matchedUser = allUsers?.find(u => 
-      u.name.toLowerCase().includes(n.title.toLowerCase()) || 
-      n.message.toLowerCase().includes(u.name.toLowerCase()) ||
-      u.role === 'admin' || u.role === 'superadmin' || u.role === 'ventas'
-    ) || allUsers?.[0];
-
-    if (matchedUser) {
-      setActiveThreadContact({
-        id: matchedUser.id,
-        name: matchedUser.name,
-        avatarUrl: matchedUser.avatarUrl || '',
-        role: matchedUser.role,
-        email: matchedUser.email
-      });
-      setActiveThreadSubject(`Consulta sobre: ${n.title}`);
-      setIsThreadOpen(true);
-    } else {
-      setIsNewMessageOpen(true);
+  const handleOpenNotificationDetail = async (n: Notification) => {
+    setSelectedNotification(n);
+    if (!n.isRead && user && firestore && n.id) {
+      try {
+        const ref = doc(firestore, `users/${user.uid}/notifications`, n.id);
+        await updateDoc(ref, { isRead: true });
+      } catch (e) {
+        console.warn("Error marking read:", e);
+      }
     }
   };
 
-  // Descargar PDF de Cartera con Autenticación Directa
-  const handleDownloadPdfReport = () => {
-    if (!selectedNotification?.link) return;
-    window.open(selectedNotification.link, '_blank');
-  };
-
-  const handleMessageSentSuccess = (contactUser: AppUser, subject: string) => {
+  const handleStartDirectChat = (contactUser: AppUser) => {
     setActiveThreadContact({
       id: contactUser.id,
       name: contactUser.name,
-      avatarUrl: contactUser.avatarUrl || '',
+      avatarUrl: contactUser.avatarUrl,
       role: contactUser.role,
       email: contactUser.email
     });
-    setActiveThreadSubject(subject || 'Conversación Directa');
     setIsThreadOpen(true);
   };
 
+  const handleOpenOrderModal = (orderId: string) => {
+    setTimelineOrder({
+      id: orderId,
+      customerName: 'Pedido ' + orderId,
+      customerId: '',
+      salespersonId: '',
+      salespersonName: '',
+      totalAmount: 0,
+      amountPaid: 0,
+      status: 'Aprobado',
+      createdAt: serverTimestamp(),
+      orderDate: serverTimestamp(),
+      customerPhone: '',
+      items: [],
+      paymentStatus: 'Pendiente'
+    } as any);
+    setTimelineOrderId(orderId);
+  };
+
   return (
-    <div className="w-full max-w-[1600px] mx-auto flex flex-col gap-6 pb-32 px-2 sm:px-6 animate-in fade-in-50 duration-500">
-      {/* BARRA SUPERIOR DE CONSOLA V9.0 */}
-      <header className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-[2.5rem] border border-slate-200/80 shadow-lg">
-        <div className="space-y-1">
-          <div className="flex items-center gap-3">
-            <div className="h-11 w-11 rounded-2xl bg-slate-900 text-white flex items-center justify-center font-black shadow-md">
-              <Bell className="h-6 w-6 text-primary" />
-            </div>
-            <div>
-              <h1 className="text-xl font-black uppercase tracking-tight text-slate-900 flex items-center gap-2">
-                Centro de Comunicaciones <span className="text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-lg bg-primary/10 text-primary">v9.0 Executive</span>
-              </h1>
-              <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Consola Maestro de Notificaciones y Mensajería Directa.</p>
-            </div>
+    <div className="space-y-6 max-w-7xl mx-auto pb-12">
+      {/* HEADER PRINCIPAL */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-slate-900 text-white p-6 sm:p-8 rounded-[2.5rem] shadow-2xl relative overflow-hidden">
+        <div className="space-y-1 relative z-10">
+          <div className="flex items-center gap-2">
+            <Badge variant="outline" className="border-indigo-500/40 text-indigo-400 font-mono text-[9px] uppercase px-3 py-1">
+              CENTRO OMNICANAL 360°
+            </Badge>
+            {unreadCount > 0 && (
+              <Badge className="bg-rose-600 text-white font-mono text-[9px] font-black uppercase px-2.5 py-0.5 animate-pulse">
+                {unreadCount} SIN LEER
+              </Badge>
+            )}
           </div>
+          <h1 className="text-2xl sm:text-3xl font-black uppercase tracking-tight text-white">
+            Notificaciones & Chat de Equipo
+          </h1>
+          <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">
+            Comunicación instantánea, alertas de pedidos, chats directos y canales grupales por departamento
+          </p>
         </div>
 
-        <div className="flex items-center gap-3">
-          <Button 
+        <div className="flex flex-wrap items-center gap-2 relative z-10">
+          <Button
             onClick={() => setIsNewMessageOpen(true)}
-            className="h-12 px-6 rounded-2xl bg-primary hover:bg-primary/90 text-white font-black text-xs uppercase tracking-wider shadow-lg shadow-primary/20"
+            className="bg-white/10 hover:bg-white/20 text-white border border-white/20 font-black text-xs uppercase px-4 h-11 rounded-2xl flex items-center gap-2 shadow-sm"
           >
-            <MessageSquarePlus className="h-4 w-4 mr-2" /> Nuevo Mensaje Directo
+            <MessageSquarePlus className="h-4 w-4 text-emerald-400" /> Mensaje Directo
+          </Button>
+
+          <Button
+            onClick={() => setIsCreateGroupOpen(true)}
+            className="bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs uppercase px-4 h-11 rounded-2xl flex items-center gap-2 shadow-md"
+          >
+            <PlusCircle className="h-4 w-4" /> Crear Grupo
           </Button>
 
           {unreadCount > 0 && (
-            <Button 
-              onClick={handleMarkAllAsRead} 
-              variant="outline"
+            <Button
+              onClick={handleMarkAllAsRead}
               disabled={isMarking}
-              className="h-12 px-4 rounded-2xl border-slate-200 bg-slate-50 hover:bg-slate-100 font-black text-xs uppercase text-slate-800 shadow-xs"
+              variant="outline"
+              className="bg-emerald-600 hover:bg-emerald-700 text-white border-none font-black text-xs uppercase px-4 h-11 rounded-2xl flex items-center gap-2 shadow-md"
             >
-              {isMarking ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCheck className="h-4 w-4 mr-1.5 text-emerald-600" />}
-              Marcar Todos Leídos ({unreadCount})
+              {isMarking ? <Loader2 className="animate-spin h-4 w-4" /> : <CheckCheck className="h-4 w-4" />}
+              Limpiar Bandeja
             </Button>
           )}
         </div>
-      </header>
+      </div>
 
-      {/* LAYOUT PRINCIPAL DE 2 COLUMNAS ESTILO WORKSPACE */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        
-        {/* COLUMNA IZQUIERDA: BANDEJA EN VIVO Y FILTROS (4 COLUMNAS LG / 360PX) */}
-        <div className={cn(
-          "lg:col-span-4 flex flex-col gap-4 bg-white p-4 sm:p-5 rounded-[2.5rem] border border-slate-200/80 shadow-xl min-h-[750px]",
-          selectedNotification && "hidden lg:flex"
-        )}>
-          {/* BUSCADOR SPOTLIGHT */}
-          <div className="relative">
-            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-            <Input
-              placeholder="Buscar por título, categoría o mensaje..."
-              className="h-11 pl-10 rounded-xl bg-slate-50 border-slate-200 font-bold text-xs"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
-          </div>
+      {/* BARRA DE PESTAÑAS DE NAVEGACIÓN ADAPTATIVA */}
+      <div className="flex items-center gap-2 bg-white p-2 rounded-2xl border border-slate-200 shadow-sm overflow-x-auto">
+        <Button
+          onClick={() => setActiveTab('notifications')}
+          variant={activeTab === 'notifications' ? 'default' : 'ghost'}
+          className={cn(
+            'flex-1 font-black text-xs uppercase rounded-xl h-11 flex items-center justify-center gap-2 transition-all',
+            activeTab === 'notifications' ? 'bg-slate-900 text-white shadow-md' : 'text-slate-600 hover:bg-slate-50'
+          )}
+        >
+          <Bell className="h-4 w-4 text-indigo-400" />
+          <span>Notificaciones PWA</span>
+          {unreadCount > 0 && (
+            <Badge className="bg-rose-500 text-white text-[9px] font-black h-5 px-1.5 rounded-full">{unreadCount}</Badge>
+          )}
+        </Button>
 
-          {/* PÍLDORAS DE FILTRO RÁPIDO */}
-          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
-            {[
-              { id: 'todos', label: '🌐 Todos' },
-              { id: 'unread', label: `🔴 Sin Leer (${unreadCount})` },
-              { id: 'Facturación', label: '💳 Facturas' },
-              { id: 'Despacho', label: '🚚 Envíos' },
-              { id: 'Inventario', label: '📦 Stock' },
-            ].map(chip => (
-              <button
-                key={chip.id}
-                type="button"
-                onClick={() => {
-                  if (chip.id === 'unread') {
-                    setOnlyUnread(!onlyUnread);
-                  } else {
-                    setCategoryFilter(chip.id);
-                    setOnlyUnread(false);
+        <Button
+          onClick={() => setActiveTab('dms')}
+          variant={activeTab === 'dms' ? 'default' : 'ghost'}
+          className={cn(
+            'flex-1 font-black text-xs uppercase rounded-xl h-11 flex items-center justify-center gap-2 transition-all',
+            activeTab === 'dms' ? 'bg-slate-900 text-white shadow-md' : 'text-slate-600 hover:bg-slate-50'
+          )}
+        >
+          <MessageSquare className="h-4 w-4 text-emerald-400" />
+          <span>Chats Directos (1-a-1)</span>
+        </Button>
+
+        <Button
+          onClick={() => setActiveTab('groups')}
+          variant={activeTab === 'groups' ? 'default' : 'ghost'}
+          className={cn(
+            'flex-1 font-black text-xs uppercase rounded-xl h-11 flex items-center justify-center gap-2 transition-all',
+            activeTab === 'groups' ? 'bg-slate-900 text-white shadow-md' : 'text-slate-600 hover:bg-slate-50'
+          )}
+        >
+          <Users className="h-4 w-4 text-amber-400" />
+          <span>Canales & Grupos</span>
+        </Button>
+      </div>
+
+      {/* VISTA 1: NOTIFICACIONES PWA DE SISTEMA */}
+      {activeTab === 'notifications' && (
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 min-h-[550px]">
+          {/* COLUMNA IZQUIERDA: LISTA CON FILTROS */}
+          <div className="lg:col-span-5 space-y-4 bg-white p-5 rounded-[2rem] border border-slate-200/80 shadow-sm">
+            <div className="space-y-3">
+              <div className="relative">
+                <Search className="absolute left-3.5 top-3.5 h-4 w-4 text-slate-400" />
+                <Input
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  placeholder="Buscar notificación..."
+                  className="pl-10 h-11 rounded-2xl bg-slate-50 border-slate-200 text-xs font-bold"
+                />
+              </div>
+
+              <div className="flex items-center justify-between gap-2">
+                <select
+                  value={categoryFilter}
+                  onChange={(e) => setCategoryFilter(e.target.value)}
+                  className="h-9 px-3 rounded-xl bg-slate-50 border border-slate-200 text-[10px] font-black uppercase text-slate-700 outline-none flex-1"
+                >
+                  <option value="todos">TODAS LAS CATEGORÍAS</option>
+                  <option value="Pedidos">PEDIDOS</option>
+                  <option value="Despacho">DESPACHO</option>
+                  <option value="Facturación">FACTURACIÓN</option>
+                  <option value="Inventario">INVENTARIO</option>
+                  <option value="Clientes">CLIENTES</option>
+                </select>
+
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setOnlyUnread(!onlyUnread)}
+                  className={cn(
+                    'h-9 text-[9px] font-black uppercase px-3 rounded-xl border-slate-200',
+                    onlyUnread ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : 'text-slate-600'
+                  )}
+                >
+                  Solo No Leídas
+                </Button>
+              </div>
+            </div>
+
+            {/* LISTADO DE NOTIFICACIONES */}
+            <div className="space-y-2 max-h-[500px] overflow-y-auto custom-scrollbar pr-1">
+              {isLoadingInbox ? (
+                Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-16 w-full rounded-2xl" />)
+              ) : filteredNotifications.length === 0 ? (
+                <div className="p-8 text-center space-y-2 bg-slate-50/50 rounded-2xl border border-dashed border-slate-200">
+                  <Inbox className="h-8 w-8 text-slate-400 mx-auto" />
+                  <p className="text-xs font-black uppercase text-slate-700">Sin Notificaciones</p>
+                  <p className="text-[9px] font-bold text-slate-400 uppercase">No hay elementos que coincidan con la búsqueda</p>
+                </div>
+              ) : (
+                filteredNotifications.map((n) => {
+                  const isSelected = selectedNotification?.id === n.id;
+                  let formattedTime = 'Reciente';
+                  if (n.createdAt) {
+                    const rawDate = typeof (n.createdAt as any)?.toDate === 'function' ? (n.createdAt as any).toDate() : (n.createdAt as any);
+                    const d = rawDate instanceof Date ? rawDate : new Date(rawDate);
+                    if (!isNaN(d.getTime())) formattedTime = format(d, 'dd MMM, hh:mm a', { locale: es }).toUpperCase();
                   }
-                }}
-                className={cn(
-                  "px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all border shrink-0 cursor-pointer",
-                  (chip.id === 'unread' && onlyUnread) || categoryFilter === chip.id
-                    ? "bg-slate-900 text-white border-slate-900 shadow-xs"
-                    : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100 font-bold"
-                )}
-              >
-                {chip.label}
-              </button>
-            ))}
+
+                  return (
+                    <div
+                      key={n.id}
+                      onClick={() => handleOpenNotificationDetail(n)}
+                      className={cn(
+                        'p-4 rounded-2xl border transition-all cursor-pointer space-y-2',
+                        isSelected ? 'bg-indigo-50/80 border-indigo-300 ring-2 ring-indigo-500/20' : 'bg-white border-slate-200/80 hover:bg-slate-50/80',
+                        !n.isRead && 'border-l-4 border-l-rose-500 font-bold'
+                      )}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <Badge variant="secondary" className="bg-slate-100 font-mono text-[8px] font-black uppercase text-slate-700">
+                          {n.category || 'General'}
+                        </Badge>
+                        <span className="text-[9px] font-mono text-slate-400 font-bold">{formattedTime}</span>
+                      </div>
+
+                      <h4 className="text-xs font-black uppercase text-slate-900 truncate">{n.title}</h4>
+                      <p className="text-[11px] font-bold text-slate-600 line-clamp-2 leading-tight">{n.message}</p>
+                    </div>
+                  );
+                })
+              )}
+            </div>
           </div>
 
-          {/* LISTA DE TARJETAS DE NOTIFICACIÓN */}
-          <div className="flex-1 space-y-2.5 overflow-y-auto max-h-[620px] pr-1">
-            {isLoadingInbox ? (
-              Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-20 w-full rounded-2xl" />)
-            ) : filteredNotifications.length > 0 ? (
-              filteredNotifications.map(n => {
-                const isSelected = selectedNotification?.id === n.id;
-                const isPdf = n.title.toLowerCase().includes('cartera') || n.link?.includes('/api/reports');
-
-                return (
-                  <div
-                    key={n.id}
-                    onClick={() => handleSelectNotification(n)}
-                    className={cn(
-                      "p-4 rounded-2xl border transition-all cursor-pointer relative group flex flex-col gap-1.5",
-                      isSelected 
-                        ? "bg-slate-900 text-white border-slate-900 shadow-xl" 
-                        : n.isRead 
-                          ? "bg-slate-50/60 border-slate-200/80 hover:bg-slate-100/80" 
-                          : "bg-white border-primary/20 ring-1 ring-primary/10 shadow-sm"
-                    )}
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <Badge className={cn(
-                        "text-[8px] font-black uppercase tracking-widest px-2 py-0.5 rounded-md",
-                        isSelected 
-                          ? "bg-white/10 text-white" 
-                          : n.category === 'Facturación' ? 'bg-rose-100 text-rose-700' : 'bg-blue-100 text-blue-700'
-                      )}>
-                        {n.category}
-                      </Badge>
-
-                      <span className={cn(
-                        "text-[9px] font-mono font-bold",
-                        isSelected ? "text-slate-400" : "text-slate-400"
-                      )}>
-                        {n.createdAt?.toDate ? format(n.createdAt.toDate(), "dd/MM HH:mm") : 'Reciente'}
-                      </span>
-                    </div>
-
-                    <h3 className={cn(
-                      "text-xs font-black uppercase tracking-tight leading-snug line-clamp-1",
-                      isSelected ? "text-white" : "text-slate-900"
-                    )}>
-                      {n.title}
+          {/* COLUMNA DERECHA: DETALLE DE LA NOTIFICACIÓN SELECCIONADA */}
+          <div className="lg:col-span-7 bg-white p-6 sm:p-8 rounded-[2rem] border border-slate-200/80 shadow-sm flex flex-col justify-between">
+            {selectedNotification ? (
+              <div className="space-y-6">
+                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-4">
+                  <div className="space-y-1">
+                    <Badge className="bg-indigo-600 text-white font-mono text-[9px] font-black uppercase px-2.5 py-0.5">
+                      {selectedNotification.category || 'Aviso de Sistema'}
+                    </Badge>
+                    <h3 className="text-lg sm:text-xl font-black uppercase text-slate-900 tracking-tight">
+                      {selectedNotification.title}
                     </h3>
-
-                    <p className={cn(
-                      "text-[11px] font-medium line-clamp-2 leading-relaxed",
-                      isSelected ? "text-slate-300" : "text-slate-500"
-                    )}>
-                      {n.message}
-                    </p>
-
-                    {!n.isRead && (
-                      <span className="absolute top-4 right-4 h-2 w-2 rounded-full bg-rose-500 animate-pulse" />
-                    )}
                   </div>
-                );
-              })
+
+                  {selectedNotification.link && selectedNotification.link !== '#' && (
+                    <Button
+                      onClick={() => {
+                        const match = selectedNotification.link?.match(/orderId=([A-Za-z0-9-]+)/);
+                        if (match) {
+                          handleOpenOrderModal(match[1]);
+                        } else {
+                          router.push(selectedNotification.link!);
+                        }
+                      }}
+                      className="bg-slate-900 hover:bg-slate-800 text-white font-black text-xs uppercase px-4 h-10 rounded-xl flex items-center gap-2 shadow-sm"
+                    >
+                      <ExternalLink className="h-4 w-4 text-emerald-400" /> Abrir Módulo
+                    </Button>
+                  )}
+                </div>
+
+                <div className="bg-slate-50 p-6 rounded-2xl border border-slate-100 space-y-3">
+                  <p className="text-xs sm:text-sm font-bold text-slate-800 leading-relaxed uppercase">
+                    {selectedNotification.message}
+                  </p>
+                </div>
+              </div>
             ) : (
-              <div className="h-60 text-center flex flex-col items-center justify-center gap-2 opacity-50">
-                <Inbox className="h-10 w-10 text-slate-400" />
-                <p className="text-xs font-black uppercase text-slate-500">Sin avisos en esta categoría.</p>
+              <div className="my-auto text-center space-y-3 p-12">
+                <Inbox className="h-12 w-12 text-slate-300 mx-auto" />
+                <h4 className="text-sm font-black uppercase text-slate-700">Selecciona una Notificación</h4>
+                <p className="text-xs text-slate-400 uppercase font-bold max-w-xs mx-auto">
+                  Elige cualquier aviso de la lista para inspeccionar sus detalles e interactuar.
+                </p>
               </div>
             )}
           </div>
         </div>
+      )}
 
-        {/* COLUMNA DERECHA: LECTOR INMERSIVO DE DETALLE Y ACCIONES (8 COLUMNAS LG) */}
-        <div className={cn(
-          "lg:col-span-8 bg-white rounded-[2.5rem] border border-slate-200/80 shadow-xl min-h-[750px] flex flex-col overflow-hidden",
-          !selectedNotification && "hidden lg:flex"
-        )}>
-          {selectedNotification ? (
-            <div className="flex-1 flex flex-col h-full">
-              
-              {/* BOTÓN VOLVER EN MÓVILES */}
-              <div className="p-4 border-b border-slate-100 lg:hidden bg-slate-50 flex items-center gap-2">
-                <Button 
-                  size="sm" 
-                  variant="ghost" 
-                  onClick={() => setSelectedNotification(null)}
-                  className="font-black text-xs uppercase"
+      {/* VISTA 2: MENSAJERÍA DIRECTA 1-A-1 */}
+      {activeTab === 'dms' && (
+        <div className="bg-white p-6 sm:p-8 rounded-[2rem] border border-slate-200/80 shadow-sm space-y-6">
+          <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-100 pb-4">
+            <div>
+              <h3 className="text-lg font-black uppercase text-slate-900 tracking-tight flex items-center gap-2">
+                <MessageSquare className="h-5 w-5 text-emerald-600" /> Directorio de Mensajería Directa
+              </h3>
+              <p className="text-xs text-slate-500 font-bold uppercase mt-0.5">
+                Chatea en privado de 1-a-1 con cualquier asesor, almacenista o superadministrador
+              </p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {allUsers?.map((u) => {
+              if (u.id === currentUser?.id) return null;
+              return (
+                <div
+                  key={u.id}
+                  onClick={() => handleStartDirectChat(u)}
+                  className="p-4 rounded-2xl border border-slate-200/80 hover:border-emerald-500/50 hover:bg-emerald-50/30 transition-all cursor-pointer flex items-center justify-between gap-3 group shadow-sm"
                 >
-                  <ArrowLeft className="h-4 w-4 mr-2" /> Volver a la Bandeja
-                </Button>
-              </div>
+                  <div className="flex items-center gap-3 min-w-0">
+                    <Avatar className="h-11 w-11 rounded-2xl border border-slate-200 shrink-0">
+                      <AvatarImage src={u.avatarUrl} />
+                      <AvatarFallback className="bg-slate-900 text-white font-black text-xs">
+                        {u.name.substring(0, 2).toUpperCase()}
+                      </AvatarFallback>
+                    </Avatar>
 
-              {/* ENCABEZADO DEL LECTOR MAESTRO */}
-              <div className="bg-slate-900 text-white p-8 space-y-4">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div className="flex items-center gap-2">
-                    <Badge className="bg-primary text-white font-black text-[9px] uppercase tracking-widest px-3 py-1 rounded-lg">
-                      {selectedNotification.category}
-                    </Badge>
-                    <span className="text-[10px] font-mono font-bold text-slate-400 flex items-center gap-1">
-                      <Clock className="h-3.5 w-3.5" /> 
-                      {selectedNotification.createdAt?.toDate 
-                        ? format(selectedNotification.createdAt.toDate(), "dd 'de' MMMM 'de' yyyy, hh:mm a", { locale: es }) 
-                        : 'Fecha Reciente'}
-                    </span>
+                    <div className="min-w-0">
+                      <h4 className="text-xs font-black uppercase text-slate-900 truncate group-hover:text-emerald-700 transition-colors">
+                        {u.name}
+                      </h4>
+                      <Badge variant="secondary" className="text-[8px] font-mono font-black uppercase px-2 h-4 bg-slate-100">
+                        {u.role}
+                      </Badge>
+                    </div>
                   </div>
+
+                  <ChevronRight className="h-5 w-5 text-slate-400 group-hover:text-emerald-600 transition-transform group-hover:translate-x-1 shrink-0" />
                 </div>
-
-                <h2 className="text-xl sm:text-2xl font-black uppercase tracking-tight text-white leading-snug break-words">
-                  {selectedNotification.title}
-                </h2>
-              </div>
-
-              {/* CUERPO PRINCIPAL DEL MENSAJE */}
-              <div className="flex-1 p-8 space-y-6 overflow-y-auto">
-                <Card className="rounded-3xl border-slate-200/80 shadow-xs bg-slate-50/50">
-                  <CardContent className="p-6 space-y-3">
-                    <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-2">
-                      <FileText className="h-4 w-4 text-slate-500" /> Resumen del Documento / Alerta
-                    </span>
-                    <div className="p-5 rounded-2xl bg-white border border-slate-200/80 text-slate-800 font-semibold text-sm leading-relaxed shadow-sm">
-                      {selectedNotification.message}
-                    </div>
-                  </CardContent>
-                </Card>
-
-                {/* ACCIÓN PRINCIPAL DE DESCARGA DIRECTA DE PDF */}
-                {(selectedNotification.link?.includes('/api/reports') || selectedNotification.title.toLowerCase().includes('cartera')) && (
-                  <Card className="rounded-3xl border-emerald-200 bg-emerald-50/60 p-6 shadow-sm">
-                    <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-                      <div className="space-y-1">
-                        <h4 className="text-sm font-black uppercase text-emerald-950 flex items-center gap-2">
-                          <FileText className="h-5 w-5 text-emerald-600" /> Estado de Cartera en PDF Disponible
-                        </h4>
-                        <p className="text-xs font-bold text-emerald-700">El reporte oficial consolidado de cuentas por cobrar está listo para descarga.</p>
-                      </div>
-
-                      <Button
-                        onClick={handleDownloadPdfReport}
-                        className="h-13 px-8 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs uppercase tracking-wider shadow-lg shadow-emerald-600/20 shrink-0 flex items-center gap-2"
-                      >
-                        <Download className="h-4 w-4 text-emerald-200" /> Descargar Estado de Cartera PDF
-                      </Button>
-                    </div>
-                  </Card>
-                )}
-
-                {/* ACCIÓN SECUNDARIA NAVEGACIÓN A SECCIÓN AFECTADA */}
-                {selectedNotification.link && selectedNotification.link !== '#' && !selectedNotification.link.includes('/api/reports') && (
-                  <Button
-                    onClick={() => selectedNotification.link && router.push(selectedNotification.link)}
-                    variant="outline"
-                    className="h-12 px-6 rounded-2xl border-slate-300 font-black text-xs uppercase tracking-wider text-slate-900 hover:bg-slate-100 flex items-center gap-2"
-                  >
-                    <ExternalLink className="h-4 w-4" /> Ir a la Sección Afectada ({selectedNotification.category})
-                  </Button>
-                )}
-              </div>
-
-              {/* BARRA INFERIOR DE CHAT E INTERACCIÓN EN 2 VÍAS */}
-              <div className="p-6 bg-slate-50 border-t border-slate-200/80 flex items-center gap-3">
-                <Button
-                  onClick={handleOpenChatFromSelected}
-                  className="w-full h-13 rounded-2xl bg-primary hover:bg-primary/90 text-white font-black text-xs uppercase tracking-wider shadow-md flex items-center justify-center gap-2"
-                >
-                  <MessageSquare className="h-5 w-5" /> Abrir Chat Directo en 2 Vías con Asesor
-                </Button>
-              </div>
-
-            </div>
-          ) : (
-            <div className="flex-1 flex flex-col items-center justify-center p-12 text-center opacity-40 gap-3">
-              <Bell className="h-16 w-16 text-slate-400" />
-              <h3 className="text-lg font-black uppercase text-slate-700">Seleccione un aviso para inspeccionar</h3>
-              <p className="text-xs font-bold text-slate-400 uppercase tracking-widest max-w-sm">Haga clic en cualquier elemento de la columna izquierda para abrir su vista inmersiva.</p>
-            </div>
-          )}
+              );
+            })}
+          </div>
         </div>
+      )}
 
-      </div>
+      {/* VISTA 3: CANALES GRUPALES Y DEPARTAMENTOS */}
+      {activeTab === 'groups' && (
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 min-h-[550px]">
+          {/* LISTA DE GRUPOS */}
+          <div className="lg:col-span-4 bg-white p-5 rounded-[2rem] border border-slate-200/80 shadow-sm space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-black uppercase text-slate-900 flex items-center gap-2">
+                <Users className="h-4 w-4 text-indigo-600" /> Canales de Equipo
+              </h3>
+              <Button
+                size="sm"
+                onClick={() => setIsCreateGroupOpen(true)}
+                className="h-8 text-[9px] font-black uppercase px-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white"
+              >
+                + Nuevo
+              </Button>
+            </div>
 
-      {/* DIÁLOGOS DE MENSAJERÍA DIRECTA */}
-      <NewMessageDialog 
-        isOpen={isNewMessageOpen} 
-        onOpenChange={setIsNewMessageOpen} 
-        allUsers={allUsers || []} 
-        onMessageSent={handleMessageSentSuccess} 
+            <div className="space-y-2 max-h-[480px] overflow-y-auto custom-scrollbar">
+              {dbGroups?.map((g) => {
+                const isSelected = selectedGroup?.id === g.id;
+                return (
+                  <div
+                    key={g.id}
+                    onClick={() => setSelectedGroup(g)}
+                    className={cn(
+                      'p-4 rounded-2xl border transition-all cursor-pointer space-y-1',
+                      isSelected ? 'bg-indigo-50/80 border-indigo-300 ring-2 ring-indigo-500/20' : 'bg-white border-slate-200/80 hover:bg-slate-50'
+                    )}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs font-black uppercase text-slate-900 flex items-center gap-1.5">
+                        <Hash className="h-3.5 w-3.5 text-indigo-600" /> {g.name}
+                      </span>
+                      {g.isSystemDefault && (
+                        <Badge variant="outline" className="text-[7px] font-mono font-black uppercase px-1.5 h-4 border-indigo-200 text-indigo-700">
+                          OFICIAL
+                        </Badge>
+                      )}
+                    </div>
+                    <p className="text-[10px] font-bold text-slate-500 uppercase line-clamp-1">{g.description}</p>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* VENTANA DEL CANAL SELECCIONADO */}
+          <div className="lg:col-span-8 min-h-[500px]">
+            {selectedGroup ? (
+              <GroupChatWindow
+                channel={selectedGroup}
+                onSelectOrderRef={(orderId) => handleOpenOrderModal(orderId)}
+              />
+            ) : (
+              <div className="bg-white p-12 rounded-[2rem] border border-slate-200/80 h-full flex flex-col items-center justify-center text-center space-y-3">
+                <Users className="h-12 w-12 text-slate-300" />
+                <h4 className="text-sm font-black uppercase text-slate-800">Selecciona un Canal Grupal</h4>
+                <p className="text-xs text-slate-400 font-bold uppercase max-w-xs">
+                  Elige un canal corporativo de la izquierda para ver los mensajes del equipo y colaborar.
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* DIÁLOGO MODAL PARA MENSAJE DIRECTO 1-A-1 */}
+      {isThreadOpen && activeThreadContact && (
+        <DirectMessageThreadDialog
+          isOpen={isThreadOpen}
+          onOpenChange={setIsThreadOpen}
+          contact={activeThreadContact}
+        />
+      )}
+
+      {/* DIÁLOGO PARA NUEVO MENSAJE */}
+      <NewMessageDialog
+        isOpen={isNewMessageOpen}
+        onOpenChange={setIsNewMessageOpen}
+        allUsers={allUsers || []}
+        onMessageSent={(contactUser) => handleStartDirectChat(contactUser)}
       />
 
-      {activeThreadContact && (
-        <DirectMessageThreadDialog 
-          isOpen={isThreadOpen} 
-          onOpenChange={setIsThreadOpen} 
-          contact={activeThreadContact} 
-          initialSubject={activeThreadSubject} 
+      {/* DIÁLOGO PARA CREAR GRUPO */}
+      <CreateGroupDialog
+        isOpen={isCreateGroupOpen}
+        onOpenChange={setIsCreateGroupOpen}
+        onGroupCreated={(id) => {
+          const newG = dbGroups?.find(g => g.id === id);
+          if (newG) setSelectedGroup(newG);
+        }}
+      />
+
+      {/* MODAL DE TRAZA 360° SI SE MENCIONA UN PEDIDO */}
+      {timelineOrder && (
+        <OrderTimelineModal
+          order={timelineOrder}
+          isOpen={!!timelineOrderId}
+          onOpenChange={(open) => !open && setTimelineOrderId(null)}
         />
       )}
     </div>
