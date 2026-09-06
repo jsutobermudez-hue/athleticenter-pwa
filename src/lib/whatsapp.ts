@@ -7,16 +7,27 @@
  * Los mensajes se registrarán en la consola del navegador/servidor para fines de auditoría.
  */
 export async function sendWhatsAppMessage(phoneNumber: string, message: string) {
-    // Registro táctico en logs
-    console.log(`[WHATSAPP SIMULATOR] Destinatario: ${phoneNumber}`);
-    console.log(`[WHATSAPP SIMULATOR] Cuerpo: ${message}`);
-    
-    // Retornamos éxito simulado para no bloquear los flujos de pedidos y cobranza
-    return { 
-        success: true, 
-        data: { 
-            messageId: `simulated_at_${Date.now()}`,
-            status: 'queued_locally'
-        } 
-    };
+    try {
+        const { sendBackgroundWhatsAppMessage } = await import('./whatsapp-gateway');
+        const res = await sendBackgroundWhatsAppMessage({
+            phone: phoneNumber,
+            message: message
+        });
+        
+        return { 
+            success: res.success, 
+            data: { 
+                messageId: res.messageId || `sent_at_${Date.now()}`,
+                status: res.success ? 'sent' : 'failed'
+            } 
+        };
+    } catch (error) {
+        console.error('[WhatsApp] Fallo en el envío de mensaje:', error);
+        return { 
+            success: false, 
+            data: { 
+                status: 'error'
+            } 
+        };
+    }
 }

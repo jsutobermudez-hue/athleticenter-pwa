@@ -175,9 +175,12 @@ export function ConfirmPaymentDialog({ order }: { order: Order }) {
         
         const baseAbono = reportedPayment?.baseAmount || data.amount;
         const actualCash = reportedPayment?.amount || data.amount; 
+        const commissionFee = (reportedPayment as any)?.bankCommission || 0;
+        const effectiveAbono = baseAbono + commissionFee;
         
-        const newTotalPaid = currentPaid + baseAbono;
-        const isFullyPaid = newTotalPaid >= (order.totalAmount - 0.05);
+        const newTotalPaid = currentPaid + effectiveAbono;
+        const isFullyPaid = newTotalPaid >= (order.totalAmount - 0.50);
+        const surplusAmount = Math.max(0, newTotalPaid - order.totalAmount);
 
         const paymentRef = reportedPayment
           ? doc(firestore, `orders/${order.id}/payments`, reportedPayment.id)
@@ -187,6 +190,7 @@ export function ConfirmPaymentDialog({ order }: { order: Order }) {
           ...data,
           referenceNumber: data.referenceNumber || '',
           notes: data.notes || '',
+          surplusAmount: surplusAmount > 0 ? surplusAmount : 0,
           status: 'verified',
           verifiedByUserId: currentUser.id,
           verifiedByName: currentUser.name || authUser.displayName || authUser.email || 'Administración Central',
@@ -210,10 +214,16 @@ export function ConfirmPaymentDialog({ order }: { order: Order }) {
             updatedAt: serverTimestamp()
         });
 
-        transaction.update(customerRef, {
+        // ACTUALIZACIÓN DE CRÉDITO Y BILLETERA DE SALDO A FAVOR DEL CLIENTE
+        const customerUpdates: any = {
             creditUsed: increment(-baseAbono),
             updatedAt: serverTimestamp()
-        });
+        };
+        if (surplusAmount > 0) {
+            customerUpdates.creditBalance = increment(surplusAmount);
+        }
+
+        transaction.update(customerRef, customerUpdates);
 
         const rate = order.salespersonCommissionRate || 0.05;
         const commAmount = actualCash * rate;

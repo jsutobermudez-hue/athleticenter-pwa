@@ -89,6 +89,8 @@ export default function NotificationsPage() {
   const [timelineOrderId, setTimelineOrderId] = useState<string | null>(null);
   const [timelineOrder, setTimelineOrder] = useState<Order | null>(null);
 
+  const [mobileDetailView, setMobileDetailView] = useState(false);
+
   // Consulta de Notificaciones del Usuario
   const notificationsQuery = useMemoFirebase(
     () =>
@@ -181,6 +183,7 @@ export default function NotificationsPage() {
 
   const handleOpenNotificationDetail = async (n: Notification) => {
     setSelectedNotification(n);
+    setMobileDetailView(true);
     if (!n.isRead && user && firestore && n.id) {
       try {
         const ref = doc(firestore, `users/${user.uid}/notifications`, n.id);
@@ -222,39 +225,39 @@ export default function NotificationsPage() {
   };
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto pb-12">
-      {/* HEADER PRINCIPAL */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-slate-900 text-white p-6 sm:p-8 rounded-[2.5rem] shadow-2xl relative overflow-hidden">
-        <div className="space-y-1 relative z-10">
+    <div className="space-y-6 max-w-7xl mx-auto pb-12 w-full overflow-hidden px-1">
+      {/* HEADER PRINCIPAL RESPONSIVO */}
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-slate-900 text-white p-5 sm:p-7 rounded-[2rem] shadow-xl relative overflow-hidden w-full max-w-full">
+        <div className="space-y-1 relative z-10 min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <Badge variant="outline" className="border-indigo-500/40 text-indigo-400 font-mono text-[9px] uppercase px-3 py-1">
+            <Badge variant="outline" className="border-indigo-500/40 text-indigo-400 font-mono text-[9px] uppercase px-2.5 py-0.5">
               CENTRO OMNICANAL 360°
             </Badge>
             {unreadCount > 0 && (
-              <Badge className="bg-rose-600 text-white font-mono text-[9px] font-black uppercase px-2.5 py-0.5 animate-pulse">
+              <Badge className="bg-rose-600 text-white font-mono text-[9px] font-black uppercase px-2 py-0.5 animate-pulse">
                 {unreadCount} SIN LEER
               </Badge>
             )}
           </div>
-          <h1 className="text-2xl sm:text-3xl font-black uppercase tracking-tight text-white">
+          <h1 className="text-xl sm:text-2xl lg:text-3xl font-black uppercase tracking-tight text-white truncate">
             Notificaciones & Chat de Equipo
           </h1>
-          <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">
-            Comunicación instantánea, alertas de pedidos, chats directos y canales grupales por departamento
+          <p className="text-[11px] sm:text-xs text-slate-400 font-bold uppercase tracking-wider">
+            Comunicación instantánea, alertas de pedidos, chats directos y canales grupales
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 relative z-10">
+        <div className="flex flex-wrap items-center gap-2 relative z-10 shrink-0">
           <Button
             onClick={() => setIsNewMessageOpen(true)}
-            className="bg-white/10 hover:bg-white/20 text-white border border-white/20 font-black text-xs uppercase px-4 h-11 rounded-2xl flex items-center gap-2 shadow-sm"
+            className="bg-white/10 hover:bg-white/20 text-white border border-white/20 font-black text-[10px] sm:text-xs uppercase px-3.5 h-10 rounded-xl flex items-center gap-1.5 shadow-sm"
           >
             <MessageSquarePlus className="h-4 w-4 text-emerald-400" /> Mensaje Directo
           </Button>
 
           <Button
             onClick={() => setIsCreateGroupOpen(true)}
-            className="bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs uppercase px-4 h-11 rounded-2xl flex items-center gap-2 shadow-md"
+            className="bg-indigo-600 hover:bg-indigo-700 text-white font-black text-[10px] sm:text-xs uppercase px-3.5 h-10 rounded-xl flex items-center gap-1.5 shadow-md"
           >
             <PlusCircle className="h-4 w-4" /> Crear Grupo
           </Button>
@@ -264,7 +267,7 @@ export default function NotificationsPage() {
               onClick={handleMarkAllAsRead}
               disabled={isMarking}
               variant="outline"
-              className="bg-emerald-600 hover:bg-emerald-700 text-white border-none font-black text-xs uppercase px-4 h-11 rounded-2xl flex items-center gap-2 shadow-md"
+              className="bg-emerald-600 hover:bg-emerald-700 text-white border-none font-black text-[10px] sm:text-xs uppercase px-3.5 h-10 rounded-xl flex items-center gap-1.5 shadow-md"
             >
               {isMarking ? <Loader2 className="animate-spin h-4 w-4" /> : <CheckCheck className="h-4 w-4" />}
               Limpiar Bandeja
@@ -317,9 +320,12 @@ export default function NotificationsPage() {
 
       {/* VISTA 1: NOTIFICACIONES PWA DE SISTEMA */}
       {activeTab === 'notifications' && (
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 min-h-[550px]">
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-start">
           {/* COLUMNA IZQUIERDA: LISTA CON FILTROS */}
-          <div className="lg:col-span-5 space-y-4 bg-white p-5 rounded-[2rem] border border-slate-200/80 shadow-sm">
+          <div className={cn(
+            "md:col-span-5 space-y-4 bg-white p-4 sm:p-5 rounded-[2rem] border border-slate-200/80 shadow-sm",
+            mobileDetailView && "hidden md:block"
+          )}>
             <div className="space-y-3">
               <div className="relative">
                 <Search className="absolute left-3.5 top-3.5 h-4 w-4 text-slate-400" />
@@ -335,7 +341,7 @@ export default function NotificationsPage() {
                 <select
                   value={categoryFilter}
                   onChange={(e) => setCategoryFilter(e.target.value)}
-                  className="h-9 px-3 rounded-xl bg-slate-50 border border-slate-200 text-[10px] font-black uppercase text-slate-700 outline-none flex-1"
+                  className="h-9 px-3 rounded-xl bg-slate-50 border border-slate-200 text-[10px] font-black uppercase text-slate-700 outline-none flex-1 min-w-0"
                 >
                   <option value="todos">TODAS LAS CATEGORÍAS</option>
                   <option value="Pedidos">PEDIDOS</option>
@@ -350,7 +356,7 @@ export default function NotificationsPage() {
                   size="sm"
                   onClick={() => setOnlyUnread(!onlyUnread)}
                   className={cn(
-                    'h-9 text-[9px] font-black uppercase px-3 rounded-xl border-slate-200',
+                    'h-9 text-[9px] font-black uppercase px-2.5 rounded-xl border-slate-200 shrink-0',
                     onlyUnread ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : 'text-slate-600'
                   )}
                 >
@@ -360,7 +366,7 @@ export default function NotificationsPage() {
             </div>
 
             {/* LISTADO DE NOTIFICACIONES */}
-            <div className="space-y-2 max-h-[500px] overflow-y-auto custom-scrollbar pr-1">
+            <div className="space-y-2 max-h-[480px] overflow-y-auto custom-scrollbar pr-1">
               {isLoadingInbox ? (
                 Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-16 w-full rounded-2xl" />)
               ) : filteredNotifications.length === 0 ? (
@@ -406,19 +412,43 @@ export default function NotificationsPage() {
           </div>
 
           {/* COLUMNA DERECHA: DETALLE DE LA NOTIFICACIÓN SELECCIONADA */}
-          <div className="lg:col-span-7 bg-white p-6 sm:p-8 rounded-[2rem] border border-slate-200/80 shadow-sm flex flex-col justify-between">
+          <div className={cn(
+            "md:col-span-7 bg-white p-5 sm:p-7 rounded-[2rem] border border-slate-200/80 shadow-sm flex flex-col justify-between min-h-[300px]",
+            !mobileDetailView && "hidden md:flex"
+          )}>
             {selectedNotification ? (
               <div className="space-y-6">
-                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-4">
-                  <div className="space-y-1">
+                {/* BOTÓN VOLVER EN MÓVIL */}
+                <div className="md:hidden">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setMobileDetailView(false)}
+                    className="font-black text-xs uppercase rounded-xl border-slate-200 text-slate-700 flex items-center gap-2"
+                  >
+                    <ArrowLeft className="h-4 w-4 text-indigo-600" /> Volver a la Bandeja
+                  </Button>
+                </div>
+
+                <div className="space-y-3 border-b border-slate-100 pb-4">
+                  <div className="flex items-center gap-2">
                     <Badge className="bg-indigo-600 text-white font-mono text-[9px] font-black uppercase px-2.5 py-0.5">
                       {selectedNotification.category || 'Aviso de Sistema'}
                     </Badge>
-                    <h3 className="text-lg sm:text-xl font-black uppercase text-slate-900 tracking-tight">
-                      {selectedNotification.title}
-                    </h3>
                   </div>
+                  <h3 className="text-base sm:text-xl font-black uppercase text-slate-900 tracking-tight leading-snug">
+                    {selectedNotification.title}
+                  </h3>
+                </div>
 
+                <div className="bg-slate-50 p-5 sm:p-6 rounded-2xl border border-slate-100 space-y-3">
+                  <p className="text-xs sm:text-sm font-bold text-slate-800 leading-relaxed uppercase">
+                    {selectedNotification.message}
+                  </p>
+                </div>
+
+                {/* ACCIONES AL PIE */}
+                <div className="pt-4 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3">
                   {selectedNotification.link && selectedNotification.link !== '#' && (
                     <Button
                       onClick={() => {
@@ -429,24 +459,26 @@ export default function NotificationsPage() {
                           router.push(selectedNotification.link!);
                         }
                       }}
-                      className="bg-slate-900 hover:bg-slate-800 text-white font-black text-xs uppercase px-4 h-10 rounded-xl flex items-center gap-2 shadow-sm"
+                      className="bg-slate-900 hover:bg-slate-800 text-white font-black text-xs uppercase px-4 h-10 rounded-xl flex items-center gap-2 shadow-sm w-full sm:w-auto"
                     >
-                      <ExternalLink className="h-4 w-4 text-emerald-400" /> Abrir Módulo
+                      <ExternalLink className="h-4 w-4 text-emerald-400" /> Abrir Módulo Afectado
                     </Button>
                   )}
-                </div>
 
-                <div className="bg-slate-50 p-6 rounded-2xl border border-slate-100 space-y-3">
-                  <p className="text-xs sm:text-sm font-bold text-slate-800 leading-relaxed uppercase">
-                    {selectedNotification.message}
-                  </p>
+                  <Button
+                    onClick={() => setActiveTab('dms')}
+                    variant="outline"
+                    className="border-indigo-200 text-indigo-700 bg-indigo-50/50 hover:bg-indigo-100 font-black text-xs uppercase px-4 h-10 rounded-xl flex items-center gap-2 w-full sm:w-auto"
+                  >
+                    <MessageSquare className="h-4 w-4 text-indigo-600" /> Abrir Chat Directo
+                  </Button>
                 </div>
               </div>
             ) : (
-              <div className="my-auto text-center space-y-3 p-12">
-                <Inbox className="h-12 w-12 text-slate-300 mx-auto" />
-                <h4 className="text-sm font-black uppercase text-slate-700">Selecciona una Notificación</h4>
-                <p className="text-xs text-slate-400 uppercase font-bold max-w-xs mx-auto">
+              <div className="my-auto text-center space-y-3 p-8 sm:p-12">
+                <Inbox className="h-10 w-10 text-slate-300 mx-auto" />
+                <h4 className="text-xs sm:text-sm font-black uppercase text-slate-700">Selecciona una Notificación</h4>
+                <p className="text-[11px] text-slate-400 uppercase font-bold max-w-xs mx-auto">
                   Elige cualquier aviso de la lista para inspeccionar sus detalles e interactuar.
                 </p>
               </div>
