@@ -8,6 +8,7 @@ import { ai } from '@/ai/genkit';
 import { z } from 'zod';
 import { collection, getDocs, query, where, limit, orderBy } from 'firebase/firestore';
 import { initializeFirebaseServer } from '@/firebase/server-init';
+import { getEffectiveCashReceived } from '@/lib/billing';
 
 const AIAnalystInputSchema = z.object({
   query: z.string().describe('Consulta o pregunta del usuario sobre el negocio.'),
@@ -1404,7 +1405,8 @@ async function executeDirectFirestoreAnalyst(queryStr: string): Promise<{ answer
     const products = productsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
     const customers = customersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
 
-    const validOrders = orders.filter((o: any) => o.status !== 'Cancelado' && o.status !== 'Rechazado' && o.status !== 'Borrador');
+    const VALID_SALES_STATUSES = ['Entregado', 'Completado', 'Despachado', 'Pagado', 'Aprobado', 'En Preparación', 'En Verificación'];
+    const validOrders = orders.filter((o: any) => VALID_SALES_STATUSES.includes(o.status));
     const isPdfRequested = cleanQ.includes('pdf') || cleanQ.includes('descargar') || cleanQ.includes('informe');
 
     // 1. INTENT: VENDEDORES / RENDIMIENTO DE ASESORES
@@ -1442,7 +1444,7 @@ async function executeDirectFirestoreAnalyst(queryStr: string): Promise<{ answer
       const debtorMap: Record<string, { name: string; debt: number; count: number }> = {};
 
       validOrders.forEach((o: any) => {
-        const paid = Number(o.amountPaid || o.totalCashReceived || 0);
+        const paid = getEffectiveCashReceived(o);
         const total = Number(o.totalAmount || 0);
         const debt = Math.max(0, total - paid);
 

@@ -48,7 +48,7 @@ export function SalesTrendChart({ orders, isLoading = false }: SalesTrendChartPr
     if (!orders) return [];
 
     const now = new Date();
-    const VALID_SALES_STATUSES = ['Entregado', 'Completado', 'Despachado', 'Pagado', 'Aprobado', 'En Preparación'];
+    const VALID_SALES_STATUSES = ['Entregado', 'Completado', 'Despachado', 'Pagado', 'Aprobado', 'En Preparación', 'En Verificación'];
 
     if (period === '7d') {
       const days = Array.from({ length: 7 }, (_, i) => startOfDay(subDays(now, 6 - i)));

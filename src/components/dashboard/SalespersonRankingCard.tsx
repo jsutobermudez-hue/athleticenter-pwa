@@ -61,7 +61,7 @@ export function SalespersonRankingCard({ orders }: { orders: Order[] }) {
         const startOfWeek = new Date();
         startOfWeek.setDate(now.getDate() - 7);
         const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-        const VALID_SALES_STATUSES = ['Entregado', 'Completado', 'Despachado', 'Pagado', 'Aprobado', 'En Preparación'];
+        const VALID_SALES_STATUSES = ['Entregado', 'Completado', 'Despachado', 'Pagado', 'Aprobado', 'En Preparación', 'En Verificación'];
 
         let parsedStart: Date | null = null;
         let parsedEnd: Date | null = null;

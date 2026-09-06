@@ -27,6 +27,7 @@ import { OrderTrackerTimeline } from '@/components/dashboard/OrderTrackerTimelin
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { cn } from '@/lib/utils';
+import { getSalesDate } from '@/lib/billing';
 
 export default function ClientDashboard() {
     const router = useRouter();
@@ -44,8 +45,8 @@ export default function ClientDashboard() {
     const latestOrder = useMemo(() => {
         if (!myOrders || myOrders.length === 0) return null;
         return [...myOrders].sort((a, b) => {
-            const dateA = a.createdAt ? (typeof a.createdAt.toDate === 'function' ? a.createdAt.toDate() : new Date(a.createdAt as any)) : new Date(0);
-            const dateB = b.createdAt ? (typeof b.createdAt.toDate === 'function' ? b.createdAt.toDate() : new Date(b.createdAt as any)) : new Date(0);
+            const dateA = getSalesDate(a);
+            const dateB = getSalesDate(b);
             return dateB.getTime() - dateA.getTime();
         })[0];
     }, [myOrders]);
@@ -81,7 +82,7 @@ export default function ClientDashboard() {
             return true;
         };
 
-        const filteredOrders = myOrders.filter(o => isDateInPeriod(o.createdAt || o.orderDate || o.receptionDate));
+        const filteredOrders = myOrders.filter(o => isDateInPeriod(getSalesDate(o)));
 
         return {
             balance: customerProfile?.creditUsed || 0,

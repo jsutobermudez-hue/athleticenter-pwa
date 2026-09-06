@@ -104,7 +104,7 @@ export function ExecutiveMetricsSuite({ orders }: ExecutiveMetricsSuiteProps) {
 
         if (!selectedBarOrders) {
             const now = new Date();
-            const VALID_SALES_STATUSES = ['Entregado', 'Completado', 'Despachado', 'Pagado', 'Aprobado', 'En Preparación'];
+            const VALID_SALES_STATUSES = ['Entregado', 'Completado', 'Despachado', 'Pagado', 'Aprobado', 'En Preparación', 'En Verificación'];
 
             baseList = orders.filter(o => {
                 const oDate = convertToDate(o.receptionDate || o.approvalDate || o.createdAt || o.orderDate);
@@ -157,7 +157,7 @@ export function ExecutiveMetricsSuite({ orders }: ExecutiveMetricsSuiteProps) {
         if (!orders) return { chartPoints: [], matrixRows: [], totals: { sales: 0, cash: 0, pending: 0, dispatched: 0, cancelled: 0, totalOrders: 0, avgTicket: 0 } };
 
         const now = new Date();
-        const VALID_SALES_STATUSES = ['Entregado', 'Completado', 'Despachado', 'Pagado', 'Aprobado', 'En Preparación'];
+        const VALID_SALES_STATUSES = ['Entregado', 'Completado', 'Despachado', 'Pagado', 'Aprobado', 'En Preparación', 'En Verificación'];
 
         let periodsList: { dateLabel: string; start: Date; end: Date; rawDate: Date }[] = [];
 

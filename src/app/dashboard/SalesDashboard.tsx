@@ -27,6 +27,9 @@ import { Badge } from '@/components/ui/badge';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { cn } from '@/lib/utils';
+import { getSalesDate } from '@/lib/billing';
+
+const VALID_SALES_STATUSES = ['Entregado', 'Completado', 'Despachado', 'Pagado', 'Aprobado', 'En Preparación', 'En Verificación'];
 
 export default function SalesDashboard({ user, profile }: { user: any, profile: User }) {
     const router = useRouter();
@@ -52,7 +55,7 @@ export default function SalesDashboard({ user, profile }: { user: any, profile: 
 
         const isDateInPeriod = (rawDate: any) => {
             if (kpiPeriod === 'all' || !rawDate) return true;
-            const d = typeof rawDate.toDate === 'function' ? rawDate.toDate() : new Date(rawDate);
+            const d = typeof (rawDate as any).toDate === 'function' ? (rawDate as any).toDate() : new Date(rawDate);
             if (isNaN(d.getTime())) return true;
             if (kpiPeriod === 'today') {
                 return d.getDate() === now.getDate() && d.getMonth() === currentMonth && d.getFullYear() === currentYear;
@@ -73,12 +76,12 @@ export default function SalesDashboard({ user, profile }: { user: any, profile: 
             return true;
         };
 
-        const filteredOrders = myOrders.filter(o => isDateInPeriod(o.createdAt || o.orderDate || o.receptionDate));
+        const filteredOrders = myOrders.filter(o => isDateInPeriod(getSalesDate(o)));
         const filteredCommissions = (myCommissions || []).filter(c => isDateInPeriod(c.createdAt));
         const filteredQuotes = (myQuotes || []).filter(q => isDateInPeriod(q.createdAt));
 
         return {
-            salesMonth: filteredOrders.filter(o => o.status === 'Pagado' || o.status === 'Entregado' || o.status === 'Completado').reduce((s, o) => s + (o.totalAmount || 0), 0),
+            salesMonth: filteredOrders.filter(o => VALID_SALES_STATUSES.includes(o.status)).reduce((s, o) => s + (o.totalAmount || 0), 0),
             pending: filteredOrders.filter(o => ['Pendiente', 'Aprobado', 'En Preparación'].includes(o.status)).length,
             clients: myCustomers?.length || 0,
             wallet: filteredCommissions.filter(c => c.status === 'pendiente').reduce((s, c) => s + (c.salespersonCommissionAmount || 0), 0),

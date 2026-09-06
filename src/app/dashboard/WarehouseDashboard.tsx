@@ -24,6 +24,7 @@ import { useRouter } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import { CatalogHighlights } from '@/components/dashboard/CatalogHighlights';
 import { ExpressStockAdjust } from '@/components/dashboard/ExpressStockAdjust';
+import { getSalesDate } from '@/lib/billing';
 
 export default function WarehouseDashboard() {
     const router = useRouter();
@@ -66,7 +67,7 @@ export default function WarehouseDashboard() {
             return true;
         };
 
-        const filteredOrders = activeOrders.filter(o => isDateInPeriod(o.createdAt || o.orderDate || o.receptionDate));
+        const filteredOrders = activeOrders.filter(o => isDateInPeriod(getSalesDate(o)));
 
         return {
             picking: filteredOrders.filter(o => o.status === 'Aprobado').length,
