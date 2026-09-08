@@ -48,6 +48,7 @@ import {
     DollarSign,
     Eye
 } from 'lucide-react';
+import { formatVenezuelaPhoneE164 } from '@/lib/whatsapp-gateway';
 import { cn } from '@/lib/utils';
 import type { User, Customer, Order } from '@/lib/definitions';
 import { getInvoiceFromOrder, getEffectiveCashReceived, getPaymentSimulation } from '@/lib/billing';
@@ -471,8 +472,7 @@ function CustomerDetailsSheet({
     } else if (daysInactive !== null && daysInactive > 60) score = 80;
 
     const handleWhatsAppClick = () => {
-        const rawPhone = (customer.phone || '').replace(/\D/g, '');
-        const cleanPhone = rawPhone.length === 10 ? `58${rawPhone}` : rawPhone;
+        const cleanPhone = formatVenezuelaPhoneE164(customer.phone || '');
         const text = `*ATHLETICENTER C.A. - EXPEDIENTE Y ESTADO DE CUENTA B2B*\n\n` +
           `Estimado(a) *${customer.razonSocial}*,\n\n` +
           `Le saludamos del Departamento Comercial. Le enviamos el resumen de su cuenta corporativa:\n\n` +
@@ -1012,8 +1012,7 @@ export default function ClientsPageContent() {
 
   const handleSendWhatsAppQuick = (customer: Customer, e: React.MouseEvent) => {
     e.stopPropagation();
-    const rawPhone = (customer.phone || '').replace(/\D/g, '');
-    const cleanPhone = rawPhone.length === 10 ? `58${rawPhone}` : rawPhone;
+    const cleanPhone = formatVenezuelaPhoneE164(customer.phone || '');
     const pendingDebt = customer.id ? (customerPendingBalances.grossMap.get(customer.id) || 0) : 0;
     
     const text = `*ATHLETICENTER C.A. - ATENCIÓN Y ASESORÍA B2B*\n\n` +

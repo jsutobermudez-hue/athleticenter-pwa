@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { useDoc, useFirestore, useMemoFirebase, useUser, useCollection } from '@/firebase';
 import { useToast } from '@/hooks/use-toast';
+import { formatVenezuelaPhoneE164 } from '@/lib/whatsapp-gateway';
 import { doc, setDoc, serverTimestamp, writeBatch, collection, getDocs, getDoc, query, where, limit, orderBy } from 'firebase/firestore';
 import { 
     Loader2, 
@@ -281,8 +282,7 @@ export default function TreasuryPage() {
   }, [allOrders]);
 
   const handleSendWhatsAppDebtReminder = (client: { customerName: string; phone?: string; totalDebt: number; oldestOrderDays: number; oldestOrderId: string }) => {
-    const rawPhone = (client.phone || '').replace(/\D/g, '');
-    const cleanPhone = rawPhone.length === 10 ? `58${rawPhone}` : rawPhone;
+    const cleanPhone = formatVenezuelaPhoneE164(client.phone || '');
     
     const text = `*ATHLETICENTER C.A. - AVISO DE DEUDAS Y ESTADO DE CUENTA*\n\n` +
       `Estimado(a) *${client.customerName}*,\n\n` +

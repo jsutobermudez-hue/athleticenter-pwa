@@ -10,6 +10,7 @@ import { es } from 'date-fns/locale';
 import { Calendar, User, ArrowRight, MessageCircle, Eye, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
+import { formatVenezuelaPhoneE164 } from '@/lib/whatsapp-gateway';
 
 export function OrderCard({ order, onSelect }: { order: Order; onSelect: (order: Order) => void; }) {
   const config = statusConfig[order.status];
@@ -20,8 +21,7 @@ export function OrderCard({ order, onSelect }: { order: Order; onSelect: (order:
 
   const handleSendWhatsAppOrder = (e: React.MouseEvent) => {
     e.stopPropagation();
-    const rawPhone = (order.customerPhone || '').replace(/\D/g, '');
-    const cleanPhone = rawPhone.length === 10 ? `58${rawPhone}` : rawPhone;
+    const cleanPhone = formatVenezuelaPhoneE164(order.customerPhone || '');
     const itemsCount = ((order as any).items || []).length;
     
     const text = `*ATHLETICENTER C.A. - NOTIFICACIÓN DE PEDIDO B2B*\n\n` +

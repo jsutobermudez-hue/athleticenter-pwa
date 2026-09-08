@@ -22,6 +22,7 @@ import { DashboardMetricCard } from '@/components/dashboard/DashboardMetricCard'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { CatalogHighlights } from '@/components/dashboard/CatalogHighlights';
 import { SalesGoalWidget } from '@/components/dashboard/SalesGoalWidget';
+import { formatVenezuelaPhoneE164 } from '@/lib/whatsapp-gateway';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import Link from 'next/link';
@@ -91,9 +92,10 @@ export default function SalesDashboard({ user, profile }: { user: any, profile: 
 
     const handleWhatsAppClient = (c: Customer, e: React.MouseEvent) => {
         e.stopPropagation();
-        const rawPhone = ((c as any).phone || (c as any).telefono || '').replace(/\D/g, '');
+        const rawPhone = (c as any).phone || (c as any).telefono || '';
+        const cleanPhone = formatVenezuelaPhoneE164(rawPhone);
         const text = `Hola *${c.razonSocial}*, le saluda su asesor comercial en *ATHLETICENTER C.A.* Quedo a su disposición para apoyarle con nuevos requerimientos o cotizaciones.`;
-        const url = rawPhone ? `https://wa.me/${rawPhone}?text=${encodeURIComponent(text)}` : `https://wa.me/?text=${encodeURIComponent(text)}`;
+        const url = cleanPhone ? `https://wa.me/${cleanPhone}?text=${encodeURIComponent(text)}` : `https://wa.me/?text=${encodeURIComponent(text)}`;
         window.open(url, '_blank');
     };
 

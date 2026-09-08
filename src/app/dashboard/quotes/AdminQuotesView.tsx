@@ -19,6 +19,7 @@ import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 import { dispatchUniversalWhatsApp } from '@/lib/whatsapp-universal';
 import { generateQuotePDF } from '@/lib/pdf-generator';
+import { formatVenezuelaPhoneE164 } from '@/lib/whatsapp-gateway';
 
 const ALL_STATUSES: QuoteStatus[] = ['Borrador', 'Enviada', 'Aceptada', 'Convertida', 'Vencida', 'Cancelada'];
 
@@ -84,8 +85,7 @@ function QuoteCard({ quote, onSelect }: { quote: Quote; onSelect: (q: Quote) => 
 
     const handleSendWhatsAppQuote = async (e: React.MouseEvent) => {
         e.stopPropagation();
-        const rawPhone = (quote.customerPhone || '').replace(/\D/g, '');
-        const cleanPhone = rawPhone.length === 10 ? `58${rawPhone}` : rawPhone;
+        const cleanPhone = formatVenezuelaPhoneE164(quote.customerPhone || '');
         const itemsCount = ((quote as any).items || []).length;
         
         let pdfBase64: string | undefined = undefined;

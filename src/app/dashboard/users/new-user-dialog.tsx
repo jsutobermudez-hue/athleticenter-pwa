@@ -34,6 +34,7 @@ import {
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { dispatchUniversalWhatsApp } from '@/lib/whatsapp-universal';
+import { formatVenezuelaPhoneE164 } from '@/lib/whatsapp-gateway';
 import {
   Select,
   SelectContent,
@@ -212,6 +213,7 @@ export function NewUserDialog({ buttonLabel = "Crear Usuario", defaultRole = 've
                 : null;
 
             const clientName = data.name || data.razonSocial || 'Cliente B2B';
+            const cleanPhone = formatVenezuelaPhoneE164(data.phone || '');
 
             await setDoc(doc(firestore, "users", targetUid), { 
                 id: targetUid,
@@ -221,7 +223,7 @@ export function NewUserDialog({ buttonLabel = "Crear Usuario", defaultRole = 've
                 status: 'Activo', 
                 associatedCustomerId: finalCustomerId,
                 avatarUrl: data.avatarUrl || '', 
-                phone: data.phone || '', 
+                phone: cleanPhone, 
                 address: data.address || '',
                 updatedAt: serverTimestamp()
             }, { merge: true });
@@ -233,7 +235,7 @@ export function NewUserDialog({ buttonLabel = "Crear Usuario", defaultRole = 've
                     rif: data.rif || '', 
                     address: data.address || '', 
                     email: emailClean, 
-                    phone: data.phone || '', 
+                    phone: cleanPhone, 
                     creditLimit: Number(data.creditLimit || 0), 
                     creditUsed: 0,
                     assignedSalespersonId: assignedSpId, 
@@ -243,7 +245,7 @@ export function NewUserDialog({ buttonLabel = "Crear Usuario", defaultRole = 've
                     createdBy: authUser.uid 
                 }, { merge: true });
 
-                if (data.phone) {
+                if (cleanPhone) {
                     const spName = sp?.name || currentUser?.name || 'Athleticenter C.A.';
                     const creditLimit = Number(data.creditLimit || 0);
                     const welcomeMsg = `¡Bienvenido(a) a Athleticenter C.A., ${data.razonSocial || clientName}! 🏆\n\n` +
@@ -253,7 +255,7 @@ export function NewUserDialog({ buttonLabel = "Crear Usuario", defaultRole = 've
                         `Quedamos a su entera disposición para gestionar sus pedidos y consultas. ¡Gracias por confiar en nosotros!`;
                     
                     dispatchUniversalWhatsApp({
-                        phone: data.phone,
+                        phone: cleanPhone,
                         message: welcomeMsg,
                         module: 'clients'
                     }).catch(e => console.warn('[Welcome WA] Error:', e));

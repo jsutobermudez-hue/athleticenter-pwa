@@ -23,6 +23,7 @@ import { DashboardMetricCard } from '@/components/dashboard/DashboardMetricCard'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { CatalogHighlights } from '@/components/dashboard/CatalogHighlights';
+import { formatVenezuelaPhoneE164 } from '@/lib/whatsapp-gateway';
 import { OrderTrackerTimeline } from '@/components/dashboard/OrderTrackerTimeline';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -93,10 +94,11 @@ export default function ClientDashboard() {
 
     const handleWhatsAppSalesperson = (e?: React.MouseEvent) => {
         if (e) e.stopPropagation();
-        const rawPhone = ((customerProfile as any)?.assignedSalespersonPhone || (customerProfile as any)?.telefono || '').replace(/\D/g, '');
+        const rawPhone = (customerProfile as any)?.assignedSalespersonPhone || (customerProfile as any)?.telefono || '';
+        const cleanPhone = formatVenezuelaPhoneE164(rawPhone);
         const salespersonName = customerProfile?.assignedSalespersonName || 'Asesor Comercial';
         const text = `Hola *${salespersonName}*, le saluda *${customerProfile?.razonSocial || 'Cliente B2B'}* desde la plataforma. Quisiera consultar sobre un pedido / cotización.`;
-        const url = rawPhone ? `https://wa.me/${rawPhone}?text=${encodeURIComponent(text)}` : `https://wa.me/?text=${encodeURIComponent(text)}`;
+        const url = cleanPhone ? `https://wa.me/${cleanPhone}?text=${encodeURIComponent(text)}` : `https://wa.me/?text=${encodeURIComponent(text)}`;
         window.open(url, '_blank');
     };
 

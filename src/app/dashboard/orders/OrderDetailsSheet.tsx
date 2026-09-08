@@ -23,6 +23,7 @@ import {
 import { doc, updateDoc, serverTimestamp, query, collection, where, limit } from 'firebase/firestore';
 import { useRouter } from 'next/navigation';
 import type { User, Order, OrderItemClient, CompanyProfile, FinancialSettings, Customer, Payment } from '@/lib/definitions';
+import { formatVenezuelaPhoneE164 } from '@/lib/whatsapp-gateway';
 import {
   Loader2,
   Printer,
@@ -35,10 +36,10 @@ import {
   X,
   Truck,
   ClipboardList,
-  XCircle,
   Clock,
   Camera,
   QrCode,
+  XCircle,
   CheckCircle2,
   MessageSquare,
   FileText,
@@ -327,8 +328,7 @@ export function OrderDetailsSheet({
   };
 
   const handleShareWhatsApp = () => {
-    const rawPhone = (customerData?.phone || fallbackCustomer?.phone || order.customerPhone || '').replace(/\D/g, '');
-    const cleanPhone = rawPhone.length === 10 ? `58${rawPhone}` : rawPhone;
+    const cleanPhone = formatVenezuelaPhoneE164(customerData?.phone || fallbackCustomer?.phone || order.customerPhone || '');
     
     const itemsSummary = itemsWithProductData
       .slice(0, 5)

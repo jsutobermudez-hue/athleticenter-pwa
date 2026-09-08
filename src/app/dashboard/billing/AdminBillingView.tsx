@@ -16,6 +16,7 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { ReportPaymentDialog } from './report-payment-dialog';
 import type { Invoice, Order, OrderStatus } from '@/lib/definitions';
+import { formatVenezuelaPhoneE164 } from '@/lib/whatsapp-gateway';
 import { useCollection, useFirestore, useMemoFirebase, useUser } from '@/firebase';
 import { collection, query, where, limit, orderBy } from 'firebase/firestore';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -421,8 +422,7 @@ export function AdminBillingView() {
   const totalFilteredPendingUSD = useMemo(() => filteredInvoices.reduce((sum, i) => sum + i.remainingBalance, 0), [filteredInvoices]);
 
   const handleSendWhatsAppInvoiceReminder = (invoice: Invoice, order?: Order) => {
-    const rawPhone = (order?.customerPhone || '').replace(/\D/g, '');
-    const cleanPhone = rawPhone.length === 10 ? `58${rawPhone}` : rawPhone;
+    const cleanPhone = formatVenezuelaPhoneE164(order?.customerPhone || '');
 
     const text = `*ATHLETICENTER C.A. - RECORDATORIO DE FACTURACIÓN Y PAGO*\n\n` +
       `Estimado(a) *${invoice.customerName}*,\n\n` +

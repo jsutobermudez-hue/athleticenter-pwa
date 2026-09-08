@@ -37,6 +37,7 @@ import {
   DropdownMenuTrigger 
 } from '@/components/ui/dropdown-menu';
 import type { Order, OrderStatus, OrderItem, OrderItemClient, Product, CompanyProfile, Customer } from '@/lib/definitions';
+import { formatVenezuelaPhoneE164 } from '@/lib/whatsapp-gateway';
 import { Timestamp, getDocs, collection, query, limit, doc, getDoc } from 'firebase/firestore';
 import { dispatchUniversalWhatsApp } from '@/lib/whatsapp-universal';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
@@ -88,8 +89,7 @@ function LogisticsOrderCard({ order, onOpenDialog, onNavigateToDetails, onZoom }
 
     const handleWhatsAppTracking = (e: React.MouseEvent) => {
         e.stopPropagation();
-        const rawPhone = (order.customerPhone || '').replace(/\D/g, '');
-        const cleanPhone = rawPhone.length === 10 ? `58${rawPhone}` : rawPhone;
+        const cleanPhone = formatVenezuelaPhoneE164(order.customerPhone || '');
 
         const text = `*ATHLETICENTER C.A. - NOTIFICACIÓN DE DESPACHO*\n\n` +
             `Estimado(a) *${order.customerName}*,\n\n` +
