@@ -162,14 +162,13 @@ export async function executePendingReconciliationAlert() {
     try {
         const { firestore } = initializeFirebaseServer();
         const { collection, getDocs, query, where, limit } = await import('firebase/firestore');
-        const { sendPendingReconciliationSummaryEmail } = await import('@/lib/email');
-        const { sendWhatsAppMessage } = await import('@/lib/whatsapp');
-
         const pendingSnap = await getDocs(query(
             collection(firestore, 'orders'),
             where('status', '==', 'En Verificación'),
             limit(100)
         ));
+        const { sendPendingReconciliationSummaryEmail } = await import('@/lib/email');
+        const { dispatchUniversalWhatsApp } = await import('@/lib/whatsapp-universal');
 
         if (pendingSnap.empty) {
             return { success: true, pendingCount: 0, message: 'Sin abonos pendientes por conciliar.' };
@@ -230,7 +229,11 @@ export async function executePendingReconciliationAlert() {
                     `Le informamos que existen *${pendingCount} abonos pendientes por conciliar* en el sistema por un monto total de *$${totalAmountUSD.toFixed(2)} USD*.\n\n` +
                     `Por favor ingrese al módulo de Tesorería para auditar los asientos bancarios:\n` +
                     `https://athleticenter-pwa.web.app/dashboard/treasury`;
-                await sendWhatsAppMessage(phone, wsText);
+                await dispatchUniversalWhatsApp({
+                    phone,
+                    message: wsText,
+                    module: 'treasury'
+                });
             }
         }
 

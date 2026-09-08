@@ -16,7 +16,7 @@ import { Input } from '@/components/ui/input';
 import { Loader2, Copy, Send, MessageSquareHeart } from 'lucide-react';
 import type { Invoice } from '@/lib/definitions';
 import { handleWhatsAppReminder } from '@/app/actions';
-import { sendWhatsAppMessage } from '@/lib/whatsapp';
+import { dispatchUniversalWhatsApp } from '@/lib/whatsapp-universal';
 import { useToast } from '@/hooks/use-toast';
 import { WhatsAppReminderOutput } from '@/ai/flows/whatsapp-credit-reminder';
 import { Card, CardContent } from '@/components/ui/card';
@@ -75,7 +75,11 @@ export function WhatsAppReminderDialog({ invoice }: { invoice: Invoice }) {
     }
 
     setIsSending(true);
-    const result = await sendWhatsAppMessage(invoice.customerPhone, generatedMessage.message);
+    const result = await dispatchUniversalWhatsApp({
+      phone: invoice.customerPhone,
+      message: generatedMessage.message,
+      module: 'billing'
+    });
     setIsSending(false);
 
     if (result.success) {

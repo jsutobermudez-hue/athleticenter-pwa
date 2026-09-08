@@ -26,7 +26,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useFirestore, useUser, errorEmitter, FirestorePermissionError } from '@/firebase';
 import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { handleWhatsAppStatusUpdate } from '@/app/actions';
-import { sendWhatsAppMessage } from '@/lib/whatsapp';
+import { dispatchUniversalWhatsApp } from '@/lib/whatsapp-universal';
 import { createAppNotifications } from '@/lib/notifications';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
@@ -122,7 +122,14 @@ export function UpdateOrderStatusDialog({ order, isOpen, onOpenChange }: UpdateO
                     orderId: order.id.substring(0, 6),
                     newStatus: status,
                 }).then(result => {
-                    if (result.success && result.data) sendWhatsAppMessage(order.customerPhone!, result.data.message);
+                    if (result.success && result.data) {
+                        dispatchUniversalWhatsApp({
+                            phone: order.customerPhone!,
+                            message: result.data.message,
+                            orderId: order.id,
+                            module: 'orders'
+                        });
+                    }
                 });
             }
             onOpenChange(false);

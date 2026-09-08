@@ -12,7 +12,7 @@ import { collection, getDocs, query, where, limit } from 'firebase/firestore';
 import { initializeFirebaseServer } from '@/firebase/server-init';
 import type { Order } from '@/lib/definitions';
 import { generateWhatsAppReminder } from './whatsapp-credit-reminder';
-import { sendWhatsAppMessage } from '@/lib/whatsapp';
+import { dispatchUniversalWhatsApp } from '@/lib/whatsapp-universal';
 import { getInvoiceFromOrder } from '@/lib/billing';
 
 const AgentExecutionResultSchema = z.object({
@@ -72,11 +72,15 @@ export const automatedBillingAgentFlow = ai.defineFlow(
         
         // Priorizar el envío si hay descuento disponible o si está vencido
         if (result.shouldSend && invoice.customerPhone) {
-          const sendResult = await sendWhatsAppMessage(invoice.customerPhone, result.message);
+          const sendResult = await dispatchUniversalWhatsApp({
+            phone: invoice.customerPhone,
+            message: result.message,
+            module: 'billing'
+          });
           if (sendResult.success) {
             remindersSent++;
           } else {
-            errors.push(`WhatsApp failed for ${invoice.customerName}: ${(sendResult as any).error || 'Unknown'}`);
+            errors.push(`WhatsApp failed for ${invoice.customerName}`);
           }
         }
       } catch (e: any) {

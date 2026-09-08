@@ -3,7 +3,6 @@
 
 import { collection, writeBatch, doc, serverTimestamp, type Firestore, query, where, limit, getDocs } from 'firebase/firestore';
 import type { User, NotificationCategory } from './definitions';
-import { sendWhatsAppMessage } from './whatsapp';
 
 interface NotificationParams {
   title: string;
