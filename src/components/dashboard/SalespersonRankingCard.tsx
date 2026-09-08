@@ -14,6 +14,7 @@ import { Badge } from '@/components/ui/badge';
 import { Medal, Search, Calendar, Award, ArrowUpRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { OrderSheetController } from '@/app/dashboard/orders/OrderSheetController';
+import { getSalespersonKey, getSalespersonDisplayName } from '@/lib/billing';
 
 const STATUS_COLORS: { [key: string]: string } = {
     'Borrador': 'bg-slate-500/10 text-slate-400 border-slate-500/20',
@@ -97,8 +98,8 @@ export function SalespersonRankingCard({ orders }: { orders: Order[] }) {
         const groups: { [id: string]: { id: string; name: string; totalSales: number; orderCount: number; orders: Order[] } } = {};
 
         filteredOrders.forEach(order => {
-            const spId = order.salespersonId || 'direct_system';
-            const spName = order.salespersonName || (order.salespersonId ? 'Vendedor' : 'Ventas Directas / Sistema');
+            const spId = getSalespersonKey(order);
+            const spName = getSalespersonDisplayName(order);
 
             // Filtro por texto del nombre del vendedor
             if (searchQuery && !spName.toLowerCase().includes(searchQuery.toLowerCase())) {

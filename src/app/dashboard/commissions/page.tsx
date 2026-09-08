@@ -86,15 +86,15 @@ function CommissionsContent() {
     const ordersQuery = useMemoFirebase(() => {
         if (isUserLoading || !firestore || !currentUser) return null;
         const base = collection(firestore, 'orders');
-        if (!isAdminView) return query(base, where('salespersonId', '==', currentUser.id), limit(200));
-        return query(base, limit(200));
+        if (!isAdminView) return query(base, where('salespersonId', '==', currentUser.id), limit(1000));
+        return query(base, limit(1000));
     }, [firestore, isUserLoading, currentUser, isAdminView]);
 
     const commissionsQuery = useMemoFirebase(() => {
         if (isUserLoading || !firestore || !currentUser) return null;
         const base = collection(firestore, 'commissions');
-        if (!isAdminView) return query(base, where('salespersonId', '==', currentUser.id), limit(300));
-        return query(base, limit(300));
+        if (!isAdminView) return query(base, where('salespersonId', '==', currentUser.id), limit(1000));
+        return query(base, limit(1000));
     }, [firestore, isUserLoading, currentUser, isAdminView]);
 
     const { data: rawCommissions, isLoading: isLoadingComms } = useCollection<Commission>(commissionsQuery);

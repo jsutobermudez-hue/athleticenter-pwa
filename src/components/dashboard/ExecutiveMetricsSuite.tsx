@@ -56,7 +56,7 @@ export function ExecutiveMetricsSuite({ orders }: ExecutiveMetricsSuiteProps) {
     const { data: globalSettings } = useDoc<FinancialSettings>(settingsRef);
     const bcvRate = globalSettings?.bcvRate || 65.50;
 
-    const [period, setPeriod] = useState<'today' | '7d' | '30d' | 'this_month' | 'last_month' | '6m'>('this_month');
+    const [period, setPeriod] = useState<'today' | '7d' | '30d' | 'this_month' | 'last_month' | '6m' | 'all'>('all');
     const [activeTab, setActiveTab] = useState<'comparative' | 'logistics' | 'matrix'>('comparative');
     const [isExportingPDF, setIsExportingPDF] = useState(false);
 

@@ -35,7 +35,7 @@ export default function SalesDashboard({ user, profile }: { user: any, profile: 
     const router = useRouter();
     const firestore = useFirestore();
 
-    const ordersQuery = useMemoFirebase(() => (firestore ? query(collection(firestore, 'orders'), where('salespersonId', '==', profile.id), limit(100)) : null), [firestore, profile.id]);
+    const ordersQuery = useMemoFirebase(() => (firestore ? query(collection(firestore, 'orders'), where('salespersonId', '==', profile.id), limit(1000)) : null), [firestore, profile.id]);
     const customersQuery = useMemoFirebase(() => (firestore ? query(collection(firestore, 'customers'), where('assignedSalespersonId', '==', profile.id), limit(50)) : null), [firestore, profile.id]);
     const commissionsQuery = useMemoFirebase(() => (firestore ? query(collection(firestore, 'commissions'), where('salespersonId', '==', profile.id), limit(50)) : null), [firestore, profile.id]);
     const quotesQuery = useMemoFirebase(() => (firestore ? query(collection(firestore, 'quotes'), where('salespersonId', '==', profile.id), limit(50)) : null), [firestore, profile.id]);

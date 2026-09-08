@@ -8,7 +8,7 @@ import { ai } from '@/ai/genkit';
 import { z } from 'zod';
 import { collection, getDocs, query, where, limit, orderBy } from 'firebase/firestore';
 import { initializeFirebaseServer } from '@/firebase/server-init';
-import { getEffectiveCashReceived } from '@/lib/billing';
+import { getEffectiveCashReceived, getSalespersonKey, getSalespersonDisplayName } from '@/lib/billing';
 
 const AIAnalystInputSchema = z.object({
   query: z.string().describe('Consulta o pregunta del usuario sobre el negocio.'),
@@ -1397,9 +1397,9 @@ async function executeDirectFirestoreAnalyst(queryStr: string): Promise<{ answer
     const { firestore } = initializeFirebaseServer();
     const cleanQ = cleanStringForSearch(queryStr);
 
-    const ordersSnap = await getDocs(query(collection(firestore, 'orders'), limit(300)));
-    const productsSnap = await getDocs(query(collection(firestore, 'products'), limit(300)));
-    const customersSnap = await getDocs(query(collection(firestore, 'customers'), limit(300)));
+    const ordersSnap = await getDocs(query(collection(firestore, 'orders'), limit(1000)));
+    const productsSnap = await getDocs(query(collection(firestore, 'products'), limit(500)));
+    const customersSnap = await getDocs(query(collection(firestore, 'customers'), limit(500)));
 
     const orders = ordersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
     const products = productsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -1413,10 +1413,11 @@ async function executeDirectFirestoreAnalyst(queryStr: string): Promise<{ answer
     if (cleanQ.includes('vendedor') || cleanQ.includes('asesor') || cleanQ.includes('lider') || cleanQ.includes('mas vendio')) {
       const salesMap: Record<string, { name: string; totalUSD: number; count: number }> = {};
       validOrders.forEach((o: any) => {
-        const sName = extractSalespersonName(o);
-        if (!salesMap[sName]) salesMap[sName] = { name: sName, totalUSD: 0, count: 0 };
-        salesMap[sName].totalUSD += Number(o.totalAmount || 0);
-        salesMap[sName].count += 1;
+        const spKey = getSalespersonKey(o);
+        const spName = getSalespersonDisplayName(o);
+        if (!salesMap[spKey]) salesMap[spKey] = { name: spName, totalUSD: 0, count: 0 };
+        salesMap[spKey].totalUSD += Number(o.totalAmount || 0);
+        salesMap[spKey].count += 1;
       });
 
       const sortedSalespeople = Object.values(salesMap).sort((a, b) => b.totalUSD - a.totalUSD);

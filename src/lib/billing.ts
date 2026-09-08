@@ -52,6 +52,27 @@ export function getSalesDate(o: Order): Date {
     return typeof (raw as any).toDate === 'function' ? (raw as any).toDate() : new Date(raw as any);
 }
 
+export function getSalespersonKey(o: Order): string {
+    if (!o) return 'direct_system';
+    if (o.salespersonId && o.salespersonId.trim() !== '') {
+        return o.salespersonId.trim();
+    }
+    const name = o.salespersonName || (o as any).vendedor || '';
+    if (name.trim() !== '') {
+        return name.trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/z/g, 's');
+    }
+    return 'direct_system';
+}
+
+export function getSalespersonDisplayName(o: Order): string {
+    if (!o) return 'Ventas Directas / Oficina Central';
+    const name = o.salespersonName || (o as any).vendedor;
+    if (name && typeof name === 'string' && name.trim() !== '') {
+        return name.trim();
+    }
+    return 'Ventas Directas / Oficina Central';
+}
+
 export const FOREIGN_CURRENCY_PAYMENT_METHODS = [
     'Efectivo USD',
     'Efectivo $',

@@ -49,7 +49,7 @@ import { Badge } from '@/components/ui/badge';
 import { OrderSheetController } from './orders/OrderSheetController';
 import { ProductDetailsSheet } from '@/app/dashboard/inventory/product-details-sheet';
 import { cn } from '@/lib/utils';
-import { calculateGlobalFinancialMetrics, getInvoiceFromOrder } from '@/lib/billing';
+import { calculateGlobalFinancialMetrics, getInvoiceFromOrder, getSalespersonKey, getSalespersonDisplayName } from '@/lib/billing';
 
 export default function AdminDashboard() {
     const router = useRouter();
@@ -65,7 +65,7 @@ export default function AdminDashboard() {
     // Conversor instantáneo BCV
     const [usdAmountInput, setUsdAmountInput] = useState<string>('100');
 
-    const ordersQuery = useMemoFirebase(() => (firestore ? query(collection(firestore, 'orders'), limit(500)) : null), [firestore]);
+    const ordersQuery = useMemoFirebase(() => (firestore ? query(collection(firestore, 'orders'), limit(1000)) : null), [firestore]);
     const productsQuery = useMemoFirebase(() => (firestore ? query(collection(firestore, 'products'), limit(200)) : null), [firestore]);
     const customersQuery = useMemoFirebase(() => (firestore ? query(collection(firestore, 'customers'), limit(100)) : null), [firestore]);
     const offersQuery = useMemoFirebase(() => (firestore ? query(collection(firestore, 'offers'), limit(100)) : null), [firestore]);
@@ -166,14 +166,15 @@ export default function AdminDashboard() {
         const salesBySalesperson: Record<string, { name: string; totalUSD: number; count: number }> = {};
         orders.forEach(o => {
             if (o.status === 'Cancelado' || o.status === 'Rechazado' || o.status === 'Borrador') return;
-            const sName = o.salespersonName || (o as any).vendedor || 'Venta Directa';
-            if (!salesBySalesperson[sName]) {
-                salesBySalesperson[sName] = { name: sName, totalUSD: 0, count: 0 };
+            const spKey = getSalespersonKey(o);
+            const spName = getSalespersonDisplayName(o);
+            if (!salesBySalesperson[spKey]) {
+                salesBySalesperson[spKey] = { name: spName, totalUSD: 0, count: 0 };
             }
-            salesBySalesperson[sName].totalUSD += (o.totalAmount || 0);
-            salesBySalesperson[sName].count += 1;
+            salesBySalesperson[spKey].totalUSD += (o.totalAmount || 0);
+            salesBySalesperson[spKey].count += 1;
         });
-        const topSalesperson = Object.values(salesBySalesperson).sort((a, b) => b.totalUSD - a.totalUSD)[0] || { name: 'Venta Directa', totalUSD: 0, count: 0 };
+        const topSalesperson = Object.values(salesBySalesperson).sort((a, b) => b.totalUSD - a.totalUSD)[0] || { name: 'Ventas Directas / Oficina Central', totalUSD: 0, count: 0 };
 
         return { 
             revenue, pending, lowStock, clients, inventoryValuation, totalDebts, grossBcvDebt, netCashDebt, vencido, inTransitValuation,
