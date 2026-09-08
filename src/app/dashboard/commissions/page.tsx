@@ -50,6 +50,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Input } from '@/components/ui/input';
 import { generateCommissionReceiptPDF } from '@/lib/pdf-generator';
 import { createAppNotifications } from '@/lib/notifications';
+import { dispatchUniversalWhatsApp } from '@/lib/whatsapp-universal';
 
 export const dynamic = 'force-dynamic';
 
@@ -167,7 +168,79 @@ function CommissionsContent() {
         });
     }, [rawCommissions, statusFilter, dateRange]);
 
+    const handleBatchPayCommissions = async () => {
+        if (!firestore || selectedCommissions.size === 0) return;
+        setIsLiquidating(true);
+        try {
+            const batch = writeBatch(firestore);
+            const selectedList = rawCommissions?.filter(c => selectedCommissions.has(c.id)) || [];
+            
+            selectedList.forEach(c => {
+                const cRef = doc(firestore, 'commissions', c.id);
+                batch.update(cRef, { status: 'pagado', paidAt: serverTimestamp(), paymentReference: paymentReference || 'LIQUIDACIÓN BATCH' });
+            });
+
+            await batch.commit();
+
+            toast({ title: "¡Comisiones Liquidadas!", description: `${selectedList.length} comisiones marcadas como pagadas.` });
+
+            const spGroups = new Map<string, Commission[]>();
+            selectedList.forEach(c => {
+                const list = spGroups.get(c.salespersonId) || [];
+                list.push(c);
+                spGroups.set(c.salespersonId, list);
+            });
+
+            for (const [spId, comms] of spGroups.entries()) {
+                try {
+                    const spDoc = await getDoc(doc(firestore, 'users', spId));
+                    if (spDoc.exists()) {
+                        const spData = spDoc.data() as User;
+                        const pdfBase64 = await generateCommissionReceiptPDF(
+                            spData,
+                            comms,
+                            paymentReference || `LIQ-${Date.now().toString().slice(-6)}`,
+                            companyProfile || undefined,
+                            false
+                        );
+
+                        const totalAmount = comms.reduce((s, c) => s + (c.salespersonCommissionAmount || 0), 0);
+                        const msg = `¡Hola, ${spData.name}! 💵\n\n` +
+                          `Se ha procesado la liquidación de tus comisiones por un total de *$${totalAmount.toFixed(2)} USD*.\n\n` +
+                          `• Cantidad de Operaciones: ${comms.length}\n` +
+                          `• Referencia: ${paymentReference || 'PROCESADO'}\n\n` +
+                          `Adjuntamos tu Recibo Oficial de Comisiones en PDF. ¡Excelente trabajo!`;
+
+                        if (spData.phone) {
+                            dispatchUniversalWhatsApp({
+                                phone: spData.phone,
+                                message: msg,
+                                pdfBase64,
+                                fileName: `Recibo_Comisiones_${spData.name.split(' ')[0]}.pdf`,
+                                module: 'treasury'
+                            }).catch(e => console.warn('[Commission WA] Error:', e));
+                        }
+                    }
+                } catch (err) {
+                    console.warn('[Commission WhatsApp Error]', err);
+                }
+            }
+
+            setSelectedCommissions(new Set());
+            setPaymentReference('');
+        } catch (e: any) {
+            toast({ variant: 'destructive', title: 'Error en Liquidación', description: e?.message || 'Ocurrió un fallo.' });
+        } finally {
+            setIsLiquidating(false);
+        }
+    };
+
     if (isUserLoading || isLoadingComms || isLoadingOrders) return <div className="flex h-screen items-center justify-center"><Loader2 className="animate-spin text-primary h-10 w-10" /></div>;
+
+    const selectedTotalAmount = Array.from(selectedCommissions).reduce((sum, id) => {
+        const c = rawCommissions?.find(comm => comm.id === id);
+        return sum + (c?.salespersonCommissionAmount || 0);
+    }, 0);
 
     return (
         <div className="w-full max-w-[1440px] mx-auto flex flex-col gap-6 sm:gap-10 pb-32 px-4 sm:px-6 lg:px-10 animate-in fade-in-50 duration-500">
@@ -188,6 +261,33 @@ function CommissionsContent() {
                     </div>
                 </Card>
             </div>
+
+            {isAdminView && selectedCommissions.size > 0 && (
+                <div className="bg-emerald-950 text-white p-4 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-4 shadow-xl border border-emerald-500/30 animate-in slide-in-from-top-4">
+                    <div className="flex items-center gap-3">
+                        <CheckCircle2 className="h-6 w-6 text-emerald-400 shrink-0" />
+                        <div>
+                            <p className="text-xs font-black uppercase tracking-wider text-emerald-400">{selectedCommissions.size} Comisiones Seleccionadas</p>
+                            <p className="text-lg font-black tracking-tighter">${selectedTotalAmount.toFixed(2)} USD a Liquidar</p>
+                        </div>
+                    </div>
+                    <div className="flex items-center gap-2 w-full sm:w-auto">
+                        <Input
+                            placeholder="N° de Transferencia / Ref..."
+                            value={paymentReference}
+                            onChange={(e) => setPaymentReference(e.target.value)}
+                            className="h-9 bg-white/10 border-white/20 text-white placeholder:text-emerald-200/50 text-xs font-bold rounded-xl w-full sm:w-56"
+                        />
+                        <Button
+                            onClick={handleBatchPayCommissions}
+                            disabled={isLiquidating}
+                            className="h-9 px-4 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs uppercase tracking-wider shrink-0 shadow-lg"
+                        >
+                            {isLiquidating ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Liquidar por WhatsApp'}
+                        </Button>
+                    </div>
+                </div>
+            )}
 
             <Card className="border-none shadow-sm rounded-[2rem] bg-white overflow-hidden">
                 <CardHeader className="bg-muted/5 border-b py-4 px-6 sm:px-8">

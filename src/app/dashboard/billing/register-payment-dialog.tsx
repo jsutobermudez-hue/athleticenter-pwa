@@ -50,7 +50,7 @@ import Image from 'next/image';
 import { createAppNotifications } from '@/lib/notifications';
 import { cn } from '@/lib/utils';
 import { generateOrderPDF, generatePaymentReceiptPDF } from '@/lib/pdf-generator';
-import { sendBackgroundWhatsAppMessage } from '@/lib/whatsapp-gateway';
+import { dispatchUniversalWhatsApp } from '@/lib/whatsapp-universal';
 
 const paymentSchema = z.object({
   amount: z.coerce.number().min(0.01, 'El monto debe ser mayor a cero.'),
@@ -254,7 +254,7 @@ export function ConfirmPaymentDialog({ order }: { order: Order }) {
         const newTotalPaid = result?.newTotalPaid || data.amount;
 
         try {
-            generatePaymentReceiptPDF({
+            const receiptPdfBase64 = await generatePaymentReceiptPDF({
                 payment: {
                     amount: reportedPayment?.amount || data.amount,
                     method: data.method as any,
@@ -267,6 +267,26 @@ export function ConfirmPaymentDialog({ order }: { order: Order }) {
                 companyProfile: companyProfile || undefined,
                 bcvRate: globalSettings?.bcvRate || 65.50
             });
+
+            const custPhone = (order as any).customerPhone || (order as any).phone;
+            if (custPhone) {
+                const payMsg = `¡Hola, ${order.customerName}! 💳\n\n` +
+                  `Confirmamos la recepción de tu pago por *$${(reportedPayment?.amount || data.amount).toFixed(2)} USD* ` +
+                  `para el pedido *#${order.id}*.\n\n` +
+                  `• Método: ${data.method}\n` +
+                  `• Referencia: ${data.referenceNumber || 'N/A'}\n` +
+                  `• Estado del Pedido: ${isFullyPaid ? '✅ TOTALMENTE PAGADO' : '⏳ ABONO REGISTRADO'}\n\n` +
+                  `Adjuntamos el Recibo Oficial de Pago en PDF. ¡Gracias por tu pago!`;
+
+                dispatchUniversalWhatsApp({
+                  phone: custPhone,
+                  message: payMsg,
+                  pdfBase64: receiptPdfBase64,
+                  fileName: `Recibo_Pago_${order.id.substring(0,8)}.pdf`,
+                  orderId: order.id,
+                  module: 'billing'
+                }).catch(e => console.warn('[Payment WA] Error:', e));
+            }
         } catch (pdfErr) {
             console.error("Error generating payment receipt PDF:", pdfErr);
         }
@@ -303,11 +323,12 @@ export function ConfirmPaymentDialog({ order }: { order: Order }) {
 
         const customerPhone = (order as any).customerPhone || (order as any).phone || (order as any).telefono || '';
         if (customerPhone) {
-            sendBackgroundWhatsAppMessage({
+            dispatchUniversalWhatsApp({
                 phone: customerPhone,
                 message: `¡Hola ${order.customerName}! Tu abono por $${actualCash.toFixed(2)} USD para el pedido #${order.id} ha sido conciliado exitosamente. Estatus: ${isFullyPaid ? 'SOLVENTE (100% Pagado)' : `Abonado (Saldo pendiente: $${Math.max(0, order.totalAmount - newTotalPaid).toFixed(2)})`}. ¡Muchas gracias por tu preferencia!`,
-                orderId: order.id
-            }).catch(err => console.warn("Aviso: Despacho de WhatsApp de fondo completado en fallback:", err));
+                orderId: order.id,
+                module: 'billing'
+            }).catch((err: any) => console.warn("Aviso: Despacho de WhatsApp de fondo completado en fallback:", err));
         }
 
         toast({ title: isFullyPaid ? '🎉 ¡Pedido Liquidado y Solvente!' : '¡Abono Conciliado!', description: `Deuda actualizada y Recibo Oficial PDF emitido.` });

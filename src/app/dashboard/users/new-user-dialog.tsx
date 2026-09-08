@@ -33,6 +33,7 @@ import {
     X
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { dispatchUniversalWhatsApp } from '@/lib/whatsapp-universal';
 import {
   Select,
   SelectContent,
@@ -241,6 +242,22 @@ export function NewUserDialog({ buttonLabel = "Crear Usuario", defaultRole = 've
                     updatedAt: serverTimestamp(), 
                     createdBy: authUser.uid 
                 }, { merge: true });
+
+                if (data.phone) {
+                    const spName = sp?.name || currentUser?.name || 'Athleticenter C.A.';
+                    const creditLimit = Number(data.creditLimit || 0);
+                    const welcomeMsg = `¡Bienvenido(a) a Athleticenter C.A., ${data.razonSocial || clientName}! 🏆\n\n` +
+                        `Hemos registrado su ficha comercial en nuestro sistema:\n` +
+                        `• Asesor Asignado: ${spName}\n` +
+                        `• Límite de Crédito: $${creditLimit.toFixed(2)} USD\n\n` +
+                        `Quedamos a su entera disposición para gestionar sus pedidos y consultas. ¡Gracias por confiar en nosotros!`;
+                    
+                    dispatchUniversalWhatsApp({
+                        phone: data.phone,
+                        message: welcomeMsg,
+                        module: 'clients'
+                    }).catch(e => console.warn('[Welcome WA] Error:', e));
+                }
             }
 
             toast({ title: '¡Registro Exitoso!', description: 'Ficha comercial y cuenta del cliente asignadas correctamente.' });

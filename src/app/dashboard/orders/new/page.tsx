@@ -28,6 +28,8 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/
 import { createAppNotifications } from '@/lib/notifications';
 import { getInvoiceFromOrder } from '@/lib/billing';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { generateOrderPDF } from '@/lib/pdf-generator';
+import { dispatchUniversalWhatsApp } from '@/lib/whatsapp-universal';
 
 export const dynamic = 'force-dynamic';
 
@@ -57,6 +59,8 @@ function NewOrderForm() {
 
     const settingsRef = useMemoFirebase(() => firestore ? doc(firestore, 'system', 'financials') : null, [firestore]);
     const { data: globalSettings } = useDoc<FinancialSettings>(settingsRef);
+    const companyRef = useMemoFirebase(() => (firestore ? doc(firestore, 'companyProfile', 'main') : null), [firestore]);
+    const { data: companyProfile } = useDoc<any>(companyRef);
     const bcvDiscount = globalSettings?.defaultBcvDiscount || 30;
     
     const isClient = currentUser?.role === 'cliente';
@@ -340,6 +344,43 @@ const safeTotalAmount = isNaN(totalAmount) ? 0 : totalAmount;
                         roles: ['admin', 'gerencia', 'deposito'],
                         userIds: clientUserIds
                     });
+
+                    // Trigger automatic WhatsApp message with Order Note PDF attachment to customer
+                    try {
+                        const pdfBase64 = await generateOrderPDF({
+                            customerName: rawName,
+                            customerRif: selectedCustomer?.rif,
+                            customerAddress: selectedCustomer?.address,
+                            orderItems,
+                            salespersonName: spName,
+                            orderId: finalOrderId,
+                            createdAt: new Date(),
+                            companyProfile: companyProfile || undefined,
+                            documentType: 'nota',
+                            globalSettings: globalSettings || undefined,
+                            bcvRate: globalSettings?.bcvRate || 65.50,
+                            autoSave: false
+                        });
+
+                        const msg = `¡Hola, ${rawName}! 🛍️\n\n` +
+                            `Confirmamos que hemos registrado exitosamente tu pedido *#${finalOrderId}* en Athleticenter C.A.\n\n` +
+                            `• Total: $${safeTotalAmount.toFixed(2)} USD\n` +
+                            `• Asesor: ${spName}\n\n` +
+                            `Adjuntamos la Nota de Pedido correspondiente en PDF. ¡Muchas gracias por tu preferencia!`;
+
+                        if (selectedCustomer?.phone) {
+                            dispatchUniversalWhatsApp({
+                                phone: selectedCustomer.phone,
+                                message: msg,
+                                pdfBase64,
+                                fileName: `Nota_de_Pedido_${finalOrderId}.pdf`,
+                                orderId: finalOrderId,
+                                module: 'orders'
+                            }).catch(e => console.warn('[Order WA] Error:', e));
+                        }
+                    } catch (pdfErr) {
+                        console.warn('[Order PDF WA] Error:', pdfErr);
+                    }
                 } catch (e) {
                     console.warn("[Notifications] Error al enviar notificación de nuevo pedido:", e);
                 }

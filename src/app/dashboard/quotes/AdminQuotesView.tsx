@@ -18,6 +18,7 @@ import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 import { dispatchUniversalWhatsApp } from '@/lib/whatsapp-universal';
+import { generateQuotePDF } from '@/lib/pdf-generator';
 
 const ALL_STATUSES: QuoteStatus[] = ['Borrador', 'Enviada', 'Aceptada', 'Convertida', 'Vencida', 'Cancelada'];
 
@@ -81,12 +82,27 @@ function QuoteCard({ quote, onSelect }: { quote: Quote; onSelect: (q: Quote) => 
     const daysToExpire = validUntilDate && typeof validUntilDate.toDate === 'function' ? differenceInDays(validUntilDate.toDate(), new Date()) : null;
     const isAboutToExpire = daysToExpire !== null && daysToExpire >= 0 && daysToExpire <= 2 && ['Enviada', 'Borrador'].includes(quote.status);
 
-    const handleSendWhatsAppQuote = (e: React.MouseEvent) => {
+    const handleSendWhatsAppQuote = async (e: React.MouseEvent) => {
         e.stopPropagation();
         const rawPhone = (quote.customerPhone || '').replace(/\D/g, '');
         const cleanPhone = rawPhone.length === 10 ? `58${rawPhone}` : rawPhone;
         const itemsCount = ((quote as any).items || []).length;
         
+        let pdfBase64: string | undefined = undefined;
+        try {
+            pdfBase64 = await generateQuotePDF({
+                quoteId: quote.id,
+                customerName: quote.customerName,
+                customerRif: quote.customerRif,
+                quoteItems: (quote as any).items || [],
+                salespersonName: quote.salespersonName,
+                expiryDate: quote.expiryDate,
+                autoSave: false
+            });
+        } catch (pdfErr) {
+            console.warn('[Quote PDF WA] Error:', pdfErr);
+        }
+
         const text = `*ATHLETICENTER C.A. - PROPUESTA COMERCIAL B2B*\n\n` +
           `Estimado(a) *${quote.customerName}*,\n\n` +
           `Le hacemos llegar la propuesta comercial N° *#${quote.id.substring(0, 8).toUpperCase()}*:\n\n` +
@@ -99,6 +115,8 @@ function QuoteCard({ quote, onSelect }: { quote: Quote; onSelect: (q: Quote) => 
         dispatchUniversalWhatsApp({
             phone: cleanPhone,
             message: text,
+            pdfBase64,
+            fileName: `Cotizacion_${quote.id.substring(0, 8)}.pdf`,
             quoteId: quote.id,
             module: 'quotes'
         });

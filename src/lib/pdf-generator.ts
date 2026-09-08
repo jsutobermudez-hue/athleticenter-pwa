@@ -21,6 +21,7 @@ type GenerateOrderPdfParams = {
   globalSettings?: FinancialSettings;
   bcvRate?: number;
   order?: Partial<Order>;
+  autoSave?: boolean;
 };
 
 /**
@@ -122,89 +123,98 @@ export async function generateOrderPDF({
   customerRif,
   customerAddress,
   orderItems, 
+  salespersonName,
   orderId, 
   createdAt, 
   companyProfile, 
   documentType = 'nota',
   globalSettings,
   bcvRate,
-  order
-}: GenerateOrderPdfParams) {
+  order,
+  autoSave = true
+}: GenerateOrderPdfParams): Promise<string> {
   const doc = new jsPDF();
   const date = createdAt instanceof Timestamp ? createdAt.toDate() : (createdAt instanceof Date ? createdAt : new Date());
   
-  await addFiscalHeader(doc, companyProfile, documentType === 'factura' ? 'FACTURA FISCAL' : 'NOTA DE ENTREGA', orderId, date);
+  await addFiscalHeader(doc, companyProfile, documentType === 'factura' ? 'FACTURA DIGITAL' : 'NOTA DE PEDIDO', orderId, date);
   addClientBlock(doc, customerName, customerRif, customerAddress, 50);
 
-  let totalBcvUSD = 0;
-  let totalCashUSD = 0;
+  const effBcvDiscount = (order as any)?.bcvDiscountSnapshot !== undefined 
+    ? (order as any).bcvDiscountSnapshot 
+    : ((order as any)?.isNetPrice ? 0 : (globalSettings?.defaultBcvDiscount !== undefined ? globalSettings.defaultBcvDiscount : 25));
 
-  const isNetOrPromotional = 
-    (order as any)?.incentivesApplied === true ||
-    (order as any)?.isNetPrice === true ||
-    !!(order as any)?.promoName ||
-    (orderId || '').includes('P-CONV');
+  const effEarly7 = (order as any)?.earlyPayment7dSnapshot !== undefined 
+    ? (order as any).earlyPayment7dSnapshot 
+    : ((order as any)?.isNetPrice ? 0 : (globalSettings?.earlyPayment7Days !== undefined ? globalSettings.earlyPayment7Days : 10));
 
-  const bcvDiscountPct = isNetOrPromotional 
-    ? 0 
-    : ((order as any)?.bcvDiscountSnapshot !== undefined 
-        ? (order as any).bcvDiscountSnapshot 
-        : (globalSettings?.defaultBcvDiscount !== undefined ? globalSettings.defaultBcvDiscount : 25));
+  const effEarly15 = (order as any)?.earlyPayment15dSnapshot !== undefined 
+    ? (order as any).earlyPayment15dSnapshot 
+    : ((order as any)?.isNetPrice ? 0 : (globalSettings?.earlyPayment15Days !== undefined ? globalSettings.earlyPayment15Days : 5));
 
   const tableRows = orderItems.map(item => {
-    const itemUnitPrice = roundCurrency(item.unitPrice || item.product?.price || 0);
-    const catalogPrice = item.product?.price && item.product.price > 0 ? item.product.price : itemUnitPrice;
-    const isItemNet = isNetOrPromotional || (item as any).isNetPrice || (catalogPrice > 0 && itemUnitPrice < (catalogPrice * 0.95));
-
-    const bcvPrice = isItemNet ? catalogPrice : itemUnitPrice;
-    const cashPrice = isItemNet
-      ? itemUnitPrice
-      : roundCurrency(bcvPrice * (1 - bcvDiscountPct / 100));
+    const rawPrice = item.unitPrice;
+    const isPromoNet = (item as any).isNetPrice || (item.product as any)?.isNetPrice || !!(item.product as any)?.promoName || (order as any)?.isNetPrice;
     
-    const rowBcvTotal = roundCurrency(item.quantity * bcvPrice);
-    const rowCashTotal = roundCurrency(item.quantity * cashPrice);
-
-    totalBcvUSD += rowBcvTotal;
-    totalCashUSD += rowCashTotal;
+    const priceWithBcv = isPromoNet ? rawPrice : roundCurrency(rawPrice * (1 - effBcvDiscount / 100));
+    const priceCash7d  = isPromoNet ? rawPrice : roundCurrency(rawPrice * (1 - effBcvDiscount / 100) * (1 - effEarly7 / 100));
+    const priceCash15d = isPromoNet ? rawPrice : roundCurrency(rawPrice * (1 - effBcvDiscount / 100) * (1 - effEarly15 / 100));
     
+    const totalRowBcv = roundCurrency(priceWithBcv * item.quantity);
+    const totalRowCash = roundCurrency(priceCash7d * item.quantity);
+
+    let desc = item.product?.name || 'PRODUCTO B2B';
+    if (item.size) desc += ` [TALLA: ${item.size}]`;
+    if (item.product?.category) desc += `\nCat: ${item.product.category}`;
+
     return [
-      item.product?.sku || 'N/A', 
-      (item.product?.name || 'EQUIPO').toUpperCase() + (item.size ? ` (${item.size})` : ''), 
-      item.quantity, 
-      `$ ${bcvPrice.toFixed(2)}`, 
-      `$ ${cashPrice.toFixed(2)}`, 
-      `$ ${rowBcvTotal.toFixed(2)}`
+      desc.toUpperCase(),
+      item.quantity.toString(),
+      `$ ${rawPrice.toFixed(2)}`,
+      `$ ${priceWithBcv.toFixed(2)}`,
+      `$ ${priceCash7d.toFixed(2)}`,
+      `$ ${priceCash15d.toFixed(2)}`,
+      `$ ${totalRowBcv.toFixed(2)}`,
+      `$ ${totalRowCash.toFixed(2)}`
     ];
   });
 
   (doc as any).autoTable({
-    head: [["SKU", "DESCRIPCIÓN", "CANT", "P. BCV", "P. CASH", "TOTAL BCV"]], 
-    body: tableRows, 
-    startY: 80, 
+    head: [["DESCRIPCIÓN / PRODUCTO", "CANT", "P. LISTA", "P. BCV (-25%)", "P. CONTADO 7D (-10%)", "P. CONTADO 15D (-5%)", "TOTAL BCV", "TOTAL CASH 7D"]],
+    body: tableRows,
+    startY: 80,
     theme: 'grid',
-    styles: { fontSize: 7 },
-    headStyles: { fillColor: [37, 99, 235], fontSize: 7, fontStyle: 'bold', halign: 'center' },
-    columnStyles: { 
-        2: { halign: 'center' },
-        3: { halign: 'right' },
-        4: { halign: 'right' },
-        5: { halign: 'right', fontStyle: 'bold' }
-    }
+    headStyles: { fillColor: [15, 23, 42], fontSize: 6, fontStyle: 'bold', halign: 'center' },
+    columnStyles: {
+      0: { cellWidth: 45, fontSize: 6.5 },
+      1: { cellWidth: 10, halign: 'center', fontSize: 7 },
+      2: { cellWidth: 18, halign: 'right', fontSize: 6.5 },
+      3: { cellWidth: 20, halign: 'right', fontSize: 6.5 },
+      4: { cellWidth: 22, halign: 'right', fontSize: 6.5 },
+      5: { cellWidth: 22, halign: 'right', fontSize: 6.5 },
+      6: { cellWidth: 22, halign: 'right', fontSize: 7, fontStyle: 'bold' },
+      7: { cellWidth: 23, halign: 'right', fontSize: 7, fontStyle: 'bold' }
+    },
+    styles: { overflow: 'linebreak', cellPadding: 2 }
   });
 
-  let finalY = (doc as any).lastAutoTable.finalY + 10;
-  if (finalY + 45 > 280) {
-    doc.addPage();
-    finalY = 20;
-  }
+  const finalY = (doc as any).lastAutoTable.finalY + 8;
+  
+  const totalBcvUSD = orderItems.reduce((acc, i) => {
+    const isPromoNet = (i as any).isNetPrice || (i.product as any)?.isNetPrice || !!(i.product as any)?.promoName || (order as any)?.isNetPrice;
+    const p = isPromoNet ? i.unitPrice : roundCurrency(i.unitPrice * (1 - effBcvDiscount / 100));
+    return acc + roundCurrency(p * i.quantity);
+  }, 0);
 
-  const rate = bcvRate || (order as any)?.receptionBcvRate || (order as any)?.bcvRate || globalSettings?.bcvRate || 65.50;
-  const totalVES = totalBcvUSD * rate;
+  const totalCashUSD = orderItems.reduce((acc, i) => {
+    const isPromoNet = (i as any).isNetPrice || (i.product as any)?.isNetPrice || !!(i.product as any)?.promoName || (order as any)?.isNetPrice;
+    const p = isPromoNet ? i.unitPrice : roundCurrency(i.unitPrice * (1 - effBcvDiscount / 100) * (1 - effEarly7 / 100));
+    return acc + roundCurrency(p * i.quantity);
+  }, 0);
 
-  doc.setFillColor(241, 245, 249);
-  doc.rect(14, finalY, 85, 30, 'F');
-  doc.setDrawColor(203, 213, 225);
-  doc.rect(14, finalY, 85, 30, 'S');
+  doc.setFillColor(248, 250, 252);
+  doc.rect(14, finalY, 182, 30, 'F');
+  doc.setDrawColor(226, 232, 240);
+  doc.rect(14, finalY, 182, 30, 'S');
 
   doc.setFontSize(7); doc.setTextColor(100); doc.setFont("helvetica", "bold");
   doc.text("PAGO EN BOLÍVARES (TASA BCV):", 18, finalY + 11);
@@ -222,7 +232,12 @@ export async function generateOrderPDF({
   doc.setFontSize(6); doc.setTextColor(150); doc.setFont("helvetica", "normal");
   doc.text("* ESTE DOCUMENTO REPRESENTA LA BASE IMPONIBLE. EL IVA (16%) SE CALCULA AL MOMENTO DEL PAGO FISCAL.", 14, finalY + 38);
 
-  doc.save(`${documentType === 'factura' ? 'Factura' : 'Nota'}_${orderId.substring(0,8)}.pdf`);
+  if (autoSave) {
+    doc.save(`${documentType === 'factura' ? 'Factura' : 'Nota'}_${orderId.substring(0,8)}.pdf`);
+  }
+
+  const dataUri = doc.output('datauristring');
+  return dataUri.includes(',') ? dataUri.split(',')[1] : dataUri;
 }
 
 /**
@@ -305,7 +320,8 @@ export async function generateQuotePDF({
     companyProfile, 
     globalSettings,
     bcvRate = 1,
-    quote
+    quote,
+    autoSave = true
 }: any) {
   const doc = new jsPDF();
   const date = new Date();
@@ -398,7 +414,11 @@ export async function generateQuotePDF({
   doc.setFontSize(6); doc.setTextColor(150); doc.setFont("helvetica", "normal");
   doc.text(`* VÁLIDO HASTA: ${validUntilStr}. ESTE DOCUMENTO REPRESENTA LA BASE IMPONIBLE. EL IVA (16%) SE CALCULA AL MOMENTO DEL PAGO FISCAL.`, 14, finalY + 38);
 
-  doc.save(`Cotizacion_${quoteId.substring(0,8)}.pdf`);
+  if (autoSave !== false) {
+    doc.save(`Cotizacion_${quoteId.substring(0,8)}.pdf`);
+  }
+  const dataUri = doc.output('datauristring');
+  return dataUri.includes(',') ? dataUri.split(',')[1] : dataUri;
 }
 
 export async function generatePickingListPDF({ orderId, customerName, orderItems, companyProfile }: any) {
@@ -482,7 +502,13 @@ export async function generateSalespersonPerformancePDF(sp: any, commissions: Co
     doc.save(`Performance_${sp.name.split(' ')[0]}.pdf`);
 }
 
-export async function generateCommissionReceiptPDF(sp: User, commissions: Commission[], reference: string, companyProfile?: Partial<CompanyProfile>) {
+export async function generateCommissionReceiptPDF(
+    sp: User, 
+    commissions: Commission[], 
+    reference: string, 
+    companyProfile?: Partial<CompanyProfile>,
+    autoSave: boolean = true
+): Promise<string> {
     const doc = new jsPDF();
     await addFiscalHeader(doc, companyProfile, 'RECIBO DE COMISIONES', reference, new Date());
     
@@ -493,7 +519,7 @@ export async function generateCommissionReceiptPDF(sp: User, commissions: Commis
 
     const tableRows = commissions.map(c => [
         c.orderId.substring(0,8),
-        format((c.commissionDate as Timestamp).toDate(), 'dd/MM/yy'),
+        c.commissionDate instanceof Timestamp ? format(c.commissionDate.toDate(), 'dd/MM/yy') : format(new Date(), 'dd/MM/yy'),
         `$ ${c.invoiceAmount.toFixed(2)}`,
         `$ ${c.salespersonCommissionAmount.toFixed(2)}`
     ]);
@@ -510,7 +536,12 @@ export async function generateCommissionReceiptPDF(sp: User, commissions: Commis
     doc.setFontSize(12); doc.setFont("helvetica", "bold");
     doc.text(`TOTAL A LIQUIDAR: $ ${total.toFixed(2)}`, 196, finalY, { align: 'right' });
 
-    doc.save(`Recibo_Comisiones_${sp.name.split(' ')[0]}.pdf`);
+    if (autoSave) {
+        doc.save(`Recibo_Comisiones_${sp.name.split(' ')[0]}.pdf`);
+    }
+
+    const dataUri = doc.output('datauristring');
+    return dataUri.includes(',') ? dataUri.split(',')[1] : dataUri;
 }
 
 export async function generateSystemManualPDF(companyProfile?: Partial<CompanyProfile>) {
@@ -627,7 +658,8 @@ export async function generatePaymentReceiptPDF({
     companyProfile,
     globalSettings,
     bcvRate = 65.50,
-    paymentIndex = 1
+    paymentIndex = 1,
+    autoSave = true
 }: {
     payment?: Partial<Payment> & { amount: number; method: string; referenceNumber?: string; registeredByName?: string; paymentDate?: any; imageUrl?: string };
     allPayments?: (Partial<Payment> & { amount: number; method: string; referenceNumber?: string; registeredByName?: string; paymentDate?: any })[];
@@ -636,7 +668,8 @@ export async function generatePaymentReceiptPDF({
     globalSettings?: FinancialSettings;
     bcvRate?: number;
     paymentIndex?: number;
-}) {
+    autoSave?: boolean;
+}): Promise<string> {
     const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
     const orderIdStr = (order.id || 'N/A').toUpperCase();
     const activePayment = payment || (allPayments && allPayments.length > 0 ? allPayments[allPayments.length - 1] : { amount: 0, method: 'Efectivo' });
@@ -850,5 +883,10 @@ export async function generatePaymentReceiptPDF({
     doc.text("CERTIFICADO DIGITAL DE PAGO: Documento emitido automáticamente por el Sistema Athleticenter Pro.", 14, 280);
     doc.text("Validez oficial respaldada por comprobante bancario adjunto en el expediente.", 14, 284);
 
-    doc.save(`Recibo_Pago_${receiptId.replace('#', '')}.pdf`);
+    if (autoSave) {
+        doc.save(`Recibo_Pago_${receiptId.replace('#', '')}.pdf`);
+    }
+
+    const dataUri = doc.output('datauristring');
+    return dataUri.includes(',') ? dataUri.split(',')[1] : dataUri;
 }
