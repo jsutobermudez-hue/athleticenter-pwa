@@ -77,14 +77,18 @@ export async function sendBackgroundWhatsAppMessage({
     });
 
     if (response.ok) {
-      const data = await response.json();
-      console.log(`[WhatsApp Gateway] ✅ Mensaje despachado con éxito:`, data);
-      return { success: true, messageId: data.messageId || data.id || 'GATEWAY_SENT_OK' };
+      const data = await response.json().catch(() => ({}));
+      if (data.success) {
+        console.log(`[WhatsApp Gateway] ✅ Mensaje despachado con éxito (Proveedor: ${data.provider || 'cloud'}):`, data);
+        return { success: true, messageId: data.messageId || data.id || 'GATEWAY_SENT_OK' };
+      } else {
+        console.warn(`[WhatsApp Gateway] Servidor gateway reportó fallo:`, data.error);
+        return { success: false, error: data.error || 'Servidor Gateway no disponible' };
+      }
     } else {
       const errText = await response.text();
       console.warn(`[WhatsApp Gateway] Aviso de servidor gateway (${response.status}):`, errText);
-      // Retornar éxito estructurado para fallback suave
-      return { success: true, messageId: 'DESPACHADO_CON_AVISO' };
+      return { success: false, error: `Error ${response.status} en servidor Gateway` };
     }
   } catch (error: any) {
     console.warn(`[WhatsApp Gateway] Fallo de red en gateway secundario (se usará fallback suave):`, error?.message || error);

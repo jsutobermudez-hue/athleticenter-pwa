@@ -52,11 +52,18 @@ export async function dispatchUniversalWhatsApp({
     if (res.success) {
       console.log(`[WhatsApp Universal] ✅ Despacho automático de fondo exitoso en módulo ${module}`);
       return { success: true, fallbackUrl };
+    } else {
+      console.warn(`[WhatsApp Universal] Servidores Gateway en segundo plano no disponibles (${res.error || 'Desconectado'}). Activando fallback directo a WhatsApp Web...`);
+      if (typeof window !== 'undefined') {
+        window.open(fallbackUrl, '_blank');
+      }
+      return { success: false, fallbackUrl };
     }
   } catch (err) {
     console.warn(`[WhatsApp Universal] Aviso en gateway de fondo (módulo ${module}):`, err);
+    if (typeof window !== 'undefined') {
+      window.open(fallbackUrl, '_blank');
+    }
+    return { success: false, fallbackUrl };
   }
-
-  // Fallback suave en caso de ser necesario
-  return { success: true, fallbackUrl };
 }

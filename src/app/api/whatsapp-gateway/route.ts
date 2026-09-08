@@ -23,8 +23,9 @@ export async function POST(req: Request) {
     const provider = process.env.WHATSAPP_GATEWAY_PROVIDER || 'ultramsg';
     const rawGatewayUrl = process.env.WHATSAPP_GATEWAY_URL || `https://api.ultramsg.com/${instanceId}`;
 
-    console.log(`[WhatsApp Gateway API] Despachando mensaje a +${cleanPhone} (Orden: #${orderId || 'N/A'}) - Proveedor: ${provider}`);
+    console.log(`[WhatsApp Gateway API] Intentando despacho a +${cleanPhone} (Orden: #${orderId || 'N/A'})`);
 
+    // TIER 1: INTENTAR API CLOUD (ULTRAMSG / PERSONALIZADO)
     if (provider === 'ultramsg' || rawGatewayUrl.includes('ultramsg')) {
       const isDocument = Boolean(media?.base64);
       const targetEndpoint = isDocument 
@@ -43,28 +44,69 @@ export async function POST(req: Request) {
         params.append('body', text || '');
       }
 
-      const externalRes = await fetch(targetEndpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: params.toString(),
-        signal: AbortSignal.timeout(12000)
-      });
+      try {
+        const externalRes = await fetch(targetEndpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: params.toString(),
+          signal: AbortSignal.timeout(8000)
+        });
 
-      if (externalRes.ok) {
-        const data = await externalRes.json().catch(() => ({}));
-        console.log(`[WhatsApp Gateway UltraMsg] ✅ Mensaje despachado con éxito:`, data);
-        return NextResponse.json({ success: true, messageId: data.id || data.messageId || 'ULTRAMSG_OK' });
-      } else {
-        const errText = await externalRes.text().catch(() => '');
-        console.warn(`[WhatsApp Gateway UltraMsg] Error en respuesta de UltraMsg (${externalRes.status}):`, errText);
+        if (externalRes.ok) {
+          const data = await externalRes.json().catch(() => ({}));
+          if (data.id || data.sent === 'true' || data.success) {
+            console.log(`[WhatsApp Gateway UltraMsg] ✅ Mensaje despachado con éxito:`, data);
+            return NextResponse.json({ success: true, messageId: data.id || data.messageId || 'ULTRAMSG_OK', provider: 'ultramsg' });
+          } else {
+            console.warn(`[WhatsApp Gateway UltraMsg] Respuesta de UltraMsg indicó error:`, data);
+          }
+        } else {
+          const errText = await externalRes.text().catch(() => '');
+          console.warn(`[WhatsApp Gateway UltraMsg] Servidor UltraMsg no disponible (${externalRes.status}):`, errText);
+        }
+      } catch (cloudErr: any) {
+        console.warn(`[WhatsApp Gateway UltraMsg] Fallo de conexión con UltraMsg:`, cloudErr?.message || cloudErr);
       }
     }
 
-    // Fallback de registro en servidor local
+    // TIER 2: FALLBACK A SERVIDOR LOCAL DE DESARROLLO (http://localhost:3001/api/send)
+    try {
+      console.log(`[WhatsApp Gateway Local] Intentando servidor local de WhatsApp en http://localhost:3001/api/send...`);
+      const localRes = await fetch('http://localhost:3001/api/send', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer local-dev-key'
+        },
+        body: JSON.stringify({
+          number: cleanPhone,
+          text,
+          media,
+          orderId
+        }),
+        signal: AbortSignal.timeout(4000)
+      });
+
+      if (localRes.ok) {
+        const localData = await localRes.json().catch(() => ({}));
+        if (localData.success) {
+          console.log(`[WhatsApp Gateway Local] ✅ Mensaje despachado mediante servidor local de WhatsApp:`, localData);
+          return NextResponse.json({ success: true, messageId: localData.messageId || 'LOCAL_OK', provider: 'local' });
+        }
+      }
+    } catch (localErr) {
+      console.warn(`[WhatsApp Gateway Local] Servidor local http://localhost:3001 no activo o inalcanzable.`);
+    }
+
+    // TIER 3: NINGÚN GATEWAY AUTOMÁTICO CONECTADO -> NOTIFICAR FALLO PARA USAR ENLACE WA.ME CON 1-CLIC
+    const encodedText = encodeURIComponent(text || '');
+    const fallbackUrl = `https://wa.me/${cleanPhone}?text=${encodedText}`;
+
+    console.warn(`[WhatsApp Gateway] Ningún servidor Gateway automático está conectado. Notificando fallback wa.me para +${cleanPhone}`);
     return NextResponse.json({
-      success: true,
-      messageId: `LOCAL_REGISTERED_${Date.now()}`,
-      note: 'Mensaje procesado por despachador local.'
+      success: false,
+      error: 'Servidor Gateway no disponible. Utilizando enlace de WhatsApp directo.',
+      fallbackUrl
     });
 
   } catch (error: any) {
