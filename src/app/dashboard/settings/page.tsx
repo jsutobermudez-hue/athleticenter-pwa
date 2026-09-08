@@ -546,6 +546,8 @@ function WhatsAppLiveTesterWidget() {
         setIsSending(true);
         try {
             const { dispatchUniversalWhatsApp } = await import('@/lib/whatsapp-universal');
+            const { formatVenezuelaPhoneE164 } = await import('@/lib/whatsapp-gateway');
+            const formattedPhone = formatVenezuelaPhoneE164(phoneInput);
             const result = await dispatchUniversalWhatsApp({
                 phone: phoneInput,
                 message: `*ATHLETICENTER PRO C.A. - PRUEBA DE SERVIDOR WHATSAPP EN VÍO SILENCIOSO*\n\nHola! 👋 Este es un mensaje de prueba 100% automático enviado desde la instancia de UltraMsg (instance189931).\n\n📅 Fecha: ${new Date().toLocaleString()}\n🚀 Estado: Conexión Exitosa.`,
@@ -555,7 +557,7 @@ function WhatsAppLiveTesterWidget() {
             if (result.success) {
                 toast({ 
                     title: "🚀 ¡Mensaje Despachado!", 
-                    description: `Prueba enviada exitosamente a +${phoneInput} vía UltraMsg (instance189931). Revisa tu WhatsApp.` 
+                    description: `Prueba enviada exitosamente a +${formattedPhone} vía UltraMsg (instance189931). Revisa tu WhatsApp.` 
                 });
             } else {
                 toast({ variant: 'destructive', title: "Aviso de Servidor", description: "No se pudo completar el despacho silencioso." });
