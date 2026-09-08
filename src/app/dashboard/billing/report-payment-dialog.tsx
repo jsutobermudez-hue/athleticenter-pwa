@@ -295,27 +295,33 @@ export function ReportPaymentDialog({ invoice, mode = 'partial' }: { invoice: In
       }
     }
 
-    const totalDiscountPct = cashDiscountPct + earlyDiscountPct;
-    const effectiveDiscountMultiplier = 1 - totalDiscountPct;
+    // FÓRMULA DE DESCUENTO EN CASCADA SECUENCIAL MULTIPLICATIVA:
+    // Paso 1: Descuento por Método de Pago / Divisas (25%) sobre el Precio Lista BCV
+    // Paso 2: Descuento por Pronto Pago (%) sobre el remanente post-divisas (NUNCA aditivo lineal)
+    const cascadingMultiplier = (1 - cashDiscountPct) * (1 - earlyDiscountPct);
 
     let baseAmountToPay = 0;
     let finalAmountToTransfer = 0;
 
     if (inputMode === 'debt') {
         baseAmountToPay = isTotalMode ? currentBalance : Math.min(rawVal, currentBalance);
-        const subtotalAfterIncentives = Math.max(0, baseAmountToPay * effectiveDiscountMultiplier);
+        const subtotalAfterIncentives = Math.max(0, baseAmountToPay * cascadingMultiplier);
         const taxAmount = documentType === 'factura' ? Number((subtotalAfterIncentives * ivaFactor).toFixed(2)) : 0;
         finalAmountToTransfer = subtotalAfterIncentives + taxAmount;
     } else {
         finalAmountToTransfer = rawVal;
         const taxDivisor = documentType === 'factura' ? (1 + ivaFactor) : 1;
         const subtotalAfterIncentives = finalAmountToTransfer / taxDivisor;
-        baseAmountToPay = effectiveDiscountMultiplier > 0 ? (subtotalAfterIncentives / effectiveDiscountMultiplier) : subtotalAfterIncentives;
+        baseAmountToPay = cascadingMultiplier > 0 ? (subtotalAfterIncentives / cascadingMultiplier) : subtotalAfterIncentives;
         baseAmountToPay = Math.min(baseAmountToPay, currentBalance);
     }
 
+    // Paso 1: Descuento Divisas sobre Base BCV
     const cashDiscountAmount = Number((baseAmountToPay * cashDiscountPct).toFixed(2));
-    const earlyDiscountAmount = Number((baseAmountToPay * earlyDiscountPct).toFixed(2));
+    const amountAfterCashDiscount = Math.max(0, baseAmountToPay - cashDiscountAmount);
+
+    // Paso 2: Descuento Pronto Pago sobre la base resultante del Paso 1
+    const earlyDiscountAmount = Number((amountAfterCashDiscount * earlyDiscountPct).toFixed(2));
     const totalDiscountAmount = cashDiscountAmount + earlyDiscountAmount;
     const subtotal = Math.max(0, baseAmountToPay - totalDiscountAmount);
     const taxAmount = documentType === 'factura' ? Number((subtotal * ivaFactor).toFixed(2)) : 0;

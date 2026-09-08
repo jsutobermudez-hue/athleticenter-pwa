@@ -764,7 +764,8 @@ export async function generatePaymentReceiptPDF({
       early7dPct = 0;
     } else {
       cashDiscVal = hasForeignPayment ? nominalTotal * (bcvDiscountPct / 100) : 0;
-      earlyDiscVal = hasEarlyPayment ? nominalTotal * (early7dPct / 100) : 0;
+      const subtotalPostCash = Math.max(0, nominalTotal - cashDiscVal);
+      earlyDiscVal = hasEarlyPayment ? subtotalPostCash * (early7dPct / 100) : 0;
     }
 
     const netExigible = isNetOrPromotional ? nominalTotal : Math.max(0, nominalTotal - cashDiscVal - earlyDiscVal);
