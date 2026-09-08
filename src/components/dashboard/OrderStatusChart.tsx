@@ -25,6 +25,7 @@ import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { OrderSheetController } from '@/app/dashboard/orders/OrderSheetController';
 import { cn } from '@/lib/utils';
+import { getEffectiveCashReceived, getSalesDate } from '@/lib/billing';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { format } from 'date-fns';
@@ -81,13 +82,12 @@ export function OrderStatusChart({ orders, isLoading = false }: OrderStatusChart
     const now = new Date();
 
     orders.forEach(order => {
-      const rawDate = order.receptionDate || order.approvalDate || order.createdAt || order.orderDate;
+      const sDate = getSalesDate(order);
       let days = 0;
-      if (rawDate) {
-        const d = typeof (rawDate as any).toDate === 'function' ? (rawDate as any).toDate() : new Date(rawDate as any);
-        if (!isNaN(d.getTime())) days = Math.max(0, Math.floor((now.getTime() - d.getTime()) / (1000 * 60 * 60 * 24)));
+      if (sDate && sDate.getTime() > 0) {
+        days = Math.max(0, Math.floor((now.getTime() - sDate.getTime()) / (1000 * 60 * 60 * 24)));
       }
-      const paid = typeof order.amountPaid === 'number' ? order.amountPaid : (typeof order.totalCashReceived === 'number' ? order.totalCashReceived : 0);
+      const paid = getEffectiveCashReceived(order);
       const rem = Math.max(0, (order.totalAmount || 0) - paid);
 
       if (rem > 0.05 && order.status !== 'Pagado' && order.status !== 'Cancelado' && order.status !== 'Rechazado') {

@@ -9,7 +9,7 @@ import { Search, DollarSign, Receipt, CheckCircle2, ChevronRight, CreditCard } f
 import { OrderSheetController } from '@/app/dashboard/orders/OrderSheetController';
 import { cn } from '@/lib/utils';
 
-import { getEffectiveCashReceived } from '@/lib/billing';
+import { getEffectiveCashReceived, getSalespersonDisplayName, getCashDate } from '@/lib/billing';
 
 interface PaidInvoicesCardProps {
     orders: Order[] | null;
@@ -112,7 +112,7 @@ export function PaidInvoicesCard({ orders }: PaidInvoicesCardProps) {
                                 </thead>
                                 <tbody className="divide-y divide-slate-100">
                                     {filteredInvoices.map((o) => {
-                                        const dateStr = formatDate((o as any).lastPaymentDate || o.updatedAt || o.receptionDate || o.createdAt || o.orderDate);
+                                        const dateStr = formatDate(getCashDate(o));
                                         const amountPaid = getEffectiveCashReceived(o);
                                         const isFullPaid = o.status === 'Pagado' || (amountPaid >= o.totalAmount - 0.05);
 
@@ -131,7 +131,7 @@ export function PaidInvoicesCard({ orders }: PaidInvoicesCardProps) {
                                                     {o.customerName}
                                                 </td>
                                                 <td className="p-4 font-bold text-slate-500 uppercase truncate max-w-[140px]">
-                                                    {o.salespersonName || 'Sistema'}
+                                                    {getSalespersonDisplayName(o)}
                                                 </td>
                                                 <td className="p-4 font-mono font-bold text-slate-500">
                                                     {dateStr}
