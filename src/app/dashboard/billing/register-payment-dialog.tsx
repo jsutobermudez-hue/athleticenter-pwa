@@ -231,6 +231,7 @@ export function ConfirmPaymentDialog({ order }: { order: Order }) {
         const salespersonId = order.salespersonId || '';
         const salespersonName = order.salespersonName || 'Venta Directa / Oficina Central';
 
+        // 1. COMISIÓN DEL ASESOR COMERCIAL DE LA VENTA
         if (commAmount > 0) {
             const commRef = doc(collection(firestore, 'commissions'));
             transaction.set(commRef, {
@@ -242,6 +243,34 @@ export function ConfirmPaymentDialog({ order }: { order: Order }) {
                 salespersonName,
                 salespersonCommissionAmount: commAmount,
                 status: 'pendiente',
+                commissionType: 'vendedor',
+                orderNumber: `#PED-${order.id.substring(0, 8).toUpperCase()}`,
+                customerName: order.customerName || 'Cliente B2B',
+                paymentMethod: data.method || 'CASH',
+                rateApplied: rate * 100,
+                createdAt: serverTimestamp()
+            });
+        }
+
+        // 2. COMISIÓN DE GERENCIA DE VENTAS (5% SOBRE EL 100% DE LAS VENTAS GLOBALES)
+        const managerRate = (globalSettings?.salesManagerCommission || 5) / 100;
+        const managerCommAmount = actualCash * managerRate;
+        if (managerCommAmount > 0) {
+            const managerCommRef = doc(collection(firestore, 'commissions'));
+            transaction.set(managerCommRef, {
+                orderId: order.id,
+                paymentId: paymentRef.id,
+                commissionDate: serverTimestamp(),
+                invoiceAmount: actualCash,
+                salespersonId: 'GERENCIA_SALES_MANAGER',
+                salespersonName: 'Gerencia de Ventas (Justo Bermúdez)',
+                salespersonCommissionAmount: managerCommAmount,
+                status: 'pendiente',
+                commissionType: 'gerencia',
+                orderNumber: `#PED-${order.id.substring(0, 8).toUpperCase()}`,
+                customerName: order.customerName || 'Cliente B2B',
+                paymentMethod: data.method || 'CASH',
+                rateApplied: managerRate * 100,
                 createdAt: serverTimestamp()
             });
         }

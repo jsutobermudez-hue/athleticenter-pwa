@@ -442,6 +442,12 @@ export interface Commission extends Auditable {
     salespersonCommissionAmount: number;
     status: 'pendiente' | 'pagado';
     paymentReference?: string;
+    commissionType?: 'vendedor' | 'gerencia' | 'admin';
+    orderNumber?: string;
+    customerName?: string;
+    paymentMethod?: string;
+    rateApplied?: number;
+    paidAt?: Timestamp | Date;
 }
 
 export interface Offer extends Auditable {
