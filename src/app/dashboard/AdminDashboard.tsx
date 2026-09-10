@@ -28,7 +28,9 @@ import {
     Truck,
     Sparkles,
     Activity,
-    Bot
+    Bot,
+    Filter,
+    X
 } from 'lucide-react';
 import { DashboardMetricCard } from '@/components/dashboard/DashboardMetricCard';
 import { CatalogHighlights } from '@/components/dashboard/CatalogHighlights';
@@ -43,6 +45,7 @@ import { CashAuditModal } from '@/components/dashboard/CashAuditModal';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
@@ -64,6 +67,9 @@ export default function AdminDashboard() {
 
     // Conversor instantáneo BCV
     const [usdAmountInput, setUsdAmountInput] = useState<string>('100');
+
+    // Estado del Filtro Coordinado por Vendedor para los 3 cuadros analíticos
+    const [chartSalespersonFilter, setChartSalespersonFilter] = useState<string>('all');
 
     const ordersQuery = useMemoFirebase(() => (firestore ? query(collection(firestore, 'orders'), limit(1000)) : null), [firestore]);
     const productsQuery = useMemoFirebase(() => (firestore ? query(collection(firestore, 'products'), limit(200)) : null), [firestore]);
@@ -218,6 +224,32 @@ export default function AdminDashboard() {
         const usd = parseFloat(usdAmountInput) || 0;
         return (usd * bcvRate).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     }, [usdAmountInput, bcvRate]);
+
+    // Lista de Vendedores Únicos extraídos de la base de datos de pedidos
+    const availableSalespeople = useMemo(() => {
+        if (!orders) return [];
+        const map = new Map<string, string>();
+        orders.forEach(o => {
+            const key = getSalespersonKey(o);
+            const name = getSalespersonDisplayName(o);
+            if (key && name) map.set(key, name);
+        });
+        return Array.from(map.entries()).map(([key, name]) => ({ key, name }));
+    }, [orders]);
+
+    // Pedidos filtrados en tiempo real para los 3 módulos analíticos
+    const filteredOrdersForCharts = useMemo(() => {
+        if (!orders) return [];
+        if (chartSalespersonFilter === 'all') return orders;
+        return orders.filter(o => getSalespersonKey(o) === chartSalespersonFilter);
+    }, [orders, chartSalespersonFilter]);
+
+    // Nombre del vendedor seleccionado para mostrar la insignia visual en los títulos
+    const currentSalespersonName = useMemo(() => {
+        if (chartSalespersonFilter === 'all') return undefined;
+        const found = availableSalespeople.find(sp => sp.key === chartSalespersonFilter);
+        return found ? found.name : undefined;
+    }, [chartSalespersonFilter, availableSalespeople]);
 
     return (
         <div className="flex flex-col gap-8 pb-20 animate-in fade-in duration-700">
@@ -517,15 +549,61 @@ export default function AdminDashboard() {
               </Card>
             )}
 
-            {/* GRÁFICOS RECHARTS */}
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 px-1">
-                <SalesTrendChart orders={orders} />
-                <OrderStatusChart orders={orders} />
-            </div>
+            {/* SECCIÓN ANALÍTICA: CONTROLES DE FILTRADO POR VENDEDOR Y 3 CUADROS GRÁFICOS */}
+            <div className="space-y-6 px-1">
+                {/* BARRA DE FILTRADO UNIFICADO POR VENDEDOR */}
+                <div className="p-5 sm:p-6 rounded-[2.2rem] bg-white border border-slate-200/80 shadow-md flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                    <div className="flex items-center gap-3.5">
+                        <div className="p-3 rounded-2xl bg-indigo-50 text-indigo-600 shrink-0">
+                            <Users className="h-6 w-6" />
+                        </div>
+                        <div>
+                            <h3 className="text-xs sm:text-sm font-black uppercase tracking-wider text-slate-900 flex items-center gap-2">
+                                Filtro por Vendedor / Asesor Comercial
+                            </h3>
+                            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-0.5">
+                                Actualización en tiempo real de: Tendencia, Embudo Operativo y Matriz Comparativa
+                            </p>
+                        </div>
+                    </div>
 
-            {/* SUITE DE ANALÍTICA EJECUTIVA */}
-            <div className="px-1">
-                <ExecutiveMetricsSuite orders={orders} />
+                    <div className="flex items-center gap-2 w-full sm:w-auto">
+                        <Select value={chartSalespersonFilter} onValueChange={setChartSalespersonFilter}>
+                            <SelectTrigger className="h-11 w-full sm:w-72 rounded-xl font-black text-xs uppercase bg-slate-50 border-slate-200 shadow-inner text-slate-900">
+                                <SelectValue placeholder="FILTRAR VENDEDOR..." />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="all" className="font-black text-xs uppercase">🌐 TODOS LOS VENDEDORES (VISIÓN GLOBAL)</SelectItem>
+                                {availableSalespeople.map(sp => (
+                                    <SelectItem key={sp.key} value={sp.key} className="font-bold text-xs uppercase">
+                                        👤 {sp.name}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+
+                        {chartSalespersonFilter !== 'all' && (
+                            <Button 
+                                variant="ghost" 
+                                onClick={() => setChartSalespersonFilter('all')}
+                                className="h-11 px-3 rounded-xl text-slate-400 hover:text-slate-900 font-black text-xs uppercase"
+                            >
+                                <X className="h-4 w-4 mr-1" /> Limpiar
+                            </Button>
+                        )}
+                    </div>
+                </div>
+
+                {/* GRÁFICOS RECHARTS */}
+                <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+                    <SalesTrendChart orders={filteredOrdersForCharts} selectedSalespersonName={currentSalespersonName} />
+                    <OrderStatusChart orders={filteredOrdersForCharts} selectedSalespersonName={currentSalespersonName} />
+                </div>
+
+                {/* SUITE DE ANALÍTICA EJECUTIVA */}
+                <div>
+                    <ExecutiveMetricsSuite orders={filteredOrdersForCharts} selectedSalespersonName={currentSalespersonName} />
+                </div>
             </div>
 
             {/* RANKINGS Y PEDIDOS RECIENTES */}

@@ -36,6 +36,7 @@ import { getCashDate, getSalesDate, getEffectiveCashReceived, getInvoiceFromOrde
 
 interface ExecutiveMetricsSuiteProps {
     orders: Order[] | null;
+    selectedSalespersonName?: string;
 }
 
 const convertToDate = (value: any): Date => {
@@ -50,7 +51,7 @@ const isCashOrder = (o: Order): boolean => {
     return getEffectiveCashReceived(o) > 0 || o.status === 'Pagado' || (o as any).isPaid === true || (o as any).paymentStatus === 'Pagado';
 };
 
-export function ExecutiveMetricsSuite({ orders }: ExecutiveMetricsSuiteProps) {
+export function ExecutiveMetricsSuite({ orders, selectedSalespersonName }: ExecutiveMetricsSuiteProps) {
     const firestore = useFirestore();
     const settingsRef = useMemoFirebase(() => firestore ? doc(firestore, 'system', 'financials') : null, [firestore]);
     const { data: globalSettings } = useDoc<FinancialSettings>(settingsRef);
@@ -468,8 +469,13 @@ export function ExecutiveMetricsSuite({ orders }: ExecutiveMetricsSuiteProps) {
         <Card className="border-none shadow-2xl rounded-[2.5rem] bg-slate-900 text-white overflow-hidden animate-in fade-in duration-500">
             <CardHeader className="p-6 sm:p-8 pb-4 flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-white/10">
                 <div className="space-y-1">
-                    <CardTitle className="text-xs font-black uppercase tracking-[0.3em] text-primary flex items-center gap-2">
+                    <CardTitle className="text-xs font-black uppercase tracking-[0.3em] text-primary flex items-center gap-2 flex-wrap">
                         <BarChart3 className="h-5 w-5 text-primary" /> Suite de Analítica Ejecutiva & Matriz Comparativa
+                        {selectedSalespersonName && (
+                            <Badge className="bg-indigo-500/20 text-indigo-300 font-black text-[9px] uppercase border border-indigo-400/30 px-2.5 py-0.5 ml-1">
+                                👤 {selectedSalespersonName}
+                            </Badge>
+                        )}
                     </CardTitle>
                     <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
                         Monitoreo en paralelo: Ventas Comercial, Cobranzas Cash, Despachos Operativos y Cancelaciones

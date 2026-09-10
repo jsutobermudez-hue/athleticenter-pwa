@@ -18,6 +18,7 @@ import { captureSvgAsPng } from '@/lib/chart-pdf-exporter';
 interface SalesTrendChartProps {
   orders: Order[] | null;
   isLoading?: boolean;
+  selectedSalespersonName?: string;
 }
 
 const getDate = (ts: any): Date | null => {
@@ -34,7 +35,7 @@ const getSalesDate = (o: Order): Date | null => getDate(o.receptionDate || o.app
 // Fecha real de cobranza para la curva de Cash
 const getCashDate = (o: Order): Date | null => getDate((o as any).paidAt || o.updatedAt || o.approvalDate || o.receptionDate || o.createdAt || o.orderDate);
 
-export function SalesTrendChart({ orders, isLoading = false }: SalesTrendChartProps) {
+export function SalesTrendChart({ orders, isLoading = false, selectedSalespersonName }: SalesTrendChartProps) {
   const firestore = useFirestore();
   const settingsRef = useMemoFirebase(() => firestore ? doc(firestore, 'system', 'financials') : null, [firestore]);
   const { data: globalSettings } = useDoc<FinancialSettings>(settingsRef);
@@ -50,43 +51,10 @@ export function SalesTrendChart({ orders, isLoading = false }: SalesTrendChartPr
     const now = new Date();
     const VALID_SALES_STATUSES = ['Entregado', 'Completado', 'Despachado', 'Pagado', 'Aprobado', 'En Preparación', 'En Verificación'];
 
-    if (period === '7d') {
-      const days = Array.from({ length: 7 }, (_, i) => startOfDay(subDays(now, 6 - i)));
-      return days.map(day => {
-        const salesTotal = orders.filter(order => {
-          const sDate = getSalesDate(order);
-          return sDate && isSameDay(sDate, day) && VALID_SALES_STATUSES.includes(order.status);
-        }).reduce((sum, order) => sum + (order.totalAmount || 0), 0);
-
-        const cashTotal = orders.filter(order => {
-          const cDate = getCashDate(order);
-          const cash = getEffectiveCashReceived(order);
-          return cDate && isSameDay(cDate, day) && cash > 0;
-        }).reduce((sum, order) => sum + getEffectiveCashReceived(order), 0);
-
-        const moraTotal = orders.filter(order => {
-          const isVencidoStatus = (order.status as string) === 'Vencido';
-          if (!isVencidoStatus && (!VALID_SALES_STATUSES.includes(order.status) || order.status === 'Pagado')) return false;
-          const sDate = getSalesDate(order);
-          if (!sDate || sDate > day) return false;
-          const daysDiff = Math.max(0, Math.floor((day.getTime() - sDate.getTime()) / (1000 * 60 * 60 * 24)));
-          const paid = getEffectiveCashReceived(order);
-          const rem = Math.max(0, (order.totalAmount || 0) - paid);
-          return (isVencidoStatus || daysDiff > 30) && rem > 0.05;
-        }).reduce((sum, order) => {
-          const paid = getEffectiveCashReceived(order);
-          return sum + Math.max(0, (order.totalAmount || 0) - paid);
-        }, 0);
-
-        return {
-          name: format(day, 'dd/MM'),
-          ventas: salesTotal,
-          cobranzas: cashTotal,
-          moraCritica: moraTotal
-        };
-      });
-    } else if (period === '30d') {
-      const days = Array.from({ length: 30 }, (_, i) => startOfDay(subDays(now, 29 - i)));
+    if (period === '7d' || period === '30d') {
+      const daysCount = period === '7d' ? 7 : 30;
+      const days = Array.from({ length: daysCount }, (_, i) => startOfDay(subDays(now, daysCount - 1 - i)));
+      
       return days.map(day => {
         const salesTotal = orders.filter(order => {
           const sDate = getSalesDate(order);
@@ -121,43 +89,39 @@ export function SalesTrendChart({ orders, isLoading = false }: SalesTrendChartPr
         };
       });
     } else {
-      // 6 meses agrupados por mes
+      // 6 Meses
       const months = Array.from({ length: 6 }, (_, i) => {
-        const d = new Date();
-        d.setMonth(now.getMonth() - (5 - i));
+        const d = new Date(now.getFullYear(), now.getMonth() - (5 - i), 1);
         return d;
       });
 
-      return months.map(m => {
-        const mStart = new Date(m.getFullYear(), m.getMonth(), 1);
-        const mEnd = new Date(m.getFullYear(), m.getMonth() + 1, 0, 23, 59, 59, 999);
-
+      return months.map(month => {
         const salesTotal = orders.filter(order => {
           const sDate = getSalesDate(order);
-          return sDate && sDate >= mStart && sDate <= mEnd && VALID_SALES_STATUSES.includes(order.status);
+          return sDate && sDate.getMonth() === month.getMonth() && sDate.getFullYear() === month.getFullYear() && VALID_SALES_STATUSES.includes(order.status);
         }).reduce((sum, order) => sum + (order.totalAmount || 0), 0);
 
         const cashTotal = orders.filter(order => {
           const cDate = getCashDate(order);
           const cash = getEffectiveCashReceived(order);
-          return cDate && cDate >= mStart && cDate <= mEnd && cash > 0;
+          return cDate && cDate.getMonth() === month.getMonth() && cDate.getFullYear() === month.getFullYear() && cash > 0;
         }).reduce((sum, order) => sum + getEffectiveCashReceived(order), 0);
 
         const moraTotal = orders.filter(order => {
-          if (!VALID_SALES_STATUSES.includes(order.status) || order.status === 'Pagado') return false;
+          const isVencidoStatus = (order.status as string) === 'Vencido';
+          if (!isVencidoStatus && (!VALID_SALES_STATUSES.includes(order.status) || order.status === 'Pagado')) return false;
           const sDate = getSalesDate(order);
-          if (!sDate || sDate > mEnd) return false;
-          const daysDiff = Math.max(0, Math.floor((mEnd.getTime() - sDate.getTime()) / (1000 * 60 * 60 * 24)));
+          if (!sDate) return false;
           const paid = getEffectiveCashReceived(order);
           const rem = Math.max(0, (order.totalAmount || 0) - paid);
-          return daysDiff > 30 && rem > 0.05;
+          return sDate.getMonth() === month.getMonth() && sDate.getFullYear() === month.getFullYear() && (isVencidoStatus || rem > 0.05);
         }).reduce((sum, order) => {
           const paid = getEffectiveCashReceived(order);
           return sum + Math.max(0, (order.totalAmount || 0) - paid);
         }, 0);
 
         return {
-          name: format(m, 'MMM', { locale: es }).toUpperCase(),
+          name: format(month, 'MMM', { locale: es }).toUpperCase(),
           ventas: salesTotal,
           cobranzas: cashTotal,
           moraCritica: moraTotal
@@ -167,13 +131,14 @@ export function SalesTrendChart({ orders, isLoading = false }: SalesTrendChartPr
   }, [orders, period]);
 
   const totals = useMemo(() => {
-    const totalSales = chartData.reduce((sum, d) => sum + d.ventas, 0);
-    const totalCash = chartData.reduce((sum, d) => sum + d.cobranzas, 0);
-    const divisor = period === '7d' ? 7 : period === '30d' ? 30 : 180;
-    const dailyAvg = Math.round(totalSales / divisor);
+    const totalSales = chartData.reduce((sum, item) => sum + item.ventas, 0);
+    const totalCash = chartData.reduce((sum, item) => sum + item.cobranzas, 0);
+    const totalMora = chartData.reduce((sum, item) => sum + item.moraCritica, 0);
+    const count = chartData.length || 1;
+    const dailyAvg = totalSales / count;
     const efficiencyRate = totalSales > 0 ? Math.min(100, Math.round((totalCash / totalSales) * 100)) : 0;
-    return { totalSales, totalCash, dailyAvg, efficiencyRate };
-  }, [chartData, period]);
+    return { totalSales, totalCash, totalMora, dailyAvg, efficiencyRate };
+  }, [chartData]);
 
   const handleExportPDF = async () => {
     setIsExportingPDF(true);
@@ -181,23 +146,17 @@ export function SalesTrendChart({ orders, isLoading = false }: SalesTrendChartPr
       const jsPDF = (await import('jspdf')).default;
       const autoTable = (await import('jspdf-autotable')).default;
 
-      const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-      const periodLabel = period === '7d' ? 'Últimos 7 Días' : period === '30d' ? 'Últimos 30 Días' : 'Últimos 6 Meses';
+      const doc = new jsPDF();
 
-      // Header Corporativo
-      doc.setFillColor(15, 23, 42); // Slate-900
-      doc.rect(0, 0, 210, 26, 'F');
-
+      doc.setFillColor(15, 23, 42);
+      doc.rect(0, 0, 210, 24, 'F');
       doc.setTextColor(255, 255, 255);
-      doc.setFontSize(13);
+      doc.setFontSize(12);
       doc.setFont('helvetica', 'bold');
-      doc.text('ATHLETICENTER - INFORME VISUAL DE TENDENCIA DE VENTAS VS COBRANZAS', 14, 11);
-
+      doc.text('ATHLETICENTER PRO C.A. - AUDITORÍA DE TENDENCIA DE VENTAS', 14, 15);
       doc.setFontSize(8);
-      doc.setFont('helvetica', 'normal');
-      doc.text(`Período Auditado: ${periodLabel.toUpperCase()} | Tasa Oficial BCV: Bs. ${bcvRate.toFixed(2)} / USD | Fecha: ${new Date().toLocaleDateString('es-VE')}`, 14, 19);
+      doc.text(`FECHA DE INFORME: ${format(new Date(), 'dd/MM/yyyy HH:mm')} | PERÍODO: ${period.toUpperCase()}`, 14, 20);
 
-      // Resumen de Métricas Ejecutivas
       doc.setFillColor(248, 250, 252);
       doc.roundedRect(14, 31, 182, 20, 3, 3, 'F');
       doc.setDrawColor(226, 232, 240);
@@ -209,10 +168,9 @@ export function SalesTrendChart({ orders, isLoading = false }: SalesTrendChartPr
       doc.text(`TOTAL VENTAS FACTURADAS: $${totals.totalSales.toLocaleString('en-US', { minimumFractionDigits: 2 })}`, 18, 39);
       doc.text(`COBRANZA CASH REAL: $${totals.totalCash.toLocaleString('en-US', { minimumFractionDigits: 2 })}`, 18, 46);
 
-      doc.text(`PROMEDIO: $${totals.dailyAvg.toLocaleString('en-US')}/día`, 115, 39);
+      doc.text(`PROMEDIO: $${Math.round(totals.dailyAvg).toLocaleString('en-US')}/día`, 115, 39);
       doc.text(`EFICIENCIA: ${totals.efficiencyRate}% COBRADO`, 115, 46);
 
-      // Captura e inserción de la Imagen Visual del Gráfico
       const chartImage = await captureSvgAsPng('sales-trend-chart-container');
       let tableStartY = 56;
 
@@ -226,51 +184,23 @@ export function SalesTrendChart({ orders, isLoading = false }: SalesTrendChartPr
         tableStartY = 125;
       }
 
-      // Tabla Cuadrada Desglose por Período
-      const tableRows = chartData.map(d => {
-        const bcvEquiv = d.cobranzas * bcvRate;
-        const diff = d.ventas - d.cobranzas;
-        const eff = d.ventas > 0 ? Math.min(100, Math.round((d.cobranzas / d.ventas) * 100)) : 0;
-        return [
-          d.name,
-          `$${d.ventas.toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
-          `$${d.cobranzas.toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
-          `$${diff.toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
-          `${eff}%`,
-          `Bs. ${bcvEquiv.toLocaleString('es-VE', { minimumFractionDigits: 2 })}`
-        ];
-      });
-
-      const totalVentasStr = `$${totals.totalSales.toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
-      const totalCashStr = `$${totals.totalCash.toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
-      const totalDiffStr = `$${(totals.totalSales - totals.totalCash).toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
-      const totalBcvStr = `Bs. ${(totals.totalCash * bcvRate).toLocaleString('es-VE', { minimumFractionDigits: 2 })}`;
+      const tableRows = chartData.map(d => [
+        d.name,
+        `$${d.ventas.toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
+        `$${d.cobranzas.toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
+        `$${(d.ventas - d.cobranzas).toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
+        `${d.ventas > 0 ? Math.min(100, Math.round((d.cobranzas / d.ventas) * 100)) : 0}%`,
+        `Bs. ${(d.cobranzas * bcvRate).toLocaleString('es-VE', { minimumFractionDigits: 2 })}`
+      ]);
 
       autoTable(doc, {
         startY: tableStartY,
         head: [['Período', 'Ventas ($ USD)', 'Cobranzas ($ USD)', 'Brecha ($ USD)', '% Eficiencia', 'Equiv. BCV (Bs.)']],
-        body: [
-          ...tableRows,
-          ['TOTAL GENERAL', totalVentasStr, totalCashStr, totalDiffStr, `${totals.efficiencyRate}%`, totalBcvStr]
-        ],
-        headStyles: {
-          fillColor: [15, 23, 42],
-          textColor: [255, 255, 255],
-          fontSize: 8,
-          fontStyle: 'bold',
-          halign: 'center'
-        },
-        bodyStyles: {
-          fontSize: 8,
-          halign: 'center'
-        },
-        footStyles: {
-          fillColor: [30, 41, 59],
-          textColor: [255, 255, 255],
-          fontSize: 9,
-          fontStyle: 'bold',
-          halign: 'center'
-        },
+        body: tableRows,
+        headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255], fontSize: 8, fontStyle: 'bold', halign: 'center' },
+        bodyStyles: { fontSize: 8, textColor: [30, 41, 59] },
+        alternateRowStyles: { fillColor: [248, 250, 252] },
+        footStyles: { fillColor: [30, 41, 59], textColor: [255, 255, 255], fontSize: 9, fontStyle: 'bold', halign: 'center' },
         theme: 'grid'
       });
 
@@ -299,11 +229,15 @@ export function SalesTrendChart({ orders, isLoading = false }: SalesTrendChartPr
     <Card className="border-none shadow-xl rounded-[2.5rem] bg-white overflow-hidden relative group animate-in fade-in duration-500">
       <CardHeader className="p-8 pb-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 space-y-0">
         <div className="space-y-1">
-          <CardTitle className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-400 flex items-center gap-2">
+          <CardTitle className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-400 flex items-center gap-2 flex-wrap">
             <TrendingUp className="h-4 w-4 text-primary" /> Tendencia de Ventas vs Cobranzas
+            {selectedSalespersonName && (
+              <Badge className="bg-indigo-100 text-indigo-700 font-black text-[9px] uppercase border-none px-2 py-0.5 ml-1">
+                👤 {selectedSalespersonName}
+              </Badge>
+            )}
           </CardTitle>
           <div className="flex flex-wrap items-center gap-2 mt-2">
-            {/* SELECTOR DE PERÍODO */}
             <div className="flex bg-slate-100 border border-slate-200/50 rounded-xl p-1 gap-1">
               {(['7d', '30d', '6m'] as const).map((p) => (
                 <button

@@ -38,6 +38,7 @@ import type { FinancialSettings } from '@/lib/definitions';
 interface OrderStatusChartProps {
   orders: Order[] | null;
   isLoading?: boolean;
+  selectedSalespersonName?: string;
 }
 
 const COLORS: { [key: string]: string } = {
@@ -50,7 +51,7 @@ const COLORS: { [key: string]: string } = {
   'Cancelados': '#64748b',       // Slate Gray
 };
 
-export function OrderStatusChart({ orders, isLoading = false }: OrderStatusChartProps) {
+export function OrderStatusChart({ orders, isLoading = false, selectedSalespersonName }: OrderStatusChartProps) {
   const firestore = useFirestore();
   const settingsRef = useMemoFirebase(() => firestore ? doc(firestore, 'system', 'financials') : null, [firestore]);
   const { data: globalSettings } = useDoc<FinancialSettings>(settingsRef);
@@ -303,9 +304,14 @@ export function OrderStatusChart({ orders, isLoading = false }: OrderStatusChart
     <Card className="border-none shadow-xl rounded-[2.5rem] bg-white overflow-hidden relative group h-full flex flex-col justify-between">
       <CardHeader className="p-8 pb-3 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="space-y-1">
-          <div className="flex items-center gap-2">
-            <CardTitle className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-400 flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <CardTitle className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-400 flex items-center gap-2 flex-wrap">
               <ShoppingCart className="h-4 w-4 text-primary" /> Distribución & Embudo Operativo
+              {selectedSalespersonName && (
+                <Badge className="bg-indigo-100 text-indigo-700 font-black text-[9px] uppercase border-none px-2 py-0.5 ml-1">
+                  👤 {selectedSalespersonName}
+                </Badge>
+              )}
             </CardTitle>
           </div>
           <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">
