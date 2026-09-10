@@ -57,7 +57,10 @@ export function getSalespersonKey(o: Order): string {
     if (o.salespersonId && o.salespersonId.trim() !== '') {
         return o.salespersonId.trim();
     }
-    const name = o.salespersonName || (o as any).vendedor || '';
+    if ((o as any).customerAssignedSalespersonId && String((o as any).customerAssignedSalespersonId).trim() !== '') {
+        return String((o as any).customerAssignedSalespersonId).trim();
+    }
+    const name = o.salespersonName || (o as any).vendedor || (o as any).customerAssignedSalespersonName || '';
     if (name.trim() !== '') {
         return name.trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/z/g, 's');
     }
@@ -66,11 +69,34 @@ export function getSalespersonKey(o: Order): string {
 
 export function getSalespersonDisplayName(o: Order): string {
     if (!o) return 'Ventas Directas / Oficina Central';
-    const name = o.salespersonName || (o as any).vendedor;
+    const name = o.salespersonName || (o as any).vendedor || (o as any).customerAssignedSalespersonName;
     if (name && typeof name === 'string' && name.trim() !== '') {
         return name.trim();
     }
     return 'Ventas Directas / Oficina Central';
+}
+
+export function isOrderInMoraCritica(order: Order, referenceDate: Date = new Date()): boolean {
+    if (!order || order.status === 'Pagado' || order.status === 'Cancelado' || order.status === 'Rechazado' || order.status === 'Borrador') {
+        return false;
+    }
+    const isExplicitVencido = (order.status as string) === 'Vencido';
+    const cashPaid = getEffectiveCashReceived(order);
+    const remaining = Math.max(0, (order.totalAmount || 0) - cashPaid);
+    if (remaining <= 0.05) return false;
+
+    if (isExplicitVencido) return true;
+
+    const sDate = getSalesDate(order);
+    if (!sDate || isNaN(sDate.getTime())) return false;
+    const days = Math.max(0, Math.floor((referenceDate.getTime() - sDate.getTime()) / (1000 * 60 * 60 * 24)));
+    return days > 30;
+}
+
+export function getMoraCriticaAmount(order: Order, referenceDate: Date = new Date()): number {
+    if (!isOrderInMoraCritica(order, referenceDate)) return 0;
+    const cashPaid = getEffectiveCashReceived(order);
+    return Math.max(0, (order.totalAmount || 0) - cashPaid);
 }
 
 export const FOREIGN_CURRENCY_PAYMENT_METHODS = [

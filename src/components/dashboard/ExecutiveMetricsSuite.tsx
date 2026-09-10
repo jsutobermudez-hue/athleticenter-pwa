@@ -250,13 +250,34 @@ export function ExecutiveMetricsSuite({ orders, selectedSalespersonName }: Execu
             });
             const salesTotal = salesOrders.reduce((sum, o) => sum + (o.totalAmount || 0), 0);
 
-            const cashOrders = orders.filter(o => {
-                const cash = getEffectiveCashReceived(o);
-                if (cash <= 0) return false;
-                const d = getCashDate(o);
-                return d >= p.start && d <= p.end;
+            let cashTotal = 0;
+            const cashOrders: Order[] = [];
+            orders.forEach(o => {
+                let orderCashForPeriod = 0;
+                if (Array.isArray((o as any).payments) && (o as any).payments.length > 0) {
+                    (o as any).payments.forEach((p: any) => {
+                        if (p.status === 'verified' || !p.status) {
+                            const pDate = convertToDate(p.paymentDate || p.createdAt || p.date);
+                            if (pDate >= p.start && pDate <= p.end) {
+                                orderCashForPeriod += (Number(p.amount || p.monto) || 0);
+                            }
+                        }
+                    });
+                } else {
+                    const cash = getEffectiveCashReceived(o);
+                    if (cash > 0) {
+                        const d = getCashDate(o);
+                        if (d >= p.start && d <= p.end) {
+                            orderCashForPeriod = cash;
+                        }
+                    }
+                }
+
+                if (orderCashForPeriod > 0) {
+                    cashTotal += orderCashForPeriod;
+                    cashOrders.push(o);
+                }
             });
-            const cashTotal = cashOrders.reduce((sum, o) => sum + getEffectiveCashReceived(o), 0);
 
             const dispatchedOrders = orders.filter(o => {
                 if (!['Despachado', 'Entregado', 'Completado'].includes(o.status)) return false;

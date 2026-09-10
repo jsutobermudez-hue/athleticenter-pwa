@@ -25,7 +25,7 @@ import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { OrderSheetController } from '@/app/dashboard/orders/OrderSheetController';
 import { cn } from '@/lib/utils';
-import { getEffectiveCashReceived, getSalesDate } from '@/lib/billing';
+import { getEffectiveCashReceived, getSalesDate, isOrderInMoraCritica } from '@/lib/billing';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { format } from 'date-fns';
@@ -98,7 +98,7 @@ export function OrderStatusChart({ orders, isLoading = false, selectedSalesperso
         else aging60Plus.push(order);
       }
 
-      if (days > 30 && rem > 0.05 && order.status !== 'Pagado' && order.status !== 'Cancelado' && order.status !== 'Rechazado') {
+      if (isOrderInMoraCritica(order, now)) {
         moraCritica.push(order);
       }
 

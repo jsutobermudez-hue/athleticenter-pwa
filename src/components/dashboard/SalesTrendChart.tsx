@@ -3,7 +3,7 @@
 import React, { useMemo, useState } from 'react';
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
 import type { Order, FinancialSettings } from '@/lib/definitions';
-import { getEffectiveCashReceived } from '@/lib/billing';
+import { getEffectiveCashReceived, getCashDate, getSalesDate, isOrderInMoraCritica, getMoraCriticaAmount } from '@/lib/billing';
 import { format, subDays, startOfDay, isSameDay } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -29,11 +29,7 @@ const getDate = (ts: any): Date | null => {
   return isNaN(d.getTime()) ? null : d;
 };
 
-// Fecha de emisión/aprobación para la curva de Ventas
-const getSalesDate = (o: Order): Date | null => getDate(o.receptionDate || o.approvalDate || o.createdAt || o.orderDate);
 
-// Fecha real de cobranza para la curva de Cash
-const getCashDate = (o: Order): Date | null => getDate((o as any).paidAt || o.updatedAt || o.approvalDate || o.receptionDate || o.createdAt || o.orderDate);
 
 export function SalesTrendChart({ orders, isLoading = false, selectedSalespersonName }: SalesTrendChartProps) {
   const firestore = useFirestore();
@@ -61,25 +57,31 @@ export function SalesTrendChart({ orders, isLoading = false, selectedSalesperson
           return sDate && isSameDay(sDate, day) && VALID_SALES_STATUSES.includes(order.status);
         }).reduce((sum, order) => sum + (order.totalAmount || 0), 0);
 
-        const cashTotal = orders.filter(order => {
-          const cDate = getCashDate(order);
-          const cash = getEffectiveCashReceived(order);
-          return cDate && isSameDay(cDate, day) && cash > 0;
-        }).reduce((sum, order) => sum + getEffectiveCashReceived(order), 0);
+        let cashTotal = 0;
+        orders.forEach(order => {
+          if (Array.isArray((order as any).payments) && (order as any).payments.length > 0) {
+            (order as any).payments.forEach((p: any) => {
+              if (p.status === 'verified' || !p.status) {
+                const pDate = getDate(p.paymentDate || p.createdAt || p.date);
+                if (pDate && isSameDay(pDate, day)) {
+                  cashTotal += (Number(p.amount || p.monto) || 0);
+                }
+              }
+            });
+          } else {
+            const cDate = getCashDate(order);
+            const cash = getEffectiveCashReceived(order);
+            if (cDate && isSameDay(cDate, day) && cash > 0) {
+              cashTotal += cash;
+            }
+          }
+        });
 
         const moraTotal = orders.filter(order => {
-          const isVencidoStatus = (order.status as string) === 'Vencido';
-          if (!isVencidoStatus && (!VALID_SALES_STATUSES.includes(order.status) || order.status === 'Pagado')) return false;
           const sDate = getSalesDate(order);
           if (!sDate || sDate > day) return false;
-          const daysDiff = Math.max(0, Math.floor((day.getTime() - sDate.getTime()) / (1000 * 60 * 60 * 24)));
-          const paid = getEffectiveCashReceived(order);
-          const rem = Math.max(0, (order.totalAmount || 0) - paid);
-          return (isVencidoStatus || daysDiff > 30) && rem > 0.05;
-        }).reduce((sum, order) => {
-          const paid = getEffectiveCashReceived(order);
-          return sum + Math.max(0, (order.totalAmount || 0) - paid);
-        }, 0);
+          return isOrderInMoraCritica(order, day);
+        }).reduce((sum, order) => sum + getMoraCriticaAmount(order, day), 0);
 
         return {
           name: format(day, 'dd/MM'),
@@ -101,24 +103,31 @@ export function SalesTrendChart({ orders, isLoading = false, selectedSalesperson
           return sDate && sDate.getMonth() === month.getMonth() && sDate.getFullYear() === month.getFullYear() && VALID_SALES_STATUSES.includes(order.status);
         }).reduce((sum, order) => sum + (order.totalAmount || 0), 0);
 
-        const cashTotal = orders.filter(order => {
-          const cDate = getCashDate(order);
-          const cash = getEffectiveCashReceived(order);
-          return cDate && cDate.getMonth() === month.getMonth() && cDate.getFullYear() === month.getFullYear() && cash > 0;
-        }).reduce((sum, order) => sum + getEffectiveCashReceived(order), 0);
+        let cashTotal = 0;
+        orders.forEach(order => {
+          if (Array.isArray((order as any).payments) && (order as any).payments.length > 0) {
+            (order as any).payments.forEach((p: any) => {
+              if (p.status === 'verified' || !p.status) {
+                const pDate = getDate(p.paymentDate || p.createdAt || p.date);
+                if (pDate && pDate.getMonth() === month.getMonth() && pDate.getFullYear() === month.getFullYear()) {
+                  cashTotal += (Number(p.amount || p.monto) || 0);
+                }
+              }
+            });
+          } else {
+            const cDate = getCashDate(order);
+            const cash = getEffectiveCashReceived(order);
+            if (cDate && cDate.getMonth() === month.getMonth() && cDate.getFullYear() === month.getFullYear() && cash > 0) {
+              cashTotal += cash;
+            }
+          }
+        });
 
         const moraTotal = orders.filter(order => {
-          const isVencidoStatus = (order.status as string) === 'Vencido';
-          if (!isVencidoStatus && (!VALID_SALES_STATUSES.includes(order.status) || order.status === 'Pagado')) return false;
           const sDate = getSalesDate(order);
           if (!sDate) return false;
-          const paid = getEffectiveCashReceived(order);
-          const rem = Math.max(0, (order.totalAmount || 0) - paid);
-          return sDate.getMonth() === month.getMonth() && sDate.getFullYear() === month.getFullYear() && (isVencidoStatus || rem > 0.05);
-        }).reduce((sum, order) => {
-          const paid = getEffectiveCashReceived(order);
-          return sum + Math.max(0, (order.totalAmount || 0) - paid);
-        }, 0);
+          return sDate.getMonth() === month.getMonth() && sDate.getFullYear() === month.getFullYear() && isOrderInMoraCritica(order, now);
+        }).reduce((sum, order) => sum + getMoraCriticaAmount(order, now), 0);
 
         return {
           name: format(month, 'MMM', { locale: es }).toUpperCase(),

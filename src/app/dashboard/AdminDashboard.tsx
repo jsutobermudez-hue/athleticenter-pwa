@@ -240,13 +240,14 @@ export default function AdminDashboard() {
     // Pedidos filtrados en tiempo real para los 3 módulos analíticos
     const filteredOrdersForCharts = useMemo(() => {
         if (!orders) return [];
-        if (chartSalespersonFilter === 'all') return orders;
+        if (chartSalespersonFilter === 'all' || chartSalespersonFilter === 'gerencia_override') return orders;
         return orders.filter(o => getSalespersonKey(o) === chartSalespersonFilter);
     }, [orders, chartSalespersonFilter]);
 
     // Nombre del vendedor seleccionado para mostrar la insignia visual en los títulos
     const currentSalespersonName = useMemo(() => {
         if (chartSalespersonFilter === 'all') return undefined;
+        if (chartSalespersonFilter === 'gerencia_override') return 'Gerencia de Ventas (Override 5% Global)';
         const found = availableSalespeople.find(sp => sp.key === chartSalespersonFilter);
         return found ? found.name : undefined;
     }, [chartSalespersonFilter, availableSalespeople]);
@@ -574,6 +575,7 @@ export default function AdminDashboard() {
                             </SelectTrigger>
                             <SelectContent>
                                 <SelectItem value="all" className="font-black text-xs uppercase">🌐 TODOS LOS VENDEDORES (VISIÓN GLOBAL)</SelectItem>
+                                <SelectItem value="gerencia_override" className="font-black text-xs uppercase text-amber-700 bg-amber-50/50">👔 GERENCIA DE VENTAS (OVERRIDE 5% GLOBAL)</SelectItem>
                                 {availableSalespeople.map(sp => (
                                     <SelectItem key={sp.key} value={sp.key} className="font-bold text-xs uppercase">
                                         👤 {sp.name}
