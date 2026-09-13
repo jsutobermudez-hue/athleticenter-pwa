@@ -4,6 +4,7 @@ import React, { useMemo, useState } from 'react';
 import { useCollection, useFirestore, useMemoFirebase, useUser, useDoc } from '@/firebase';
 import { collection, query, limit, doc } from 'firebase/firestore';
 import type { Order, Product, Customer, Offer, FinancialSettings, PurchaseOrder, Invoice, OrderStatus } from '@/lib/definitions';
+import type { ExpenseItem } from '@/lib/breakEvenEngine';
 import { 
     TrendingUp, 
     ShoppingCart, 
@@ -85,6 +86,9 @@ export default function AdminDashboard() {
     const { data: customers } = useCollection<Customer>(customersQuery);
     const { data: allOffers } = useCollection<Offer>(offersQuery);
     const { data: purchaseOrders } = useCollection<PurchaseOrder>(posQuery);
+
+    const expensesQuery = useMemoFirebase(() => (firestore ? query(collection(firestore, 'expenses'), limit(200)) : null), [firestore]);
+    const { data: allExpenses } = useCollection<ExpenseItem>(expensesQuery);
 
     const canManageInventory = profile && ['superadmin', 'admin', 'gerencia', 'deposito'].includes(profile.role);
     const isSuperAdmin = profile?.role === 'superadmin';
@@ -182,9 +186,24 @@ export default function AdminDashboard() {
         });
         const topSalesperson = Object.values(salesBySalesperson).sort((a, b) => b.totalUSD - a.totalUSD)[0] || { name: 'Ventas Directas / Oficina Central', totalUSD: 0, count: 0 };
 
+        let totalExpenses = 0;
+        let totalFixedExpenses = 0;
+        let totalVariableExpenses = 0;
+        if (allExpenses) {
+            allExpenses.forEach(exp => {
+                const amt = Number(exp.amountUSD || 0);
+                totalExpenses += amt;
+                if (exp.isFixed) totalFixedExpenses += amt;
+                else totalVariableExpenses += amt;
+            });
+        }
+
         return { 
             revenue, pending, lowStock, clients, inventoryValuation, totalDebts, grossBcvDebt, netCashDebt, vencido, inTransitValuation,
             topSalesperson,
+            totalExpenses,
+            totalFixedExpenses,
+            totalVariableExpenses,
             recaudadoCash: globalMetrics.recaudadoCash,
             cashBreakdown: globalMetrics.cashBreakdown,
             totalOrdersCount: globalMetrics.totalOrdersCount,
@@ -192,7 +211,7 @@ export default function AdminDashboard() {
             liquidadosCount: globalMetrics.liquidadosCount,
             liquidadosAmount: globalMetrics.liquidadosAmount
         };
-    }, [orders, products, customers, purchaseOrders, kpiPeriod]);
+    }, [orders, products, customers, purchaseOrders, allExpenses, kpiPeriod]);
 
     const allInvoices = useMemo(() => {
         if (!orders) return [];
@@ -353,7 +372,23 @@ export default function AdminDashboard() {
                     </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+                    <DashboardMetricCard 
+                        title="Total Facturado" 
+                        value={`$${(stats.revenue || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} 
+                        subtitle="Facturación bruta en el período" 
+                        tooltip="Monto total de facturas emitidas, entregadas o cobradas en el período seleccionado. Clic para ver facturación."
+                        icon={FileText} iconBg="bg-indigo-50" iconColor="text-indigo-600" 
+                        onClick={() => router.push('/dashboard/billing')}
+                    />
+                    <DashboardMetricCard 
+                        title="Gastos Operativos" 
+                        value={`$${(stats.totalExpenses || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} 
+                        subtitle={`Fijos: $${(stats.totalFixedExpenses || 0).toLocaleString()} | Var: $${(stats.totalVariableExpenses || 0).toLocaleString()}`} 
+                        tooltip="Estructura de costos fijos y variables registrados en el Módulo de Punto de Equilibrio. Clic para gestionar gastos."
+                        icon={Calculator} iconBg="bg-amber-50" iconColor="text-amber-600" 
+                        onClick={() => router.push('/dashboard/break-even')}
+                    />
                     <DashboardMetricCard 
                         title="Pagos Registrados" 
                         value={`$${(stats.recaudadoCash || 0).toLocaleString('en-US', { maximumFractionDigits: 0 })}`} 

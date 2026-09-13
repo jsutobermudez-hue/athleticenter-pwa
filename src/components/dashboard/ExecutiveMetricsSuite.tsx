@@ -30,8 +30,8 @@ import { Button } from '@/components/ui/button';
 import { Search, Eye, ShoppingCart, CheckCircle2 } from 'lucide-react';
 import { OrderSheetController } from '@/app/dashboard/orders/OrderSheetController';
 import { captureSvgAsPng } from '@/lib/chart-pdf-exporter';
-import { doc } from 'firebase/firestore';
-import { useDoc, useFirestore, useMemoFirebase } from '@/firebase';
+import { doc, collection, query } from 'firebase/firestore';
+import { useDoc, useFirestore, useMemoFirebase, useCollection } from '@/firebase';
 import { getCashDate, getSalesDate, getEffectiveCashReceived, getInvoiceFromOrder } from '@/lib/billing';
 
 interface ExecutiveMetricsSuiteProps {
@@ -58,8 +58,12 @@ export function ExecutiveMetricsSuite({ orders, selectedSalespersonName }: Execu
     const bcvRate = globalSettings?.bcvRate || 65.50;
 
     const [period, setPeriod] = useState<'today' | '7d' | '30d' | 'this_month' | 'last_month' | '6m' | 'all'>('all');
-    const [activeTab, setActiveTab] = useState<'comparative' | 'logistics' | 'matrix'>('comparative');
+    const [criteriaMode, setCriteriaMode] = useState<'billed' | 'emitted'>('billed');
+    const [activeTab, setActiveTab] = useState<'comparative' | 'logistics' | 'matrix' | 'expenses_analysis'>('comparative');
     const [isExportingPDF, setIsExportingPDF] = useState(false);
+
+    const expensesQuery = useMemoFirebase(() => (firestore ? query(collection(firestore, 'expenses')) : null), [firestore]);
+    const { data: allExpenses } = useCollection<any>(expensesQuery);
 
     // ESTADO MODAL INTERACTIVA DE DESGLOSE DE VENTAS (DRILL-DOWN)
     const [isAuditModalOpen, setIsAuditModalOpen] = useState(false);
@@ -158,7 +162,9 @@ export function ExecutiveMetricsSuite({ orders, selectedSalespersonName }: Execu
         if (!orders) return { chartPoints: [], matrixRows: [], totals: { sales: 0, cash: 0, pending: 0, dispatched: 0, cancelled: 0, totalOrders: 0, avgTicket: 0 } };
 
         const now = new Date();
-        const VALID_SALES_STATUSES = ['Entregado', 'Completado', 'Despachado', 'Pagado', 'Aprobado', 'En Preparación', 'En Verificación'];
+        const VALID_SALES_STATUSES = criteriaMode === 'billed' 
+            ? ['Entregado', 'Completado', 'Despachado', 'Pagado']
+            : ['Entregado', 'Completado', 'Despachado', 'Pagado', 'Aprobado', 'En Preparación', 'En Verificación', 'Pendiente'];
 
         let periodsList: { dateLabel: string; start: Date; end: Date; rawDate: Date }[] = [];
 
@@ -357,7 +363,7 @@ export function ExecutiveMetricsSuite({ orders, selectedSalespersonName }: Execu
                 avgTicket: globalAvgTicket
             }
         };
-    }, [orders, period]);
+    }, [orders, period, criteriaMode]);
 
     const efficiencyRate = useMemo(() => {
         if (metricsData.totals.sales <= 0) return 0;
@@ -504,6 +510,32 @@ export function ExecutiveMetricsSuite({ orders, selectedSalespersonName }: Execu
                 </div>
 
                 <div className="flex flex-wrap items-center gap-3">
+                    {/* Selector Criterio: Ventas Facturadas vs Ventas Emitidas */}
+                    <div className="flex bg-white/5 border border-white/10 p-1 rounded-xl gap-1">
+                        <button
+                            type="button"
+                            onClick={() => setCriteriaMode('billed')}
+                            className={cn(
+                                "px-2.5 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer",
+                                criteriaMode === 'billed' ? "bg-emerald-600 text-white shadow-md font-black" : "text-slate-400 hover:text-white"
+                            )}
+                            title="Filtra estrictamente órdenes facturadas, entregadas o cobradas"
+                        >
+                            📄 Ventas Facturadas (Neto)
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setCriteriaMode('emitted')}
+                            className={cn(
+                                "px-2.5 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer",
+                                criteriaMode === 'emitted' ? "bg-blue-600 text-white shadow-md font-black" : "text-slate-400 hover:text-white"
+                            )}
+                            title="Suma la totalidad de órdenes emitidas no canceladas"
+                        >
+                            📋 Ventas Emitidas (Bruto)
+                        </button>
+                    </div>
+
                     {/* Selectores de Pestaña Sub-View */}
                     <div className="flex bg-white/5 border border-white/10 p-1 rounded-xl gap-1">
                         {[

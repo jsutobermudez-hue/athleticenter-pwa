@@ -26,14 +26,16 @@ import {
     PackageSearch,
     DollarSign,
     MapPin,
-    Eye
+    Eye,
+    History,
+    FileText
 } from 'lucide-react';
 import { NewProductDialog } from './manage-inventory-dialog';
-import type { Product, Offer, FinancialSettings, CompanyProfile } from '@/lib/definitions';
+import type { Product, Offer, FinancialSettings, CompanyProfile, StockMovement } from '@/lib/definitions';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { useCollection, useFirestore, useMemoFirebase, useUser, useDoc } from '@/firebase';
 import { useCatalog } from '@/firebase/catalog-context';
-import { collection, query, limit, doc, Timestamp } from 'firebase/firestore';
+import { collection, query, limit, doc, Timestamp, orderBy } from 'firebase/firestore';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -43,7 +45,7 @@ import { DeleteProductDialog } from './delete-product-dialog';
 import { ProductCard } from '@/components/dashboard/ProductCard';
 import { generateInventoryReportPDF } from '@/lib/pdf-generator';
 import { cn } from '@/lib/utils';
-import { subDays, isAfter } from 'date-fns';
+import { subDays, isAfter, format } from 'date-fns';
 
 export const dynamic = 'force-dynamic';
 
@@ -97,7 +99,7 @@ function InventoryContent() {
   const [stockStatusFilter, setStockStatusFilter] = useState('todos');
   const [categoryFilter, setCategoryFilter] = useState('todos');
   const [searchTerm, setSearchTerm] = useState('');
-  const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid');
+  const [viewMode, setViewMode] = useState<'grid' | 'table' | 'history'>('grid');
 
   const { products: inventory, isLoading: isLoadingInventory } = useCatalog();
 
@@ -109,6 +111,9 @@ function InventoryContent() {
 
   const offersCollection = useMemoFirebase(() => (firestore ? query(collection(firestore, 'offers'), limit(50)) : null), [firestore]);
   const { data: allOffers, isLoading: isLoadingOffers } = useCollection<Offer>(offersCollection);
+
+  const stockMovementsQuery = useMemoFirebase(() => (firestore ? query(collection(firestore, 'stockMovements'), orderBy('timestamp', 'desc'), limit(150)) : null), [firestore]);
+  const { data: stockMovements, isLoading: isLoadingMovements } = useCollection<StockMovement>(stockMovementsQuery);
 
   useEffect(() => {
     const statusQuery = searchParams.get('status');
@@ -254,7 +259,15 @@ function InventoryContent() {
                     onClick={() => setViewMode('table')}
                     className="h-8 px-3 rounded-lg text-[9px] font-black uppercase tracking-wider"
                   >
-                    <List className="h-3.5 w-3.5 mr-1" /> Tabla Compacta
+                    <List className="h-3.5 w-3.5 mr-1" /> Tabla
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant={viewMode === 'history' ? 'default' : 'ghost'}
+                    onClick={() => setViewMode('history')}
+                    className="h-8 px-3 rounded-lg text-[9px] font-black uppercase tracking-wider"
+                  >
+                    <History className="h-3.5 w-3.5 mr-1" /> Trazabilidad Rebajas
                   </Button>
                 </div>
 
@@ -451,6 +464,79 @@ function InventoryContent() {
                             </tbody>
                         </table>
                     </div>
+                </div>
+            ) : viewMode === 'history' ? (
+                <div className="bg-white rounded-[2.5rem] p-6 shadow-xl border border-slate-100 space-y-4">
+                    <div className="flex items-center justify-between border-b pb-4">
+                        <div>
+                            <h3 className="text-sm font-black text-slate-900 uppercase tracking-tight flex items-center gap-2">
+                                <History className="h-4 w-4 text-primary" /> Libro Contable de Rebajas de Inventario
+                            </h3>
+                            <p className="text-[10px] text-slate-500 font-bold uppercase">Auditoría inmutable de salidas de mercancía vinculadas a facturas y vendedores</p>
+                        </div>
+                        <Badge variant="outline" className="bg-primary/5 text-primary border-primary/20 text-[9px] font-black uppercase">
+                            {stockMovements?.length || 0} Movimientos Registrados
+                        </Badge>
+                    </div>
+
+                    {isLoadingMovements ? (
+                        <div className="flex justify-center p-8"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>
+                    ) : !stockMovements || stockMovements.length === 0 ? (
+                        <div className="text-center py-12 text-slate-400 font-bold text-xs">
+                            No hay movimientos de inventario registrados aún.
+                        </div>
+                    ) : (
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-left text-xs border-collapse">
+                                <thead>
+                                    <tr className="border-b border-slate-200 bg-slate-50/50 text-[9px] font-black uppercase text-slate-500">
+                                        <th className="p-3.5">Fecha y Hora</th>
+                                        <th className="p-3.5">N° Factura / Orden</th>
+                                        <th className="p-3.5">Vendedor Responsable</th>
+                                        <th className="p-3.5">Producto & SKU</th>
+                                        <th className="p-3.5 text-center">Unidades Rebajadas</th>
+                                        <th className="p-3.5 text-right">Costo COGS ($)</th>
+                                        <th className="p-3.5 text-right">Valoración Venta ($)</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100">
+                                    {stockMovements.map((mov) => {
+                                        const dateObj = mov.timestamp?.toDate ? mov.timestamp.toDate() : new Date(mov.timestamp || 0);
+                                        return (
+                                            <tr key={mov.id} className="hover:bg-slate-50/80 transition-colors font-medium text-slate-700">
+                                                <td className="p-3.5 text-[10px] font-mono text-slate-500">
+                                                    {dateObj && !isNaN(dateObj.getTime()) ? format(dateObj, 'dd/MM/yyyy HH:mm') : 'Reciente'}
+                                                </td>
+                                                <td className="p-3.5">
+                                                    <Badge variant="outline" className="font-mono text-[9px] font-black text-slate-800 bg-slate-100 border-slate-300">
+                                                        {mov.invoiceNumber || `#${(mov.orderId || '').substring(0, 8).toUpperCase()}`}
+                                                    </Badge>
+                                                </td>
+                                                <td className="p-3.5 font-bold text-slate-800 text-[10px]">
+                                                    {mov.salespersonName || 'Directo'}
+                                                </td>
+                                                <td className="p-3.5">
+                                                    <div>
+                                                        <p className="font-black text-slate-900 text-[11px]">{mov.productName}</p>
+                                                        <p className="text-[9px] font-mono text-slate-400">{mov.sku}</p>
+                                                    </div>
+                                                </td>
+                                                <td className="p-3.5 text-center font-black text-rose-600">
+                                                    {mov.quantity} UNID.
+                                                </td>
+                                                <td className="p-3.5 text-right font-mono font-bold text-slate-600">
+                                                    ${(mov.totalCostImpactUSD || 0).toFixed(2)}
+                                                </td>
+                                                <td className="p-3.5 text-right font-mono font-black text-slate-900">
+                                                    ${(mov.totalValuationImpactUSD || 0).toFixed(2)}
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
                 </div>
             ) : (
                 <div className="space-y-10">

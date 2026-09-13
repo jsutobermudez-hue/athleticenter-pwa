@@ -82,6 +82,8 @@ export default function BreakEvenPage() {
   const [newConcept, setNewConcept] = useState('');
   const [newCategory, setNewCategory] = useState<ExpenseItem['category']>('Nómina');
   const [newAmountUSD, setNewAmountUSD] = useState<string>('');
+  const [newExpenseDate, setNewExpenseDate] = useState<string>(() => new Date().toISOString().split('T')[0]);
+  const [newPaymentStatus, setNewPaymentStatus] = useState<'PAID' | 'PENDING'>('PAID');
   const [newIsFixed, setNewIsFixed] = useState(true);
   const [isSubmittingExpense, setIsSubmittingExpense] = useState(false);
 
@@ -109,12 +111,18 @@ export default function BreakEvenPage() {
 
     setIsSubmittingExpense(true);
     try {
+      const bcvRate = globalSettings?.bcvRate || 36.5;
+      const amountBS = amount * bcvRate;
       await addExpense({
         concept: newConcept.trim(),
         category: newCategory,
         amountUSD: amount,
+        amountBS,
+        bcvRate,
         isFixed: newIsFixed,
-        periodicity: 'mensual'
+        periodicity: newIsFixed ? 'mensual' : 'unico',
+        date: newExpenseDate || new Date().toISOString().split('T')[0],
+        paymentStatus: newPaymentStatus
       });
       setNewConcept('');
       setNewAmountUSD('');
@@ -533,6 +541,10 @@ export default function BreakEvenPage() {
                       <SelectItem value="Alquiler">Alquiler</SelectItem>
                       <SelectItem value="Servicios">Servicios</SelectItem>
                       <SelectItem value="Marketing">Marketing</SelectItem>
+                      <SelectItem value="Logística/Fletes">Logística / Fletes</SelectItem>
+                      <SelectItem value="Comisiones">Comisiones</SelectItem>
+                      <SelectItem value="Insumos">Insumos</SelectItem>
+                      <SelectItem value="Gastos Operativos">Gastos Operativos</SelectItem>
                       <SelectItem value="Depreciación">Depreciación</SelectItem>
                       <SelectItem value="Impuestos">Impuestos</SelectItem>
                       <SelectItem value="Flete Local">Flete Local</SelectItem>
@@ -552,6 +564,30 @@ export default function BreakEvenPage() {
                     className="h-11 font-black text-xs rounded-xl"
                     required
                   />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label className="text-[9px] font-black uppercase text-slate-500">Fecha del Gasto</Label>
+                  <Input
+                    type="date"
+                    value={newExpenseDate}
+                    onChange={(e) => setNewExpenseDate(e.target.value)}
+                    className="h-11 font-bold text-xs rounded-xl"
+                    required
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label className="text-[9px] font-black uppercase text-slate-500">Estado de Pago</Label>
+                  <Select value={newPaymentStatus} onValueChange={(v: any) => setNewPaymentStatus(v)}>
+                    <SelectTrigger className="h-11 text-xs font-bold rounded-xl"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="PAID">Pagado</SelectItem>
+                      <SelectItem value="PENDING">Pendiente por Pagar</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
 

@@ -50,6 +50,7 @@ import {
     DollarSign
 } from 'lucide-react';
 import { ConfirmPaymentDialog } from './register-payment-dialog';
+import { HistoricalDebtDialog } from './historical-debt-dialog';
 import { getInvoiceFromOrder, calculateGlobalFinancialMetrics } from '@/lib/billing';
 import { CashAuditModal } from '@/components/dashboard/CashAuditModal';
 import { format } from 'date-fns';
@@ -558,6 +559,7 @@ export function AdminBillingView() {
           <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">Auditoría de ingresos y conciliación de abonos de la red global</p>
         </div>
         <div className="flex flex-wrap items-center gap-2.5">
+          <HistoricalDebtDialog />
           <Button onClick={() => setIsCashAuditModalOpen(true)} className="h-10 px-4 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-black uppercase tracking-wider shadow-md transition-all active:scale-95 flex items-center gap-1.5">
             <Banknote className="h-4 w-4" /> Pagos Registrados
           </Button>

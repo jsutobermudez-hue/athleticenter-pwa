@@ -136,6 +136,9 @@ export default function TreasuryPage() {
   const ordersQuery = useMemoFirebase(() => firestore && canManage ? query(collection(firestore, 'orders'), limit(300)) : null, [firestore, canManage]);
   const { data: allOrders } = useCollection<Order>(ordersQuery);
 
+  const expensesQuery = useMemoFirebase(() => firestore && canManage ? query(collection(firestore, 'expenses'), limit(200)) : null, [firestore, canManage]);
+  const { data: allExpenses } = useCollection<any>(expensesQuery);
+
   const { control, handleSubmit, reset, setValue, watch, formState: { isSubmitting } } = useForm<FinancialFormValues>({
     resolver: zodResolver(financialSchema),
     defaultValues: {
@@ -219,6 +222,40 @@ export default function TreasuryPage() {
 
     return { totalBilling, totalCashVerified, liquidityGap, efficiency, replacementCostTotal };
   }, [products, allOrders]);
+
+  const profitabilityMatrix = useMemo(() => {
+    if (!allOrders) return { grossRevenue: 0, cogs: 0, commissions: 0, expenses: 0, netMarginUSD: 0, netMarginPct: 0 };
+    
+    let grossRevenue = 0;
+    let cogs = 0;
+    let commissions = 0;
+    let expenses = 0;
+
+    allOrders.forEach(o => {
+      if (['Entregado', 'Completado', 'Pagado', 'Despachado'].includes(o.status)) {
+        const rev = o.totalAmount || 0;
+        grossRevenue += rev;
+        cogs += (o as any).totalCost || (rev * 0.55);
+        
+        const paidAmt = o.totalCashReceived ?? o.amountPaid ?? 0;
+        const spPct = typeof o.salespersonCommissionRate === 'number' ? o.salespersonCommissionRate * 100 : (settings?.defaultCommission ?? 5);
+        const mgrPct = settings?.salesManagerCommission ?? 5;
+        const admPct = settings?.adminCommission ?? 0;
+        commissions += paidAmt * ((spPct + mgrPct + admPct) / 100);
+      }
+    });
+
+    if (allExpenses) {
+      allExpenses.forEach((exp: any) => {
+        expenses += Number(exp.amountUSD || 0);
+      });
+    }
+
+    const netMarginUSD = grossRevenue - cogs - commissions - expenses;
+    const netMarginPct = grossRevenue > 0 ? (netMarginUSD / grossRevenue) * 100 : 0;
+
+    return { grossRevenue, cogs, commissions, expenses, netMarginUSD, netMarginPct };
+  }, [allOrders, allExpenses, settings]);
 
   const agingSchedule = useMemo(() => {
     if (!allOrders) return null;
@@ -402,6 +439,58 @@ export default function TreasuryPage() {
               }}
           />
       </div>
+
+      {/* MATRIZ DE RENTABILIDAD Y MARGEN NETO REAL DE LA EMPRESA */}
+      <Card className="border-none shadow-xl rounded-[2.5rem] bg-gradient-to-br from-slate-900 via-slate-800 to-slate-950 text-white p-6 sm:p-8 space-y-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-white/10 pb-4">
+          <div>
+            <h3 className="text-base sm:text-lg font-black uppercase tracking-tight text-white flex items-center gap-2">
+              <PieChart className="h-5 w-5 text-emerald-400" /> Matriz de Rentabilidad & Margen Neto Real de la Empresa
+            </h3>
+            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">
+              Unit Economics: Facturado - COGS (Costo Reposición) - Comisiones Devengadas - Gastos Operativos
+            </p>
+          </div>
+          <Badge className={cn(
+            "text-xs font-black uppercase px-4 py-1.5 rounded-xl shadow-lg border-none",
+            profitabilityMatrix.netMarginUSD >= 0 ? "bg-emerald-500 text-white" : "bg-rose-600 text-white"
+          )}>
+            Margen Neto Real: {profitabilityMatrix.netMarginPct.toFixed(1)}%
+          </Badge>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 text-left">
+          <div className="p-4 rounded-2xl bg-white/5 border border-white/10 space-y-1">
+            <span className="text-[9px] font-black uppercase text-emerald-400">1. Facturado / Entregado</span>
+            <p className="text-lg font-black text-white font-mono">${profitabilityMatrix.grossRevenue.toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
+            <p className="text-[8px] font-bold text-slate-400 uppercase">Ventas brutas entregadas</p>
+          </div>
+
+          <div className="p-4 rounded-2xl bg-white/5 border border-white/10 space-y-1">
+            <span className="text-[9px] font-black uppercase text-amber-400">2. Costo Producto (COGS)</span>
+            <p className="text-lg font-black text-white font-mono">-${profitabilityMatrix.cogs.toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
+            <p className="text-[8px] font-bold text-slate-400 uppercase">Costo reposición bienes</p>
+          </div>
+
+          <div className="p-4 rounded-2xl bg-white/5 border border-white/10 space-y-1">
+            <span className="text-[9px] font-black uppercase text-cyan-400">3. Comisiones Devengadas</span>
+            <p className="text-lg font-black text-white font-mono">-${profitabilityMatrix.commissions.toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
+            <p className="text-[8px] font-bold text-slate-400 uppercase">Vendedor + Gerencia + Admin</p>
+          </div>
+
+          <div className="p-4 rounded-2xl bg-white/5 border border-white/10 space-y-1">
+            <span className="text-[9px] font-black uppercase text-rose-400">4. Gastos Operativos</span>
+            <p className="text-lg font-black text-white font-mono">-${profitabilityMatrix.expenses.toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
+            <p className="text-[8px] font-bold text-slate-400 uppercase">Estructura Punto de Equilibrio</p>
+          </div>
+
+          <div className="p-4 rounded-2xl bg-emerald-500/20 border border-emerald-500/40 space-y-1">
+            <span className="text-[9px] font-black uppercase text-emerald-300">5. Ganancia Neta Real</span>
+            <p className="text-xl font-black text-emerald-300 font-mono">${profitabilityMatrix.netMarginUSD.toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
+            <p className="text-[8px] font-bold text-emerald-400 uppercase">Utilidad Limpia de la Empresa</p>
+          </div>
+        </div>
+      </Card>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
         {/* COLUMNA IZQUIERDA: FORMULARIO MAESTRO DE PARÁMETROS Y COMISIONES */}

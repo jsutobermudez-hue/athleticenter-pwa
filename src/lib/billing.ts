@@ -1,6 +1,6 @@
 import { addDays, differenceInDays, subDays, startOfDay, isSameDay } from 'date-fns';
-import { Timestamp } from 'firebase/firestore';
-import type { Order, Invoice } from './definitions';
+import { Timestamp, doc, collection, writeBatch, serverTimestamp, getDoc } from 'firebase/firestore';
+import type { Order, Invoice, StockMovement, CommissionRecord } from './definitions';
 
 export function roundCurrency(value: number): number {
     return Math.round((Number(value || 0) + Number.EPSILON) * 100) / 100;
@@ -616,3 +616,198 @@ export function getCashBreakdown(
         payments
     };
 }
+
+/**
+ * REBAJA AUTOMÁTICA DE INVENTARIO Y REGISTRO EN LIBRO DE TRAZABILIDAD (stockMovements)
+ */
+export async function processStockDeductionForOrder(
+    firestore: any,
+    order: Order,
+    orderItems: any[],
+    actorName: string = 'Sistema'
+): Promise<boolean> {
+    if (!firestore || !order || (order as any).stockDeducted === true) {
+        return false;
+    }
+
+    try {
+        const batch = writeBatch(firestore);
+        const invoiceNum = order.historicalInvoiceNumber || `#FACT-${(order.id || '').substring(0, 8).toUpperCase()}`;
+
+        for (const item of orderItems) {
+            const pId = item.productId || item.id;
+            if (!pId) continue;
+            
+            const pRef = doc(firestore, 'products', pId);
+            const pSnap = await getDoc(pRef);
+            if (!pSnap.exists()) continue;
+
+            const productData = pSnap.data();
+            const currentStock = typeof productData.stockLevel === 'number' ? productData.stockLevel : 0;
+            const qty = Number(item.quantity || 1);
+            const newStock = Math.max(0, currentStock - qty);
+            const unitCost = Number(productData.cost || productData.priceCashUSD * 0.6 || 0);
+            const unitPrice = Number(item.unitPrice || productData.priceCashUSD || 0);
+
+            // Actualizar stock de producto
+            batch.update(pRef, { 
+                stockLevel: newStock,
+                lastSoldAt: serverTimestamp(),
+                totalSold: (productData.totalSold || 0) + qty
+            });
+
+            // Registrar movimiento de trazabilidad inmutable
+            const movRef = doc(collection(firestore, 'stockMovements'));
+            batch.set(movRef, {
+                id: movRef.id,
+                productId: pId,
+                sku: productData.sku || 'S/SKU',
+                productName: productData.name || item.productName || 'Producto',
+                type: 'ORDER_DEDUCTION',
+                quantity: -qty,
+                previousStock: currentStock,
+                newStock: newStock,
+                unitCostUSD: unitCost,
+                totalCostImpactUSD: qty * unitCost,
+                unitPriceUSD: unitPrice,
+                totalValuationImpactUSD: qty * unitPrice,
+                orderId: order.id,
+                invoiceNumber: invoiceNum,
+                salespersonId: getSalespersonKey(order),
+                salespersonName: getSalespersonDisplayName(order),
+                timestamp: serverTimestamp(),
+                createdBy: actorName
+            });
+        }
+
+        // Marcar la orden como descontada
+        const orderRef = doc(firestore, 'orders', order.id);
+        batch.update(orderRef, { stockDeducted: true });
+
+        await batch.commit();
+        return true;
+    } catch (e) {
+        console.error("Error procesando rebaja automática de inventario:", e);
+        return false;
+    }
+}
+
+/**
+ * GENERACIÓN AUTOMÁTICA DE COMISIONES POR COBRANZA BAJADA
+ */
+export async function processAutomaticCommissionsForPayment(
+    firestore: any,
+    order: Order,
+    paymentAmountUSD: number,
+    paymentId: string,
+    settings: any,
+    actorName: string = 'Sistema'
+): Promise<boolean> {
+    if (!firestore || !order || paymentAmountUSD <= 0) return false;
+
+    try {
+        const batch = writeBatch(firestore);
+        const bcvRate = settings?.bcvRate || 36.5;
+        const paymentAmountBS = paymentAmountUSD * bcvRate;
+        const invoiceNum = order.historicalInvoiceNumber || `#FACT-${(order.id || '').substring(0, 8).toUpperCase()}`;
+
+        // Porcentajes dinámicos desde Tesorería / Perfil de Vendedor
+        const salespersonRate = typeof order.salespersonCommissionRate === 'number' ? order.salespersonCommissionRate : (settings?.defaultCommission ?? 5);
+        const managerRate = settings?.salesManagerCommission ?? 5;
+        const adminRate = settings?.adminCommission ?? 0;
+
+        // 1. Comisión Vendedor Directo
+        if (salespersonRate > 0) {
+            const spCommUSD = roundCurrency(paymentAmountUSD * (salespersonRate / 100));
+            const commRef = doc(collection(firestore, 'commissions'));
+            batch.set(commRef, {
+                id: commRef.id,
+                orderId: order.id,
+                orderNumber: order.id,
+                invoiceNumber: invoiceNum,
+                paymentId: paymentId,
+                clientName: order.customerName || 'Cliente',
+                salespersonId: getSalespersonKey(order),
+                recipientUserId: getSalespersonKey(order),
+                recipientName: getSalespersonDisplayName(order),
+                recipientRole: 'SALESPERSON',
+                paymentAmountUSD,
+                paymentAmountBS,
+                bcvRate,
+                commissionPercent: salespersonRate,
+                commissionAmountUSD: spCommUSD,
+                commissionAmountBS: roundCurrency(spCommUSD * bcvRate),
+                collectionDate: serverTimestamp(),
+                currency: 'USD',
+                status: 'PENDING',
+                createdAt: serverTimestamp(),
+                createdBy: actorName
+            });
+        }
+
+        // 2. Comisión Gerencia de Ventas (Jsutobermudez / Override Global)
+        if (managerRate > 0) {
+            const mgrCommUSD = roundCurrency(paymentAmountUSD * (managerRate / 100));
+            const mgrCommRef = doc(collection(firestore, 'commissions'));
+            batch.set(mgrCommRef, {
+                id: mgrCommRef.id,
+                orderId: order.id,
+                orderNumber: order.id,
+                invoiceNumber: invoiceNum,
+                paymentId: paymentId,
+                clientName: order.customerName || 'Cliente',
+                salespersonId: getSalespersonKey(order),
+                recipientUserId: 'gerencia_ventas_override',
+                recipientName: '👔 Jsutobermudez (Gerente de Ventas - Override)',
+                recipientRole: 'SALES_MANAGER',
+                paymentAmountUSD,
+                paymentAmountBS,
+                bcvRate,
+                commissionPercent: managerRate,
+                commissionAmountUSD: mgrCommUSD,
+                commissionAmountBS: roundCurrency(mgrCommUSD * bcvRate),
+                collectionDate: serverTimestamp(),
+                currency: 'USD',
+                status: 'PENDING',
+                createdAt: serverTimestamp(),
+                createdBy: actorName
+            });
+        }
+
+        // 3. Comisión Administración (Si aplica en Tesorería)
+        if (adminRate > 0) {
+            const admCommUSD = roundCurrency(paymentAmountUSD * (adminRate / 100));
+            const admCommRef = doc(collection(firestore, 'commissions'));
+            batch.set(admCommRef, {
+                id: admCommRef.id,
+                orderId: order.id,
+                orderNumber: order.id,
+                invoiceNumber: invoiceNum,
+                paymentId: paymentId,
+                clientName: order.customerName || 'Cliente',
+                salespersonId: getSalespersonKey(order),
+                recipientUserId: 'admin_override',
+                recipientName: '🏢 Administración / Gestión de Cobranza',
+                recipientRole: 'ADMIN',
+                paymentAmountUSD,
+                paymentAmountBS,
+                bcvRate,
+                commissionPercent: adminRate,
+                commissionAmountUSD: admCommUSD,
+                commissionAmountBS: roundCurrency(admCommUSD * bcvRate),
+                collectionDate: serverTimestamp(),
+                currency: 'USD',
+                status: 'PENDING',
+                createdAt: serverTimestamp(),
+                createdBy: actorName
+            });
+        }
+
+        await batch.commit();
+        return true;
+    } catch (e) {
+        console.error("Error al generar comisiones automáticas:", e);
+        return false;
+    }
+}
+

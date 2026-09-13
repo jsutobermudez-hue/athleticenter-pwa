@@ -168,6 +168,8 @@ export interface Order extends Auditable {
   discrepancyAmount?: number;
   discrepancyReason?: string;
   digitalSignatureUrl?: string;
+  isHistorical?: boolean;
+  historicalInvoiceNumber?: string;
 }
 
 export type OrderStatus = 'Borrador' | 'Pendiente' | 'Aprobado' | 'En Preparación' | 'Completado' | 'Despachado' | 'Entregado' | 'Cancelado' | 'En Verificación' | 'Pagado' | 'Rechazado';
@@ -565,3 +567,62 @@ export interface PriceAdjustmentHistory {
   createdAt: any; // ServerTimestamp
   isRestored?: boolean;
 }
+
+export interface StockMovement extends Auditable {
+  id: string;
+  productId: string;
+  sku: string;
+  productName: string;
+  type: 'ORDER_DEDUCTION' | 'MANUAL_ADJUSTMENT' | 'RESTOCK';
+  quantity: number;
+  previousStock: number;
+  newStock: number;
+  unitCostUSD: number;
+  totalCostImpactUSD: number;
+  unitPriceUSD: number;
+  totalValuationImpactUSD: number;
+  orderId?: string;
+  invoiceNumber?: string;
+  salespersonId?: string;
+  salespersonName?: string;
+  timestamp: Timestamp | any;
+  createdBy: string;
+}
+
+export interface ExpenseRecord extends Auditable {
+  id: string;
+  concept: string;
+  category: 'Nómina' | 'Alquiler/Servicios' | 'Logística/Fletes' | 'Comisiones' | 'Marketing' | 'Insumos' | 'Gastos Operativos' | 'Otros';
+  isFixed: boolean;
+  amountUSD: number;
+  amountBS?: number;
+  bcvRate?: number;
+  date: string; // YYYY-MM-DD
+  paymentStatus: 'PAID' | 'PENDING';
+  periodicity?: 'mensual' | 'semanal' | 'diario' | 'unico';
+  createdBy?: string;
+}
+
+export interface CommissionRecord extends Auditable {
+  id: string;
+  orderId: string;
+  orderNumber?: string;
+  invoiceNumber?: string;
+  paymentId: string;
+  clientName: string;
+  salespersonId: string;
+  recipientUserId: string;
+  recipientName?: string;
+  recipientRole: 'SALESPERSON' | 'SALES_MANAGER' | 'ADMIN';
+  paymentAmountUSD: number;
+  paymentAmountBS: number;
+  bcvRate: number;
+  commissionPercent: number;
+  commissionAmountUSD: number;
+  commissionAmountBS: number;
+  collectionDate: Timestamp | any;
+  currency: 'USD' | 'VES';
+  status: 'PENDING' | 'PAID';
+  liquidatedAt?: Timestamp | any;
+}
+

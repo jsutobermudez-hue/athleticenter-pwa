@@ -51,6 +51,7 @@ import { createAppNotifications } from '@/lib/notifications';
 import { cn } from '@/lib/utils';
 import { generateOrderPDF, generatePaymentReceiptPDF } from '@/lib/pdf-generator';
 import { dispatchUniversalWhatsApp } from '@/lib/whatsapp-universal';
+import { processStockDeductionForOrder } from '@/lib/billing';
 
 const paymentSchema = z.object({
   amount: z.coerce.number().min(0.01, 'El monto debe ser mayor a cero.'),
@@ -225,52 +226,117 @@ export function ConfirmPaymentDialog({ order }: { order: Order }) {
 
         transaction.update(customerRef, customerUpdates);
 
-        const rate = order.salespersonCommissionRate || 0.05;
-        const commAmount = actualCash * rate;
+        const bcvRate = globalSettings?.bcvRate || 36.5;
+        const invoiceNum = order.historicalInvoiceNumber || `#FACT-${(order.id || '').substring(0, 8).toUpperCase()}`;
+
+        // 1. COMISIÓN DEL ASESOR COMERCIAL DE LA VENTA
+        const spRatePct = typeof order.salespersonCommissionRate === 'number' ? order.salespersonCommissionRate * 100 : (globalSettings?.defaultCommission ?? 5);
+        const spRateFrac = spRatePct / 100;
+        const commAmount = actualCash * spRateFrac;
 
         const salespersonId = order.salespersonId || '';
         const salespersonName = order.salespersonName || 'Venta Directa / Oficina Central';
 
-        // 1. COMISIÓN DEL ASESOR COMERCIAL DE LA VENTA
         if (commAmount > 0) {
             const commRef = doc(collection(firestore, 'commissions'));
             transaction.set(commRef, {
                 orderId: order.id,
                 paymentId: paymentRef.id,
+                invoiceNumber: invoiceNum,
                 commissionDate: serverTimestamp(),
+                collectionDate: serverTimestamp(),
                 invoiceAmount: actualCash,
+                paymentAmountUSD: actualCash,
+                paymentAmountBS: actualCash * bcvRate,
+                bcvRate,
                 salespersonId,
                 salespersonName,
+                recipientUserId: salespersonId,
+                recipientName: salespersonName,
+                recipientRole: 'SALESPERSON',
                 salespersonCommissionAmount: commAmount,
+                commissionAmountUSD: commAmount,
+                commissionAmountBS: commAmount * bcvRate,
+                commissionPercent: spRatePct,
                 status: 'pendiente',
+                currency: 'USD',
                 commissionType: 'vendedor',
-                orderNumber: `#PED-${order.id.substring(0, 8).toUpperCase()}`,
+                orderNumber: invoiceNum,
                 customerName: order.customerName || 'Cliente B2B',
                 paymentMethod: data.method || 'CASH',
-                rateApplied: rate * 100,
+                rateApplied: spRatePct,
                 createdAt: serverTimestamp()
             });
         }
 
-        // 2. COMISIÓN DE GERENCIA DE VENTAS (5% SOBRE EL 100% DE LAS VENTAS GLOBALES)
-        const managerRate = (globalSettings?.salesManagerCommission || 5) / 100;
-        const managerCommAmount = actualCash * managerRate;
+        // 2. COMISIÓN DE GERENCIA DE VENTAS (OVERRIDE DINÁMICO DESDE TESORERÍA)
+        const managerRatePct = globalSettings?.salesManagerCommission ?? 5;
+        const managerRateFrac = managerRatePct / 100;
+        const managerCommAmount = actualCash * managerRateFrac;
         if (managerCommAmount > 0) {
             const managerCommRef = doc(collection(firestore, 'commissions'));
             transaction.set(managerCommRef, {
                 orderId: order.id,
                 paymentId: paymentRef.id,
+                invoiceNumber: invoiceNum,
                 commissionDate: serverTimestamp(),
+                collectionDate: serverTimestamp(),
                 invoiceAmount: actualCash,
+                paymentAmountUSD: actualCash,
+                paymentAmountBS: actualCash * bcvRate,
+                bcvRate,
                 salespersonId: 'GERENCIA_SALES_MANAGER',
-                salespersonName: 'Gerencia de Ventas (Justo Bermúdez)',
+                salespersonName: '👔 Jsutobermudez (Gerencia de Ventas - Override)',
+                recipientUserId: 'gerencia_ventas_override',
+                recipientName: '👔 Jsutobermudez (Gerencia de Ventas - Override)',
+                recipientRole: 'SALES_MANAGER',
                 salespersonCommissionAmount: managerCommAmount,
+                commissionAmountUSD: managerCommAmount,
+                commissionAmountBS: managerCommAmount * bcvRate,
+                commissionPercent: managerRatePct,
                 status: 'pendiente',
+                currency: 'USD',
                 commissionType: 'gerencia',
-                orderNumber: `#PED-${order.id.substring(0, 8).toUpperCase()}`,
+                orderNumber: invoiceNum,
                 customerName: order.customerName || 'Cliente B2B',
                 paymentMethod: data.method || 'CASH',
-                rateApplied: managerRate * 100,
+                rateApplied: managerRatePct,
+                createdAt: serverTimestamp()
+            });
+        }
+
+        // 3. COMISIÓN DE ADMINISTRACIÓN (DINÁMICA DESDE TESORERÍA)
+        const adminRatePct = globalSettings?.adminCommission ?? 0;
+        const adminRateFrac = adminRatePct / 100;
+        const adminCommAmount = actualCash * adminRateFrac;
+        if (adminCommAmount > 0) {
+            const adminCommRef = doc(collection(firestore, 'commissions'));
+            transaction.set(adminCommRef, {
+                orderId: order.id,
+                paymentId: paymentRef.id,
+                invoiceNumber: invoiceNum,
+                commissionDate: serverTimestamp(),
+                collectionDate: serverTimestamp(),
+                invoiceAmount: actualCash,
+                paymentAmountUSD: actualCash,
+                paymentAmountBS: actualCash * bcvRate,
+                bcvRate,
+                salespersonId: 'ADMIN_OVERRIDE',
+                salespersonName: '🏢 Administración / Gestión de Cobranza',
+                recipientUserId: 'admin_override',
+                recipientName: '🏢 Administración / Gestión de Cobranza',
+                recipientRole: 'ADMIN',
+                salespersonCommissionAmount: adminCommAmount,
+                commissionAmountUSD: adminCommAmount,
+                commissionAmountBS: adminCommAmount * bcvRate,
+                commissionPercent: adminRatePct,
+                status: 'pendiente',
+                currency: 'USD',
+                commissionType: 'admin',
+                orderNumber: invoiceNum,
+                customerName: order.customerName || 'Cliente B2B',
+                paymentMethod: data.method || 'CASH',
+                rateApplied: adminRatePct,
                 createdAt: serverTimestamp()
             });
         }

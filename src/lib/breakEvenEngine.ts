@@ -4,10 +4,14 @@ import { calculatePricingTier, DEFAULT_BCV_RATE } from './pricing';
 export interface ExpenseItem {
   id?: string;
   concept: string;
-  category: 'Nómina' | 'Alquiler' | 'Servicios' | 'Marketing' | 'Depreciación' | 'Impuestos' | 'Flete Local' | 'Licencias/Software' | 'Otros';
+  category: 'Nómina' | 'Alquiler' | 'Servicios' | 'Marketing' | 'Depreciación' | 'Impuestos' | 'Flete Local' | 'Licencias/Software' | 'Logística/Fletes' | 'Comisiones' | 'Insumos' | 'Gastos Operativos' | 'Otros';
   amountUSD: number;
+  amountBS?: number;
+  bcvRate?: number;
   isFixed: boolean;
-  periodicity?: 'mensual' | 'anual';
+  periodicity?: 'mensual' | 'anual' | 'semanal' | 'diario' | 'unico';
+  date?: string; // YYYY-MM-DD
+  paymentStatus?: 'PAID' | 'PENDING';
   notes?: string;
 }
 

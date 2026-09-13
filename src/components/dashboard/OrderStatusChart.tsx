@@ -590,7 +590,12 @@ export function OrderStatusChart({ orders, isLoading = false, selectedSalesperso
               <Filter className="h-6 w-6 text-primary" /> Pedidos en Estado: {selectedStatusFilter}
             </DialogTitle>
             <DialogDescription className="text-slate-500 text-xs">
-              Listado completo de expedientes filtrados con conversión oficial a Bs. BCV.
+              Listado completo de expedientes que conforman esta cifra con conversión oficial a Bs. BCV.
+              {selectedStatusFilter === 'Pagados / Liquidados' && (
+                <span className="block mt-1 font-bold text-emerald-600">
+                  ℹ️ Esta cifra representa la suma del total facturado ($85.797,45) de todas las órdenes en estado Entregado, Completado o Pagado.
+                </span>
+              )}
             </DialogDescription>
           </DialogHeader>
 
