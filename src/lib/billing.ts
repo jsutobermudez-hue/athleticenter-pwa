@@ -811,3 +811,211 @@ export async function processAutomaticCommissionsForPayment(
     }
 }
 
+/**
+ * CÁLCULO MULTI-VARIABLE POR DISCIPLINA DEPORTIVA (Ventas, Cobranzas, Mora y Top Vendedor)
+ */
+export function calculateMetricsByDiscipline(orders: Order[], products?: any[]): Array<{
+    discipline: string;
+    ventas: number;
+    cobranzas: number;
+    moraCritica: number;
+    pending: number;
+    totalUnits: number;
+    topSalespersonName: string;
+    topSalespersonAmount: number;
+    efficiencyPct: number;
+}> {
+    if (!orders || orders.length === 0) return [];
+
+    const productDisciplineMap = new Map<string, string>();
+    if (products) {
+        products.forEach(p => {
+            if (p.id && p.discipline) productDisciplineMap.set(p.id, p.discipline.trim());
+            if (p.sku && p.discipline) productDisciplineMap.set(p.sku, p.discipline.trim());
+        });
+    }
+
+    const disciplineMap = new Map<string, {
+        discipline: string;
+        ventas: number;
+        cobranzas: number;
+        moraCritica: number;
+        pending: number;
+        totalUnits: number;
+        salespersonSales: Map<string, number>;
+    }>();
+
+    const VALID_STATUSES = ['Entregado', 'Completado', 'Despachado', 'Pagado', 'Aprobado', 'En Preparación', 'En Verificación'];
+
+    orders.forEach(order => {
+        if (!VALID_STATUSES.includes(order.status)) return;
+
+        const orderTotal = order.totalAmount || 1;
+        const cashPaid = getEffectiveCashReceived(order);
+        const cashRatio = Math.min(1, cashPaid / orderTotal);
+        const isMora = isOrderInMoraCritica(order);
+        const spName = getSalespersonDisplayName(order);
+
+        const items = Array.isArray((order as any).items) ? (order as any).items : [];
+
+        if (items.length > 0) {
+            items.forEach((item: any) => {
+                const disc = item.discipline || productDisciplineMap.get(item.productId) || productDisciplineMap.get(item.sku) || productDisciplineMap.get(item.id) || 'General / Multideporte';
+                const itemTotal = Number(item.unitPrice || 0) * Number(item.quantity || 1);
+                const itemCash = itemTotal * cashRatio;
+                const itemPending = Math.max(0, itemTotal - itemCash);
+                const itemMora = isMora ? itemPending : 0;
+                const qty = Number(item.quantity || 1);
+
+                if (!disciplineMap.has(disc)) {
+                    disciplineMap.set(disc, {
+                        discipline: disc,
+                        ventas: 0,
+                        cobranzas: 0,
+                        moraCritica: 0,
+                        pending: 0,
+                        totalUnits: 0,
+                        salespersonSales: new Map<string, number>()
+                    });
+                }
+
+                const entry = disciplineMap.get(disc)!;
+                entry.ventas += itemTotal;
+                entry.cobranzas += itemCash;
+                entry.pending += itemPending;
+                entry.moraCritica += itemMora;
+                entry.totalUnits += qty;
+
+                const currentSpSales = entry.salespersonSales.get(spName) || 0;
+                entry.salespersonSales.set(spName, currentSpSales + itemTotal);
+            });
+        } else {
+            const disc = 'General / Multideporte';
+            const itemTotal = orderTotal;
+            const itemCash = cashPaid;
+            const itemPending = Math.max(0, itemTotal - itemCash);
+            const itemMora = isMora ? itemPending : 0;
+
+            if (!disciplineMap.has(disc)) {
+                disciplineMap.set(disc, {
+                    discipline: disc,
+                    ventas: 0,
+                    cobranzas: 0,
+                    moraCritica: 0,
+                    pending: 0,
+                    totalUnits: 0,
+                    salespersonSales: new Map<string, number>()
+                });
+            }
+
+            const entry = disciplineMap.get(disc)!;
+            entry.ventas += itemTotal;
+            entry.cobranzas += itemCash;
+            entry.pending += itemPending;
+            entry.moraCritica += itemMora;
+
+            const currentSpSales = entry.salespersonSales.get(spName) || 0;
+            entry.salespersonSales.set(spName, currentSpSales + itemTotal);
+        }
+    });
+
+    return Array.from(disciplineMap.values()).map(d => {
+        let topSpName = 'Sin Datos';
+        let topSpAmt = 0;
+
+        d.salespersonSales.forEach((amt, name) => {
+            if (amt > topSpAmt) {
+                topSpAmt = amt;
+                topSpName = name;
+            }
+        });
+
+        const eff = d.ventas > 0 ? (d.cobranzas / d.ventas) * 100 : 0;
+
+        return {
+            discipline: d.discipline,
+            ventas: roundCurrency(d.ventas),
+            cobranzas: roundCurrency(d.cobranzas),
+            moraCritica: roundCurrency(d.moraCritica),
+            pending: roundCurrency(d.pending),
+            totalUnits: d.totalUnits,
+            topSalespersonName: topSpName,
+            topSalespersonAmount: roundCurrency(topSpAmt),
+            efficiencyPct: roundCurrency(eff)
+        };
+    }).sort((a, b) => b.ventas - a.ventas);
+}
+
+/**
+ * CÁLCULO MULTI-VARIABLE POR VENDEDOR / ASESOR COMERCIAL
+ */
+export function calculateMetricsBySalesperson(orders: Order[]): Array<{
+    salespersonKey: string;
+    salespersonName: string;
+    ventas: number;
+    cobranzas: number;
+    moraCritica: number;
+    pending: number;
+    orderCount: number;
+    efficiencyPct: number;
+}> {
+    if (!orders || orders.length === 0) return [];
+
+    const map = new Map<string, {
+        salespersonKey: string;
+        salespersonName: string;
+        ventas: number;
+        cobranzas: number;
+        moraCritica: number;
+        pending: number;
+        orderCount: number;
+    }>();
+
+    const VALID_STATUSES = ['Entregado', 'Completado', 'Despachado', 'Pagado', 'Aprobado', 'En Preparación', 'En Verificación'];
+
+    orders.forEach(order => {
+        if (!VALID_STATUSES.includes(order.status)) return;
+
+        const spKey = getSalespersonKey(order);
+        const spName = getSalespersonDisplayName(order);
+        const total = order.totalAmount || 0;
+        const cash = getEffectiveCashReceived(order);
+        const rem = Math.max(0, total - cash);
+        const mora = isOrderInMoraCritica(order) ? rem : 0;
+
+        if (!map.has(spKey)) {
+            map.set(spKey, {
+                salespersonKey: spKey,
+                salespersonName: spName,
+                ventas: 0,
+                cobranzas: 0,
+                moraCritica: 0,
+                pending: 0,
+                orderCount: 0
+            });
+        }
+
+        const entry = map.get(spKey)!;
+        entry.ventas += total;
+        entry.cobranzas += cash;
+        entry.pending += rem;
+        entry.moraCritica += mora;
+        entry.orderCount += 1;
+    });
+
+    return Array.from(map.values()).map(sp => {
+        const eff = sp.ventas > 0 ? (sp.cobranzas / sp.ventas) * 100 : 0;
+        return {
+            salespersonKey: sp.salespersonKey,
+            salespersonName: sp.salespersonName,
+            ventas: roundCurrency(sp.ventas),
+            cobranzas: roundCurrency(sp.cobranzas),
+            moraCritica: roundCurrency(sp.moraCritica),
+            pending: roundCurrency(sp.pending),
+            orderCount: sp.orderCount,
+            efficiencyPct: roundCurrency(eff)
+        };
+    }).sort((a, b) => b.ventas - a.ventas);
+}
+
+

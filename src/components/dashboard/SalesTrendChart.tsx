@@ -1,18 +1,18 @@
 'use client';
 
 import React, { useMemo, useState } from 'react';
-import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
-import type { Order, FinancialSettings } from '@/lib/definitions';
-import { getEffectiveCashReceived, getCashDate, getSalesDate, isOrderInMoraCritica, getMoraCriticaAmount } from '@/lib/billing';
+import { ResponsiveContainer, AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
+import type { Order, FinancialSettings, Product } from '@/lib/definitions';
+import { getEffectiveCashReceived, getCashDate, getSalesDate, isOrderInMoraCritica, getMoraCriticaAmount, calculateMetricsByDiscipline, calculateMetricsBySalesperson } from '@/lib/billing';
 import { format, subDays, startOfDay, isSameDay } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { TrendingUp, DollarSign, Activity, CheckCircle2, Printer, Loader2 } from 'lucide-react';
+import { TrendingUp, Printer, Loader2, Users, Calendar, Trophy } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { doc } from 'firebase/firestore';
-import { useDoc, useFirestore, useMemoFirebase } from '@/firebase';
+import { doc, collection, query, limit } from 'firebase/firestore';
+import { useDoc, useFirestore, useMemoFirebase, useCollection } from '@/firebase';
 import { captureSvgAsPng } from '@/lib/chart-pdf-exporter';
 
 interface SalesTrendChartProps {
@@ -29,21 +29,51 @@ const getDate = (ts: any): Date | null => {
   return isNaN(d.getTime()) ? null : d;
 };
 
-
-
 export function SalesTrendChart({ orders, isLoading = false, selectedSalespersonName }: SalesTrendChartProps) {
   const firestore = useFirestore();
   const settingsRef = useMemoFirebase(() => firestore ? doc(firestore, 'system', 'financials') : null, [firestore]);
   const { data: globalSettings } = useDoc<FinancialSettings>(settingsRef);
   const bcvRate = globalSettings?.bcvRate || 65.50;
 
+  const [dimension, setDimension] = useState<'timeline' | 'salesperson' | 'discipline'>('timeline');
   const [period, setPeriod] = useState<'7d' | '30d' | '6m'>('7d');
   const [viewMode, setViewMode] = useState<'comparative' | 'sales' | 'cash' | 'mora_critica'>('comparative');
   const [isExportingPDF, setIsExportingPDF] = useState(false);
 
+  const productsQuery = useMemoFirebase(() => (firestore ? query(collection(firestore, 'products'), limit(300)) : null), [firestore]);
+  const { data: products } = useCollection<Product>(productsQuery);
+
   const chartData = useMemo(() => {
     if (!orders) return [];
 
+    if (dimension === 'salesperson') {
+      const spData = calculateMetricsBySalesperson(orders);
+      return spData.map(item => ({
+        name: item.salespersonName,
+        ventas: item.ventas,
+        cobranzas: item.cobranzas,
+        moraCritica: item.moraCritica,
+        pending: item.pending,
+        efficiencyPct: item.efficiencyPct,
+        orderCount: item.orderCount
+      }));
+    }
+
+    if (dimension === 'discipline') {
+      const discData = calculateMetricsByDiscipline(orders, products || []);
+      return discData.map(item => ({
+        name: item.discipline,
+        ventas: item.ventas,
+        cobranzas: item.cobranzas,
+        moraCritica: item.moraCritica,
+        pending: item.pending,
+        efficiencyPct: item.efficiencyPct,
+        topSalespersonName: item.topSalespersonName,
+        topSalespersonAmount: item.topSalespersonAmount
+      }));
+    }
+
+    // Timeline dimension
     const now = new Date();
     const VALID_SALES_STATUSES = ['Entregado', 'Completado', 'Despachado', 'Pagado', 'Aprobado', 'En Preparación', 'En Verificación'];
 
@@ -93,8 +123,7 @@ export function SalesTrendChart({ orders, isLoading = false, selectedSalesperson
     } else {
       // 6 Meses
       const months = Array.from({ length: 6 }, (_, i) => {
-        const d = new Date(now.getFullYear(), now.getMonth() - (5 - i), 1);
-        return d;
+        return new Date(now.getFullYear(), now.getMonth() - (5 - i), 1);
       });
 
       return months.map(month => {
@@ -137,7 +166,7 @@ export function SalesTrendChart({ orders, isLoading = false, selectedSalesperson
         };
       });
     }
-  }, [orders, period]);
+  }, [orders, period, dimension, products]);
 
   const totals = useMemo(() => {
     const totalSales = chartData.reduce((sum, item) => sum + item.ventas, 0);
@@ -155,57 +184,107 @@ export function SalesTrendChart({ orders, isLoading = false, selectedSalesperson
       const jsPDF = (await import('jspdf')).default;
       const autoTable = (await import('jspdf-autotable')).default;
 
-      const doc = new jsPDF();
+      const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
 
       doc.setFillColor(15, 23, 42);
-      doc.rect(0, 0, 210, 24, 'F');
+      doc.rect(0, 0, 297, 24, 'F');
       doc.setTextColor(255, 255, 255);
       doc.setFontSize(12);
       doc.setFont('helvetica', 'bold');
-      doc.text('ATHLETICENTER PRO C.A. - AUDITORÍA DE TENDENCIA DE VENTAS', 14, 15);
+      doc.text('ATHLETICENTER PRO C.A. - ANÁLISIS MULTI-DIMENSIONAL DE VENTAS & COBRANZAS', 14, 13);
       doc.setFontSize(8);
-      doc.text(`FECHA DE INFORME: ${format(new Date(), 'dd/MM/yyyy HH:mm')} | PERÍODO: ${period.toUpperCase()}`, 14, 20);
+      const dimLabel = dimension === 'timeline' ? `LÍNEA DE TIEMPO (${period.toUpperCase()})` : dimension === 'salesperson' ? 'COMPARATIVA POR VENDEDOR' : 'DISTRIBUCIÓN POR DISCIPLINA DEPORTIVA';
+      doc.text(`FECHA DE EMISIÓN: ${format(new Date(), 'dd/MM/yyyy HH:mm')} | DIMENSIÓN: ${dimLabel}`, 14, 19);
 
       doc.setFillColor(248, 250, 252);
-      doc.roundedRect(14, 31, 182, 20, 3, 3, 'F');
+      doc.roundedRect(14, 28, 269, 18, 3, 3, 'F');
       doc.setDrawColor(226, 232, 240);
-      doc.roundedRect(14, 31, 182, 20, 3, 3, 'S');
+      doc.roundedRect(14, 28, 269, 18, 3, 3, 'S');
 
       doc.setTextColor(15, 23, 42);
       doc.setFontSize(9);
       doc.setFont('helvetica', 'bold');
-      doc.text(`TOTAL VENTAS FACTURADAS: $${totals.totalSales.toLocaleString('en-US', { minimumFractionDigits: 2 })}`, 18, 39);
-      doc.text(`COBRANZA CASH REAL: $${totals.totalCash.toLocaleString('en-US', { minimumFractionDigits: 2 })}`, 18, 46);
-
-      doc.text(`PROMEDIO: $${Math.round(totals.dailyAvg).toLocaleString('en-US')}/día`, 115, 39);
-      doc.text(`EFICIENCIA: ${totals.efficiencyRate}% COBRADO`, 115, 46);
+      doc.text(`VENTAS FACTURADAS: $${totals.totalSales.toLocaleString('en-US', { minimumFractionDigits: 2 })}`, 18, 38);
+      doc.text(`CASH RECAUDADO: $${totals.totalCash.toLocaleString('en-US', { minimumFractionDigits: 2 })}`, 105, 38);
+      doc.text(`MORA CRÍTICA (+30D): $${totals.totalMora.toLocaleString('en-US', { minimumFractionDigits: 2 })}`, 180, 38);
+      doc.text(`EFICIENCIA: ${totals.efficiencyRate}%`, 250, 38);
 
       const chartImage = await captureSvgAsPng('sales-trend-chart-container');
-      let tableStartY = 56;
+      let tableStartY = 50;
 
       if (chartImage) {
         doc.setFontSize(8);
         doc.setFont('helvetica', 'bold');
         doc.setTextColor(71, 85, 105);
-        doc.text('REPRESENTACIÓN GRÁFICA VISUAL:', 14, 57);
+        doc.text('GRÁFICO COMPARATIVO VISUAL:', 14, 50);
 
-        doc.addImage(chartImage, 'PNG', 14, 60, 182, 60);
-        tableStartY = 125;
+        doc.addImage(chartImage, 'PNG', 14, 53, 269, 70);
+        tableStartY = 128;
       }
 
-      const tableRows = chartData.map(d => [
-        d.name,
-        `$${d.ventas.toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
-        `$${d.cobranzas.toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
-        `$${(d.ventas - d.cobranzas).toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
-        `${d.ventas > 0 ? Math.min(100, Math.round((d.cobranzas / d.ventas) * 100)) : 0}%`,
-        `Bs. ${(d.cobranzas * bcvRate).toLocaleString('es-VE', { minimumFractionDigits: 2 })}`
-      ]);
+      let headCols = ['Dimensión / Registro', 'Ventas ($ USD)', 'Cobranzas ($ USD)', 'Pendiente ($ USD)', 'Mora Crítica ($ USD)', '% Eficiencia'];
+      if (dimension === 'discipline') {
+        headCols = ['Disciplina Deportiva', 'Ventas ($ USD)', 'Cobranzas ($ USD)', 'Pendiente ($ USD)', 'Mora Crítica ($ USD)', '% Eficiencia', 'Líder de Ventas'];
+      } else if (dimension === 'salesperson') {
+        headCols = ['Asesor Comercial', 'Ventas ($ USD)', 'Cobranzas ($ USD)', 'Pendiente ($ USD)', 'Mora Crítica ($ USD)', 'Pedidos', '% Eficiencia'];
+      } else {
+        headCols = ['Período', 'Ventas ($ USD)', 'Cobranzas ($ USD)', 'Brecha ($ USD)', 'Mora Crítica ($ USD)', '% Eficiencia', 'Equiv. BCV (Bs.)'];
+      }
+
+      const tableRows = chartData.map((d: any) => {
+        const pendingVal = typeof d.pending === 'number' ? d.pending : Math.max(0, d.ventas - d.cobranzas);
+        const effVal = typeof d.efficiencyPct === 'number' ? d.efficiencyPct : (d.ventas > 0 ? Math.min(100, Math.round((d.cobranzas / d.ventas) * 100)) : 0);
+
+        if (dimension === 'discipline') {
+          return [
+            d.name,
+            `$${d.ventas.toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
+            `$${d.cobranzas.toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
+            `$${pendingVal.toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
+            `$${d.moraCritica.toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
+            `${effVal}%`,
+            d.topSalespersonName ? `${d.topSalespersonName} ($${d.topSalespersonAmount?.toLocaleString('en-US')})` : 'N/A'
+          ];
+        }
+
+        if (dimension === 'salesperson') {
+          return [
+            d.name,
+            `$${d.ventas.toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
+            `$${d.cobranzas.toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
+            `$${pendingVal.toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
+            `$${d.moraCritica.toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
+            `${d.orderCount || 0}`,
+            `${effVal}%`
+          ];
+        }
+
+        return [
+          d.name,
+          `$${d.ventas.toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
+          `$${d.cobranzas.toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
+          `$${pendingVal.toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
+          `$${d.moraCritica.toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
+          `${effVal}%`,
+          `Bs. ${(d.cobranzas * bcvRate).toLocaleString('es-VE', { minimumFractionDigits: 2 })}`
+        ];
+      });
+
+      const footRow = [
+        'TOTAL CONSOLIDADO',
+        `$${totals.totalSales.toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
+        `$${totals.totalCash.toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
+        `$${Math.max(0, totals.totalSales - totals.totalCash).toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
+        `$${totals.totalMora.toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
+        `${totals.efficiencyRate}%`,
+        dimension === 'discipline' ? '-' : dimension === 'salesperson' ? '-' : `Bs. ${(totals.totalCash * bcvRate).toLocaleString('es-VE', { minimumFractionDigits: 2 })}`
+      ];
 
       autoTable(doc, {
         startY: tableStartY,
-        head: [['Período', 'Ventas ($ USD)', 'Cobranzas ($ USD)', 'Brecha ($ USD)', '% Eficiencia', 'Equiv. BCV (Bs.)']],
+        head: [headCols],
         body: tableRows,
+        foot: [footRow],
         headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255], fontSize: 8, fontStyle: 'bold', halign: 'center' },
         bodyStyles: { fontSize: 8, textColor: [30, 41, 59] },
         alternateRowStyles: { fillColor: [248, 250, 252] },
@@ -237,7 +316,7 @@ export function SalesTrendChart({ orders, isLoading = false, selectedSalesperson
   return (
     <Card className="border-none shadow-xl rounded-[2.5rem] bg-white overflow-hidden relative group animate-in fade-in duration-500">
       <CardHeader className="p-8 pb-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 space-y-0">
-        <div className="space-y-1">
+        <div className="space-y-2">
           <CardTitle className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-400 flex items-center gap-2 flex-wrap">
             <TrendingUp className="h-4 w-4 text-primary" /> Tendencia de Ventas vs Cobranzas
             {selectedSalespersonName && (
@@ -246,32 +325,60 @@ export function SalesTrendChart({ orders, isLoading = false, selectedSalesperson
               </Badge>
             )}
           </CardTitle>
-          <div className="flex flex-wrap items-center gap-2 mt-2">
-            <div className="flex bg-slate-100 border border-slate-200/50 rounded-xl p-1 gap-1">
-              {(['7d', '30d', '6m'] as const).map((p) => (
+
+          <div className="flex flex-wrap items-center gap-2">
+            {/* SELECTOR DE DIMENSIÓN DE ANÁLISIS */}
+            <div className="flex bg-slate-900 text-white rounded-xl p-1 gap-1 shadow-inner">
+              {[
+                { id: 'timeline', label: '📅 Período', icon: Calendar },
+                { id: 'salesperson', label: '👤 Vendedores', icon: Users },
+                { id: 'discipline', label: '⚽ Disciplinas', icon: Trophy },
+              ].map((d) => (
                 <button
-                  key={p}
+                  key={d.id}
                   type="button"
-                  onClick={() => setPeriod(p)}
+                  onClick={() => setDimension(d.id as any)}
                   className={cn(
-                    "px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all",
-                    period === p 
-                      ? "bg-primary text-white shadow-sm" 
-                      : "text-slate-500 hover:text-slate-800"
+                    "px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all flex items-center gap-1.5",
+                    dimension === d.id
+                      ? "bg-primary text-white shadow-md font-extrabold"
+                      : "text-slate-400 hover:text-white hover:bg-slate-800"
                   )}
                 >
-                  {p === '7d' ? '7D' : p === '30d' ? '30D' : '6M'}
+                  <d.icon className="h-3 w-3" />
+                  {d.label}
                 </button>
               ))}
             </div>
 
-            {/* SELECTOR DE VISTA DUAL (COMPARATIVO) */}
+            {/* SUB-FILTRO DE RANGO DE TIEMPO (solo activo si dimension === 'timeline') */}
+            {dimension === 'timeline' && (
+              <div className="flex bg-slate-100 border border-slate-200/50 rounded-xl p-1 gap-1 animate-in fade-in duration-300">
+                {(['7d', '30d', '6m'] as const).map((p) => (
+                  <button
+                    key={p}
+                    type="button"
+                    onClick={() => setPeriod(p)}
+                    className={cn(
+                      "px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all",
+                      period === p 
+                        ? "bg-slate-800 text-white shadow-sm" 
+                        : "text-slate-500 hover:text-slate-800"
+                    )}
+                  >
+                    {p === '7d' ? '7D' : p === '30d' ? '30D' : '6M'}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* SELECTOR DE VISTA DE CONCEPTO */}
             <div className="flex bg-slate-100 border border-slate-200/50 rounded-xl p-1 gap-1">
               {[
                 { id: 'comparative', label: '📊 Dual' },
                 { id: 'sales', label: '🔵 Ventas' },
                 { id: 'cash', label: '🟢 Cash' },
-                { id: 'mora_critica', label: '🚨 Mora Crítica' },
+                { id: 'mora_critica', label: '🚨 Mora' },
               ].map((v) => (
                 <button
                   key={v.id}
@@ -289,16 +396,16 @@ export function SalesTrendChart({ orders, isLoading = false, selectedSalesperson
               ))}
             </div>
 
-            {/* BOTÓN DE IMPRESIÓN DE GRÁFICO VISUAL EN PDF */}
+            {/* BOTÓN DE IMPRESIÓN REPORTE PDF */}
             <Button
               onClick={handleExportPDF}
               disabled={isExportingPDF}
               variant="outline"
-              className="h-7 px-2 rounded-lg border-slate-200 text-slate-700 hover:bg-slate-50 font-black text-[8px] sm:text-[9px] uppercase tracking-wider flex items-center gap-1 shadow-sm shrink-0"
+              className="h-8 px-3 rounded-xl border-slate-200 text-slate-700 hover:bg-slate-50 font-black text-[8px] sm:text-[9px] uppercase tracking-wider flex items-center gap-1.5 shadow-sm shrink-0"
               title="Imprimir Gráfico Visual y Reporte PDF"
             >
-              {isExportingPDF ? <Loader2 className="h-3 w-3 animate-spin" /> : <Printer className="h-3 w-3 text-primary" />}
-              <span className="truncate">Reporte PDF</span>
+              {isExportingPDF ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Printer className="h-3.5 w-3.5 text-primary" />}
+              <span className="truncate">🖨️ Imprimir PDF</span>
             </Button>
           </div>
         </div>
@@ -307,12 +414,12 @@ export function SalesTrendChart({ orders, isLoading = false, selectedSalesperson
           <div className="flex items-baseline gap-2">
             <p className="text-2xl font-black tracking-tighter text-slate-900 leading-none">${totals.totalSales.toLocaleString('en-US', { minimumFractionDigits: 0 })}</p>
             <Badge variant="outline" className="text-[7px] font-black border-slate-200 text-slate-600 px-1.5 py-0 font-mono">
-              Prom: ${totals.dailyAvg.toLocaleString('en-US', { minimumFractionDigits: 0 })}/día
+              {dimension === 'timeline' ? `Prom: $${totals.dailyAvg.toLocaleString('en-US', { minimumFractionDigits: 0 })}/día` : `${chartData.length} Registros`}
             </Badge>
           </div>
           <div className="flex items-center sm:justify-end gap-2 mt-1.5">
             <span className="text-[8px] font-black text-emerald-600 uppercase tracking-widest">
-              Cobranza Cash: ${totals.totalCash.toLocaleString('en-US', { minimumFractionDigits: 0 })}
+              Cash: ${totals.totalCash.toLocaleString('en-US', { minimumFractionDigits: 0 })}
             </span>
             <Badge variant="secondary" className="bg-emerald-50 text-emerald-700 font-black text-[8px] border-emerald-200/60 rounded-md">
               {totals.efficiencyRate}% Cobrado
@@ -322,83 +429,133 @@ export function SalesTrendChart({ orders, isLoading = false, selectedSalesperson
       </CardHeader>
 
       <CardContent className="px-6 pb-6 pt-0">
-        <div id="sales-trend-chart-container" className="h-[240px] w-full">
+        <div id="sales-trend-chart-container" className="h-[260px] w-full pt-2">
           <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-              <defs>
-                <linearGradient id="colorVentas" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.35}/>
-                  <stop offset="95%" stopColor="#3b82f6" stopOpacity={0.0}/>
-                </linearGradient>
-                <linearGradient id="colorCobranzas" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#10b981" stopOpacity={0.4}/>
-                  <stop offset="95%" stopColor="#10b981" stopOpacity={0.0}/>
-                </linearGradient>
-                <linearGradient id="colorMora" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#ef4444" stopOpacity={0.4}/>
-                  <stop offset="95%" stopColor="#ef4444" stopOpacity={0.0}/>
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-              <XAxis 
-                dataKey="name" 
-                axisLine={false} 
-                tickLine={false} 
-                tick={{ fontSize: 9, fontWeight: 900, fill: '#64748b' }} 
-              />
-              <YAxis 
-                axisLine={false} 
-                tickLine={false} 
-                tick={{ fontSize: 9, fontWeight: 900, fill: '#64748b' }}
-                tickFormatter={(val) => `$${val}`}
-              />
-              <Tooltip 
-                contentStyle={{ 
-                  backgroundColor: '#0f172a', 
-                  borderRadius: '1.2rem', 
-                  border: 'none', 
-                  color: '#fff',
-                  fontFamily: 'monospace',
-                  fontSize: '11px',
-                  fontWeight: 900
-                }}
-                formatter={(value: any, name: any) => [
-                  `$${Number(value).toLocaleString('en-US', { minimumFractionDigits: 2 })} (Bs. ${(Number(value) * bcvRate).toLocaleString('es-VE', { minimumFractionDigits: 2 })})`,
-                  name === 'ventas' ? '🔵 Ventas Facturadas' : name === 'cobranzas' ? '🟢 Cobranzas Realizadas' : '🚨 Mora Crítica (+30D)'
-                ]}
-                labelFormatter={(label) => `Periodo: ${label}`}
-              />
-              {(viewMode === 'comparative' || viewMode === 'sales') && (
-                <Area 
-                  type="monotone" 
-                  dataKey="ventas" 
-                  stroke="#3b82f6" 
-                  strokeWidth={3} 
-                  fillOpacity={1} 
-                  fill="url(#colorVentas)" 
+            {dimension === 'timeline' ? (
+              <AreaChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="colorVentas" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.35}/>
+                    <stop offset="95%" stopColor="#3b82f6" stopOpacity={0.0}/>
+                  </linearGradient>
+                  <linearGradient id="colorCobranzas" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.4}/>
+                    <stop offset="95%" stopColor="#10b981" stopOpacity={0.0}/>
+                  </linearGradient>
+                  <linearGradient id="colorMora" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#ef4444" stopOpacity={0.4}/>
+                    <stop offset="95%" stopColor="#ef4444" stopOpacity={0.0}/>
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                <XAxis 
+                  dataKey="name" 
+                  axisLine={false} 
+                  tickLine={false} 
+                  tick={{ fontSize: 9, fontWeight: 900, fill: '#64748b' }} 
                 />
-              )}
-              {(viewMode === 'comparative' || viewMode === 'cash') && (
-                <Area 
-                  type="monotone" 
-                  dataKey="cobranzas" 
-                  stroke="#10b981" 
-                  strokeWidth={3} 
-                  fillOpacity={1} 
-                  fill="url(#colorCobranzas)" 
+                <YAxis 
+                  axisLine={false} 
+                  tickLine={false} 
+                  tick={{ fontSize: 9, fontWeight: 900, fill: '#64748b' }}
+                  tickFormatter={(val) => `$${val}`}
                 />
-              )}
-              {(viewMode === 'comparative' || viewMode === 'mora_critica') && (
-                <Area 
-                  type="monotone" 
-                  dataKey="moraCritica" 
-                  stroke="#ef4444" 
-                  strokeWidth={3} 
-                  fillOpacity={1} 
-                  fill="url(#colorMora)" 
+                <Tooltip 
+                  contentStyle={{ 
+                    backgroundColor: '#0f172a', 
+                    borderRadius: '1.2rem', 
+                    border: 'none', 
+                    color: '#fff',
+                    fontFamily: 'monospace',
+                    fontSize: '11px',
+                    fontWeight: 900
+                  }}
+                  formatter={(value: any, name: any) => [
+                    `$${Number(value).toLocaleString('en-US', { minimumFractionDigits: 2 })} (Bs. ${(Number(value) * bcvRate).toLocaleString('es-VE', { minimumFractionDigits: 2 })})`,
+                    name === 'ventas' ? '🔵 Ventas Facturadas' : name === 'cobranzas' ? '🟢 Cobranzas Realizadas' : '🚨 Mora Crítica (+30D)'
+                  ]}
+                  labelFormatter={(label) => `Período: ${label}`}
                 />
-              )}
-            </AreaChart>
+                {(viewMode === 'comparative' || viewMode === 'sales') && (
+                  <Area 
+                    type="monotone" 
+                    dataKey="ventas" 
+                    stroke="#3b82f6" 
+                    strokeWidth={3} 
+                    fillOpacity={1} 
+                    fill="url(#colorVentas)" 
+                  />
+                )}
+                {(viewMode === 'comparative' || viewMode === 'cash') && (
+                  <Area 
+                    type="monotone" 
+                    dataKey="cobranzas" 
+                    stroke="#10b981" 
+                    strokeWidth={3} 
+                    fillOpacity={1} 
+                    fill="url(#colorCobranzas)" 
+                  />
+                )}
+                {(viewMode === 'comparative' || viewMode === 'mora_critica') && (
+                  <Area 
+                    type="monotone" 
+                    dataKey="moraCritica" 
+                    stroke="#ef4444" 
+                    strokeWidth={3} 
+                    fillOpacity={1} 
+                    fill="url(#colorMora)" 
+                  />
+                )}
+              </AreaChart>
+            ) : (
+              <BarChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 20 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                <XAxis 
+                  dataKey="name" 
+                  axisLine={false} 
+                  tickLine={false} 
+                  tick={{ fontSize: 9, fontWeight: 900, fill: '#475569' }} 
+                  interval={0}
+                  angle={-15}
+                  textAnchor="end"
+                />
+                <YAxis 
+                  axisLine={false} 
+                  tickLine={false} 
+                  tick={{ fontSize: 9, fontWeight: 900, fill: '#64748b' }}
+                  tickFormatter={(val) => `$${val}`}
+                />
+                <Tooltip 
+                  contentStyle={{ 
+                    backgroundColor: '#0f172a', 
+                    borderRadius: '1.2rem', 
+                    border: 'none', 
+                    color: '#fff',
+                    fontFamily: 'monospace',
+                    fontSize: '11px',
+                    fontWeight: 900
+                  }}
+                  formatter={(value: any, name: any, item: any) => {
+                    const labelName = name === 'ventas' ? '🔵 Ventas' : name === 'cobranzas' ? '🟢 Cash Recaudado' : '🚨 Mora Crítica';
+                    const mainText = `$${Number(value).toLocaleString('en-US', { minimumFractionDigits: 2 })} (Bs. ${(Number(value) * bcvRate).toLocaleString('es-VE', { minimumFractionDigits: 2 })})`;
+                    if (dimension === 'discipline' && item?.payload?.topSalespersonName) {
+                      return [`${mainText} | 👑 Líder: ${item.payload.topSalespersonName} ($${item.payload.topSalespersonAmount?.toLocaleString('en-US')})`, labelName];
+                    }
+                    return [mainText, labelName];
+                  }}
+                  labelFormatter={(label) => `${dimension === 'discipline' ? 'Disciplina' : 'Asesor'}: ${label}`}
+                />
+                {(viewMode === 'comparative' || viewMode === 'sales') && (
+                  <Bar dataKey="ventas" fill="#3b82f6" radius={[4, 4, 0, 0]} maxBarSize={45} />
+                )}
+                {(viewMode === 'comparative' || viewMode === 'cash') && (
+                  <Bar dataKey="cobranzas" fill="#10b981" radius={[4, 4, 0, 0]} maxBarSize={45} />
+                )}
+                {(viewMode === 'comparative' || viewMode === 'mora_critica') && (
+                  <Bar dataKey="moraCritica" fill="#ef4444" radius={[4, 4, 0, 0]} maxBarSize={45} />
+                )}
+              </BarChart>
+            )}
           </ResponsiveContainer>
         </div>
       </CardContent>
