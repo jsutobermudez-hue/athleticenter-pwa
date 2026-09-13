@@ -53,7 +53,7 @@ import { Badge } from '@/components/ui/badge';
 import { OrderSheetController } from './orders/OrderSheetController';
 import { ProductDetailsSheet } from '@/app/dashboard/inventory/product-details-sheet';
 import { cn } from '@/lib/utils';
-import { calculateGlobalFinancialMetrics, getInvoiceFromOrder, getSalespersonKey, getSalespersonDisplayName } from '@/lib/billing';
+import { calculateGlobalFinancialMetrics, getInvoiceFromOrder, getSalespersonKey, getSalespersonDisplayName, getSalesDate, getCashDate, getEffectiveCashReceived } from '@/lib/billing';
 
 export default function AdminDashboard() {
     const router = useRouter();
@@ -198,12 +198,46 @@ export default function AdminDashboard() {
             });
         }
 
+        // Clientes Activos en Compra y Días Promedio de Cobro (DSO)
+        const activeCustomerSet = new Set<string>();
+        let totalWeightedCollectionDays = 0;
+        let totalWeightedAmount = 0;
+        const now = new Date();
+        const VALID_STATUSES = ['Entregado', 'Completado', 'Despachado', 'Pagado', 'Aprobado', 'En Preparación', 'En Verificación'];
+
+        orders.forEach(o => {
+            if (!VALID_STATUSES.includes(o.status)) return;
+
+            const sDate = getSalesDate(o);
+            const amt = o.totalAmount || 0;
+
+            const cKey = (o.customerId || o.customerRif || o.customerName || '').trim();
+            if (cKey) {
+                activeCustomerSet.add(cKey);
+            }
+
+            if (sDate && !isNaN(sDate.getTime()) && sDate.getTime() > 0 && amt > 0) {
+                const cDate = getCashDate(o);
+                const isPaid = o.status === 'Pagado' || (getEffectiveCashReceived(o) >= amt - 0.05);
+                const endDate = (isPaid && cDate && !isNaN(cDate.getTime()) && cDate.getTime() > sDate.getTime()) ? cDate : now;
+                const days = Math.max(0, Math.floor((endDate.getTime() - sDate.getTime()) / (1000 * 60 * 60 * 24)));
+                
+                totalWeightedCollectionDays += (days * amt);
+                totalWeightedAmount += amt;
+            }
+        });
+
+        const activeBuyingCustomers = activeCustomerSet.size;
+        const averageCollectionDays = totalWeightedAmount > 0 ? Math.round(totalWeightedCollectionDays / totalWeightedAmount) : 0;
+
         return { 
             revenue, pending, lowStock, clients, inventoryValuation, totalDebts, grossBcvDebt, netCashDebt, vencido, inTransitValuation,
             topSalesperson,
             totalExpenses,
             totalFixedExpenses,
             totalVariableExpenses,
+            activeBuyingCustomers,
+            averageCollectionDays,
             recaudadoCash: globalMetrics.recaudadoCash,
             cashBreakdown: globalMetrics.cashBreakdown,
             totalOrdersCount: globalMetrics.totalOrdersCount,
@@ -440,6 +474,22 @@ export default function AdminDashboard() {
                         tooltip="Vendedor o asesor comercial líder del mes con mayor volumen de ventas. Clic para ver comisiones y ranking completo."
                         icon={Award} iconBg="bg-amber-50" iconColor="text-amber-500" 
                         onClick={() => router.push('/dashboard/salespeople')}
+                    />
+                    <DashboardMetricCard 
+                        title="Clientes Activos" 
+                        value={`${stats.activeBuyingCustomers} Clientes`} 
+                        subtitle="Con Pedidos Registrados" 
+                        tooltip="Clientes únicos que realizaron compras o pedidos comerciales efectivos. Clic para explorar la cartera de clientes."
+                        icon={Users} iconBg="bg-sky-50" iconColor="text-sky-600" 
+                        onClick={() => router.push('/dashboard/clients')}
+                    />
+                    <DashboardMetricCard 
+                        title="Promedio de Cobro" 
+                        value={`${stats.averageCollectionDays} Días`} 
+                        subtitle="Plazo Real de Recaudación (DSO)" 
+                        tooltip="Días promedio ponderados transcurridos desde la emisión de la venta hasta su cobranza efectiva en caja."
+                        icon={Clock} iconBg="bg-amber-500/10" iconColor="text-amber-600" 
+                        onClick={() => router.push('/dashboard/billing')}
                     />
                 </div>
 
