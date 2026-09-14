@@ -162,14 +162,23 @@ export async function generateOrderPDF({
         ? (order as any).bcvDiscountSnapshot 
         : (globalSettings?.defaultBcvDiscount !== undefined ? globalSettings.defaultBcvDiscount : 25));
 
+  const isDispatchDelivery = !isFactura && !isPagado;
+
+  const effEarly7Pct = isNetOrPromotional 
+    ? 0 
+    : ((order as any)?.earlyPayment7dSnapshot !== undefined 
+        ? (order as any).earlyPayment7dSnapshot 
+        : (globalSettings?.earlyPayment7Days !== undefined ? globalSettings.earlyPayment7Days : 10));
+
   // Para NOTA DE ENTREGA DE DESPACHO:
-  // Se presenta la tabla limpia con SOLO EL PRECIO FINAL APLICADO por renglón.
+  // Se presenta el PRECIO DE LISTA BASE EN $ A BCV SIN DESCUENTOS.
+  // Para NOTA FINAL PAGADA O FACTURA: SÍ SALEN LOS DESCUENTOS APLICADOS.
   const tableRows = orderItems.map((item, index) => {
     const rawPrice = item.unitPrice;
     const sku = item.product?.sku || 'S/SKU';
     
     let finalUnitPrice = rawPrice;
-    if (!isNetOrPromotional) {
+    if (!isDispatchDelivery && !isNetOrPromotional) {
       finalUnitPrice = roundCurrency(rawPrice * (1 - bcvDiscountPct / 100));
     }
     
@@ -189,8 +198,11 @@ export async function generateOrderPDF({
     ];
   });
 
+  const priceColHeader = isDispatchDelivery ? "P. LISTA ($ USD)" : "P. UNITARIO ($ USD)";
+  const totalColHeader = isDispatchDelivery ? "TOTAL LISTA ($ USD)" : "TOTAL ($ USD)";
+
   (doc as any).autoTable({
-    head: [["ITEM", "SKU / REF", "DESCRIPCIÓN / PRODUCTO Y TALLA", "CANT", "P. UNITARIO ($ USD)", "TOTAL ($ USD)"]],
+    head: [["ITEM", "SKU / REF", "DESCRIPCIÓN / PRODUCTO Y TALLA", "CANT", priceColHeader, totalColHeader]],
     body: tableRows,
     startY: 80,
     theme: 'grid',
@@ -210,16 +222,16 @@ export async function generateOrderPDF({
 
   const totalSubtotalUSD = orderItems.reduce((acc, i) => {
     let p = i.unitPrice;
-    if (!isNetOrPromotional) {
+    if (!isDispatchDelivery && !isNetOrPromotional) {
       p = roundCurrency(i.unitPrice * (1 - bcvDiscountPct / 100));
     }
     return acc + roundCurrency(p * i.quantity);
   }, 0);
 
-  const totalAmountUSD = order?.totalAmount || totalSubtotalUSD;
+  const totalAmountUSD = isDispatchDelivery ? totalSubtotalUSD : (order?.totalAmount || totalSubtotalUSD);
   const totalEquivBS = roundCurrency(totalAmountUSD * effBcvRate);
 
-  // BANNER DE TOTALES Y ESPECIFICACIÓN DE DESCUENTO SI YA FUE PAGADO / LIQUIDADO
+  // BANNER DE TOTALES Y ESPECIFICACIÓN
   doc.setFillColor(248, 250, 252);
   doc.rect(14, finalY, 182, 32, 'F');
   doc.setDrawColor(226, 232, 240);
@@ -239,7 +251,7 @@ export async function generateOrderPDF({
   doc.rect(110, finalY, 86, 32, 'F');
 
   doc.setFontSize(7); doc.setTextColor(148, 163, 184); doc.setFont("helvetica", "bold");
-  doc.text(isPagado ? "TOTAL PAGADO / SOLVENTE:" : "TOTAL MONTO NETO ENTREGADO:", 114, finalY + 8);
+  doc.text(isPagado ? "TOTAL PAGADO / SOLVENTE:" : (isDispatchDelivery ? "TOTAL VALORACIÓN LISTA BCV:" : "TOTAL MONTO NETO ENTREGADO:"), 114, finalY + 8);
 
   doc.setFontSize(14); doc.setTextColor(16, 185, 129); doc.setFont("helvetica", "bold");
   doc.text(`$ ${totalAmountUSD.toFixed(2)} USD`, 114, finalY + 18);
@@ -254,8 +266,28 @@ export async function generateOrderPDF({
     doc.text(`* Condición de Pago: ${((order as any)?.paymentStatus || order?.status || 'Pendiente').toUpperCase()}`, 114, finalY + 26);
   }
 
+  // CUADRO COMERCIAL INFORMATIVO DE CONDICIONES DE CRÉDITO Y DESCUENTOS POR ESCRITO
+  let bannerHeight = 0;
+  if (isDispatchDelivery) {
+    const bannerY = finalY + 35;
+    doc.setFillColor(241, 245, 249);
+    doc.rect(14, bannerY, 182, 22, 'F');
+    doc.setDrawColor(203, 213, 225);
+    doc.rect(14, bannerY, 182, 22, 'S');
+
+    doc.setFontSize(7); doc.setTextColor(30, 41, 59); doc.setFont("helvetica", "bold");
+    doc.text("💡 CONDICIONES DE CRÉDITO E INCENTIVOS DE PAGO OPORTUNO:", 18, bannerY + 5);
+
+    doc.setFontSize(6.5); doc.setTextColor(71, 85, 105); doc.setFont("helvetica", "normal");
+    doc.text(`• PAGO EN DIVISAS (CASH / ZELLE): Obtén un ${bcvDiscountPct}% de Descuento directo sobre la Lista Oficial BCV.`, 18, bannerY + 10);
+    doc.text(`• PRONTO PAGO (PRIMEROS 7 DÍAS): Obtén un ${effEarly7Pct}% de Descuento adicional por cancelación oportuna.`, 18, bannerY + 15);
+    doc.text(`* Término de Crédito: 30 Días continuos desde la fecha de emisión. Evite mora crítica.`, 18, bannerY + 19);
+
+    bannerHeight = 26;
+  }
+
   // BLOQUE "RECIBIDO CONFORME" PARA ENTREGA DE MERCANCÍA
-  const signatureY = finalY + 38;
+  const signatureY = finalY + 35 + bannerHeight;
 
   if (signatureY + 28 <= 285) {
     doc.setDrawColor(203, 213, 225);
