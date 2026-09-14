@@ -379,7 +379,7 @@ export function OrderDetailsSheet({
             orderId: order.id, 
             createdAt: order.orderDate, 
             companyProfile: companyProfile || undefined,
-            documentType: 'nota',
+            documentType: 'entrega',
             globalSettings: globalSettings || undefined,
             bcvRate: (order as any)?.receptionBcvRate || globalSettings?.bcvRate || 65.50,
             order: order

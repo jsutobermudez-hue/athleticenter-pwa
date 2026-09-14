@@ -17,7 +17,7 @@ type GenerateOrderPdfParams = {
   orderId: string;
   createdAt: Date | Timestamp;
   companyProfile?: Partial<CompanyProfile>;
-  documentType?: 'nota' | 'factura';
+  documentType?: 'nota' | 'entrega' | 'factura' | 'recibo_final';
   globalSettings?: FinancialSettings;
   bcvRate?: number;
   order?: Partial<Order>;
@@ -25,8 +25,8 @@ type GenerateOrderPdfParams = {
 };
 
 /**
- * MOTOR DE DOCUMENTACIÓN FISCAL v7.5 - ATHLETICENTER PRO
- * Sincronizado: Sistema de etiquetas QR y Transparencia de Precios en Cotizaciones.
+ * MOTOR DE DOCUMENTACIÓN FISCAL v8.0 - ATHLETICENTER PRO
+ * Sincronizado: Nota de Entrega Corporativa, Recibido Conforme y Finiquito de Pagos.
  */
 
 async function getBase64ImageFromUrl(url: string): Promise<string> {
@@ -65,22 +65,22 @@ async function addFiscalHeader(doc: jsPDF, company: Partial<CompanyProfile> | un
   doc.text((company?.companyName || 'ATHLETICENTER C.A.').toUpperCase(), 45, 20);
   
   doc.setFontSize(9);
-  doc.text(`RIF: ${company?.companyRif || 'J-50000000-0'}`, 45, 25);
+  doc.text(`RIF: ${company?.companyRif || 'J-507140202'}`, 45, 25);
   
   doc.setFont("helvetica", "normal");
   doc.setFontSize(7);
   doc.setTextColor(100);
-  const addressLines = doc.splitTextToSize(company?.companyAddress || 'DIRECCIÓN FISCAL NO REGISTRADA.', 85);
+  const addressLines = doc.splitTextToSize(company?.companyAddress || 'av.117 casa nro 117-125 sector Corito Maracaibo,Zulia zona postal 4001', 85);
   doc.text(addressLines, 45, 30);
 
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(16);
+  doc.setFontSize(15);
   doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
   doc.text(title.toUpperCase(), 196, 20, { align: 'right' });
   
   doc.setFontSize(10);
   doc.setTextColor(accentColor[0], accentColor[1], accentColor[2]);
-  doc.text(`CONTROL: #${refId.toUpperCase()}`, 196, 27, { align: 'right' });
+  doc.text(`CONTROL: #${refId.replace('#', '').toUpperCase()}`, 196, 27, { align: 'right' });
   
   doc.setFontSize(8);
   doc.setTextColor(100);
@@ -127,113 +127,162 @@ export async function generateOrderPDF({
   orderId, 
   createdAt, 
   companyProfile, 
-  documentType = 'nota',
+  documentType = 'entrega',
   globalSettings,
-  bcvRate,
+  bcvRate = 65.50,
   order,
   autoSave = true
 }: GenerateOrderPdfParams): Promise<string> {
   const doc = new jsPDF();
   const date = createdAt instanceof Timestamp ? createdAt.toDate() : (createdAt instanceof Date ? createdAt : new Date());
   
-  await addFiscalHeader(doc, companyProfile, documentType === 'factura' ? 'FACTURA DIGITAL' : 'NOTA DE PEDIDO', orderId, date);
+  const isFactura = documentType === 'factura';
+  const isPagado = order?.status === 'Pagado';
+  
+  let docTitle = 'NOTA DE ENTREGA';
+  if (isFactura) {
+    docTitle = 'FACTURA FISCAL DIGITAL';
+  } else if (isPagado) {
+    docTitle = 'NOTA DE ENTREGA Y FINIQUITO';
+  }
+
+  await addFiscalHeader(doc, companyProfile, docTitle, orderId, date);
   addClientBlock(doc, customerName, customerRif, customerAddress, 50);
 
-  const effBcvDiscount = (order as any)?.bcvDiscountSnapshot !== undefined 
-    ? (order as any).bcvDiscountSnapshot 
-    : ((order as any)?.isNetPrice ? 0 : (globalSettings?.defaultBcvDiscount !== undefined ? globalSettings.defaultBcvDiscount : 25));
+  const effBcvRate = bcvRate || (order as any)?.receptionBcvRate || globalSettings?.bcvRate || 65.50;
 
-  const effEarly7 = (order as any)?.earlyPayment7dSnapshot !== undefined 
-    ? (order as any).earlyPayment7dSnapshot 
-    : ((order as any)?.isNetPrice ? 0 : (globalSettings?.earlyPayment7Days !== undefined ? globalSettings.earlyPayment7Days : 10));
+  const isNetOrPromotional = 
+    (order as any)?.incentivesApplied === true ||
+    (order as any)?.isNetPrice === true ||
+    !!(order as any)?.promoName;
 
-  const effEarly15 = (order as any)?.earlyPayment15dSnapshot !== undefined 
-    ? (order as any).earlyPayment15dSnapshot 
-    : ((order as any)?.isNetPrice ? 0 : (globalSettings?.earlyPayment15Days !== undefined ? globalSettings.earlyPayment15Days : 5));
+  const bcvDiscountPct = isNetOrPromotional 
+    ? 0 
+    : ((order as any)?.bcvDiscountSnapshot !== undefined 
+        ? (order as any).bcvDiscountSnapshot 
+        : (globalSettings?.defaultBcvDiscount !== undefined ? globalSettings.defaultBcvDiscount : 25));
 
-  const tableRows = orderItems.map(item => {
+  // Para NOTA DE ENTREGA DE DESPACHO:
+  // Se presenta la tabla limpia con SOLO EL PRECIO FINAL APLICADO por renglón.
+  const tableRows = orderItems.map((item, index) => {
     const rawPrice = item.unitPrice;
-    const isPromoNet = (item as any).isNetPrice || (item.product as any)?.isNetPrice || !!(item.product as any)?.promoName || (order as any)?.isNetPrice;
+    const sku = item.product?.sku || 'S/SKU';
     
-    const priceWithBcv = isPromoNet ? rawPrice : roundCurrency(rawPrice * (1 - effBcvDiscount / 100));
-    const priceCash7d  = isPromoNet ? rawPrice : roundCurrency(rawPrice * (1 - effBcvDiscount / 100) * (1 - effEarly7 / 100));
-    const priceCash15d = isPromoNet ? rawPrice : roundCurrency(rawPrice * (1 - effBcvDiscount / 100) * (1 - effEarly15 / 100));
+    let finalUnitPrice = rawPrice;
+    if (!isNetOrPromotional) {
+      finalUnitPrice = roundCurrency(rawPrice * (1 - bcvDiscountPct / 100));
+    }
     
-    const totalRowBcv = roundCurrency(priceWithBcv * item.quantity);
-    const totalRowCash = roundCurrency(priceCash7d * item.quantity);
+    const rowSubtotal = roundCurrency(finalUnitPrice * item.quantity);
 
-    let desc = item.product?.name || 'PRODUCTO B2B';
+    let desc = item.product?.name || 'PRODUCTO / EQUIPO';
     if (item.size) desc += ` [TALLA: ${item.size}]`;
     if (item.product?.category) desc += `\nCat: ${item.product.category}`;
 
     return [
+      (index + 1).toString(),
+      sku.toUpperCase(),
       desc.toUpperCase(),
       item.quantity.toString(),
-      `$ ${rawPrice.toFixed(2)}`,
-      `$ ${priceWithBcv.toFixed(2)}`,
-      `$ ${priceCash7d.toFixed(2)}`,
-      `$ ${priceCash15d.toFixed(2)}`,
-      `$ ${totalRowBcv.toFixed(2)}`,
-      `$ ${totalRowCash.toFixed(2)}`
+      `$ ${finalUnitPrice.toFixed(2)}`,
+      `$ ${rowSubtotal.toFixed(2)}`
     ];
   });
 
   (doc as any).autoTable({
-    head: [["DESCRIPCIÓN / PRODUCTO", "CANT", "P. LISTA", "P. BCV (-25%)", "P. CONTADO 7D (-10%)", "P. CONTADO 15D (-5%)", "TOTAL BCV", "TOTAL CASH 7D"]],
+    head: [["ITEM", "SKU / REF", "DESCRIPCIÓN / PRODUCTO Y TALLA", "CANT", "P. UNITARIO ($ USD)", "TOTAL ($ USD)"]],
     body: tableRows,
     startY: 80,
     theme: 'grid',
-    headStyles: { fillColor: [15, 23, 42], fontSize: 6, fontStyle: 'bold', halign: 'center' },
+    headStyles: { fillColor: [15, 23, 42], fontSize: 7, fontStyle: 'bold', halign: 'center' },
     columnStyles: {
-      0: { cellWidth: 45, fontSize: 6.5 },
-      1: { cellWidth: 10, halign: 'center', fontSize: 7 },
-      2: { cellWidth: 18, halign: 'right', fontSize: 6.5 },
-      3: { cellWidth: 20, halign: 'right', fontSize: 6.5 },
-      4: { cellWidth: 22, halign: 'right', fontSize: 6.5 },
-      5: { cellWidth: 22, halign: 'right', fontSize: 6.5 },
-      6: { cellWidth: 22, halign: 'right', fontSize: 7, fontStyle: 'bold' },
-      7: { cellWidth: 23, halign: 'right', fontSize: 7, fontStyle: 'bold' }
+      0: { cellWidth: 12, halign: 'center', fontSize: 7 },
+      1: { cellWidth: 28, fontSize: 7, fontStyle: 'bold' },
+      2: { cellWidth: 82, fontSize: 7 },
+      3: { cellWidth: 15, halign: 'center', fontSize: 7, fontStyle: 'bold' },
+      4: { cellWidth: 22, halign: 'right', fontSize: 7 },
+      5: { cellWidth: 23, halign: 'right', fontSize: 7, fontStyle: 'bold' }
     },
-    styles: { overflow: 'linebreak', cellPadding: 2 }
+    styles: { overflow: 'linebreak', cellPadding: 2.5 }
   });
 
-  const finalY = (doc as any).lastAutoTable.finalY + 8;
-  
-  const totalBcvUSD = orderItems.reduce((acc, i) => {
-    const isPromoNet = (i as any).isNetPrice || (i.product as any)?.isNetPrice || !!(i.product as any)?.promoName || (order as any)?.isNetPrice;
-    const p = isPromoNet ? i.unitPrice : roundCurrency(i.unitPrice * (1 - effBcvDiscount / 100));
+  let finalY = (doc as any).lastAutoTable.finalY + 6;
+
+  const totalSubtotalUSD = orderItems.reduce((acc, i) => {
+    let p = i.unitPrice;
+    if (!isNetOrPromotional) {
+      p = roundCurrency(i.unitPrice * (1 - bcvDiscountPct / 100));
+    }
     return acc + roundCurrency(p * i.quantity);
   }, 0);
 
-  const totalCashUSD = orderItems.reduce((acc, i) => {
-    const isPromoNet = (i as any).isNetPrice || (i.product as any)?.isNetPrice || !!(i.product as any)?.promoName || (order as any)?.isNetPrice;
-    const p = isPromoNet ? i.unitPrice : roundCurrency(i.unitPrice * (1 - effBcvDiscount / 100) * (1 - effEarly7 / 100));
-    return acc + roundCurrency(p * i.quantity);
-  }, 0);
+  const totalAmountUSD = order?.totalAmount || totalSubtotalUSD;
+  const totalEquivBS = roundCurrency(totalAmountUSD * effBcvRate);
 
+  // BANNER DE TOTALES Y ESPECIFICACIÓN DE DESCUENTO SI YA FUE PAGADO / LIQUIDADO
   doc.setFillColor(248, 250, 252);
-  doc.rect(14, finalY, 182, 30, 'F');
+  doc.rect(14, finalY, 182, 32, 'F');
   doc.setDrawColor(226, 232, 240);
-  doc.rect(14, finalY, 182, 30, 'S');
+  doc.rect(14, finalY, 182, 32, 'S');
 
   doc.setFontSize(7); doc.setTextColor(100); doc.setFont("helvetica", "bold");
-  doc.text("PAGO EN BOLÍVARES (TASA BCV):", 18, finalY + 11);
-  doc.setFontSize(11); doc.setTextColor(37, 99, 235); doc.setFont("helvetica", "bold");
-  doc.text(`TOTAL USD: $ ${totalBcvUSD.toFixed(2)}`, 18, finalY + 21);
+  doc.text("PAGO EN BOLÍVARES (TASA BCV OFICIAL):", 18, finalY + 8);
+  doc.setFontSize(10); doc.setTextColor(37, 99, 235); doc.setFont("helvetica", "bold");
+  doc.text(`EQUIVALENTE BCV: Bs. ${totalEquivBS.toLocaleString('es-VE', { minimumFractionDigits: 2 })}`, 18, finalY + 16);
+  doc.setFontSize(7); doc.setTextColor(120); doc.setFont("helvetica", "normal");
+  doc.text(`Tasa Oficial de Cambio: Bs. ${effBcvRate.toFixed(2)} / USD`, 18, finalY + 23);
+  if (salespersonName) {
+    doc.text(`Asesor Comercial: ${salespersonName.toUpperCase()}`, 18, finalY + 28);
+  }
 
-  doc.setFillColor(30, 41, 59);
-  doc.rect(111, finalY, 85, 30, 'F');
-  
+  doc.setFillColor(15, 23, 42);
+  doc.rect(110, finalY, 86, 32, 'F');
+
   doc.setFontSize(7); doc.setTextColor(148, 163, 184); doc.setFont("helvetica", "bold");
-  doc.text("PAGO EN DIVISAS (CASH/ZELLE):", 115, finalY + 11);
-  doc.setFontSize(11); doc.setTextColor(16, 185, 129); doc.setFont("helvetica", "bold");
-  doc.text(`TOTAL USD CASH: $ ${totalCashUSD.toFixed(2)}`, 115, finalY + 21);
+  doc.text(isPagado ? "TOTAL PAGADO / SOLVENTE:" : "TOTAL MONTO NETO ENTREGADO:", 114, finalY + 8);
 
-  doc.setFontSize(6); doc.setTextColor(150); doc.setFont("helvetica", "normal");
-  doc.text("* ESTE DOCUMENTO REPRESENTA LA BASE IMPONIBLE. EL IVA (16%) SE CALCULA AL MOMENTO DEL PAGO FISCAL.", 14, finalY + 38);
+  doc.setFontSize(14); doc.setTextColor(16, 185, 129); doc.setFont("helvetica", "bold");
+  doc.text(`$ ${totalAmountUSD.toFixed(2)} USD`, 114, finalY + 18);
+
+  doc.setFontSize(6.5); doc.setTextColor(203, 213, 225); doc.setFont("helvetica", "normal");
+  if (isPagado) {
+    const discLabel = isNetOrPromotional 
+      ? "Tarifa Oferta / Precio Neto Comercial" 
+      : `Liquidado con beneficio Descuento Cash (${bcvDiscountPct}%)`;
+    doc.text(`✅ ESPECIFICACIÓN: ${discLabel.toUpperCase()}`, 114, finalY + 26);
+  } else {
+    doc.text(`* Condición de Pago: ${((order as any)?.paymentStatus || order?.status || 'Pendiente').toUpperCase()}`, 114, finalY + 26);
+  }
+
+  // BLOQUE "RECIBIDO CONFORME" PARA ENTREGA DE MERCANCÍA
+  const signatureY = finalY + 38;
+
+  if (signatureY + 28 <= 285) {
+    doc.setDrawColor(203, 213, 225);
+    doc.setLineWidth(0.4);
+
+    // Caja Entregado Por (Almacén / Transportista)
+    doc.rect(14, signatureY, 88, 26, 'S');
+    doc.setFontSize(7); doc.setTextColor(15, 23, 42); doc.setFont("helvetica", "bold");
+    doc.text("ENTREGADO POR (ALMACÉN / TRANSPORTISTA)", 18, signatureY + 5);
+    doc.setFontSize(6.5); doc.setTextColor(100); doc.setFont("helvetica", "normal");
+    doc.text("Nombre: _____________________________________", 18, signatureY + 11);
+    doc.text("C.I.: __________________  Fecha: ____/____/_____", 18, signatureY + 17);
+    doc.text("Firma / Transportista: ________________________", 18, signatureY + 23);
+
+    // Caja Recibido Conforme (Cliente / Depósito)
+    doc.rect(108, signatureY, 88, 26, 'S');
+    doc.setFontSize(7); doc.setTextColor(15, 23, 42); doc.setFont("helvetica", "bold");
+    doc.text("RECIBIDO CONFORME (CLIENTE / RECEPTOR)", 112, signatureY + 5);
+    doc.setFontSize(6.5); doc.setTextColor(100); doc.setFont("helvetica", "normal");
+    doc.text("Nombre: _____________________________________", 112, signatureY + 11);
+    doc.text("C.I. / RIF: ______________  Fecha: ____/____/_____", 112, signatureY + 17);
+    doc.text("Firma y Sello Cliente: ________________________", 112, signatureY + 23);
+  }
 
   if (autoSave) {
-    doc.save(`${documentType === 'factura' ? 'Factura' : 'Nota'}_${orderId.substring(0,8)}.pdf`);
+    const filePrefix = isFactura ? 'Factura' : 'Nota_Entrega';
+    doc.save(`${filePrefix}_${orderId.substring(0,8)}.pdf`);
   }
 
   const dataUri = doc.output('datauristring');
