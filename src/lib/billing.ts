@@ -80,21 +80,24 @@ export function isOrderInMoraCritica(order: Order, referenceDate: Date = new Dat
     if (!order || order.status === 'Pagado' || order.status === 'Cancelado' || order.status === 'Rechazado' || order.status === 'Borrador') {
         return false;
     }
-    const isExplicitVencido = (order.status as string) === 'Vencido';
-    const cashPaid = getEffectiveCashReceived(order);
-    const remaining = Math.max(0, (order.totalAmount || 0) - cashPaid);
-    if (remaining <= 0.05) return false;
+    const inv = getInvoiceFromOrder(order);
+    if (!inv || inv.remainingBalance <= 0.05 || inv.status === 'Pagado') return false;
 
-    if (isExplicitVencido) return true;
+    if (Math.abs(referenceDate.getTime() - new Date().getTime()) < 86400000) {
+        return inv.status === 'Vencido';
+    }
 
     const sDate = getSalesDate(order);
     if (!sDate || isNaN(sDate.getTime())) return false;
-    const days = Math.max(0, Math.floor((referenceDate.getTime() - sDate.getTime()) / (1000 * 60 * 60 * 24)));
-    return days > 30;
+    const extension = typeof order.extensionDays === 'number' && order.extensionDays > 0 ? order.extensionDays : 0;
+    const dueDate = addDays(sDate, 30 + extension);
+    return referenceDate >= dueDate;
 }
 
 export function getMoraCriticaAmount(order: Order, referenceDate: Date = new Date()): number {
     if (!isOrderInMoraCritica(order, referenceDate)) return 0;
+    const inv = getInvoiceFromOrder(order);
+    if (inv) return inv.remainingBalance;
     const cashPaid = getEffectiveCashReceived(order);
     return Math.max(0, (order.totalAmount || 0) - cashPaid);
 }
