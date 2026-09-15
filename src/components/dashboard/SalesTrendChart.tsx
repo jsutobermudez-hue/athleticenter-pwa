@@ -57,13 +57,9 @@ export function SalesTrendChart({
   const productsQuery = useMemoFirebase(() => (firestore ? query(collection(firestore, 'products'), limit(300)) : null), [firestore]);
   const { data: products } = useCollection<Product>(productsQuery);
 
-  const chartData = useMemo(() => {
+  const dateFilteredOrders = useMemo(() => {
     if (!orders) return [];
-
     const now = new Date();
-    const VALID_SALES_STATUSES = ['Entregado', 'Completado', 'Despachado', 'Pagado', 'Aprobado', 'En Preparación', 'En Verificación'];
-
-    // Filtro unificado de pedidos por período de fechas (aplica para Vendedores, Disciplinas y Línea de tiempo)
     let startDateLimit: Date | null = null;
     let endDateLimit: Date | null = null;
 
@@ -80,19 +76,41 @@ export function SalesTrendChart({
       if (customEndDate) endDateLimit = endOfDay(new Date(customEndDate));
     }
 
-    let dateFilteredOrders = orders;
-    if (period !== 'all') {
-      dateFilteredOrders = orders.filter(order => {
-        const sDate = getSalesDate(order);
-        const cDate = getCashDate(order);
-        const targetDate = sDate || cDate;
+    if (period === 'all') return orders;
 
-        if (!targetDate || isNaN(targetDate.getTime())) return false;
-        if (startDateLimit && targetDate < startDateLimit) return false;
-        if (endDateLimit && targetDate > endDateLimit) return false;
+    return orders.filter(order => {
+      const sDate = getSalesDate(order);
+      const cDate = getCashDate(order);
+      const targetDate = sDate || cDate;
 
-        return true;
-      });
+      if (!targetDate || isNaN(targetDate.getTime())) return false;
+      if (startDateLimit && targetDate < startDateLimit) return false;
+      if (endDateLimit && targetDate > endDateLimit) return false;
+
+      return true;
+    });
+  }, [orders, period, customStartDate, customEndDate]);
+
+  const chartData = useMemo(() => {
+    if (!dateFilteredOrders || dateFilteredOrders.length === 0) return [];
+
+    const now = new Date();
+    const VALID_SALES_STATUSES = ['Entregado', 'Completado', 'Despachado', 'Pagado', 'Aprobado', 'En Preparación', 'En Verificación'];
+
+    let startDateLimit: Date | null = null;
+    let endDateLimit: Date | null = null;
+
+    if (period === '7d') {
+      startDateLimit = startOfDay(subDays(now, 6));
+    } else if (period === '30d') {
+      startDateLimit = startOfDay(subDays(now, 29));
+    } else if (period === 'this_month') {
+      startDateLimit = startOfMonth(now);
+    } else if (period === '6m') {
+      startDateLimit = startOfDay(subMonths(now, 6));
+    } else if (period === 'custom') {
+      if (customStartDate) startDateLimit = startOfDay(new Date(customStartDate));
+      if (customEndDate) endDateLimit = endOfDay(new Date(customEndDate));
     }
 
     if (dimension === 'salesperson') {
@@ -229,17 +247,25 @@ export function SalesTrendChart({
         };
       });
     }
-  }, [orders, period, dimension, products, customStartDate, customEndDate]);
+  }, [dateFilteredOrders, period, dimension, products, customStartDate, customEndDate]);
 
   const totals = useMemo(() => {
+    const now = new Date();
     const totalSales = chartData.reduce((sum, item) => sum + item.ventas, 0);
     const totalCash = chartData.reduce((sum, item) => sum + item.cobranzas, 0);
-    const totalMora = chartData.reduce((sum, item) => sum + item.moraCritica, 0);
+
+    // Mora calculada de forma directa e independiente por pedido (evitando la suma repetida por días)
+    const totalMora = (dimension === 'salesperson' || dimension === 'discipline')
+      ? chartData.reduce((sum, item) => sum + item.moraCritica, 0)
+      : dateFilteredOrders.reduce((sum, order) => sum + getMoraCriticaAmount(order, now), 0);
+
     const count = chartData.length || 1;
     const dailyAvg = totalSales / count;
     const efficiencyRate = totalSales > 0 ? Math.min(100, Math.round((totalCash / totalSales) * 100)) : 0;
-    return { totalSales, totalCash, totalMora, dailyAvg, efficiencyRate };
-  }, [chartData]);
+    const moraRate = totalSales > 0 ? Math.min(100, Math.round((totalMora / totalSales) * 100)) : 0;
+
+    return { totalSales, totalCash, totalMora, dailyAvg, efficiencyRate, moraRate };
+  }, [chartData, dateFilteredOrders, dimension]);
 
   const handleExportPDF = async () => {
     setIsExportingPDF(true);
@@ -518,18 +544,48 @@ export function SalesTrendChart({
           </div>
         </div>
 
-        <div className="text-left sm:text-right shrink-0">
-          <div className="flex items-baseline gap-2">
-            <p className="text-2xl font-black tracking-tighter text-slate-900 leading-none">${totals.totalSales.toLocaleString('en-US', { minimumFractionDigits: 0 })}</p>
-            <Badge variant="outline" className="text-[7px] font-black border-slate-200 text-slate-600 px-1.5 py-0 font-mono">
-              {dimension === 'timeline' ? `Prom: $${totals.dailyAvg.toLocaleString('en-US', { minimumFractionDigits: 0 })}/día` : `${chartData.length} Registros`}
+        <div className="text-left sm:text-right shrink-0 space-y-1.5">
+          {/* MÉTRICA PRINCIPAL DINÁMICA SEGÚN VIEW MODE */}
+          <div className="flex items-baseline justify-start sm:justify-end gap-2 flex-wrap">
+            {viewMode === 'sales' && (
+              <p className="text-2xl font-black tracking-tighter text-blue-600 leading-none">
+                ${totals.totalSales.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </p>
+            )}
+            {viewMode === 'cash' && (
+              <p className="text-2xl font-black tracking-tighter text-emerald-600 leading-none">
+                ${totals.totalCash.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </p>
+            )}
+            {viewMode === 'mora_critica' && (
+              <p className="text-2xl font-black tracking-tighter text-rose-600 leading-none">
+                ${totals.totalMora.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </p>
+            )}
+            {viewMode === 'comparative' && (
+              <p className="text-2xl font-black tracking-tighter text-slate-900 leading-none">
+                ${totals.totalSales.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </p>
+            )}
+
+            <Badge variant="outline" className="text-[8px] font-black border-slate-200 text-slate-600 px-1.5 py-0.5 font-mono">
+              {dimension === 'timeline' 
+                ? `Prom: $${totals.dailyAvg.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/día` 
+                : `${chartData.length} Registros`}
             </Badge>
           </div>
-          <div className="flex items-center sm:justify-end gap-2 mt-1.5">
-            <span className="text-[8px] font-black text-emerald-600 uppercase tracking-widest">
-              Cash: ${totals.totalCash.toLocaleString('en-US', { minimumFractionDigits: 0 })}
+
+          {/* FILA INFORMATIVA DE 3 KPI SECUNDARIOS (CASH, MORA, COBRADO) */}
+          <div className="flex items-center sm:justify-end gap-2 flex-wrap">
+            <span className="text-[9px] font-extrabold text-emerald-600 uppercase tracking-wider flex items-center gap-1">
+              🟢 CASH: ${totals.totalCash.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </span>
-            <Badge variant="secondary" className="bg-emerald-50 text-emerald-700 font-black text-[8px] border-emerald-200/60 rounded-md">
+
+            <span className="text-[9px] font-extrabold text-rose-600 uppercase tracking-wider flex items-center gap-1">
+              🚨 MORA: ${totals.totalMora.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </span>
+
+            <Badge variant="secondary" className="bg-emerald-50 text-emerald-700 font-extrabold text-[8px] border border-emerald-200/60 rounded-md px-1.5 py-0.5">
               {totals.efficiencyRate}% Cobrado
             </Badge>
           </div>
