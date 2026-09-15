@@ -99,17 +99,32 @@ export function AdminBillingView() {
   const ordersCollection = useMemoFirebase(() => {
     if (!currentUser || !firestore) return null;
     const base = collection(firestore, 'orders');
-    if (isGlobalStaff) return query(base, orderBy('updatedAt', 'desc'), limit(500));
+    if (isGlobalStaff) return query(base, limit(1000));
     
     const filterField = currentUser.role === 'ventas' ? 'salespersonId' : 'customerId';
     const filterValue = currentUser.role === 'cliente' 
         ? (currentUser.associatedCustomerId || currentUser.id) 
         : currentUser.id;
 
-    return query(base, where(filterField, '==', filterValue), limit(500));
+    return query(base, where(filterField, '==', filterValue), limit(1000));
   }, [firestore, currentUser, isGlobalStaff]);
   
   const { data: rawOrders, isLoading: isLoadingOrders } = useCollection<Order>(ordersCollection);
+
+  const sortedRawOrders = useMemo(() => {
+    if (!rawOrders) return [];
+    return [...rawOrders].sort((a, b) => {
+      const getTS = (o: Order) => {
+        const d = (o as any).updatedAt || o.orderDate || o.createdAt || o.receptionDate;
+        if (!d) return 0;
+        if (typeof (d as any).toDate === 'function') return (d as any).toDate().getTime();
+        if ((d as any).seconds) return (d as any).seconds * 1000;
+        const parsed = new Date(d as any).getTime();
+        return isNaN(parsed) ? 0 : parsed;
+      };
+      return getTS(b) - getTS(a);
+    });
+  }, [rawOrders]);
 
   useEffect(() => {
     const statusQuery = searchParams.get('status');
@@ -260,12 +275,12 @@ export function AdminBillingView() {
   };
   
   const allInvoices = useMemo(() => {
-    if (!rawOrders) return [];
+    if (!sortedRawOrders) return [];
     const baseStatuses: OrderStatus[] = ['Entregado', 'En Verificación', 'Pagado', 'Despachado', 'Aprobado', 'En Preparación', 'Completado'];
-    const filtered = rawOrders.filter(o => baseStatuses.includes(o.status));
+    const filtered = sortedRawOrders.filter(o => baseStatuses.includes(o.status));
     const treasuryDiscount = (globalSettings as any)?.defaultBcvDiscount !== undefined ? (globalSettings as any).defaultBcvDiscount : 25;
     return filtered.map(o => getInvoiceFromOrder(o, treasuryDiscount)).filter(Boolean) as Invoice[];
-  }, [rawOrders, globalSettings]);
+  }, [sortedRawOrders, globalSettings]);
 
   // AUTO-DISPARO DE MODAL DE PAGO SI VIENE orderId EN LA URL
   useEffect(() => {
@@ -289,11 +304,11 @@ export function AdminBillingView() {
   }, [allInvoices]);
   
   const metrics = useMemo(() => {
-    if (!rawOrders) return { 
+    if (!sortedRawOrders) return { 
       vencido: 0, porVencer: 0, enVerificacion: 0, totalPorCobrar: 0, grossBcvDebt: 0, netCashDebt: 0, recaudado: 0,
       totalOrdersCount: 0, totalOrdersAmount: 0, liquidadosCount: 0, liquidadosAmount: 0
     };
-    const globalMetrics = calculateGlobalFinancialMetrics(rawOrders, dateFilter as any);
+    const globalMetrics = calculateGlobalFinancialMetrics(sortedRawOrders, dateFilter as any);
     return {
       vencido: globalMetrics.vencido,
       porVencer: globalMetrics.porVencer,
@@ -307,7 +322,7 @@ export function AdminBillingView() {
       liquidadosCount: globalMetrics.liquidadosCount,
       liquidadosAmount: globalMetrics.liquidadosAmount
     };
-  }, [rawOrders, dateFilter]);
+  }, [sortedRawOrders, dateFilter]);
 
   const cashFlowForecast = useMemo(() => {
     if (!allInvoices) return { next7Days: 0, next15Days: 0, next30Days: 0, overdue: 0, totalProjected: 0 };
