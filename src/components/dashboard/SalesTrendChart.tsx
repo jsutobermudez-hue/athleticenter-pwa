@@ -183,7 +183,7 @@ export function SalesTrendChart({
           }
         });
 
-        const moraTotal = dateFilteredOrders.filter(order => {
+        const moraTotal = (orders || []).filter(order => {
           const sDate = getSalesDate(order);
           if (!sDate || sDate > day) return false;
           return isOrderInMoraCritica(order, day);
@@ -233,7 +233,7 @@ export function SalesTrendChart({
           }
         });
 
-        const moraTotal = dateFilteredOrders.filter(order => {
+        const moraTotal = (orders || []).filter(order => {
           const sDate = getSalesDate(order);
           if (!sDate) return false;
           return sDate.getMonth() === month.getMonth() && sDate.getFullYear() === month.getFullYear() && isOrderInMoraCritica(order, now);
@@ -247,7 +247,7 @@ export function SalesTrendChart({
         };
       });
     }
-  }, [dateFilteredOrders, period, dimension, products, customStartDate, customEndDate]);
+  }, [dateFilteredOrders, orders, period, dimension, products, customStartDate, customEndDate]);
 
   const totals = useMemo(() => {
     const now = new Date();
@@ -286,53 +286,34 @@ export function SalesTrendChart({
         if (period === '30d') return 'Últimos 30 Días';
         if (period === 'this_month') return 'Este Mes';
         if (period === '6m') return 'Últimos 6 Meses';
-        if (period === 'all') return 'Histórico Consolidado';
-        if (period === 'custom') {
-          if (customStartDate && customEndDate) return `${customStartDate} a ${customEndDate}`;
-          return 'Rango Personalizado';
-        }
-        return '';
+        if (period === 'all') return 'Histórico Total';
+        return 'Rango Personalizado';
       };
+      doc.text(`Filtro: ${getPeriodLabelText()} | Generado por: Sistema de Inteligencia Comercial`, 14, 19);
 
-      const dimLabel = dimension === 'timeline' 
-        ? `LÍNEA DE TIEMPO (${getPeriodLabelText().toUpperCase()})` 
-        : dimension === 'salesperson' 
-        ? `COMPARATIVA POR VENDEDOR (${getPeriodLabelText().toUpperCase()})` 
-        : `DISTRIBUCIÓN POR DISCIPLINA (${getPeriodLabelText().toUpperCase()})`;
-      doc.text(`FECHA DE EMISIÓN: ${format(new Date(), 'dd/MM/yyyy HH:mm')} | DIMENSIÓN: ${dimLabel}`, 14, 19);
-
-      doc.setFillColor(248, 250, 252);
-      doc.roundedRect(14, 28, 269, 18, 3, 3, 'F');
-      doc.setDrawColor(226, 232, 240);
-      doc.roundedRect(14, 28, 269, 18, 3, 3, 'S');
-
-      doc.setTextColor(15, 23, 42);
-      doc.setFontSize(9);
-      doc.setFont('helvetica', 'bold');
-      doc.text(`VENTAS FACTURADAS: $${totals.totalSales.toLocaleString('en-US', { minimumFractionDigits: 2 })}`, 18, 38);
-      doc.text(`CASH RECAUDADO: $${totals.totalCash.toLocaleString('en-US', { minimumFractionDigits: 2 })}`, 105, 38);
-      doc.text(`MORA CRÍTICA (+30D): $${totals.totalMora.toLocaleString('en-US', { minimumFractionDigits: 2 })}`, 180, 38);
-      doc.text(`EFICIENCIA: ${totals.efficiencyRate}%`, 250, 38);
-
-      const chartImage = await captureSvgAsPng('sales-trend-chart-container');
-      let tableStartY = 50;
-
-      if (chartImage) {
-        doc.setFontSize(8);
-        doc.setFont('helvetica', 'bold');
-        doc.setTextColor(71, 85, 105);
-        doc.text('GRÁFICO COMPARATIVO VISUAL:', 14, 50);
-
-        doc.addImage(chartImage, 'PNG', 14, 53, 269, 70);
-        tableStartY = 128;
-      }
+      // Tabla de Resumen
+      autoTable(doc, {
+        startY: 28,
+        head: [['Ventas Totales ($ USD)', 'Cash Recaudado ($ USD)', 'Mora Crítica ($ USD)', '% Eficiencia Cobro', 'Promedio Diario ($ USD)', 'Tasa BCV Referencial']],
+        body: [[
+          `$${totals.totalSales.toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
+          `$${totals.totalCash.toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
+          `$${totals.totalMora.toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
+          `${totals.efficiencyRate}%`,
+          `$${totals.dailyAvg.toLocaleString('en-US', { minimumFractionDigits: 2 })}/día`,
+          `Bs. ${bcvRate.toFixed(2)}/USD`
+        ]],
+        theme: 'striped',
+        headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 9 },
+        bodyStyles: { fontSize: 9, halign: 'center' }
+      });
 
       let headCols = ['Dimensión / Registro', 'Ventas ($ USD)', 'Cobranzas ($ USD)', 'Pendiente ($ USD)', 'Mora Crítica ($ USD)', '% Eficiencia'];
       if (dimension === 'discipline') {
         headCols = ['Disciplina Deportiva', 'Ventas ($ USD)', 'Cobranzas ($ USD)', 'Pendiente ($ USD)', 'Mora Crítica ($ USD)', '% Eficiencia', 'Líder de Ventas'];
       } else if (dimension === 'salesperson') {
         headCols = ['Asesor Comercial', 'Ventas ($ USD)', 'Cobranzas ($ USD)', 'Pendiente ($ USD)', 'Mora Crítica ($ USD)', 'Pedidos', '% Eficiencia'];
-      } else {
+      } else if (dimension === 'timeline') {
         headCols = ['Período', 'Ventas ($ USD)', 'Cobranzas ($ USD)', 'Brecha ($ USD)', 'Mora Crítica ($ USD)', '% Eficiencia', 'Equiv. BCV (Bs.)'];
       }
 
@@ -346,52 +327,50 @@ export function SalesTrendChart({
             `$${d.ventas.toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
             `$${d.cobranzas.toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
             `$${pendingVal.toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
-            `$${d.moraCritica.toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
+            `$${(d.moraCritica || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
             `${effVal}%`,
-            d.topSalespersonName ? `${d.topSalespersonName} ($${d.topSalespersonAmount?.toLocaleString('en-US')})` : 'N/A'
+            d.topSalespersonName ? `${d.topSalespersonName} ($${(d.topSalespersonAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })})` : 'N/A'
           ];
-        }
-
-        if (dimension === 'salesperson') {
+        } else if (dimension === 'salesperson') {
           return [
             d.name,
             `$${d.ventas.toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
             `$${d.cobranzas.toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
             `$${pendingVal.toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
-            `$${d.moraCritica.toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
-            `${d.orderCount || 0}`,
+            `$${(d.moraCritica || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
+            `${d.orderCount || 0} pedidos`,
             `${effVal}%`
           ];
+        } else {
+          return [
+            d.name,
+            `$${d.ventas.toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
+            `$${d.cobranzas.toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
+            `$${pendingVal.toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
+            `$${(d.moraCritica || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
+            `${effVal}%`,
+            `Bs. ${(d.cobranzas * bcvRate).toLocaleString('es-VE', { minimumFractionDigits: 2 })}`
+          ];
         }
-
-        return [
-          d.name,
-          `$${d.ventas.toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
-          `$${d.cobranzas.toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
-          `$${pendingVal.toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
-          `$${d.moraCritica.toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
-          `${effVal}%`,
-          `Bs. ${(d.cobranzas * bcvRate).toLocaleString('es-VE', { minimumFractionDigits: 2 })}`
-        ];
       });
 
-      const footRow = [
-        'TOTAL CONSOLIDADO',
-        `$${totals.totalSales.toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
-        `$${totals.totalCash.toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
-        `$${Math.max(0, totals.totalSales - totals.totalCash).toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
-        `$${totals.totalMora.toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
-        `${totals.efficiencyRate}%`,
-        dimension === 'discipline' ? '-' : dimension === 'salesperson' ? '-' : `Bs. ${(totals.totalCash * bcvRate).toLocaleString('es-VE', { minimumFractionDigits: 2 })}`
-      ];
+      const currentY = (doc as any).lastAutoTable ? (doc as any).lastAutoTable.finalY + 8 : 45;
+
+      const chartImage = await captureSvgAsPng('sales-trend-chart-container');
+      if (chartImage) {
+        doc.setFontSize(8);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(71, 85, 105);
+        doc.text('GRÁFICO COMPARATIVO VISUAL:', 14, currentY);
+        doc.addImage(chartImage, 'PNG', 14, currentY + 3, 269, 65);
+      }
 
       autoTable(doc, {
-        startY: tableStartY,
+        startY: currentY + (chartImage ? 72 : 0),
         head: [headCols],
         body: tableRows,
-        foot: [footRow],
-        headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255], fontSize: 8, fontStyle: 'bold', halign: 'center' },
-        bodyStyles: { fontSize: 8, textColor: [30, 41, 59] },
+        styles: { fontSize: 8, cellPadding: 2.5 },
+        headStyles: { fillColor: [51, 65, 85], textColor: [255, 255, 255], fontStyle: 'bold' },
         alternateRowStyles: { fillColor: [248, 250, 252] },
         footStyles: { fillColor: [30, 41, 59], textColor: [255, 255, 255], fontSize: 9, fontStyle: 'bold', halign: 'center' },
         theme: 'grid'
@@ -420,9 +399,10 @@ export function SalesTrendChart({
 
   return (
     <Card className="border-none shadow-xl rounded-[2.5rem] bg-white overflow-hidden relative group animate-in fade-in duration-500">
-      <CardHeader className="p-8 pb-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 space-y-0">
-        <div className="space-y-2">
-          <CardTitle className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-400 flex items-center gap-2 flex-wrap">
+      <CardHeader className="p-6 pb-4 space-y-4">
+        {/* FILA 1: TÍTULO A LA IZQUIERDA Y TARJETAS KPI INFORMATIVAS A LA DERECHA */}
+        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+          <CardTitle className="text-xs font-black uppercase tracking-[0.2em] text-slate-500 flex items-center gap-2 flex-wrap">
             <TrendingUp className="h-4 w-4 text-primary" /> {customTitle || (dimension === 'salesperson' ? 'Comparativa por Vendedor' : dimension === 'discipline' ? 'Distribución por Disciplina' : 'Tendencia de Ventas vs Cobranzas')}
             {selectedSalespersonName && (
               <Badge className="bg-indigo-100 text-indigo-700 font-black text-[9px] uppercase border-none px-2 py-0.5 ml-1">
@@ -431,8 +411,48 @@ export function SalesTrendChart({
             )}
           </CardTitle>
 
+          {/* BLOQUE KPI SUMMARY (AMPLIO, LIMPIO Y SIN TRUNCAMIENTOS) */}
+          <div className="flex items-center gap-3 flex-wrap bg-slate-50 border border-slate-200/80 p-2.5 rounded-2xl w-full md:w-auto justify-between md:justify-end">
+            {/* VENTAS */}
+            <div className="flex items-baseline gap-1.5 px-2">
+              <span className="text-[9px] font-black uppercase tracking-wider text-slate-400">🔵 Ventas:</span>
+              <span className="text-base font-black text-slate-900 tracking-tight">
+                ${totals.totalSales.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </span>
+              <span className="text-[8px] font-bold text-slate-500 font-mono">
+                ({dimension === 'timeline' ? `Prom: $${totals.dailyAvg.toLocaleString('en-US', { minimumFractionDigits: 0 })}/d` : `${chartData.length} Reg.`})
+              </span>
+            </div>
+
+            <div className="h-4 w-[1px] bg-slate-200 hidden sm:block" />
+
+            {/* CASH */}
+            <div className="flex items-baseline gap-1.5 px-2">
+              <span className="text-[9px] font-black uppercase tracking-wider text-emerald-600">🟢 Cash:</span>
+              <span className="text-base font-black text-emerald-600 tracking-tight">
+                ${totals.totalCash.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </span>
+              <Badge variant="secondary" className="bg-emerald-100/70 text-emerald-800 font-extrabold text-[8px] border-none px-1.5 py-0">
+                {totals.efficiencyRate}% Cobrado
+              </Badge>
+            </div>
+
+            <div className="h-4 w-[1px] bg-slate-200 hidden sm:block" />
+
+            {/* MORA */}
+            <div className="flex items-baseline gap-1.5 px-2">
+              <span className="text-[9px] font-black uppercase tracking-wider text-rose-600">🚨 Mora:</span>
+              <span className="text-base font-black text-rose-600 tracking-tight">
+                ${totals.totalMora.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* FILA 2: BARRA UNIFICADA DE FILTROS Y CONTROLES */}
+        <div className="flex flex-wrap items-center justify-between gap-2.5 pt-2 border-t border-slate-100">
           <div className="flex flex-wrap items-center gap-2">
-            {/* SELECTOR DE DIMENSIÓN DE ANÁLISIS (Si no está oculto) */}
+            {/* SELECTOR DE DIMENSIÓN DE ANÁLISIS */}
             {!hideDimensionSwitcher && (
               <div className="flex bg-slate-900 text-white rounded-xl p-1 gap-1 shadow-inner">
                 {[
@@ -445,7 +465,7 @@ export function SalesTrendChart({
                     type="button"
                     onClick={() => setDimension(d.id as any)}
                     className={cn(
-                      "px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all flex items-center gap-1.5",
+                      "px-2.5 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all flex items-center gap-1.5",
                       dimension === d.id
                         ? "bg-primary text-white shadow-md font-extrabold"
                         : "text-slate-400 hover:text-white hover:bg-slate-800"
@@ -458,8 +478,8 @@ export function SalesTrendChart({
               </div>
             )}
 
-            {/* SUB-FILTRO DE RANGO DE TIEMPO (Activo para TODAS las dimensiones) */}
-            <div className="flex bg-slate-100 border border-slate-200/50 rounded-xl p-1 gap-1 flex-wrap items-center animate-in fade-in duration-300">
+            {/* SUB-FILTRO DE TIEMPO */}
+            <div className="flex bg-slate-100 border border-slate-200/50 rounded-xl p-1 gap-1 flex-wrap items-center">
               {[
                 { id: '7d', label: '7D' },
                 { id: '30d', label: '30D' },
@@ -473,7 +493,7 @@ export function SalesTrendChart({
                   type="button"
                   onClick={() => setPeriod(p.id as any)}
                   className={cn(
-                    "px-2.5 py-1 rounded-lg text-[8px] font-black uppercase tracking-wider transition-all",
+                    "px-2 py-1 rounded-lg text-[8px] font-black uppercase tracking-wider transition-all",
                     period === p.id 
                       ? "bg-slate-800 text-white shadow-sm" 
                       : "text-slate-500 hover:text-slate-800"
@@ -484,9 +504,9 @@ export function SalesTrendChart({
               ))}
             </div>
 
-            {/* SELECCIÓN DE FECHAS DESDE / HASTA SI PERIOD === 'custom' */}
+            {/* RANGO DE FECHAS SI CUSTOM */}
             {period === 'custom' && (
-              <div className="flex items-center gap-1 bg-white border border-slate-200 rounded-xl p-1 shadow-sm animate-in fade-in duration-300">
+              <div className="flex items-center gap-1 bg-white border border-slate-200 rounded-xl p-1 shadow-sm">
                 <input
                   type="date"
                   value={customStartDate}
@@ -505,7 +525,7 @@ export function SalesTrendChart({
               </div>
             )}
 
-            {/* SELECTOR DE VISTA DE CONCEPTO */}
+            {/* SELECTOR DE CONCEPTO */}
             <div className="flex bg-slate-100 border border-slate-200/50 rounded-xl p-1 gap-1">
               {[
                 { id: 'comparative', label: '📊 Dual' },
@@ -520,7 +540,7 @@ export function SalesTrendChart({
                   className={cn(
                     "px-2.5 py-1 rounded-lg text-[8px] font-black uppercase tracking-wider transition-all",
                     viewMode === v.id
-                      ? v.id === 'mora_critica' ? "bg-rose-600 text-white shadow-sm" : "bg-slate-900 text-white shadow-sm"
+                      ? v.id === 'mora_critica' ? "bg-rose-600 text-white shadow-sm font-extrabold" : v.id === 'cash' ? "bg-emerald-600 text-white shadow-sm font-extrabold" : v.id === 'sales' ? "bg-blue-600 text-white shadow-sm font-extrabold" : "bg-slate-900 text-white shadow-sm font-extrabold"
                       : "text-slate-500 hover:text-slate-800"
                   )}
                 >
@@ -528,66 +548,19 @@ export function SalesTrendChart({
                 </button>
               ))}
             </div>
-
-            {/* BOTÓN DE IMPRESIÓN REPORTE PDF */}
-            <Button
-              onClick={handleExportPDF}
-              disabled={isExportingPDF}
-              variant="outline"
-              className="h-8 px-3 rounded-xl border-slate-200 text-slate-700 hover:bg-slate-50 font-black text-[8px] sm:text-[9px] uppercase tracking-wider flex items-center gap-1.5 shadow-sm shrink-0"
-              title="Imprimir Gráfico Visual y Reporte PDF"
-            >
-              {isExportingPDF ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Printer className="h-3.5 w-3.5 text-primary" />}
-              <span className="truncate">🖨️ Imprimir PDF</span>
-            </Button>
-          </div>
-        </div>
-
-        <div className="text-left sm:text-right shrink-0 space-y-1.5">
-          {/* MÉTRICA PRINCIPAL DINÁMICA SEGÚN VIEW MODE */}
-          <div className="flex items-baseline justify-start sm:justify-end gap-2 flex-wrap">
-            {viewMode === 'sales' && (
-              <p className="text-2xl font-black tracking-tighter text-blue-600 leading-none">
-                ${totals.totalSales.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-              </p>
-            )}
-            {viewMode === 'cash' && (
-              <p className="text-2xl font-black tracking-tighter text-emerald-600 leading-none">
-                ${totals.totalCash.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-              </p>
-            )}
-            {viewMode === 'mora_critica' && (
-              <p className="text-2xl font-black tracking-tighter text-rose-600 leading-none">
-                ${totals.totalMora.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-              </p>
-            )}
-            {viewMode === 'comparative' && (
-              <p className="text-2xl font-black tracking-tighter text-slate-900 leading-none">
-                ${totals.totalSales.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-              </p>
-            )}
-
-            <Badge variant="outline" className="text-[8px] font-black border-slate-200 text-slate-600 px-1.5 py-0.5 font-mono">
-              {dimension === 'timeline' 
-                ? `Prom: $${totals.dailyAvg.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/día` 
-                : `${chartData.length} Registros`}
-            </Badge>
           </div>
 
-          {/* FILA INFORMATIVA DE 3 KPI SECUNDARIOS (CASH, MORA, COBRADO) */}
-          <div className="flex items-center sm:justify-end gap-2 flex-wrap">
-            <span className="text-[9px] font-extrabold text-emerald-600 uppercase tracking-wider flex items-center gap-1">
-              🟢 CASH: ${totals.totalCash.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </span>
-
-            <span className="text-[9px] font-extrabold text-rose-600 uppercase tracking-wider flex items-center gap-1">
-              🚨 MORA: ${totals.totalMora.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </span>
-
-            <Badge variant="secondary" className="bg-emerald-50 text-emerald-700 font-extrabold text-[8px] border border-emerald-200/60 rounded-md px-1.5 py-0.5">
-              {totals.efficiencyRate}% Cobrado
-            </Badge>
-          </div>
+          {/* BOTÓN IMPRIMIR PDF */}
+          <Button
+            onClick={handleExportPDF}
+            disabled={isExportingPDF}
+            variant="outline"
+            className="h-8 px-3 rounded-xl border-slate-200 text-slate-700 hover:bg-slate-50 font-black text-[8px] sm:text-[9px] uppercase tracking-wider flex items-center gap-1.5 shadow-sm shrink-0"
+            title="Imprimir Gráfico Visual y Reporte PDF"
+          >
+            {isExportingPDF ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Printer className="h-3.5 w-3.5 text-primary" />}
+            <span className="truncate">🖨️ Imprimir PDF</span>
+          </Button>
         </div>
       </CardHeader>
 
