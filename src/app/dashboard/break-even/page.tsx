@@ -87,6 +87,9 @@ export default function BreakEvenPage() {
   const [newIsFixed, setNewIsFixed] = useState(true);
   const [isSubmittingExpense, setIsSubmittingExpense] = useState(false);
 
+  // VISTAS DE PESTAÑAS DE GASTOS (FIJOS VS VARIABLES VS TODOS)
+  const [expenseTab, setExpenseTab] = useState<'fixed' | 'variable' | 'all'>('fixed');
+
   // FILTROS Y VISTAS DE LA MATRIX MULTIPRODUCTO
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedDiscipline, setSelectedDiscipline] = useState('TODAS');
@@ -520,12 +523,43 @@ export default function BreakEvenPage() {
           </CardHeader>
           <CardContent className="p-6">
             <form onSubmit={handleAddExpense} className="space-y-4">
+              {/* SELECTOR CLARO TIPO DE GASTO (FIJO VS VARIABLE) */}
+              <div className="space-y-1.5">
+                <Label className="text-[9px] font-black uppercase text-slate-500">Tipo de Gasto</Label>
+                <div className="grid grid-cols-2 gap-2 p-1 bg-slate-100 rounded-xl">
+                  <button
+                    type="button"
+                    onClick={() => setNewIsFixed(true)}
+                    className={cn(
+                      "py-2.5 px-3 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all flex items-center justify-center gap-1.5",
+                      newIsFixed
+                        ? "bg-slate-900 text-white shadow-md font-extrabold"
+                        : "text-slate-500 hover:text-slate-900"
+                    )}
+                  >
+                    <Building2 className="h-3.5 w-3.5" /> Gasto Fijo
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setNewIsFixed(false)}
+                    className={cn(
+                      "py-2.5 px-3 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all flex items-center justify-center gap-1.5",
+                      !newIsFixed
+                        ? "bg-purple-600 text-white shadow-md font-extrabold"
+                        : "text-slate-500 hover:text-slate-900"
+                    )}
+                  >
+                    <Zap className="h-3.5 w-3.5" /> Gasto Variable
+                  </button>
+                </div>
+              </div>
+
               <div className="space-y-1.5">
                 <Label className="text-[9px] font-black uppercase text-slate-500">Concepto del Gasto</Label>
                 <Input
                   value={newConcept}
                   onChange={(e) => setNewConcept(e.target.value)}
-                  placeholder="Ej. Nómina Operativa / Mantenimiento Camión"
+                  placeholder={newIsFixed ? "Ej. Nómina Operativa / Alquiler" : "Ej. Flete Especial / Mantenimiento Camión"}
                   className="h-11 font-bold text-xs rounded-xl"
                   required
                 />
@@ -591,23 +625,13 @@ export default function BreakEvenPage() {
                 </div>
               </div>
 
-              <div className="flex items-center justify-between p-4 rounded-2xl bg-slate-50 border border-slate-100">
-                <span className="text-xs font-black uppercase text-slate-700">¿Es Gasto Fijo Mensual?</span>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant={newIsFixed ? 'default' : 'outline'}
-                  onClick={() => setNewIsFixed(!newIsFixed)}
-                  className={cn("h-8 px-4 rounded-xl text-[9px] font-black uppercase border-none", newIsFixed ? "bg-slate-900 text-white" : "bg-slate-200 text-slate-600")}
-                >
-                  {newIsFixed ? 'SI (FIJO)' : 'NO (VARIABLE)'}
-                </Button>
-              </div>
-
               <Button 
                 type="submit" 
                 disabled={isSubmittingExpense} 
-                className="w-full h-12 rounded-xl bg-primary hover:bg-primary/90 text-white font-black text-xs uppercase shadow-lg flex items-center justify-center gap-2"
+                className={cn(
+                  "w-full h-12 rounded-xl text-white font-black text-xs uppercase shadow-lg flex items-center justify-center gap-2 transition-all",
+                  newIsFixed ? "bg-primary hover:bg-primary/90" : "bg-purple-600 hover:bg-purple-700"
+                )}
               >
                 {isSubmittingExpense ? (
                   <>
@@ -615,7 +639,7 @@ export default function BreakEvenPage() {
                   </>
                 ) : (
                   <>
-                    <Plus className="h-4 w-4" /> Agregar a Estructura de Costos
+                    <Plus className="h-4 w-4" /> {newIsFixed ? 'Agregar Gasto Fijo' : 'Agregar Gasto Variable'}
                   </>
                 )}
               </Button>
@@ -623,49 +647,174 @@ export default function BreakEvenPage() {
           </CardContent>
         </Card>
 
-        {/* TABLA DE GASTOS REGISTRADOS */}
-        <Card className="border-none shadow-xl rounded-[2.5rem] bg-white overflow-hidden lg:col-span-2">
-          <CardHeader className="bg-slate-50/50 py-5 px-8 border-b flex flex-row items-center justify-between">
-            <CardTitle className="text-xs font-black uppercase tracking-[0.3em] text-slate-900 flex items-center gap-2">
-              <Landmark className="h-4 w-4 text-primary" /> Estructura Operativa de Gastos ({expenses.length})
-            </CardTitle>
-            <Badge variant="outline" className="border-slate-200 text-[8px] font-mono uppercase text-slate-500">Total Fijos: ${summary.totalFixedExpensesUSD}</Badge>
-          </CardHeader>
-          <CardContent className="p-0 overflow-x-auto max-h-[360px] overflow-y-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="bg-slate-900 text-white text-[9px] font-black uppercase tracking-widest sticky top-0 z-10">
-                  <th className="p-4 pl-8">Concepto</th>
-                  <th className="p-4">Categoría</th>
-                  <th className="p-4 text-center">Tipo</th>
-                  <th className="p-4 text-right">Monto ($ USD)</th>
-                  <th className="p-4 pr-8 text-right">Acción</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 text-xs font-bold text-slate-800">
-                {expenses.map((e, idx) => (
-                  <tr key={e.id || idx} className="hover:bg-slate-50 transition-colors">
-                    <td className="p-4 pl-8 font-black uppercase text-slate-900">{e.concept}</td>
-                    <td className="p-4"><Badge variant="secondary" className="bg-slate-100 text-slate-700 text-[8px] font-black uppercase border-none">{e.category}</Badge></td>
-                    <td className="p-4 text-center">
-                      <Badge className={cn("text-[8px] font-black uppercase border-none px-2 py-0.5", e.isFixed ? "bg-blue-100 text-blue-700" : "bg-purple-100 text-purple-700")}>
-                        {e.isFixed ? 'FIJO' : 'VARIABLE'}
-                      </Badge>
-                    </td>
-                    <td className="p-4 text-right font-mono font-black text-slate-900">${e.amountUSD.toFixed(2)}</td>
-                    <td className="p-4 pr-8 text-right">
-                      {e.id && (
-                        <Button size="sm" variant="ghost" onClick={() => deleteExpense(e.id!)} className="h-8 w-8 p-0 text-rose-500 hover:bg-rose-50 rounded-xl">
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </CardContent>
-        </Card>
+        {/* ESTRUCTURA DE GASTOS: PESTAÑAS Y CUADROS SEPARADOS DE FIJOS Y VARIABLES */}
+        <div className="lg:col-span-2 flex flex-col gap-4">
+          {/* BARRA DE PESTAÑAS DE NAVEGACIÓN */}
+          <div className="flex items-center justify-between p-2 bg-slate-100 rounded-[1.8rem] border border-slate-200/60 flex-wrap gap-2">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <button
+                type="button"
+                onClick={() => setExpenseTab('fixed')}
+                className={cn(
+                  "px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all flex items-center gap-2",
+                  expenseTab === 'fixed'
+                    ? "bg-slate-900 text-white shadow-md font-extrabold"
+                    : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/50"
+                )}
+              >
+                <Building2 className="h-3.5 w-3.5 text-primary" />
+                Gastos Fijos ({expenses.filter(e => e.isFixed).length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setExpenseTab('variable')}
+                className={cn(
+                  "px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all flex items-center gap-2",
+                  expenseTab === 'variable'
+                    ? "bg-purple-600 text-white shadow-md font-extrabold"
+                    : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/50"
+                )}
+              >
+                <Zap className="h-3.5 w-3.5 text-amber-300" />
+                Gastos Variables ({expenses.filter(e => !e.isFixed).length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setExpenseTab('all')}
+                className={cn(
+                  "px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all flex items-center gap-2",
+                  expenseTab === 'all'
+                    ? "bg-slate-800 text-white shadow-md font-extrabold"
+                    : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/50"
+                )}
+              >
+                <PieChart className="h-3.5 w-3.5" />
+                Ver Todos ({expenses.length})
+              </button>
+            </div>
+
+            <div className="hidden sm:flex items-center gap-2 pr-2">
+              <Badge variant="outline" className="border-slate-300 text-[8px] font-mono text-slate-700">
+                Fijos: ${summary.totalFixedExpensesUSD.toLocaleString('en-US')}
+              </Badge>
+              <Badge variant="outline" className="border-purple-300 text-purple-700 text-[8px] font-mono bg-purple-50">
+                Var: ${summary.totalVariableExpensesUSD.toLocaleString('en-US')}
+              </Badge>
+            </div>
+          </div>
+
+          {/* CUADRO 1: GASTOS FIJOS OPERATIVOS */}
+          {(expenseTab === 'fixed' || expenseTab === 'all') && (
+            <Card className="border-none shadow-xl rounded-[2.5rem] bg-white overflow-hidden">
+              <CardHeader className="bg-slate-900 text-white py-4 px-8 flex flex-row items-center justify-between">
+                <CardTitle className="text-xs font-black uppercase tracking-[0.25em] flex items-center gap-2 text-white">
+                  <Building2 className="h-4 w-4 text-primary" /> Estructura de Gastos Fijos Mensuales ({expenses.filter(e => e.isFixed).length})
+                </CardTitle>
+                <Badge className="bg-primary/20 text-primary border-none text-[9px] font-mono font-black">
+                  Total Fijos: ${summary.totalFixedExpensesUSD.toLocaleString('en-US', { minimumFractionDigits: 2 })} USD
+                </Badge>
+              </CardHeader>
+              <CardContent className="p-0 overflow-x-auto max-h-[300px] overflow-y-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-slate-800 text-white text-[9px] font-black uppercase tracking-widest sticky top-0 z-10">
+                      <th className="p-3 pl-8">Concepto</th>
+                      <th className="p-3">Categoría</th>
+                      <th className="p-3 text-center">Estado Pago</th>
+                      <th className="p-3 text-right">Monto ($ USD)</th>
+                      <th className="p-3 pr-8 text-right">Acción</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 text-xs font-bold text-slate-800">
+                    {expenses.filter(e => e.isFixed).length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="p-6 text-center text-slate-400 text-xs italic">
+                          No hay gastos fijos registrados.
+                        </td>
+                      </tr>
+                    ) : (
+                      expenses.filter(e => e.isFixed).map((e, idx) => (
+                        <tr key={e.id || idx} className="hover:bg-slate-50 transition-colors">
+                          <td className="p-3 pl-8 font-black uppercase text-slate-900">{e.concept}</td>
+                          <td className="p-3"><Badge variant="secondary" className="bg-slate-100 text-slate-700 text-[8px] font-black uppercase border-none">{e.category}</Badge></td>
+                          <td className="p-3 text-center">
+                            <Badge className={cn("text-[8px] font-black uppercase border-none px-2 py-0.5", e.paymentStatus === 'PAID' ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700")}>
+                              {e.paymentStatus === 'PAID' ? 'PAGADO' : 'PENDIENTE'}
+                            </Badge>
+                          </td>
+                          <td className="p-3 text-right font-mono font-black text-slate-900">${e.amountUSD.toFixed(2)}</td>
+                          <td className="p-3 pr-8 text-right">
+                            {e.id && (
+                              <Button size="sm" variant="ghost" onClick={() => deleteExpense(e.id!)} className="h-7 w-7 p-0 text-rose-500 hover:bg-rose-50 rounded-lg">
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
+                            )}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* CUADRO 2: GASTOS VARIABLES Y PUNTUALES */}
+          {(expenseTab === 'variable' || expenseTab === 'all') && (
+            <Card className="border-none shadow-xl rounded-[2.5rem] bg-white overflow-hidden">
+              <CardHeader className="bg-purple-950 text-white py-4 px-8 flex flex-row items-center justify-between">
+                <CardTitle className="text-xs font-black uppercase tracking-[0.25em] flex items-center gap-2 text-purple-200">
+                  <Zap className="h-4 w-4 text-amber-300" /> Gastos Variables y Eventuales ({expenses.filter(e => !e.isFixed).length})
+                </CardTitle>
+                <Badge className="bg-purple-500/30 text-purple-200 border-none text-[9px] font-mono font-black">
+                  Total Variables: ${summary.totalVariableExpensesUSD.toLocaleString('en-US', { minimumFractionDigits: 2 })} USD
+                </Badge>
+              </CardHeader>
+              <CardContent className="p-0 overflow-x-auto max-h-[300px] overflow-y-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-purple-900 text-white text-[9px] font-black uppercase tracking-widest sticky top-0 z-10">
+                      <th className="p-3 pl-8">Concepto</th>
+                      <th className="p-3">Categoría</th>
+                      <th className="p-3 text-center">Estado Pago</th>
+                      <th className="p-3 text-right">Monto ($ USD)</th>
+                      <th className="p-3 pr-8 text-right">Acción</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-purple-50/50 text-xs font-bold text-slate-800">
+                    {expenses.filter(e => !e.isFixed).length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="p-6 text-center text-slate-400 text-xs italic">
+                          No hay gastos variables registrados. Selecciona "Gasto Variable" en el formulario para agregar uno.
+                        </td>
+                      </tr>
+                    ) : (
+                      expenses.filter(e => !e.isFixed).map((e, idx) => (
+                        <tr key={e.id || idx} className="hover:bg-purple-50/40 transition-colors">
+                          <td className="p-3 pl-8 font-black uppercase text-slate-900">{e.concept}</td>
+                          <td className="p-3"><Badge variant="secondary" className="bg-purple-100 text-purple-800 text-[8px] font-black uppercase border-none">{e.category}</Badge></td>
+                          <td className="p-3 text-center">
+                            <Badge className={cn("text-[8px] font-black uppercase border-none px-2 py-0.5", e.paymentStatus === 'PAID' ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700")}>
+                              {e.paymentStatus === 'PAID' ? 'PAGADO' : 'PENDIENTE'}
+                            </Badge>
+                          </td>
+                          <td className="p-3 text-right font-mono font-black text-purple-950">${e.amountUSD.toFixed(2)}</td>
+                          <td className="p-3 pr-8 text-right">
+                            {e.id && (
+                              <Button size="sm" variant="ghost" onClick={() => deleteExpense(e.id!)} className="h-7 w-7 p-0 text-rose-500 hover:bg-rose-50 rounded-lg">
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
+                            )}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </CardContent>
+            </Card>
+          )}
+        </div>
       </div>
 
       {/* 3. DATA GRID MULTIPRODUCTO DINÁMICO & RESUMEN DE DISCIPLINAS */}
