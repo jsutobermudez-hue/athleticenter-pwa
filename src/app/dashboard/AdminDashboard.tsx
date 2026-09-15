@@ -681,9 +681,25 @@ export default function AdminDashboard() {
                     </div>
                 </div>
 
-                {/* GRÁFICOS RECHARTS */}
+                {/* GRÁFICOS RECHARTS: 2 CUADROS TENDENCIALES LADO A LADO Y EMBUDO DEBAJO */}
                 <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-                    <SalesTrendChart orders={filteredOrdersForCharts} selectedSalespersonName={currentSalespersonName} />
+                    <SalesTrendChart 
+                        orders={filteredOrdersForCharts} 
+                        selectedSalespersonName={currentSalespersonName} 
+                        initialDimension="timeline"
+                        initialPeriod="30d"
+                    />
+                    <SalesTrendChart 
+                        orders={filteredOrdersForCharts} 
+                        selectedSalespersonName={currentSalespersonName} 
+                        initialDimension="salesperson"
+                        initialPeriod="30d"
+                        customTitle="Comparativa de Rendimiento por Vendedor"
+                    />
+                </div>
+
+                {/* EMBUDO OPERATIVO Y MONITOR TÁCTICO */}
+                <div>
                     <OrderStatusChart orders={filteredOrdersForCharts} selectedSalespersonName={currentSalespersonName} />
                 </div>
 

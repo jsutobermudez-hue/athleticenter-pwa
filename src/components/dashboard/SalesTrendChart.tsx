@@ -4,10 +4,10 @@ import React, { useMemo, useState } from 'react';
 import { ResponsiveContainer, AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
 import type { Order, FinancialSettings, Product } from '@/lib/definitions';
 import { getEffectiveCashReceived, getCashDate, getSalesDate, isOrderInMoraCritica, getMoraCriticaAmount, calculateMetricsByDiscipline, calculateMetricsBySalesperson } from '@/lib/billing';
-import { format, subDays, startOfDay, isSameDay } from 'date-fns';
+import { format, subDays, subMonths, startOfDay, endOfDay, startOfMonth, isSameDay, differenceInDays } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { TrendingUp, Printer, Loader2, Users, Calendar, Trophy } from 'lucide-react';
+import { TrendingUp, Printer, Loader2, Users, Calendar, Trophy, Filter, X } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -19,6 +19,10 @@ interface SalesTrendChartProps {
   orders: Order[] | null;
   isLoading?: boolean;
   selectedSalespersonName?: string;
+  initialDimension?: 'timeline' | 'salesperson' | 'discipline';
+  initialPeriod?: '7d' | '30d' | 'this_month' | '6m' | 'all' | 'custom';
+  hideDimensionSwitcher?: boolean;
+  customTitle?: string;
 }
 
 const getDate = (ts: any): Date | null => {
@@ -29,14 +33,24 @@ const getDate = (ts: any): Date | null => {
   return isNaN(d.getTime()) ? null : d;
 };
 
-export function SalesTrendChart({ orders, isLoading = false, selectedSalespersonName }: SalesTrendChartProps) {
+export function SalesTrendChart({
+  orders,
+  isLoading = false,
+  selectedSalespersonName,
+  initialDimension = 'timeline',
+  initialPeriod = '30d',
+  hideDimensionSwitcher = false,
+  customTitle
+}: SalesTrendChartProps) {
   const firestore = useFirestore();
   const settingsRef = useMemoFirebase(() => firestore ? doc(firestore, 'system', 'financials') : null, [firestore]);
   const { data: globalSettings } = useDoc<FinancialSettings>(settingsRef);
   const bcvRate = globalSettings?.bcvRate || 65.50;
 
-  const [dimension, setDimension] = useState<'timeline' | 'salesperson' | 'discipline'>('timeline');
-  const [period, setPeriod] = useState<'7d' | '30d' | '6m'>('7d');
+  const [dimension, setDimension] = useState<'timeline' | 'salesperson' | 'discipline'>(initialDimension);
+  const [period, setPeriod] = useState<'7d' | '30d' | 'this_month' | '6m' | 'all' | 'custom'>(initialPeriod);
+  const [customStartDate, setCustomStartDate] = useState<string>('');
+  const [customEndDate, setCustomEndDate] = useState<string>('');
   const [viewMode, setViewMode] = useState<'comparative' | 'sales' | 'cash' | 'mora_critica'>('comparative');
   const [isExportingPDF, setIsExportingPDF] = useState(false);
 
@@ -46,8 +60,43 @@ export function SalesTrendChart({ orders, isLoading = false, selectedSalesperson
   const chartData = useMemo(() => {
     if (!orders) return [];
 
+    const now = new Date();
+    const VALID_SALES_STATUSES = ['Entregado', 'Completado', 'Despachado', 'Pagado', 'Aprobado', 'En Preparación', 'En Verificación'];
+
+    // Filtro unificado de pedidos por período de fechas (aplica para Vendedores, Disciplinas y Línea de tiempo)
+    let startDateLimit: Date | null = null;
+    let endDateLimit: Date | null = null;
+
+    if (period === '7d') {
+      startDateLimit = startOfDay(subDays(now, 6));
+    } else if (period === '30d') {
+      startDateLimit = startOfDay(subDays(now, 29));
+    } else if (period === 'this_month') {
+      startDateLimit = startOfMonth(now);
+    } else if (period === '6m') {
+      startDateLimit = startOfDay(subMonths(now, 6));
+    } else if (period === 'custom') {
+      if (customStartDate) startDateLimit = startOfDay(new Date(customStartDate));
+      if (customEndDate) endDateLimit = endOfDay(new Date(customEndDate));
+    }
+
+    let dateFilteredOrders = orders;
+    if (period !== 'all') {
+      dateFilteredOrders = orders.filter(order => {
+        const sDate = getSalesDate(order);
+        const cDate = getCashDate(order);
+        const targetDate = sDate || cDate;
+
+        if (!targetDate || isNaN(targetDate.getTime())) return false;
+        if (startDateLimit && targetDate < startDateLimit) return false;
+        if (endDateLimit && targetDate > endDateLimit) return false;
+
+        return true;
+      });
+    }
+
     if (dimension === 'salesperson') {
-      const spData = calculateMetricsBySalesperson(orders);
+      const spData = calculateMetricsBySalesperson(dateFilteredOrders);
       return spData.map(item => ({
         name: item.salespersonName,
         ventas: item.ventas,
@@ -60,7 +109,7 @@ export function SalesTrendChart({ orders, isLoading = false, selectedSalesperson
     }
 
     if (dimension === 'discipline') {
-      const discData = calculateMetricsByDiscipline(orders, products || []);
+      const discData = calculateMetricsByDiscipline(dateFilteredOrders, products || []);
       return discData.map(item => ({
         name: item.discipline,
         ventas: item.ventas,
@@ -74,21 +123,30 @@ export function SalesTrendChart({ orders, isLoading = false, selectedSalesperson
     }
 
     // Timeline dimension
-    const now = new Date();
-    const VALID_SALES_STATUSES = ['Entregado', 'Completado', 'Despachado', 'Pagado', 'Aprobado', 'En Preparación', 'En Verificación'];
+    if (period === '7d' || period === '30d' || period === 'this_month' || (period === 'custom' && startDateLimit && endDateLimit && differenceInDays(endDateLimit, startDateLimit) <= 31)) {
+      let days: Date[] = [];
+      if (period === '7d') {
+        days = Array.from({ length: 7 }, (_, i) => startOfDay(subDays(now, 6 - i)));
+      } else if (period === '30d') {
+        days = Array.from({ length: 30 }, (_, i) => startOfDay(subDays(now, 29 - i)));
+      } else if (period === 'this_month') {
+        const daysInMonth = now.getDate();
+        days = Array.from({ length: daysInMonth }, (_, i) => startOfDay(new Date(now.getFullYear(), now.getMonth(), i + 1)));
+      } else if (period === 'custom' && startDateLimit && endDateLimit) {
+        const totalDays = Math.max(1, differenceInDays(endDateLimit, startDateLimit) + 1);
+        days = Array.from({ length: totalDays }, (_, i) => startOfDay(new Date(startDateLimit!.getTime() + i * 86400000)));
+      } else {
+        days = Array.from({ length: 7 }, (_, i) => startOfDay(subDays(now, 6 - i)));
+      }
 
-    if (period === '7d' || period === '30d') {
-      const daysCount = period === '7d' ? 7 : 30;
-      const days = Array.from({ length: daysCount }, (_, i) => startOfDay(subDays(now, daysCount - 1 - i)));
-      
       return days.map(day => {
-        const salesTotal = orders.filter(order => {
+        const salesTotal = dateFilteredOrders.filter(order => {
           const sDate = getSalesDate(order);
           return sDate && isSameDay(sDate, day) && VALID_SALES_STATUSES.includes(order.status);
         }).reduce((sum, order) => sum + (order.totalAmount || 0), 0);
 
         let cashTotal = 0;
-        orders.forEach(order => {
+        dateFilteredOrders.forEach(order => {
           if (Array.isArray((order as any).payments) && (order as any).payments.length > 0) {
             (order as any).payments.forEach((p: any) => {
               if (p.status === 'verified' || !p.status) {
@@ -107,7 +165,7 @@ export function SalesTrendChart({ orders, isLoading = false, selectedSalesperson
           }
         });
 
-        const moraTotal = orders.filter(order => {
+        const moraTotal = dateFilteredOrders.filter(order => {
           const sDate = getSalesDate(order);
           if (!sDate || sDate > day) return false;
           return isOrderInMoraCritica(order, day);
@@ -121,19 +179,24 @@ export function SalesTrendChart({ orders, isLoading = false, selectedSalesperson
         };
       });
     } else {
-      // 6 Meses
-      const months = Array.from({ length: 6 }, (_, i) => {
-        return new Date(now.getFullYear(), now.getMonth() - (5 - i), 1);
+      // 6 Meses o Todos
+      let monthsCount = period === 'all' ? 12 : 6;
+      if (period === 'custom' && startDateLimit && endDateLimit) {
+        monthsCount = Math.max(1, Math.ceil(differenceInDays(endDateLimit, startDateLimit) / 30));
+      }
+
+      const months = Array.from({ length: monthsCount }, (_, i) => {
+        return new Date(now.getFullYear(), now.getMonth() - (monthsCount - 1 - i), 1);
       });
 
       return months.map(month => {
-        const salesTotal = orders.filter(order => {
+        const salesTotal = dateFilteredOrders.filter(order => {
           const sDate = getSalesDate(order);
           return sDate && sDate.getMonth() === month.getMonth() && sDate.getFullYear() === month.getFullYear() && VALID_SALES_STATUSES.includes(order.status);
         }).reduce((sum, order) => sum + (order.totalAmount || 0), 0);
 
         let cashTotal = 0;
-        orders.forEach(order => {
+        dateFilteredOrders.forEach(order => {
           if (Array.isArray((order as any).payments) && (order as any).payments.length > 0) {
             (order as any).payments.forEach((p: any) => {
               if (p.status === 'verified' || !p.status) {
@@ -152,7 +215,7 @@ export function SalesTrendChart({ orders, isLoading = false, selectedSalesperson
           }
         });
 
-        const moraTotal = orders.filter(order => {
+        const moraTotal = dateFilteredOrders.filter(order => {
           const sDate = getSalesDate(order);
           if (!sDate) return false;
           return sDate.getMonth() === month.getMonth() && sDate.getFullYear() === month.getFullYear() && isOrderInMoraCritica(order, now);
@@ -166,7 +229,7 @@ export function SalesTrendChart({ orders, isLoading = false, selectedSalesperson
         };
       });
     }
-  }, [orders, period, dimension, products]);
+  }, [orders, period, dimension, products, customStartDate, customEndDate]);
 
   const totals = useMemo(() => {
     const totalSales = chartData.reduce((sum, item) => sum + item.ventas, 0);
@@ -193,7 +256,24 @@ export function SalesTrendChart({ orders, isLoading = false, selectedSalesperson
       doc.setFont('helvetica', 'bold');
       doc.text('ATHLETICENTER PRO C.A. - ANÁLISIS MULTI-DIMENSIONAL DE VENTAS & COBRANZAS', 14, 13);
       doc.setFontSize(8);
-      const dimLabel = dimension === 'timeline' ? `LÍNEA DE TIEMPO (${period.toUpperCase()})` : dimension === 'salesperson' ? 'COMPARATIVA POR VENDEDOR' : 'DISTRIBUCIÓN POR DISCIPLINA DEPORTIVA';
+      const getPeriodLabelText = () => {
+        if (period === '7d') return 'Últimos 7 Días';
+        if (period === '30d') return 'Últimos 30 Días';
+        if (period === 'this_month') return 'Este Mes';
+        if (period === '6m') return 'Últimos 6 Meses';
+        if (period === 'all') return 'Histórico Consolidado';
+        if (period === 'custom') {
+          if (customStartDate && customEndDate) return `${customStartDate} a ${customEndDate}`;
+          return 'Rango Personalizado';
+        }
+        return '';
+      };
+
+      const dimLabel = dimension === 'timeline' 
+        ? `LÍNEA DE TIEMPO (${getPeriodLabelText().toUpperCase()})` 
+        : dimension === 'salesperson' 
+        ? `COMPARATIVA POR VENDEDOR (${getPeriodLabelText().toUpperCase()})` 
+        : `DISTRIBUCIÓN POR DISCIPLINA (${getPeriodLabelText().toUpperCase()})`;
       doc.text(`FECHA DE EMISIÓN: ${format(new Date(), 'dd/MM/yyyy HH:mm')} | DIMENSIÓN: ${dimLabel}`, 14, 19);
 
       doc.setFillColor(248, 250, 252);
@@ -318,7 +398,7 @@ export function SalesTrendChart({ orders, isLoading = false, selectedSalesperson
       <CardHeader className="p-8 pb-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 space-y-0">
         <div className="space-y-2">
           <CardTitle className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-400 flex items-center gap-2 flex-wrap">
-            <TrendingUp className="h-4 w-4 text-primary" /> Tendencia de Ventas vs Cobranzas
+            <TrendingUp className="h-4 w-4 text-primary" /> {customTitle || (dimension === 'salesperson' ? 'Comparativa por Vendedor' : dimension === 'discipline' ? 'Distribución por Disciplina' : 'Tendencia de Ventas vs Cobranzas')}
             {selectedSalespersonName && (
               <Badge className="bg-indigo-100 text-indigo-700 font-black text-[9px] uppercase border-none px-2 py-0.5 ml-1">
                 👤 {selectedSalespersonName}
@@ -327,48 +407,76 @@ export function SalesTrendChart({ orders, isLoading = false, selectedSalesperson
           </CardTitle>
 
           <div className="flex flex-wrap items-center gap-2">
-            {/* SELECTOR DE DIMENSIÓN DE ANÁLISIS */}
-            <div className="flex bg-slate-900 text-white rounded-xl p-1 gap-1 shadow-inner">
+            {/* SELECTOR DE DIMENSIÓN DE ANÁLISIS (Si no está oculto) */}
+            {!hideDimensionSwitcher && (
+              <div className="flex bg-slate-900 text-white rounded-xl p-1 gap-1 shadow-inner">
+                {[
+                  { id: 'timeline', label: '📅 Período', icon: Calendar },
+                  { id: 'salesperson', label: '👤 Vendedores', icon: Users },
+                  { id: 'discipline', label: '⚽ Disciplinas', icon: Trophy },
+                ].map((d) => (
+                  <button
+                    key={d.id}
+                    type="button"
+                    onClick={() => setDimension(d.id as any)}
+                    className={cn(
+                      "px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all flex items-center gap-1.5",
+                      dimension === d.id
+                        ? "bg-primary text-white shadow-md font-extrabold"
+                        : "text-slate-400 hover:text-white hover:bg-slate-800"
+                    )}
+                  >
+                    <d.icon className="h-3 w-3" />
+                    {d.label}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* SUB-FILTRO DE RANGO DE TIEMPO (Activo para TODAS las dimensiones) */}
+            <div className="flex bg-slate-100 border border-slate-200/50 rounded-xl p-1 gap-1 flex-wrap items-center animate-in fade-in duration-300">
               {[
-                { id: 'timeline', label: '📅 Período', icon: Calendar },
-                { id: 'salesperson', label: '👤 Vendedores', icon: Users },
-                { id: 'discipline', label: '⚽ Disciplinas', icon: Trophy },
-              ].map((d) => (
+                { id: '7d', label: '7D' },
+                { id: '30d', label: '30D' },
+                { id: 'this_month', label: 'Mes' },
+                { id: '6m', label: '6M' },
+                { id: 'all', label: 'Todos' },
+                { id: 'custom', label: '📅 Rango' },
+              ].map((p) => (
                 <button
-                  key={d.id}
+                  key={p.id}
                   type="button"
-                  onClick={() => setDimension(d.id as any)}
+                  onClick={() => setPeriod(p.id as any)}
                   className={cn(
-                    "px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all flex items-center gap-1.5",
-                    dimension === d.id
-                      ? "bg-primary text-white shadow-md font-extrabold"
-                      : "text-slate-400 hover:text-white hover:bg-slate-800"
+                    "px-2.5 py-1 rounded-lg text-[8px] font-black uppercase tracking-wider transition-all",
+                    period === p.id 
+                      ? "bg-slate-800 text-white shadow-sm" 
+                      : "text-slate-500 hover:text-slate-800"
                   )}
                 >
-                  <d.icon className="h-3 w-3" />
-                  {d.label}
+                  {p.label}
                 </button>
               ))}
             </div>
 
-            {/* SUB-FILTRO DE RANGO DE TIEMPO (solo activo si dimension === 'timeline') */}
-            {dimension === 'timeline' && (
-              <div className="flex bg-slate-100 border border-slate-200/50 rounded-xl p-1 gap-1 animate-in fade-in duration-300">
-                {(['7d', '30d', '6m'] as const).map((p) => (
-                  <button
-                    key={p}
-                    type="button"
-                    onClick={() => setPeriod(p)}
-                    className={cn(
-                      "px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all",
-                      period === p 
-                        ? "bg-slate-800 text-white shadow-sm" 
-                        : "text-slate-500 hover:text-slate-800"
-                    )}
-                  >
-                    {p === '7d' ? '7D' : p === '30d' ? '30D' : '6M'}
-                  </button>
-                ))}
+            {/* SELECCIÓN DE FECHAS DESDE / HASTA SI PERIOD === 'custom' */}
+            {period === 'custom' && (
+              <div className="flex items-center gap-1 bg-white border border-slate-200 rounded-xl p-1 shadow-sm animate-in fade-in duration-300">
+                <input
+                  type="date"
+                  value={customStartDate}
+                  onChange={(e) => setCustomStartDate(e.target.value)}
+                  className="h-6 text-[9px] font-mono border-none bg-transparent px-1 focus:outline-none text-slate-700"
+                  title="Fecha de Inicio"
+                />
+                <span className="text-[9px] text-slate-400 font-bold">-</span>
+                <input
+                  type="date"
+                  value={customEndDate}
+                  onChange={(e) => setCustomEndDate(e.target.value)}
+                  className="h-6 text-[9px] font-mono border-none bg-transparent px-1 focus:outline-none text-slate-700"
+                  title="Fecha de Fin"
+                />
               </div>
             )}
 
