@@ -114,7 +114,7 @@ export function SalesTrendChart({
     }
 
     if (dimension === 'salesperson') {
-      const spData = calculateMetricsBySalesperson(dateFilteredOrders);
+      const spData = calculateMetricsBySalesperson(orders || []);
       return spData.map(item => ({
         name: item.salespersonName,
         ventas: item.ventas,
@@ -127,7 +127,7 @@ export function SalesTrendChart({
     }
 
     if (dimension === 'discipline') {
-      const discData = calculateMetricsByDiscipline(dateFilteredOrders, products || []);
+      const discData = calculateMetricsByDiscipline(orders || [], products || []);
       return discData.map(item => ({
         name: item.discipline,
         ventas: item.ventas,
@@ -183,7 +183,7 @@ export function SalesTrendChart({
           }
         });
 
-        const moraTotal = dateFilteredOrders.filter(order => {
+        const moraTotal = (orders || []).filter(order => {
           const sDate = getSalesDate(order);
           if (!sDate || sDate > day) return false;
           return isOrderInMoraCritica(order, day);
@@ -233,7 +233,7 @@ export function SalesTrendChart({
           }
         });
 
-        const moraTotal = dateFilteredOrders.filter(order => {
+        const moraTotal = (orders || []).filter(order => {
           const sDate = getSalesDate(order);
           if (!sDate) return false;
           return sDate.getMonth() === month.getMonth() && sDate.getFullYear() === month.getFullYear() && isOrderInMoraCritica(order, now);
@@ -247,17 +247,15 @@ export function SalesTrendChart({
         };
       });
     }
-  }, [dateFilteredOrders, period, dimension, products, customStartDate, customEndDate]);
+  }, [dateFilteredOrders, orders, period, dimension, products, customStartDate, customEndDate]);
 
   const totals = useMemo(() => {
     const now = new Date();
     const totalSales = chartData.reduce((sum, item) => sum + item.ventas, 0);
     const totalCash = chartData.reduce((sum, item) => sum + item.cobranzas, 0);
 
-    // Mora Crítica calculada de forma 100% dinámica según el desglose activo (por Vendedores, Disciplinas o Línea de tiempo filtrada)
-    const totalMora = (dimension === 'salesperson' || dimension === 'discipline')
-      ? chartData.reduce((sum, item) => sum + item.moraCritica, 0)
-      : dateFilteredOrders.reduce((sum, order) => sum + getMoraCriticaAmount(order, now), 0);
+    // La tarjeta de Mora Crítica en el encabezado refleja de forma persistente la Cartera Acumulada Total Activa ($21,308.91 o la mora del vendedor filtrado)
+    const totalMora = (orders || []).reduce((sum, order) => sum + getMoraCriticaAmount(order, now), 0);
 
     const count = chartData.length || 1;
     const dailyAvg = totalSales / count;
@@ -265,7 +263,7 @@ export function SalesTrendChart({
     const moraRate = totalSales > 0 ? Math.min(100, Math.round((totalMora / totalSales) * 100)) : 0;
 
     return { totalSales, totalCash, totalMora, dailyAvg, efficiencyRate, moraRate };
-  }, [chartData, dateFilteredOrders, dimension]);
+  }, [chartData, orders]);
 
   const handleExportPDF = async () => {
     setIsExportingPDF(true);
