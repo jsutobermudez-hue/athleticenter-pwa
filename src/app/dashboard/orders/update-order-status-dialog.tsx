@@ -199,9 +199,17 @@ export function UpdateOrderStatusDialog({ order, isOpen, onOpenChange }: UpdateO
               </div>
 
                {status !== order.status && newStatusConfig && (
-                <div className="flex items-start gap-3 rounded-2xl border-none bg-amber-50 p-4 text-[10px] font-medium text-amber-800 animate-in fade-in-50">
-                    <FileWarning className="h-4 w-4 mt-0.5 flex-shrink-0" />
-                    <span>Esta acción moverá el pedido a la fase "{status}". {newStatusConfig.description}</span>
+                <div className="space-y-2 animate-in fade-in-50">
+                  <div className="flex items-start gap-3 rounded-2xl border-none bg-amber-50 p-4 text-[10px] font-medium text-amber-800">
+                      <FileWarning className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                      <span>Esta acción moverá el pedido a la fase "{status}". {newStatusConfig.description}</span>
+                  </div>
+                  {status === 'Entregado' && (
+                    <div className="flex items-center gap-2 rounded-2xl bg-emerald-50 border border-emerald-200/60 p-3.5 text-[10px] font-bold text-emerald-800">
+                      <span className="text-base">📸</span>
+                      <span><strong>Recomendación Logística:</strong> Adjunte la foto del comprobante de recepción firmado en el detalle del pedido para cerrar la trazabilidad al 100%.</span>
+                    </div>
+                  )}
                 </div>
                )}
               

@@ -94,7 +94,7 @@ export function ProductDetailsSheet({ product, allOffers, isOpen, onOpenChange, 
   const status = getStatus(stockValue);
   
   const pvpBCV = product.price || 0;
-  const pvpCash = (product.priceCashUSD && product.priceCashUSD > 0) ? product.priceCashUSD : (pvpBCV * 0.65);
+  const pvpCash = (product.priceCashUSD && product.priceCashUSD > 0) ? product.priceCashUSD : (pvpBCV * 0.75);
   
   const price7d = (product.priceEarly7d && product.priceEarly7d > 0) ? product.priceEarly7d : (pvpBCV * 0.90);
   const price15d = (product.priceEarly15d && product.priceEarly15d > 0) ? product.priceEarly15d : (pvpBCV * 0.95);

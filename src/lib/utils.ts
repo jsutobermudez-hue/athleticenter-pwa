@@ -41,3 +41,20 @@ export async function compressImage(file: File, maxWidth = 1200, quality = 0.75)
     img.onerror = () => resolve(file);
   });
 }
+
+const SALESPERSON_CANONICAL_MAP: Record<string, string> = {
+  'FABIO GINES': 'FABIO GINÉS',
+  'FABIO GINEZ': 'FABIO GINÉS',
+  'JUAN PAZ': 'JUAN PAZ',
+  'LUIS ALBERTO GIMENEZ': 'LUIS ALBERTO GIMÉNEZ',
+  'ERNESTO ORTEGA': 'ERNESTO ORTEGA',
+  'YENY HERNANDEZ': 'YENY HERNÁNDEZ'
+};
+
+export function normalizeSalespersonName(name: string | null | undefined): string {
+  if (!name || !name.trim()) return 'Venta Directa / Oficina Central';
+  const clean = name.trim();
+  const upper = clean.toUpperCase();
+  return SALESPERSON_CANONICAL_MAP[clean] || SALESPERSON_CANONICAL_MAP[upper] || clean;
+}
+
