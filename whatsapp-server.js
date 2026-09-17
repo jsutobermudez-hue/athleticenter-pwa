@@ -30,7 +30,10 @@ const client = new Client({
     }
 });
 
+let isReady = false;
+
 client.on('qr', (qr) => {
+    isReady = false;
     console.log('\n=========================================================');
     console.log('¡ESCANEA ESTE CÓDIGO QR CON TU WHATSAPP PARA CONECTAR!');
     console.log('=========================================================\n');
@@ -38,6 +41,7 @@ client.on('qr', (qr) => {
 });
 
 client.on('ready', () => {
+    isReady = true;
     console.log('✅ Cliente de WhatsApp conectado y listo para enviar mensajes.');
 });
 
@@ -46,10 +50,12 @@ client.on('authenticated', () => {
 });
 
 client.on('auth_failure', msg => {
+    isReady = false;
     console.error('❌ Fallo en la autenticación de WhatsApp:', msg);
 });
 
 client.on('disconnected', (reason) => {
+    isReady = false;
     console.log('❌ Cliente de WhatsApp desconectado:', reason);
 });
 
@@ -67,6 +73,10 @@ const authMiddleware = (req, res, next) => {
 
 // Endpoint que emula al Gateway en la nube
 app.post('/api/send', authMiddleware, async (req, res) => {
+    if (!isReady) {
+        return res.status(503).json({ success: false, error: 'El servidor local de WhatsApp aún no ha completado la conexión o el escaneo del código QR.' });
+    }
+
     try {
         const { number, text, media, orderId } = req.body;
 
