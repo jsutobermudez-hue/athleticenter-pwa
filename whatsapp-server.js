@@ -12,14 +12,12 @@ const API_KEY = 'local-dev-key'; // Debe coincidir con WHATSAPP_GATEWAY_API_KEY 
 
 console.log('Iniciando servicio local de WhatsApp...');
 
-// Inicializar cliente de WhatsApp con sesión guardada localmente y caché de versión compatible
+// Inicializar cliente de WhatsApp con sesión guardada localmente
 const client = new Client({
     authStrategy: new LocalAuth(),
-    webVersionCache: {
-        type: 'remote',
-        remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.3000.1018942735-alpha.html',
-    },
+    webVersionCache: { type: 'none' },
     puppeteer: {
+        headless: true,
         args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',
@@ -27,8 +25,7 @@ const client = new Client({
             '--disable-accelerated-2d-canvas',
             '--no-first-run',
             '--no-zygote',
-            '--disable-gpu',
-            '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36'
+            '--disable-gpu'
         ]
     }
 });
