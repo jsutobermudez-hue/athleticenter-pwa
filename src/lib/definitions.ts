@@ -89,6 +89,10 @@ export interface User extends Auditable {
   salesManagerName?: string;
   salesManagerCommissionRate?: number;
   pushSubscriptions?: any[];
+  displayName?: string;
+  whatsappPhone?: string;
+  phoneNumber?: string;
+  receiveDailyBriefing?: boolean;
 }
 
 export interface Product extends Auditable {

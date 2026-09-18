@@ -7,9 +7,9 @@ import { z } from 'zod';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { ImageUploader } from '@/components/ui/image-uploader';
-import { useDoc, useFirestore, useMemoFirebase, useUser } from '@/firebase';
+import { useDoc, useCollection, useFirestore, useMemoFirebase, useUser } from '@/firebase';
 import { useToast } from '@/hooks/use-toast';
-import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, collection, setDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { 
     Loader2, 
     Smartphone, 
@@ -38,7 +38,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import type { CompanyProfile as CompanyProfileType, FinancialSettings } from '@/lib/definitions';
+import type { CompanyProfile as CompanyProfileType, FinancialSettings, User } from '@/lib/definitions';
 import { Input } from '@/components/ui/input';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Switch } from '@/components/ui/switch';
@@ -76,7 +76,7 @@ function SettingsContent() {
       <div className="grid gap-8 grid-cols-1 lg:grid-cols-2 items-start">
          <PerformanceWidget />
          <DeviceLinkingWidget />
-         {isAdmin && <DailyExecutiveReportWidget />}
+         {isAdmin && <RoleBasedNotificationsControlWidget />}
          <AutomatedNotificationsControlWidget />
          {isAdmin && <WhatsAppGatewayWidget />}
          {isAdmin && <WhatsAppLiveTesterWidget />}
@@ -429,26 +429,47 @@ function TreasuryCentralLinkWidget() {
     );
 }
 
-function DailyExecutiveReportWidget() {
+function RoleBasedNotificationsControlWidget() {
+    const firestore = useFirestore();
     const { toast } = useToast();
+    const usersRef = useMemoFirebase(() => firestore ? collection(firestore, 'users') : null, [firestore]);
+    const { data: users, isLoading } = useCollection<User>(usersRef);
+
     const [testPhone, setTestPhone] = useState('04122683183');
+    const [selectedTestRole, setSelectedTestRole] = useState<'superadmin' | 'ventas' | 'despacho' | 'tesoreria'>('superadmin');
     const [isExecuting, setIsExecuting] = useState(false);
 
-    const handleTriggerDailyBriefing = async () => {
+    const handleToggleUserBriefing = async (userId: string, currentVal: boolean) => {
+        if (!firestore) return;
+        try {
+            await updateDoc(doc(firestore, 'users', userId), {
+                receiveDailyBriefing: !currentVal
+            });
+            toast({ title: "Preferencia de Avisos Sincronizada", description: "Configuración actualizada en tiempo real." });
+        } catch (e: any) {
+            toast({ variant: 'destructive', title: "Error al actualizar", description: e.message });
+        }
+    };
+
+    const handleTriggerRoleBriefing = async (mode: 'single' | 'all') => {
         setIsExecuting(true);
         try {
-            const { executeDailyExecutiveWhatsAppBriefing } = await import('@/services/agents');
-            const res = await executeDailyExecutiveWhatsAppBriefing(testPhone || undefined);
+            const { executeRoleBasedDailyWhatsAppBriefing } = await import('@/services/agents');
+            const res = await executeRoleBasedDailyWhatsAppBriefing(
+                mode === 'single' ? (testPhone || undefined) : undefined,
+                mode === 'single' ? selectedTestRole : undefined
+            );
+
             if (res.success) {
                 toast({
-                    title: "🤖 Reporte Diario Despachado por WhatsApp",
-                    description: `Se envió el informe ejecutivo de conexión y salud a ${res.sentCount} teléfono(s) (${res.phones?.join(', ') || 'SuperAdmin'}).`
+                    title: "🤖 Notificaciones por Rol Despachadas por WhatsApp",
+                    description: `Se enviaron los informes personalizados a ${res.sentCount} usuario(s). Revisa tu WhatsApp.`
                 });
             } else {
-                toast({ variant: 'destructive', title: "Fallo en Reporte Diario", description: res.error || "No se pudo despachar el informe." });
+                toast({ variant: 'destructive', title: "Fallo en Despacho", description: res.error || "Error al enviar." });
             }
         } catch (e: any) {
-            toast({ variant: 'destructive', title: "Error en Ejecución", description: e?.message || "Error al conectar." });
+            toast({ variant: 'destructive', title: "Error de Conexión", description: e?.message || "Error al conectar." });
         } finally {
             setIsExecuting(false);
         }
@@ -459,43 +480,100 @@ function DailyExecutiveReportWidget() {
             <CardHeader className="py-6 px-8 border-b border-white/10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                 <div>
                     <CardTitle className="text-xs font-black uppercase tracking-[0.3em] text-emerald-400 flex items-center gap-3">
-                        <Activity className="h-4 w-4 text-emerald-400" /> Reporte Diario Automático de Conexión y Salud por WhatsApp
+                        <Zap className="h-4 w-4 text-emerald-400" /> Centro de Notificaciones Diarias Personalizadas por Rol (WhatsApp)
                     </CardTitle>
                     <p className="text-[10px] font-bold text-slate-300 uppercase tracking-widest mt-1">
-                        Informa diariamente al SuperAdmin y gerencia sobre la salud del sistema, tasa BCV y cartera en mora.
+                        Selecciona libremente qué usuarios reciben el reporte diario con sus métricas personalizadas según su función.
                     </p>
                 </div>
                 <Badge className="bg-emerald-500/20 text-emerald-300 border-emerald-500/30 text-[9px] font-mono font-bold uppercase tracking-widest px-3 py-1">
-                    🟢 Cron Diario Activo
+                    🟢 Motor por Rol 24/7 Activo
                 </Badge>
             </CardHeader>
-            <CardContent className="p-8 space-y-6">
-                <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-end">
-                    <div className="md:col-span-7 space-y-2">
-                        <Label className="text-[10px] font-black uppercase text-slate-300 tracking-wider">
-                            Teléfono para Recibir Reporte de Prueba Instantáneo:
-                        </Label>
-                        <Input 
-                            value={testPhone} 
-                            onChange={(e) => setTestPhone(e.target.value)} 
-                            placeholder="Ej: 04122683183" 
-                            className="h-12 bg-white/10 border-white/20 text-white placeholder:text-slate-500 font-bold rounded-xl" 
-                        />
-                    </div>
-                    <div className="md:col-span-5">
-                        <Button 
-                            onClick={handleTriggerDailyBriefing} 
-                            disabled={isExecuting}
-                            className="w-full h-12 bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-black text-[10px] uppercase tracking-widest rounded-xl shadow-lg flex items-center justify-center gap-2"
-                        >
-                            {isExecuting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                            DISPARAR REPORTE DIARIO AHORA
-                        </Button>
+            <CardContent className="p-8 space-y-8">
+                {/* Selector de Prueba Instantánea */}
+                <div className="p-6 bg-white/5 rounded-2xl border border-white/10 space-y-4">
+                    <h4 className="text-xs font-black uppercase tracking-widest text-emerald-400 flex items-center gap-2">
+                        <Send className="h-4 w-4 text-emerald-400" /> Probar Plantilla de WhatsApp Instantáneamente:
+                    </h4>
+                    <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
+                        <div className="md:col-span-4 space-y-1">
+                            <Label className="text-[9px] font-black uppercase text-slate-300">Teléfono Destino:</Label>
+                            <Input 
+                                value={testPhone} 
+                                onChange={(e) => setTestPhone(e.target.value)} 
+                                placeholder="Ej: 04122683183" 
+                                className="h-11 bg-white/10 border-white/20 text-white placeholder:text-slate-500 font-bold rounded-xl text-xs" 
+                            />
+                        </div>
+                        <div className="md:col-span-4 space-y-1">
+                            <Label className="text-[9px] font-black uppercase text-slate-300">Simular Rol del Mensaje:</Label>
+                            <select 
+                                value={selectedTestRole} 
+                                onChange={(e: any) => setSelectedTestRole(e.target.value)}
+                                className="w-full h-11 bg-slate-800 border border-white/20 text-white font-bold rounded-xl text-xs px-3"
+                            >
+                                <option value="superadmin">👑 SuperAdmin / Gerencia (Visión 360° Global)</option>
+                                <option value="ventas">💼 Vendedor (Cuentas, Vencimientos y Anti-Churn)</option>
+                                <option value="despacho">🚚 Despacho / Logística (Hoja de Ruta)</option>
+                                <option value="tesoreria">🏛️ Tesorería (Bancos y Conciliación)</option>
+                            </select>
+                        </div>
+                        <div className="md:col-span-4 flex gap-2">
+                            <Button 
+                                onClick={() => handleTriggerRoleBriefing('single')} 
+                                disabled={isExecuting}
+                                className="flex-1 h-11 bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-black text-[9px] uppercase tracking-wider rounded-xl shadow-lg"
+                            >
+                                {isExecuting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4 mr-1" />}
+                                Probando Mi Rol
+                            </Button>
+                        </div>
                     </div>
                 </div>
 
-                <div className="p-4 rounded-2xl bg-white/5 border border-white/10 text-[10px] text-slate-300 font-medium leading-relaxed">
-                    ℹ️ <strong className="text-white">Automatización 24/7:</strong> Todos los días el motor autónomo enviará el resumen ejecutivo por WhatsApp a todos los usuarios con rol <code className="text-emerald-300">superadmin</code>, <code className="text-emerald-300">admin</code> y <code className="text-emerald-300">gerencia</code> para confirmar la conectividad continua del sistema.
+                {/* Lista Interactiva de Usuarios para Selección */}
+                <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                        <h4 className="text-xs font-black uppercase tracking-widest text-white flex items-center gap-2">
+                            <ShieldCheck className="h-4 w-4 text-emerald-400" /> Usuarios Habilitados para Notificación Matutina:
+                        </h4>
+                        <Button 
+                            onClick={() => handleTriggerRoleBriefing('all')} 
+                            disabled={isExecuting}
+                            variant="outline"
+                            className="border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10 font-black text-[9px] uppercase tracking-wider h-9 px-4 rounded-xl"
+                        >
+                            <Zap className="h-3.5 w-3.5 mr-1" /> Disparar Notificaciones Diarias a Todos
+                        </Button>
+                    </div>
+
+                    {isLoading ? (
+                        <Skeleton className="h-32 w-full bg-white/10" />
+                    ) : (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-80 overflow-y-auto pr-2">
+                            {users && users.map(u => {
+                                const isEnabled = u.receiveDailyBriefing !== false;
+                                return (
+                                    <div key={u.id} className="flex items-center justify-between p-4 bg-white/5 rounded-2xl border border-white/10 hover:border-emerald-500/40 transition-colors">
+                                        <div className="space-y-1">
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-xs font-black text-white">{u.name || u.displayName || 'Usuario'}</span>
+                                                <Badge className="bg-emerald-500/20 text-emerald-300 border-none text-[8px] font-bold uppercase">
+                                                    {u.role || 'usuario'}
+                                                </Badge>
+                                            </div>
+                                            <p className="text-[9px] font-mono text-slate-400">📱 {u.phone || u.whatsappPhone || 'Sin número'}</p>
+                                        </div>
+                                        <Switch 
+                                            checked={isEnabled} 
+                                            onCheckedChange={() => handleToggleUserBriefing(u.id, isEnabled)} 
+                                        />
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
                 </div>
             </CardContent>
         </Card>

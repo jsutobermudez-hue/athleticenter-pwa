@@ -9,7 +9,7 @@ import {
     executeChurnPrevention,
     executeWeeklySalespersonReceivablesSummary,
     executePendingReconciliationAlert,
-    executeDailyExecutiveWhatsAppBriefing
+    executeRoleBasedDailyWhatsAppBriefing
 } from '@/services/agents';
 
 export const dynamic = 'force-dynamic';
@@ -40,11 +40,11 @@ export async function GET(request: Request) {
         executeChurnPrevention(),
         executeWeeklySalespersonReceivablesSummary(),
         executePendingReconciliationAlert(),
-        executeDailyExecutiveWhatsAppBriefing()
+        executeRoleBasedDailyWhatsAppBriefing()
     ]);
 
     const summary = results.map((r, i) => ({
-        agent: ['BCV_Sync', 'Billing', 'Savings', 'StockOut', 'Logistics', 'Churn', 'WeeklySalespersonReceivables', 'PendingReconciliationAlert', 'DailyExecutiveWhatsAppBriefing'][i],
+        agent: ['BCV_Sync', 'Billing', 'Savings', 'StockOut', 'Logistics', 'Churn', 'WeeklySalespersonReceivables', 'PendingReconciliationAlert', 'RoleBasedDailyWhatsAppBriefing'][i],
         status: r.status,
         data: r.status === 'fulfilled' ? r.value : null,
         error: r.status === 'rejected' ? r.reason : null
