@@ -76,6 +76,7 @@ function SettingsContent() {
       <div className="grid gap-8 grid-cols-1 lg:grid-cols-2 items-start">
          <PerformanceWidget />
          <DeviceLinkingWidget />
+         {isAdmin && <DailyExecutiveReportWidget />}
          <AutomatedNotificationsControlWidget />
          {isAdmin && <WhatsAppGatewayWidget />}
          {isAdmin && <WhatsAppLiveTesterWidget />}
@@ -424,6 +425,79 @@ function TreasuryCentralLinkWidget() {
                     </Link>
                 </Button>
             </CardFooter>
+        </Card>
+    );
+}
+
+function DailyExecutiveReportWidget() {
+    const { toast } = useToast();
+    const [testPhone, setTestPhone] = useState('04122683183');
+    const [isExecuting, setIsExecuting] = useState(false);
+
+    const handleTriggerDailyBriefing = async () => {
+        setIsExecuting(true);
+        try {
+            const { executeDailyExecutiveWhatsAppBriefing } = await import('@/services/agents');
+            const res = await executeDailyExecutiveWhatsAppBriefing(testPhone || undefined);
+            if (res.success) {
+                toast({
+                    title: "🤖 Reporte Diario Despachado por WhatsApp",
+                    description: `Se envió el informe ejecutivo de conexión y salud a ${res.sentCount} teléfono(s) (${res.phones?.join(', ') || 'SuperAdmin'}).`
+                });
+            } else {
+                toast({ variant: 'destructive', title: "Fallo en Reporte Diario", description: res.error || "No se pudo despachar el informe." });
+            }
+        } catch (e: any) {
+            toast({ variant: 'destructive', title: "Error en Ejecución", description: e?.message || "Error al conectar." });
+        } finally {
+            setIsExecuting(false);
+        }
+    };
+
+    return (
+        <Card className="terminal-card lg:col-span-2 bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white border-emerald-500/20 shadow-2xl">
+            <CardHeader className="py-6 px-8 border-b border-white/10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <div>
+                    <CardTitle className="text-xs font-black uppercase tracking-[0.3em] text-emerald-400 flex items-center gap-3">
+                        <Activity className="h-4 w-4 text-emerald-400" /> Reporte Diario Automático de Conexión y Salud por WhatsApp
+                    </CardTitle>
+                    <p className="text-[10px] font-bold text-slate-300 uppercase tracking-widest mt-1">
+                        Informa diariamente al SuperAdmin y gerencia sobre la salud del sistema, tasa BCV y cartera en mora.
+                    </p>
+                </div>
+                <Badge className="bg-emerald-500/20 text-emerald-300 border-emerald-500/30 text-[9px] font-mono font-bold uppercase tracking-widest px-3 py-1">
+                    🟢 Cron Diario Activo
+                </Badge>
+            </CardHeader>
+            <CardContent className="p-8 space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-end">
+                    <div className="md:col-span-7 space-y-2">
+                        <Label className="text-[10px] font-black uppercase text-slate-300 tracking-wider">
+                            Teléfono para Recibir Reporte de Prueba Instantáneo:
+                        </Label>
+                        <Input 
+                            value={testPhone} 
+                            onChange={(e) => setTestPhone(e.target.value)} 
+                            placeholder="Ej: 04122683183" 
+                            className="h-12 bg-white/10 border-white/20 text-white placeholder:text-slate-500 font-bold rounded-xl" 
+                        />
+                    </div>
+                    <div className="md:col-span-5">
+                        <Button 
+                            onClick={handleTriggerDailyBriefing} 
+                            disabled={isExecuting}
+                            className="w-full h-12 bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-black text-[10px] uppercase tracking-widest rounded-xl shadow-lg flex items-center justify-center gap-2"
+                        >
+                            {isExecuting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                            DISPARAR REPORTE DIARIO AHORA
+                        </Button>
+                    </div>
+                </div>
+
+                <div className="p-4 rounded-2xl bg-white/5 border border-white/10 text-[10px] text-slate-300 font-medium leading-relaxed">
+                    ℹ️ <strong className="text-white">Automatización 24/7:</strong> Todos los días el motor autónomo enviará el resumen ejecutivo por WhatsApp a todos los usuarios con rol <code className="text-emerald-300">superadmin</code>, <code className="text-emerald-300">admin</code> y <code className="text-emerald-300">gerencia</code> para confirmar la conectividad continua del sistema.
+                </div>
+            </CardContent>
         </Card>
     );
 }

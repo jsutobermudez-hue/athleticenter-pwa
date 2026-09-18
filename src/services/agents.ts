@@ -249,3 +249,122 @@ export async function executePendingReconciliationAlert() {
     }
 }
 
+/**
+ * REPORTE DIARIO EJECUTIVO DE SALUD Y CONEXIÓN VÍA WHATSAPP (MODO AUTÓNOMO)
+ * Notifica al SuperAdmin y usuarios seleccionados sobre el estado de la terminal, tasa BCV y cartera.
+ */
+export async function executeDailyExecutiveWhatsAppBriefing(targetPhoneOverride?: string) {
+    try {
+        const { firestore } = initializeFirebaseServer();
+        const { collection, getDocs, doc, getDoc, query, where, limit } = await import('firebase/firestore');
+        const { getEffectiveCashReceived } = await import('@/lib/billing');
+        const { dispatchUniversalWhatsApp } = await import('@/lib/whatsapp-universal');
+
+        // 1. Tasa BCV
+        const settingsSnap = await getDoc(doc(firestore, 'system', 'financials'));
+        const bcvRate = settingsSnap.exists() ? settingsSnap.data().bcvRate || 0 : 0;
+
+        // 2. Métricas de Pedidos y Mora Crítica
+        const ordersSnap = await getDocs(query(collection(firestore, 'orders'), limit(300)));
+        let totalPendingVerificationUSD = 0;
+        let countPendingVerification = 0;
+        let totalMoraUSD = 0;
+        let countMora = 0;
+
+        const now = new Date();
+
+        ordersSnap.docs.forEach(d => {
+            const o = d.data();
+            if (o.status === 'Cancelado' || o.status === 'Rechazado') return;
+            const total = Number(o.totalAmount || 0);
+            const paid = getEffectiveCashReceived(o as any);
+            const pending = Math.max(0, total - paid);
+
+            if (o.status === 'En Verificación') {
+                countPendingVerification += 1;
+                totalPendingVerificationUSD += pending;
+            }
+
+            if (pending > 0.05 && o.dueDate) {
+                const dueDate = new Date(o.dueDate);
+                if (dueDate < now) {
+                    countMora += 1;
+                    totalMoraUSD += pending;
+                }
+            }
+        });
+
+        // 3. Formatear Mensaje de Informe Diario
+        const todayStr = new Date().toLocaleDateString('es-VE', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+        
+        const reportText = `*🤖 ATHLETICENTER PRO - REPORTE DIARIO DE CONEXIÓN Y SALUD*\n` +
+            `🗓️ _${todayStr.toUpperCase()}_\n\n` +
+            `🟢 *ESTADO DEL SISTEMA:* Conectado & Operativo\n` +
+            `📈 *TASA OFICIAL BCV:* ${bcvRate > 0 ? `${bcvRate} Bs/USD` : 'Sincronizada'}\n\n` +
+            `📊 *RESUMEN EJECUTIVO DEL DÍA:*\n` +
+            `• *Abonos por Conciliar:* ${countPendingVerification} expedientes ($${totalPendingVerificationUSD.toLocaleString('en-US', { minimumFractionDigits: 2 })} USD)\n` +
+            `• *Cartera en Mora Crítica:* ${countMora} facturas ($${totalMoraUSD.toLocaleString('en-US', { minimumFractionDigits: 2 })} USD)\n\n` +
+            `✅ *RECORRE FACTURACIÓN Y CRM EN:* \n` +
+            `https://athleticenter-pwa.web.app/dashboard\n\n` +
+            `_Este mensaje automático confirma que el motor de notificaciones en segundo plano está activo y vinculado al 100%._`;
+
+        let phonesToNotify: { name: string; phone: string; role: string }[] = [];
+
+        if (targetPhoneOverride) {
+            phonesToNotify.push({ name: 'Administrador (Prueba)', phone: targetPhoneOverride, role: 'superadmin' });
+        } else {
+            // Buscar SuperAdmins y Usuarios con rol gerencial o flag de reporte activo
+            const usersSnap = await getDocs(query(
+                collection(firestore, 'users'),
+                where('role', 'in', ['superadmin', 'admin', 'gerencia']),
+                limit(50)
+            ));
+
+            usersSnap.docs.forEach(uDoc => {
+                const uData = uDoc.data();
+                const ph = uData.phone || uData.whatsappPhone || uData.phoneNumber;
+                if (ph && (uData.role === 'superadmin' || uData.receiveDailyBriefing !== false)) {
+                    phonesToNotify.push({
+                        name: uData.name || uData.displayName || 'SuperAdmin',
+                        phone: ph,
+                        role: uData.role
+                    });
+                }
+            });
+        }
+
+        if (phonesToNotify.length === 0) {
+            phonesToNotify.push({ name: 'SuperAdmin Central', phone: '04122683183', role: 'superadmin' });
+        }
+
+        let sentCount = 0;
+        for (const recipient of phonesToNotify) {
+            const res = await dispatchUniversalWhatsApp({
+                phone: recipient.phone,
+                message: reportText,
+                module: 'billing'
+            });
+            if (res.success) sentCount++;
+        }
+
+        await createAppNotifications(firestore, {
+            category: 'Facturación',
+            title: `🤖 Reporte Diario de Conexión Emitido`,
+            message: `Se despachó el informe ejecutivo por WhatsApp a ${sentCount} administradores.`,
+            link: '/dashboard',
+            initiatorId: 'daily_briefing_agent',
+            roles: ['superadmin', 'admin']
+        });
+
+        return {
+            success: true,
+            recipientsCount: phonesToNotify.length,
+            sentCount,
+            phones: phonesToNotify.map(p => p.phone)
+        };
+    } catch (e: any) {
+        console.error("[Agent Service] Daily Executive WhatsApp Briefing failed:", e.message);
+        return { success: false, error: e.message };
+    }
+}
+

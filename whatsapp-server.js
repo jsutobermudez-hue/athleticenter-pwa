@@ -15,7 +15,6 @@ console.log('Iniciando servicio local de WhatsApp...');
 // Inicializar cliente de WhatsApp con sesión guardada localmente
 const client = new Client({
     authStrategy: new LocalAuth(),
-    webVersionCache: { type: 'none' },
     puppeteer: {
         headless: true,
         args: [
@@ -31,6 +30,19 @@ const client = new Client({
 });
 
 let isReady = false;
+
+// Helper para reintentar el envío en caso de frames desprendidos de Puppeteer
+async function sendWithRetry(chatId, content, options = {}, retries = 2) {
+    for (let attempt = 1; attempt <= retries; attempt++) {
+        try {
+            return await client.sendMessage(chatId, content, options);
+        } catch (err) {
+            console.warn(`[WhatsApp Local] Intent de envío ${attempt}/${retries} falló:`, err.message);
+            if (attempt === retries) throw err;
+            await new Promise(res => setTimeout(res, 1500));
+        }
+    }
+}
 
 client.on('qr', (qr) => {
     isReady = false;
@@ -87,7 +99,7 @@ app.post('/api/send', authMiddleware, async (req, res) => {
         // whatsapp-web.js requiere el formato 'numero@c.us'
         const chatId = `${number}@c.us`;
 
-        let messageId;
+        let messageId = 'LOCAL_SENT';
 
         // Si viene un PDF (media.base64)
         if (media && media.base64) {
@@ -98,12 +110,12 @@ app.post('/api/send', authMiddleware, async (req, res) => {
             );
             
             // Enviamos el PDF y el texto como "caption"
-            const response = await client.sendMessage(chatId, mediaData, { caption: text });
-            messageId = response.id.id;
+            const response = await sendWithRetry(chatId, mediaData, { caption: text });
+            messageId = response?.id?._serialized || response?.id?.id || String(response?.id || 'LOCAL_SENT');
         } else {
             // Solo texto
-            const response = await client.sendMessage(chatId, text);
-            messageId = response.id.id;
+            const response = await sendWithRetry(chatId, text);
+            messageId = response?.id?._serialized || response?.id?.id || String(response?.id || 'LOCAL_SENT');
         }
 
         console.log(`[WhatsApp Local] ✅ Mensaje enviado a ${number} (Orden: ${orderId || 'N/A'})`);
