@@ -114,7 +114,7 @@ export function SalesTrendChart({
     }
 
     if (dimension === 'salesperson') {
-      const spData = calculateMetricsBySalesperson(dateFilteredOrders);
+      const spData = calculateMetricsBySalesperson(orders || [], startDateLimit, endDateLimit);
       return spData.map(item => ({
         name: item.salespersonName,
         ventas: item.ventas,
@@ -127,7 +127,7 @@ export function SalesTrendChart({
     }
 
     if (dimension === 'discipline') {
-      const discData = calculateMetricsByDiscipline(dateFilteredOrders, products || []);
+      const discData = calculateMetricsByDiscipline(orders || [], products || [], startDateLimit, endDateLimit);
       return discData.map(item => ({
         name: item.discipline,
         ventas: item.ventas,
@@ -158,13 +158,13 @@ export function SalesTrendChart({
       }
 
       return days.map(day => {
-        const salesTotal = dateFilteredOrders.filter(order => {
+        const salesTotal = (orders || []).filter(order => {
           const sDate = getSalesDate(order);
           return sDate && isSameDay(sDate, day) && VALID_SALES_STATUSES.includes(order.status);
         }).reduce((sum, order) => sum + (order.totalAmount || 0), 0);
 
         let cashTotal = 0;
-        dateFilteredOrders.forEach(order => {
+        (orders || []).forEach(order => {
           if (Array.isArray((order as any).payments) && (order as any).payments.length > 0) {
             (order as any).payments.forEach((p: any) => {
               if (p.status === 'verified' || !p.status) {
@@ -206,13 +206,13 @@ export function SalesTrendChart({
       });
 
       return months.map(month => {
-        const salesTotal = dateFilteredOrders.filter(order => {
+        const salesTotal = (orders || []).filter(order => {
           const sDate = getSalesDate(order);
           return sDate && sDate.getMonth() === month.getMonth() && sDate.getFullYear() === month.getFullYear() && VALID_SALES_STATUSES.includes(order.status);
         }).reduce((sum, order) => sum + (order.totalAmount || 0), 0);
 
         let cashTotal = 0;
-        dateFilteredOrders.forEach(order => {
+        (orders || []).forEach(order => {
           if (Array.isArray((order as any).payments) && (order as any).payments.length > 0) {
             (order as any).payments.forEach((p: any) => {
               if (p.status === 'verified' || !p.status) {

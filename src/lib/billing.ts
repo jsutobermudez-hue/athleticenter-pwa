@@ -980,7 +980,12 @@ export async function processAutomaticCommissionsForPayment(
 /**
  * CÁLCULO MULTI-VARIABLE POR DISCIPLINA DEPORTIVA (Ventas, Cobranzas, Mora y Top Vendedor)
  */
-export function calculateMetricsByDiscipline(orders: Order[], products?: any[]): Array<{
+export function calculateMetricsByDiscipline(
+    orders: Order[], 
+    products?: any[],
+    startDateLimit?: Date | null,
+    endDateLimit?: Date | null
+): Array<{
     discipline: string;
     ventas: number;
     cobranzas: number;
@@ -1016,10 +1021,35 @@ export function calculateMetricsByDiscipline(orders: Order[], products?: any[]):
     orders.forEach(order => {
         if (!VALID_STATUSES.includes(order.status)) return;
 
+        const sDate = getSalesDate(order);
+        const isSaleInRange = sDate && (!startDateLimit || startOfDay(sDate) >= startOfDay(startDateLimit)) && (!endDateLimit || startOfDay(sDate) <= startOfDay(endDateLimit));
+        
+        let cashInRange = 0;
+        if (Array.isArray((order as any).payments) && (order as any).payments.length > 0) {
+            (order as any).payments.forEach((p: any) => {
+                if (p.status === 'verified' || !p.status) {
+                    const pDateRaw = p.paymentDate || p.createdAt || p.date;
+                    const pDate = pDateRaw ? (typeof pDateRaw.toDate === 'function' ? pDateRaw.toDate() : new Date(pDateRaw)) : null;
+                    if (pDate && (!startDateLimit || startOfDay(pDate) >= startOfDay(startDateLimit)) && (!endDateLimit || startOfDay(pDate) <= startOfDay(endDateLimit))) {
+                        cashInRange += (Number(p.amount || p.monto) || 0);
+                    }
+                }
+            });
+        } else {
+            const cDate = getCashDate(order);
+            if (cDate && (!startDateLimit || startOfDay(cDate) >= startOfDay(startDateLimit)) && (!endDateLimit || startOfDay(cDate) <= startOfDay(endDateLimit))) {
+                cashInRange = getEffectiveCashReceived(order);
+            }
+        }
+
+        const targetMoraDate = endDateLimit || new Date();
+        const mora = getHistoricalMoraAsOfDate(order, targetMoraDate);
+
+        if (!isSaleInRange && cashInRange === 0 && mora === 0) return;
+
         const orderTotal = order.totalAmount || 1;
-        const cashPaid = getEffectiveCashReceived(order);
-        const cashRatio = Math.min(1, cashPaid / orderTotal);
-        const isMora = isOrderInMoraCritica(order);
+        const cashRatio = Math.min(1, cashInRange / orderTotal);
+        const moraRatio = Math.min(1, mora / orderTotal);
         const spName = getSalespersonDisplayName(order);
 
         const items = Array.isArray((order as any).items) ? (order as any).items : [];
@@ -1028,9 +1058,6 @@ export function calculateMetricsByDiscipline(orders: Order[], products?: any[]):
             items.forEach((item: any) => {
                 const disc = item.discipline || productDisciplineMap.get(item.productId) || productDisciplineMap.get(item.sku) || productDisciplineMap.get(item.id) || 'General / Multideporte';
                 const itemTotal = Number(item.unitPrice || 0) * Number(item.quantity || 1);
-                const itemCash = itemTotal * cashRatio;
-                const itemPending = Math.max(0, itemTotal - itemCash);
-                const itemMora = isMora ? itemPending : 0;
                 const qty = Number(item.quantity || 1);
 
                 if (!disciplineMap.has(disc)) {
@@ -1046,21 +1073,24 @@ export function calculateMetricsByDiscipline(orders: Order[], products?: any[]):
                 }
 
                 const entry = disciplineMap.get(disc)!;
-                entry.ventas += itemTotal;
-                entry.cobranzas += itemCash;
-                entry.pending += itemPending;
-                entry.moraCritica += itemMora;
-                entry.totalUnits += qty;
+                if (isSaleInRange) {
+                    entry.ventas += itemTotal;
+                    entry.totalUnits += qty;
+                    const totalPendingRatio = Math.max(0, 1 - (getEffectiveCashReceived(order) / orderTotal));
+                    entry.pending += itemTotal * totalPendingRatio;
+                }
+                
+                entry.cobranzas += itemTotal * cashRatio;
+                entry.moraCritica += itemTotal * moraRatio;
 
-                const currentSpSales = entry.salespersonSales.get(spName) || 0;
-                entry.salespersonSales.set(spName, currentSpSales + itemTotal);
+                if (isSaleInRange) {
+                    const currentSpSales = entry.salespersonSales.get(spName) || 0;
+                    entry.salespersonSales.set(spName, currentSpSales + itemTotal);
+                }
             });
         } else {
             const disc = 'General / Multideporte';
             const itemTotal = orderTotal;
-            const itemCash = cashPaid;
-            const itemPending = Math.max(0, itemTotal - itemCash);
-            const itemMora = isMora ? itemPending : 0;
 
             if (!disciplineMap.has(disc)) {
                 disciplineMap.set(disc, {
@@ -1075,13 +1105,19 @@ export function calculateMetricsByDiscipline(orders: Order[], products?: any[]):
             }
 
             const entry = disciplineMap.get(disc)!;
-            entry.ventas += itemTotal;
-            entry.cobranzas += itemCash;
-            entry.pending += itemPending;
-            entry.moraCritica += itemMora;
+            if (isSaleInRange) {
+                entry.ventas += itemTotal;
+                const totalPendingRatio = Math.max(0, 1 - (getEffectiveCashReceived(order) / orderTotal));
+                entry.pending += itemTotal * totalPendingRatio;
+            }
+            
+            entry.cobranzas += itemTotal * cashRatio;
+            entry.moraCritica += itemTotal * moraRatio;
 
-            const currentSpSales = entry.salespersonSales.get(spName) || 0;
-            entry.salespersonSales.set(spName, currentSpSales + itemTotal);
+            if (isSaleInRange) {
+                const currentSpSales = entry.salespersonSales.get(spName) || 0;
+                entry.salespersonSales.set(spName, currentSpSales + itemTotal);
+            }
         }
     });
 
@@ -1115,7 +1151,11 @@ export function calculateMetricsByDiscipline(orders: Order[], products?: any[]):
 /**
  * CÁLCULO MULTI-VARIABLE POR VENDEDOR / ASESOR COMERCIAL
  */
-export function calculateMetricsBySalesperson(orders: Order[]): Array<{
+export function calculateMetricsBySalesperson(
+    orders: Order[],
+    startDateLimit?: Date | null,
+    endDateLimit?: Date | null
+): Array<{
     salespersonKey: string;
     salespersonName: string;
     ventas: number;
@@ -1142,13 +1182,35 @@ export function calculateMetricsBySalesperson(orders: Order[]): Array<{
     orders.forEach(order => {
         if (!VALID_STATUSES.includes(order.status)) return;
 
+        const sDate = getSalesDate(order);
+        const isSaleInRange = sDate && (!startDateLimit || startOfDay(sDate) >= startOfDay(startDateLimit)) && (!endDateLimit || startOfDay(sDate) <= startOfDay(endDateLimit));
+        
+        let cashInRange = 0;
+        if (Array.isArray((order as any).payments) && (order as any).payments.length > 0) {
+            (order as any).payments.forEach((p: any) => {
+                if (p.status === 'verified' || !p.status) {
+                    const pDateRaw = p.paymentDate || p.createdAt || p.date;
+                    const pDate = pDateRaw ? (typeof pDateRaw.toDate === 'function' ? pDateRaw.toDate() : new Date(pDateRaw)) : null;
+                    if (pDate && (!startDateLimit || startOfDay(pDate) >= startOfDay(startDateLimit)) && (!endDateLimit || startOfDay(pDate) <= startOfDay(endDateLimit))) {
+                        cashInRange += (Number(p.amount || p.monto) || 0);
+                    }
+                }
+            });
+        } else {
+            const cDate = getCashDate(order);
+            if (cDate && (!startDateLimit || startOfDay(cDate) >= startOfDay(startDateLimit)) && (!endDateLimit || startOfDay(cDate) <= startOfDay(endDateLimit))) {
+                cashInRange = getEffectiveCashReceived(order);
+            }
+        }
+
+        const targetMoraDate = endDateLimit || new Date();
+        const mora = getHistoricalMoraAsOfDate(order, targetMoraDate);
+
+        if (!isSaleInRange && cashInRange === 0 && mora === 0) return;
+
         const spKey = getSalespersonKey(order);
         const spName = getSalespersonDisplayName(order);
-        const total = order.totalAmount || 0;
-        const cash = getEffectiveCashReceived(order);
-        const rem = Math.max(0, total - cash);
-        const mora = isOrderInMoraCritica(order) ? rem : 0;
-
+        
         if (!map.has(spKey)) {
             map.set(spKey, {
                 salespersonKey: spKey,
@@ -1162,11 +1224,13 @@ export function calculateMetricsBySalesperson(orders: Order[]): Array<{
         }
 
         const entry = map.get(spKey)!;
-        entry.ventas += total;
-        entry.cobranzas += cash;
-        entry.pending += rem;
+        if (isSaleInRange) {
+            entry.ventas += (order.totalAmount || 0);
+            entry.pending += Math.max(0, (order.totalAmount || 0) - getEffectiveCashReceived(order));
+            entry.orderCount += 1;
+        }
+        entry.cobranzas += cashInRange;
         entry.moraCritica += mora;
-        entry.orderCount += 1;
     });
 
     return Array.from(map.values()).map(sp => {
