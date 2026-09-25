@@ -170,6 +170,12 @@ export async function generateOrderPDF({
         ? (order as any).earlyPayment7dSnapshot 
         : (globalSettings?.earlyPayment7Days !== undefined ? globalSettings.earlyPayment7Days : 10));
 
+  const effEarly15Pct = isNetOrPromotional 
+    ? 0 
+    : ((order as any)?.earlyPayment15dSnapshot !== undefined 
+        ? (order as any).earlyPayment15dSnapshot 
+        : (globalSettings?.earlyPayment15Days !== undefined ? globalSettings.earlyPayment15Days : 5));
+
   // Para NOTA DE ENTREGA DE DESPACHO:
   // Se presenta el PRECIO DE LISTA BASE EN $ A BCV SIN DESCUENTOS.
   // Para NOTA FINAL PAGADA O FACTURA: SÍ SALEN LOS DESCUENTOS APLICADOS.
@@ -275,13 +281,17 @@ export async function generateOrderPDF({
     doc.setDrawColor(203, 213, 225);
     doc.rect(14, bannerY, 182, 22, 'S');
 
+    const cashSub = Math.round((totalAmountUSD * (1 - bcvDiscountPct / 100) + Number.EPSILON) * 100) / 100;
+    const pp7d = Math.round((cashSub * (1 - effEarly7Pct / 100) + Number.EPSILON) * 100) / 100;
+    const pp15d = Math.round((cashSub * (1 - effEarly15Pct / 100) + Number.EPSILON) * 100) / 100;
+
     doc.setFontSize(7); doc.setTextColor(30, 41, 59); doc.setFont("helvetica", "bold");
-    doc.text("💡 CONDICIONES DE CRÉDITO E INCENTIVOS DE PAGO OPORTUNO:", 18, bannerY + 5);
+    doc.text("💡 CALENDARIO DE INCENTIVOS DE PRONTO PAGO Y COBRANZA EN CASCADA:", 18, bannerY + 5);
 
     doc.setFontSize(6.5); doc.setTextColor(71, 85, 105); doc.setFont("helvetica", "normal");
-    doc.text(`• PAGO EN DIVISAS (CASH / ZELLE): Obtén un ${bcvDiscountPct}% de Descuento directo sobre la Lista Oficial BCV.`, 18, bannerY + 10);
-    doc.text(`• PRONTO PAGO (PRIMEROS 7 DÍAS): Obtén un ${effEarly7Pct}% de Descuento adicional por cancelación oportuna.`, 18, bannerY + 15);
-    doc.text(`* Término de Crédito: 30 Días continuos desde la fecha de emisión. Evite mora crítica.`, 18, bannerY + 19);
+    doc.text(`• PAGO EN DIVISAS (CASH / ZELLE / USDT): Aplica Descuento Contado Divisas (${bcvDiscountPct}%) + Incentivo Pronto Pago.`, 18, bannerY + 10);
+    doc.text(`• ESCALA DE MONTO NETO A PAGAR: 7D (32.5% OFF): $${pp7d.toFixed(2)} USD  |  15D (28.75% OFF): $${pp15d.toFixed(2)} USD  |  16-30D (25% OFF): $${cashSub.toFixed(2)} USD`, 18, bannerY + 15);
+    doc.text(`* Término de Crédito: 30 Días continuos desde emisión. Pagos >30 Días (Mora) no reciben descuento ($${totalAmountUSD.toFixed(2)} USD).`, 18, bannerY + 19);
 
     bannerHeight = 26;
   }
@@ -591,31 +601,52 @@ export async function generateCommissionReceiptPDF(
     autoSave: boolean = true
 ): Promise<string> {
     const doc = new jsPDF();
-    await addFiscalHeader(doc, companyProfile, 'RECIBO DE COMISIONES', reference, new Date());
+    await addFiscalHeader(doc, companyProfile, 'RECIBO DE LIQUIDACIÓN DE COMISIONES', reference, new Date());
     
-    doc.setFontSize(11); doc.setTextColor(30, 41, 59);
-    doc.text(`BENEFICIARIO: ${sp.name.toUpperCase()}`, 14, 55);
+    doc.setFontSize(10); doc.setTextColor(30, 41, 59); doc.setFont("helvetica", "bold");
+    doc.text(`BENEFICIARIO: ${sp.name.toUpperCase()} (${(sp.role || 'VENTAS').toUpperCase()})`, 14, 55);
 
-    const total = commissions.reduce((sum, c) => sum + c.salespersonCommissionAmount, 0);
+    const totalUSD = commissions.reduce((sum, c) => sum + (c.salespersonCommissionAmount ?? (c as any).commissionAmountUSD ?? 0), 0);
+    const avgBcv = (commissions[0] as any)?.bcvRate || 36.5;
+    const totalBS = totalUSD * avgBcv;
 
-    const tableRows = commissions.map(c => [
-        c.orderId.substring(0,8),
-        c.commissionDate instanceof Timestamp ? format(c.commissionDate.toDate(), 'dd/MM/yy') : format(new Date(), 'dd/MM/yy'),
-        `$ ${c.invoiceAmount.toFixed(2)}`,
-        `$ ${c.salespersonCommissionAmount.toFixed(2)}`
-    ]);
+    const tableRows = commissions.map(c => {
+        const orderNum = c.orderNumber || c.orderId.substring(0, 8).toUpperCase();
+        const commDate = c.commissionDate instanceof Timestamp ? format(c.commissionDate.toDate(), 'dd/MM/yy') : format(new Date(), 'dd/MM/yy');
+        const method = c.paymentMethod || (c as any).method || 'CASH';
+        const baseUSD = c.invoiceAmount ?? (c as any).paymentAmountUSD ?? 0;
+        const commUSD = c.salespersonCommissionAmount ?? (c as any).commissionAmountUSD ?? 0;
+        const commBS = (c as any).commissionAmountBS || (commUSD * avgBcv);
 
-    (doc as any).autoTable({
-        head: [["PEDIDO", "FECHA", "BASE RECAUDADA", "COMISIÓN"]],
-        body: tableRows,
-        startY: 65,
-        theme: 'grid',
-        headStyles: { fillColor: [30, 41, 59] }
+        return [
+            orderNum,
+            commDate,
+            method.toUpperCase(),
+            `$ ${baseUSD.toFixed(2)}`,
+            `$ ${commUSD.toFixed(2)}`,
+            `Bs. ${commBS.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+        ];
     });
 
-    const finalY = (doc as any).lastAutoTable.finalY + 10;
-    doc.setFontSize(12); doc.setFont("helvetica", "bold");
-    doc.text(`TOTAL A LIQUIDAR: $ ${total.toFixed(2)}`, 196, finalY, { align: 'right' });
+    (doc as any).autoTable({
+        head: [["PEDIDO / REF", "FECHA", "MÉTODO DE PAGO", "BASE RECAUDADA", "COMISIÓN ($)", "EQUIV. (BS BCV)"]],
+        body: tableRows,
+        startY: 62,
+        theme: 'grid',
+        headStyles: { fillColor: [15, 23, 42], fontSize: 7, fontStyle: 'bold', halign: 'center' },
+        styles: { fontSize: 7, cellPadding: 2 }
+    });
+
+    const finalY = (doc as any).lastAutoTable.finalY + 8;
+    doc.setFillColor(248, 250, 252);
+    doc.rect(14, finalY, 182, 18, 'F');
+    doc.setDrawColor(226, 232, 240);
+    doc.rect(14, finalY, 182, 18, 'S');
+
+    doc.setFontSize(9); doc.setFont("helvetica", "bold"); doc.setTextColor(15, 23, 42);
+    doc.text(`TOTAL LIQUIDADO EN DÓLARES: $ ${totalUSD.toFixed(2)} USD`, 18, finalY + 7);
+    doc.setTextColor(37, 99, 235);
+    doc.text(`EQUIVALENTE BCV: Bs. ${totalBS.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, 18, finalY + 13);
 
     if (autoSave) {
         doc.save(`Recibo_Comisiones_${sp.name.split(' ')[0]}.pdf`);

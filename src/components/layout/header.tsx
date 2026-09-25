@@ -141,7 +141,7 @@ export function Header() {
 
   return (
     <>
-      <header className="sticky top-0 z-30 flex h-14 items-center gap-4 border-b bg-white/80 dark:bg-slate-950/80 backdrop-blur-md px-4 sm:static sm:h-auto sm:border-0 sm:bg-transparent sm:px-6 mx-auto w-full max-w-[1600px]">
+      <header className="sticky top-0 z-50 flex h-14 sm:h-16 items-center gap-4 border-b border-slate-200/80 dark:border-slate-800/80 bg-white/90 dark:bg-slate-950/90 backdrop-blur-md px-4 sm:px-6 mx-auto w-full max-w-[1600px] transition-all shadow-xs">
         <SidebarTrigger className="md:hidden" />
         <div className="flex items-center gap-4 flex-1">
           <SidebarTrigger className="hidden md:flex" />

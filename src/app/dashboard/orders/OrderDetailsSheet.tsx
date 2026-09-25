@@ -593,8 +593,9 @@ export function OrderDetailsSheet({
                                 ) : filteredItemsForPicking.map((item) => {
                                     const catalogPrice = item.product?.price && item.product.price > 0 ? item.product.price : (item.unitPrice || 0);
                                     const rawItemPrice = item.unitPrice || catalogPrice;
+                                    const isExplicitNetOrder = (order as any).incentivesApplied === true || (order as any).isNetPrice === true || !!(order as any).promoName;
                                     const isAlreadyDiscounted = catalogPrice > 0 && rawItemPrice < (catalogPrice * 0.95);
-                                    const isNetOrPromo = (order as any).incentivesApplied === true || (order as any).isNetPrice === true || !!(order as any).promoName || isAlreadyDiscounted;
+                                    const isNetOrPromo = isExplicitNetOrder || isAlreadyDiscounted;
 
                                     const effectiveDiscountPct = isNetOrPromo 
                                       ? 0 
@@ -602,8 +603,8 @@ export function OrderDetailsSheet({
                                           ? (order as any).bcvDiscountSnapshot 
                                           : (globalSettings?.defaultBcvDiscount ?? 25));
 
-                                    const unitBcvPrice = isAlreadyDiscounted ? catalogPrice : rawItemPrice;
-                                    const unitCashPrice = isAlreadyDiscounted || isNetOrPromo 
+                                    const unitBcvPrice = isExplicitNetOrder ? rawItemPrice : (isAlreadyDiscounted ? catalogPrice : rawItemPrice);
+                                    const unitCashPrice = isNetOrPromo 
                                       ? rawItemPrice 
                                       : roundCurrency(unitBcvPrice * (1 - effectiveDiscountPct / 100));
 
@@ -694,11 +695,13 @@ export function OrderDetailsSheet({
                             {/* BARRA CONSOLIDADA RESUMEN DE UNIDADES Y SUBTOTALES AL PIE */}
                             {(() => {
                                 const totalUnits = itemsWithProductData.reduce((sum, item) => sum + (item.quantity || 0), 0);
+                                const isExplicitNetOrder = (order as any).incentivesApplied === true || (order as any).isNetPrice === true || !!(order as any).promoName;
                                 const totalBcvManifesto = roundCurrency(itemsWithProductData.reduce((sum, item) => {
                                   const catP = item.product?.price && item.product.price > 0 ? item.product.price : (item.unitPrice || 0);
                                   const rawP = item.unitPrice || catP;
                                   const isDisc = catP > 0 && rawP < (catP * 0.95);
-                                  return sum + ((item.quantity || 0) * (isDisc ? catP : rawP));
+                                  const effPrice = isExplicitNetOrder ? rawP : (isDisc ? catP : rawP);
+                                  return sum + ((item.quantity || 0) * effPrice);
                                 }, 0));
 
                                 const totalCashManifesto = roundCurrency(itemsWithProductData.reduce((sum, item) => {
@@ -731,10 +734,16 @@ export function OrderDetailsSheet({
                                                 <span className="text-[8px] font-black uppercase text-slate-400">Total Lista BCV</span>
                                                 <span className="text-xs font-black text-white font-mono">${totalBcvManifesto.toFixed(2)} USD</span>
                                             </div>
-                                            {!isNetOrPromo && (
+                                            {!isNetOrPromo ? (
                                                 <div className="flex flex-col">
                                                     <span className="text-[8px] font-black uppercase text-emerald-400">Total Neto Cash (-{effectiveDiscountPct}%)</span>
                                                     <span className="text-xs font-black text-emerald-400 font-mono">${totalCashManifesto.toFixed(2)} USD</span>
+                                                </div>
+                                            ) : (
+                                                <div className="flex flex-col items-end">
+                                                    <span className="text-[8px] font-black uppercase text-amber-300 bg-amber-500/20 px-2 py-0.5 rounded border border-amber-400/30">
+                                                        🏷️ PRECIO NETO FIJO REGISTRADO AL EMITIR
+                                                    </span>
                                                 </div>
                                             )}
                                         </div>

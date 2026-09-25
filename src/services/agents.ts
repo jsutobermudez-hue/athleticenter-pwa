@@ -501,6 +501,8 @@ export async function executeRoleBasedDailyWhatsAppBriefing(targetPhoneOverride?
                     `• *Total por Cobrar:* $${spData.pendingReceivablesUSD.toLocaleString('en-US', { minimumFractionDigits: 2 })} USD\n` +
                     `• *Facturas por Vencer (-3D):* ${spData.dueSoonCount} cuentas ($${spData.dueSoonUSD.toLocaleString('en-US', { minimumFractionDigits: 2 })} USD)\n` +
                     `• *Mora Crítica:* ${spData.moraCount} clientes ($${spData.moraUSD.toLocaleString('en-US', { minimumFractionDigits: 2 })} USD)\n\n` +
+                    `💡 *INCENTIVOS DE PRONTO PAGO ACTIVOS (48H):*\n` +
+                    `${spData.dueSoonCount > 0 ? `• ${spData.dueSoonCount} clientes están en ventana de 10% OFF en cascada. Motiva su pago hoy para que aseguren su bonificación.` : '• Cartera al día en calendario de incentivos.'}\n\n` +
                     `📦 *TUS PEDIDOS EN TRÁNSITO / PROCESO:*\n` +
                     `• *En Preparación/Despacho:* ${spData.inPreparationCount} expedientes\n` +
                     `• *Entregados Ayer:* ${spData.deliveredYesterdayCount} pedidos ($${spData.deliveredYesterdayUSD.toLocaleString('en-US', { minimumFractionDigits: 2 })} USD)\n\n` +
@@ -584,4 +586,32 @@ export async function executeRoleBasedDailyWhatsAppBriefing(targetPhoneOverride?
         return { success: false, error: e.message };
     }
 }
+
+export async function executeDailyPricingAudit() {
+    try {
+        const { firestore } = initializeFirebaseServer();
+        const { collection, getDocs, query, limit } = await import('firebase/firestore');
+        const ordersRef = collection(firestore, 'orders');
+        const snap = await getDocs(query(ordersRef, limit(300)));
+
+        let unshieldedCount = 0;
+
+        for (const docSnap of snap.docs) {
+            const data = docSnap.data();
+            const total = Number(data.totalAmount || 0);
+            const isNet = data.isNetPrice === true || data.incentivesApplied === true;
+            const hasFractionalDecimals = (total % 1 !== 0) && (total.toString().split('.')[1]?.length > 2);
+
+            if (!isNet && hasFractionalDecimals) {
+                unshieldedCount++;
+            }
+        }
+
+        return { success: true, totalAudited: snap.size, unshieldedCount };
+    } catch (e: any) {
+        console.error("[Agent Service] Daily Pricing Audit failed:", e.message);
+        return { success: false, error: e.message };
+    }
+}
+
 

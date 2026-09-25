@@ -558,7 +558,7 @@ function PricingCalculatorContent() {
                             <div className="space-y-1">
                                 <p className="text-[10px] font-black uppercase tracking-[0.2em] text-primary flex items-center gap-1.5"><Landmark className="h-3.5 w-3.5" /> Parámetros Activos de Tesorería</p>
                                 <p className="text-[11px] font-medium text-slate-300 uppercase">
-                                    Descuento: <span className="text-white font-black">{globalSettings?.defaultBcvDiscount !== undefined ? globalSettings.defaultBcvDiscount : 25}%</span> | Comisiones Red: <span className="text-primary font-black">{(globalSettings?.defaultCommission || 5) + (globalSettings?.salesManagerCommission || 5) + (globalSettings?.adminCommission || 5)}%</span> | Overhead: <span className="text-white font-black">{globalSettings?.defaultOverhead || 10}%</span>
+                                    Descuento: <span className="text-white font-black">{globalSettings?.defaultBcvDiscount !== undefined ? globalSettings.defaultBcvDiscount : 25}%</span> | Comisiones Red: <span className="text-primary font-black">{(globalSettings?.defaultCommission || 5) + (globalSettings?.salesManagerCommission || 5) + (globalSettings?.adminCommission !== undefined ? globalSettings.adminCommission : 1)}%</span> | Overhead: <span className="text-white font-black">{globalSettings?.defaultOverhead || 10}%</span>
                                 </p>
                             </div>
                             <Button asChild variant="outline" size="sm" className="h-9 px-4 rounded-xl border-white/20 text-white font-black uppercase text-[9px] hover:bg-white/10 shrink-0">

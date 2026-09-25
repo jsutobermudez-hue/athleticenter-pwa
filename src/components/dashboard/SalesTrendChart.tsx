@@ -3,7 +3,7 @@
 import React, { useMemo, useState } from 'react';
 import { ResponsiveContainer, AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
 import type { Order, FinancialSettings, Product } from '@/lib/definitions';
-import { getEffectiveCashReceived, getCashDate, getSalesDate, isOrderInMoraCritica, getMoraCriticaAmount, calculateMetricsByDiscipline, calculateMetricsBySalesperson } from '@/lib/billing';
+import { getEffectiveCashReceived, getCashDate, getSalesDate, isOrderInMoraCritica, getMoraCriticaAmount, getHistoricalMoraAsOfDate, calculateMetricsByDiscipline, calculateMetricsBySalesperson } from '@/lib/billing';
 import { format, subDays, subMonths, startOfDay, endOfDay, startOfMonth, isSameDay, differenceInDays } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -114,7 +114,7 @@ export function SalesTrendChart({
     }
 
     if (dimension === 'salesperson') {
-      const spData = calculateMetricsBySalesperson(orders || []);
+      const spData = calculateMetricsBySalesperson(dateFilteredOrders);
       return spData.map(item => ({
         name: item.salespersonName,
         ventas: item.ventas,
@@ -127,7 +127,7 @@ export function SalesTrendChart({
     }
 
     if (dimension === 'discipline') {
-      const discData = calculateMetricsByDiscipline(orders || [], products || []);
+      const discData = calculateMetricsByDiscipline(dateFilteredOrders, products || []);
       return discData.map(item => ({
         name: item.discipline,
         ventas: item.ventas,
@@ -183,11 +183,9 @@ export function SalesTrendChart({
           }
         });
 
-        const moraTotal = (orders || []).filter(order => {
-          const sDate = getSalesDate(order);
-          if (!sDate || sDate > day) return false;
-          return isOrderInMoraCritica(order, day);
-        }).reduce((sum, order) => sum + getMoraCriticaAmount(order, day), 0);
+        const moraTotal = (orders || []).reduce((sum, order) => {
+          return sum + getHistoricalMoraAsOfDate(order, day);
+        }, 0);
 
         return {
           name: format(day, 'dd/MM'),

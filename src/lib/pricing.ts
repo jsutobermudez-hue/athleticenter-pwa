@@ -21,7 +21,7 @@ export function calculatePricingTier(
     defaultBcvDiscount: 25, // Tomado dinámicamente desde Tesorería (25% activo)
     defaultCommission: 5,
     salesManagerCommission: 5,
-    adminCommission: 5,
+    adminCommission: 1,
     defaultOverhead: 10,
     earlyPayment7Days: 10,
     earlyPayment15Days: 5,

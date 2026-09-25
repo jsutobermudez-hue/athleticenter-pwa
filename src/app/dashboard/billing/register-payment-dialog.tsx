@@ -321,7 +321,7 @@ export function ConfirmPaymentDialog({ order }: { order: Order }) {
                 paymentAmountUSD: actualCash,
                 paymentAmountBS: actualCash * bcvRate,
                 bcvRate,
-                salespersonId: 'ADMIN_OVERRIDE',
+                salespersonId: 'ADMINISTRACION',
                 salespersonName: '🏢 Administración / Gestión de Cobranza',
                 recipientUserId: 'admin_override',
                 recipientName: '🏢 Administración / Gestión de Cobranza',

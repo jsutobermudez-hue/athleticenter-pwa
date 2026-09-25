@@ -8,31 +8,41 @@ export function roundCurrency(value: number): number {
 
 export function getEffectiveCashReceived(o: Order): number {
     if (!o) return 0;
-    const cash = typeof o.totalCashReceived === 'number' && o.totalCashReceived > 0 ? o.totalCashReceived : 0;
-    const paid = typeof o.amountPaid === 'number' && o.amountPaid > 0 ? o.amountPaid : 0;
-    const altPaid = (o as any).paidAmount || (o as any).totalPaid || (o as any).montoPagado || 0;
-    const numAltPaid = typeof altPaid === 'number' && altPaid > 0 ? altPaid : 0;
     
     let sumPayments = 0;
-    if (Array.isArray((o as any).payments)) {
+    if (Array.isArray((o as any).payments) && (o as any).payments.length > 0) {
         sumPayments = (o as any).payments.reduce((s: number, p: any) => {
             if (p.status === 'verified' || !p.status) {
-                return s + (Number(p.amount || p.monto) || 0);
+                return s + (Number(p.amount || p.monto || p.amountUSD) || 0);
             }
             return s;
         }, 0);
     }
     
-    const explicitCash = Math.max(cash, paid, numAltPaid, sumPayments);
-    if (explicitCash > 0) {
-        return Math.min(explicitCash, o.totalAmount || explicitCash);
+    if (sumPayments > 0) {
+        return roundCurrency(sumPayments);
     }
 
+    const discountPct = (o as any).bcvDiscountSnapshot ?? o.treasurySnapshot?.bcvDiscountPercent ?? 25;
+    const isNet = (o as any).incentivesApplied === true || (o as any).isNetPrice === true;
+
     if (o.status === 'Pagado' || (o as any).isPaid === true || (o as any).paymentStatus === 'Pagado') {
-        const discountPct = (o as any).bcvDiscountSnapshot ?? o.treasurySnapshot?.bcvDiscountPercent ?? 25;
-        const isNet = (o as any).incentivesApplied === true || (o as any).isNetPrice === true;
         const netVal = isNet ? o.totalAmount : (o.totalAmount || 0) * (1 - (discountPct / 100));
         return roundCurrency(netVal > 0 ? netVal : o.totalAmount || 0);
+    }
+
+    const cash = typeof o.totalCashReceived === 'number' && o.totalCashReceived > 0 ? o.totalCashReceived : 0;
+    const paid = typeof o.amountPaid === 'number' && o.amountPaid > 0 ? o.amountPaid : 0;
+    const altPaid = (o as any).paidAmount || (o as any).totalPaid || (o as any).montoPagado || 0;
+    const numAltPaid = typeof altPaid === 'number' && altPaid > 0 ? altPaid : 0;
+
+    const explicitCash = Math.max(cash, paid, numAltPaid);
+    if (explicitCash > 0) {
+        if (explicitCash >= (o.totalAmount || 0) && (o.totalAmount || 0) > 0) {
+            const netVal = isNet ? o.totalAmount : (o.totalAmount || 0) * (1 - (discountPct / 100));
+            return roundCurrency(netVal);
+        }
+        return roundCurrency(explicitCash);
     }
 
     return 0;
@@ -102,6 +112,56 @@ export function getMoraCriticaAmount(order: Order, referenceDate: Date = new Dat
     return Math.max(0, (order.totalAmount || 0) - cashPaid);
 }
 
+/**
+ * Calcula la Mora Crítica exacta de una orden en una fecha pasada específica.
+ * A diferencia de getMoraCriticaAmount, esta función aísla los pagos
+ * que sucedieron estrictamente ANTES o DURANTE el targetDate.
+ */
+export function getHistoricalMoraAsOfDate(order: Order, targetDate: Date): number {
+    if (!order || ['Cancelado', 'Rechazado', 'Borrador'].includes(order.status)) {
+        return 0;
+    }
+
+    const sDate = getSalesDate(order);
+    if (!sDate || isNaN(sDate.getTime())) return 0;
+
+    // Si la orden no existía aún
+    if (startOfDay(sDate) > startOfDay(targetDate)) return 0;
+
+    const extension = typeof order.extensionDays === 'number' && order.extensionDays > 0 ? order.extensionDays : 0;
+    const dueDate = addDays(sDate, 30 + extension);
+
+    // Si para esa fecha la factura aún no estaba vencida
+    if (startOfDay(targetDate) <= startOfDay(dueDate)) return 0;
+
+    // Calcular efectivo recibido estrictamente hasta la fecha objetivo
+    let amountPaidAsOfDate = 0;
+    if (Array.isArray((order as any).payments) && (order as any).payments.length > 0) {
+        (order as any).payments.forEach((p: any) => {
+            if (p.status === 'verified' || !p.status) {
+                const pDateRaw = p.paymentDate || p.createdAt || p.date;
+                const pDate = pDateRaw ? (typeof pDateRaw.toDate === 'function' ? pDateRaw.toDate() : new Date(pDateRaw)) : null;
+                if (pDate && startOfDay(pDate) <= startOfDay(targetDate)) {
+                    amountPaidAsOfDate += (Number(p.amount || p.monto) || 0);
+                }
+            }
+        });
+    } else {
+        const cDate = getCashDate(order);
+        if (cDate && startOfDay(cDate) <= startOfDay(targetDate)) {
+            amountPaidAsOfDate = getEffectiveCashReceived(order);
+        }
+    }
+
+    const roundedTotal = roundCurrency(order.totalAmount || 0);
+    const remaining = Math.max(0, roundedTotal - amountPaidAsOfDate);
+
+    // Si quedaban centavos o ya estaba pagada
+    if (remaining <= 0.50) return 0;
+
+    return remaining;
+}
+
 export const FOREIGN_CURRENCY_PAYMENT_METHODS = [
     'Efectivo USD',
     'Efectivo $',
@@ -169,7 +229,8 @@ export function getInvoiceFromOrder(order: Order, fallbackTreasuryDiscount: numb
     const amountPaid = getEffectiveCashReceived(order);
     const commercialDiscountPercent = getOrderCommercialDiscountPercent(order, undefined, fallbackTreasuryDiscount);
     
-    const isAlreadyNetOrDiscounted = (order as any).incentivesApplied === true || (order as any).isNetPrice === true;
+    const hasFractionalNetDecimals = (order.totalAmount % 1 !== 0) && (order.totalAmount.toString().split('.')[1]?.length > 2);
+    const isAlreadyNetOrDiscounted = (order as any).incentivesApplied === true || (order as any).isNetPrice === true || hasFractionalNetDecimals;
     const effectiveCommDiscount = isAlreadyNetOrDiscounted ? 0 : commercialDiscountPercent;
 
     const discountAmount = (order.totalAmount * effectiveCommDiscount) / 100;
@@ -177,8 +238,9 @@ export function getInvoiceFromOrder(order: Order, fallbackTreasuryDiscount: numb
     const isExplicitlyPaid = order.status === 'Pagado';
     
     // Base Deuda Bruta a Lista BCV (sin doble descuento)
-    const grossRemainingBalance = isExplicitlyPaid ? 0 : Math.max(0, order.totalAmount - amountPaid);
-    const netCashBalance = isExplicitlyPaid ? 0 : Math.max(0, netPayableTotal - amountPaid);
+    const roundedTotal = roundCurrency(order.totalAmount);
+    const grossRemainingBalance = isExplicitlyPaid ? 0 : Math.max(0, roundedTotal - amountPaid);
+    const netCashBalance = isExplicitlyPaid ? 0 : Math.max(0, roundCurrency(netPayableTotal) - amountPaid);
     const remainingBalance = grossRemainingBalance;
 
     let status: Invoice['status'] = 'Por Vencer';
@@ -219,7 +281,7 @@ export function getInvoiceFromOrder(order: Order, fallbackTreasuryDiscount: numb
         salespersonId: order.salespersonId,
         salespersonName: order.salespersonName,
         customerPhone: order.customerPhone || '',
-        amountTotal: order.totalAmount,
+        amountTotal: roundedTotal,
         amountPaid: amountPaid,
         remainingBalance: remainingBalance,
         netCashBalance: netCashBalance,
@@ -235,6 +297,85 @@ export function getInvoiceFromOrder(order: Order, fallbackTreasuryDiscount: numb
     } as any;
 }
 
+/**
+ * FÓRMULA OFICIAL DE DESCUENTO EN CASCADA (SUCESIVO) ATHLETICENTER
+ * 1. Descuento Divisas/Contado (25%) aplicado al total de lista.
+ * 2. Descuento Pronto Pago (10% a 7D ó 5% a 15D) aplicado SOBRE el subtotal de contado resultante.
+ * 3. Si el pago ocurre en Mora (>30 días), 0% Descuento (100% Lista).
+ */
+export function calculateCascadePaymentDetails(order: Order, paymentDate: Date = new Date()): {
+    listTotalUSD: number;
+    cashSubtotalUSD: number;
+    earlyPaymentDiscountPercent: number;
+    finalNetPayableUSD: number;
+    savingsUSD: number;
+    tierName: string;
+    isOverdue: boolean;
+} {
+    const listTotalUSD = roundCurrency(order.totalAmount || 0);
+    if (listTotalUSD <= 0) {
+        return { listTotalUSD: 0, cashSubtotalUSD: 0, earlyPaymentDiscountPercent: 0, finalNetPayableUSD: 0, savingsUSD: 0, tierName: 'N/A', isOverdue: false };
+    }
+
+    const hasFractionalNetDecimals = ((order.totalAmount || 0) % 1 !== 0) && ((order.totalAmount || 0).toString().split('.')[1]?.length > 2);
+
+    if ((order as any).isNetPrice === true || (order as any).incentivesApplied === true || hasFractionalNetDecimals) {
+        return {
+            listTotalUSD,
+            cashSubtotalUSD: listTotalUSD,
+            earlyPaymentDiscountPercent: 0,
+            finalNetPayableUSD: listTotalUSD,
+            savingsUSD: 0,
+            tierName: 'Precio Neto Fijo Registrado',
+            isOverdue: false
+        };
+    }
+
+    const salesDate = getSalesDate(order);
+    const extension = typeof order.extensionDays === 'number' && order.extensionDays > 0 ? order.extensionDays : 0;
+    const dueDate = addDays(salesDate, 30 + extension);
+    const daysSinceSales = differenceInDays(paymentDate, salesDate);
+
+    if (paymentDate > dueDate) {
+        return {
+            listTotalUSD,
+            cashSubtotalUSD: listTotalUSD,
+            earlyPaymentDiscountPercent: 0,
+            finalNetPayableUSD: listTotalUSD,
+            savingsUSD: 0,
+            tierName: 'Tarifa Plena de Lista (Mora Crítica)',
+            isOverdue: true
+        };
+    }
+
+    const bcvDiscountPct = (order as any).bcvDiscountSnapshot ?? order.treasurySnapshot?.bcvDiscountPercent ?? 25;
+    const cashSubtotalUSD = roundCurrency(listTotalUSD * (1 - (bcvDiscountPct / 100)));
+
+    let earlyPct = 0;
+    let tierName = 'Contado Base (16 a 30 Días)';
+
+    if (daysSinceSales <= 7) {
+        earlyPct = (order as any).earlyPayment7dSnapshot ?? 10;
+        tierName = 'Pronto Pago 7 Días (Contado + 10% OFF)';
+    } else if (daysSinceSales <= 15) {
+        earlyPct = (order as any).earlyPayment15dSnapshot ?? 5;
+        tierName = 'Pronto Pago 15 Días (Contado + 5% OFF)';
+    }
+
+    const finalNetPayableUSD = roundCurrency(cashSubtotalUSD * (1 - (earlyPct / 100)));
+    const savingsUSD = roundCurrency(listTotalUSD - finalNetPayableUSD);
+
+    return {
+        listTotalUSD,
+        cashSubtotalUSD,
+        earlyPaymentDiscountPercent: earlyPct,
+        finalNetPayableUSD,
+        savingsUSD,
+        tierName,
+        isOverdue: false
+    };
+}
+
 export function getPaymentSimulation(
     order: Order, 
     bcvRate: number = 78.50,
@@ -245,19 +386,12 @@ export function getPaymentSimulation(
     const grossTotal = order.totalAmount || 0;
     const grossRemaining = order.status === 'Pagado' ? 0 : Math.max(0, grossTotal - amountPaid);
     
-    const fallbackDiscount = treasurySettings?.defaultBcvDiscount !== undefined ? treasurySettings.defaultBcvDiscount : 25;
-    const commDiscountPercent = getOrderCommercialDiscountPercent(order, undefined, fallbackDiscount);
-
-    // PREVENCIÓN DE DOBLE DESCUENTO: Si la orden ya trae incentivos aplicados o fue guardada a tarifa neta
-    const isAlreadyNetOrDiscounted = (order as any).incentivesApplied === true || (order as any).isNetPrice === true;
-    const effectiveCommDiscount = isAlreadyNetOrDiscounted ? 0 : commDiscountPercent;
-
-    const netTotal = Math.max(0, grossTotal - (grossTotal * effectiveCommDiscount / 100));
+    const cascadeDetails = calculateCascadePaymentDetails(order, new Date());
+    const netTotal = cascadeDetails.finalNetPayableUSD;
     const netCashRemaining = order.status === 'Pagado' ? 0 : Math.max(0, netTotal - amountPaid);
 
-    // Pronto pago dinámico de Tesorería (Custodia por snapshot o fallback)
-    const early7Pct = order.treasurySnapshot?.earlyPayment7dPercent ?? treasurySettings?.earlyPayment7Days ?? 10;
-    const early15Pct = order.treasurySnapshot?.earlyPayment15dPercent ?? treasurySettings?.earlyPayment15Days ?? 5;
+    const early7Pct = (order as any).earlyPayment7dSnapshot ?? treasurySettings?.earlyPayment7Days ?? 10;
+    const early15Pct = (order as any).earlyPayment15dSnapshot ?? treasurySettings?.earlyPayment15Days ?? 5;
 
     const rawDate = order.receptionDate || order.approvalDate || order.orderDate || order.createdAt;
     let creditDays = 0;
@@ -286,7 +420,7 @@ export function getPaymentSimulation(
         prontoPago15dUsd: isOverdue ? grossRemaining : prontoPago15d,
         creditDays,
         isOverdue,
-        appliedDiscountPercent: effectiveCommDiscount
+        appliedDiscountPercent: cascadeDetails.earlyPaymentDiscountPercent
     };
 }
 
@@ -704,20 +838,25 @@ export async function processAutomaticCommissionsForPayment(
     paymentAmountUSD: number,
     paymentId: string,
     settings: any,
-    actorName: string = 'Sistema'
+    actorName: string = 'Sistema',
+    paymentMethod: string = 'CASH'
 ): Promise<boolean> {
     if (!firestore || !order || paymentAmountUSD <= 0) return false;
 
     try {
         const batch = writeBatch(firestore);
         const bcvRate = settings?.bcvRate || 36.5;
-        const paymentAmountBS = paymentAmountUSD * bcvRate;
+        const paymentAmountBS = roundCurrency(paymentAmountUSD * bcvRate);
         const invoiceNum = order.historicalInvoiceNumber || `#FACT-${(order.id || '').substring(0, 8).toUpperCase()}`;
 
         // Porcentajes dinámicos desde Tesorería / Perfil de Vendedor
         const salespersonRate = typeof order.salespersonCommissionRate === 'number' ? order.salespersonCommissionRate : (settings?.defaultCommission ?? 5);
         const managerRate = settings?.salesManagerCommission ?? 5;
         const adminRate = settings?.adminCommission ?? 0;
+
+        const spKey = getSalespersonKey(order);
+        const spName = getSalespersonDisplayName(order);
+        const clientNameStr = order.customerName || 'Cliente B2B';
 
         // 1. Comisión Vendedor Directo
         if (salespersonRate > 0) {
@@ -729,20 +868,28 @@ export async function processAutomaticCommissionsForPayment(
                 orderNumber: order.id,
                 invoiceNumber: invoiceNum,
                 paymentId: paymentId,
-                clientName: order.customerName || 'Cliente',
-                salespersonId: getSalespersonKey(order),
-                recipientUserId: getSalespersonKey(order),
-                recipientName: getSalespersonDisplayName(order),
+                customerName: clientNameStr,
+                clientName: clientNameStr,
+                salespersonId: spKey,
+                salespersonName: spName,
+                recipientUserId: spKey,
+                recipientName: spName,
                 recipientRole: 'SALESPERSON',
+                commissionType: 'vendedor',
                 paymentAmountUSD,
+                invoiceAmount: paymentAmountUSD,
                 paymentAmountBS,
                 bcvRate,
+                rateApplied: salespersonRate,
                 commissionPercent: salespersonRate,
+                salespersonCommissionAmount: spCommUSD,
                 commissionAmountUSD: spCommUSD,
                 commissionAmountBS: roundCurrency(spCommUSD * bcvRate),
+                commissionDate: serverTimestamp(),
                 collectionDate: serverTimestamp(),
                 currency: 'USD',
-                status: 'PENDING',
+                paymentMethod: paymentMethod || 'CASH',
+                status: 'pendiente',
                 createdAt: serverTimestamp(),
                 createdBy: actorName
             });
@@ -758,20 +905,28 @@ export async function processAutomaticCommissionsForPayment(
                 orderNumber: order.id,
                 invoiceNumber: invoiceNum,
                 paymentId: paymentId,
-                clientName: order.customerName || 'Cliente',
-                salespersonId: getSalespersonKey(order),
+                customerName: clientNameStr,
+                clientName: clientNameStr,
+                salespersonId: 'GERENCIA_SALES_MANAGER',
+                salespersonName: '👔 Jsutobermudez (Gerente de Ventas - Override)',
                 recipientUserId: 'gerencia_ventas_override',
                 recipientName: '👔 Jsutobermudez (Gerente de Ventas - Override)',
                 recipientRole: 'SALES_MANAGER',
+                commissionType: 'gerencia',
                 paymentAmountUSD,
+                invoiceAmount: paymentAmountUSD,
                 paymentAmountBS,
                 bcvRate,
+                rateApplied: managerRate,
                 commissionPercent: managerRate,
+                salespersonCommissionAmount: mgrCommUSD,
                 commissionAmountUSD: mgrCommUSD,
                 commissionAmountBS: roundCurrency(mgrCommUSD * bcvRate),
+                commissionDate: serverTimestamp(),
                 collectionDate: serverTimestamp(),
                 currency: 'USD',
-                status: 'PENDING',
+                paymentMethod: paymentMethod || 'CASH',
+                status: 'pendiente',
                 createdAt: serverTimestamp(),
                 createdBy: actorName
             });
@@ -787,20 +942,28 @@ export async function processAutomaticCommissionsForPayment(
                 orderNumber: order.id,
                 invoiceNumber: invoiceNum,
                 paymentId: paymentId,
-                clientName: order.customerName || 'Cliente',
-                salespersonId: getSalespersonKey(order),
+                customerName: clientNameStr,
+                clientName: clientNameStr,
+                salespersonId: 'ADMINISTRACION',
+                salespersonName: '🏢 Administración / Gestión de Cobranza',
                 recipientUserId: 'admin_override',
                 recipientName: '🏢 Administración / Gestión de Cobranza',
                 recipientRole: 'ADMIN',
+                commissionType: 'admin',
                 paymentAmountUSD,
+                invoiceAmount: paymentAmountUSD,
                 paymentAmountBS,
                 bcvRate,
+                rateApplied: adminRate,
                 commissionPercent: adminRate,
+                salespersonCommissionAmount: admCommUSD,
                 commissionAmountUSD: admCommUSD,
                 commissionAmountBS: roundCurrency(admCommUSD * bcvRate),
+                commissionDate: serverTimestamp(),
                 collectionDate: serverTimestamp(),
                 currency: 'USD',
-                status: 'PENDING',
+                paymentMethod: paymentMethod || 'CASH',
+                status: 'pendiente',
                 createdAt: serverTimestamp(),
                 createdBy: actorName
             });

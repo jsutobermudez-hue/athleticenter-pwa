@@ -636,6 +636,26 @@ export function ReportPaymentDialog({ invoice, mode = 'partial' }: { invoice: In
                                 </div>
                             </section>
 
+                            {/* WIDGET VISUAL: BARÓMETRO DE AHORRO EN VIVO */}
+                            {calculation.discountAmount > 0 && (
+                                <div className="p-4 rounded-2xl bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 text-white shadow-md flex items-center justify-between gap-3 animate-in fade-in-50 duration-300">
+                                    <div className="flex items-center gap-2.5">
+                                        <div className="h-8 w-8 rounded-xl bg-white/20 flex items-center justify-center shrink-0 shadow-inner">
+                                            <Sparkles className="h-4 w-4 text-amber-300 animate-pulse" />
+                                        </div>
+                                        <div>
+                                            <p className="text-[9px] font-black uppercase tracking-wider text-emerald-100">Incentivo de Cobranza en Cascada</p>
+                                            <p className="text-xs font-bold text-white">
+                                                Ahorro Total Concedido: <strong className="font-extrabold text-amber-300">${calculation.discountAmount.toFixed(2)} USD</strong>
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <Badge className="bg-amber-400 text-slate-950 font-black text-[9px] uppercase border-none shrink-0 shadow-sm">
+                                        {(calculation.discountAmount / (calculation.baseAmount || 1) * 100).toFixed(1)}% OFF TOTAL
+                                    </Badge>
+                                </div>
+                            )}
+
                             <section className="space-y-6">
                                 <div className="flex items-center gap-2 px-1">
                                     <Landmark className="h-4 w-4 text-primary" />

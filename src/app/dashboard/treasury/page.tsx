@@ -147,7 +147,7 @@ export default function TreasuryPage() {
       defaultBcvDiscount: 25,
       defaultCommission: 5,
       salesManagerCommission: 5,
-      adminCommission: 5,
+      adminCommission: 1,
       defaultOverhead: 10,
       earlyPayment7Days: 10,
       earlyPayment15Days: 5,
@@ -163,9 +163,9 @@ export default function TreasuryPage() {
   const liveFormulaSimulation = useMemo(() => {
     const costSample = 10; // Ejemplo base $10 USD
     const targetMargin = 60; // Margen base 60%
-    const commVendor = Number(formValues.defaultCommission || 5) / 100;
-    const commManager = Number(formValues.salesManagerCommission || 5) / 100;
-    const commAdmin = Number(formValues.adminCommission || 5) / 100;
+    const commVendor = Number(formValues.defaultCommission !== undefined ? formValues.defaultCommission : 5) / 100;
+    const commManager = Number(formValues.salesManagerCommission !== undefined ? formValues.salesManagerCommission : 5) / 100;
+    const commAdmin = Number(formValues.adminCommission !== undefined ? formValues.adminCommission : 1) / 100;
     const totalComm = commVendor + commManager + commAdmin;
     const overhead = Number(formValues.defaultOverhead || 10) / 100;
     const discount = Number(formValues.defaultBcvDiscount || 25) / 100;
@@ -344,7 +344,7 @@ export default function TreasuryPage() {
             defaultBcvDiscount: settings.defaultBcvDiscount !== undefined ? settings.defaultBcvDiscount : 25,
             defaultCommission: settings.defaultCommission || 5,
             salesManagerCommission: settings.salesManagerCommission || 5,
-            adminCommission: settings.adminCommission || 5,
+            adminCommission: settings.adminCommission !== undefined ? settings.adminCommission : 1,
             defaultOverhead: settings.defaultOverhead || 10,
             earlyPayment7Days: settings.earlyPayment7Days || 10,
             earlyPayment15Days: settings.earlyPayment15Days || 5,
