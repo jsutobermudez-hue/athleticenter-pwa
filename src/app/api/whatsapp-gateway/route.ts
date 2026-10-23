@@ -3,9 +3,9 @@ import { NextResponse } from 'next/server';
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { number, text, media, orderId } = body;
+    const { number, text, imageUrl, media, orderId } = body;
 
-    if (!number || (!text && !media)) {
+    if (!number || (!text && !media && !imageUrl)) {
       return NextResponse.json({ success: false, error: 'Número y contenido son requeridos.' }, { status: 400 });
     }
 
@@ -25,53 +25,38 @@ export async function POST(req: Request) {
 
     console.log(`[WhatsApp Gateway API] Intentando despacho a +${cleanPhone} (Orden: #${orderId || 'N/A'})`);
 
-    // TIER 1: INTENTAR API CLOUD (ULTRAMSG / PERSONALIZADO)
-    if (provider === 'ultramsg' || rawGatewayUrl.includes('ultramsg')) {
-      const isDocument = Boolean(media?.base64);
-      const targetEndpoint = isDocument 
-        ? `https://api.ultramsg.com/${instanceId}/messages/document`
-        : `https://api.ultramsg.com/${instanceId}/messages/chat`;
+    // TIER 1: SERVIDOR CENTRAL 24/7 EN SAO PAULO (http://35.199.85.127:3001/api/send)
+    try {
+      console.log(`[WhatsApp Gateway Sao Paulo] Intentando servidor principal en São Paulo 24/7...`);
+      const spRes = await fetch('http://35.199.85.127:3001/api/send', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer local-dev-key'
+        },
+        body: JSON.stringify({
+          number: cleanPhone,
+          text,
+          imageUrl,
+          media,
+          orderId
+        }),
+        signal: AbortSignal.timeout(8000)
+      });
 
-      const params = new URLSearchParams();
-      params.append('token', apiKey);
-      params.append('to', cleanPhone);
-
-      if (isDocument) {
-        params.append('document', media.base64);
-        params.append('filename', media.filename || 'Recibo_Oficial_Athleticenter.pdf');
-        params.append('caption', text || '');
-      } else {
-        params.append('body', text || '');
-      }
-
-      try {
-        const externalRes = await fetch(targetEndpoint, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: params.toString(),
-          signal: AbortSignal.timeout(8000)
-        });
-
-        if (externalRes.ok) {
-          const data = await externalRes.json().catch(() => ({}));
-          if (data.id || data.sent === 'true' || data.success) {
-            console.log(`[WhatsApp Gateway UltraMsg] ✅ Mensaje despachado con éxito:`, data);
-            return NextResponse.json({ success: true, messageId: data.id || data.messageId || 'ULTRAMSG_OK', provider: 'ultramsg' });
-          } else {
-            console.warn(`[WhatsApp Gateway UltraMsg] Respuesta de UltraMsg indicó error:`, data);
-          }
-        } else {
-          const errText = await externalRes.text().catch(() => '');
-          console.warn(`[WhatsApp Gateway UltraMsg] Servidor UltraMsg no disponible (${externalRes.status}):`, errText);
+      if (spRes.ok) {
+        const spData = await spRes.json().catch(() => ({}));
+        if (spData.success) {
+          console.log(`[WhatsApp Gateway Sao Paulo] ✅ Mensaje despachado mediante servidor 24/7 de São Paulo:`, spData);
+          return NextResponse.json({ success: true, messageId: spData.messageId || 'SAOPAULO_OK', provider: 'saopaulo' });
         }
-      } catch (cloudErr: any) {
-        console.warn(`[WhatsApp Gateway UltraMsg] Fallo de conexión con UltraMsg:`, cloudErr?.message || cloudErr);
       }
+    } catch (spErr) {
+      console.warn(`[WhatsApp Gateway Sao Paulo] Servidor http://35.199.85.127:3001 no respondió a tiempo.`);
     }
 
-    // TIER 2: FALLBACK A SERVIDOR LOCAL DE DESARROLLO (http://localhost:3001/api/send)
+    // TIER 2: SERVIDOR LOCAL DE RESPALDO (localhost:3001, whatsapp-server.js)
     try {
-      console.log(`[WhatsApp Gateway Local] Intentando servidor local de WhatsApp en http://localhost:3001/api/send...`);
       const localRes = await fetch('http://localhost:3001/api/send', {
         method: 'POST',
         headers: {
@@ -81,21 +66,22 @@ export async function POST(req: Request) {
         body: JSON.stringify({
           number: cleanPhone,
           text,
+          imageUrl,
           media,
           orderId
         }),
-        signal: AbortSignal.timeout(4000)
+        signal: AbortSignal.timeout(5000)
       });
 
       if (localRes.ok) {
         const localData = await localRes.json().catch(() => ({}));
         if (localData.success) {
-          console.log(`[WhatsApp Gateway Local] ✅ Mensaje despachado mediante servidor local de WhatsApp:`, localData);
+          console.log(`[WhatsApp Gateway Local] ✅ Mensaje despachado mediante servidor local de respaldo:`, localData);
           return NextResponse.json({ success: true, messageId: localData.messageId || 'LOCAL_OK', provider: 'local' });
         }
       }
     } catch (localErr) {
-      console.warn(`[WhatsApp Gateway Local] Servidor local http://localhost:3001 no activo o inalcanzable.`);
+      console.warn(`[WhatsApp Gateway Local] Servidor local http://localhost:3001 no activo o ocupado.`);
     }
 
     // TIER 3: NINGÚN GATEWAY AUTOMÁTICO CONECTADO -> NOTIFICAR FALLO PARA USAR ENLACE WA.ME CON 1-CLIC
