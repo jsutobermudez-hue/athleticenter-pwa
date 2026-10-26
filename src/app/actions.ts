@@ -90,7 +90,7 @@ export async function syncBcvRateAction() {
 
 export async function triggerPushNotificationAction(
     userIds: string[], 
-    payload: { title: string; body: string; url?: string }
+    payload: { title: string; body: string; url?: string; imageUrl?: string }
 ) {
     try {
         await ensureServerAuth();

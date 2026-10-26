@@ -1,6 +1,8 @@
 'use client';
 
 import React from 'react';
+import { orderStatusMessage } from '@/lib/whatsapp-templates';
+import { sendWhatsAppWithFeedback } from '@/lib/whatsapp-client';
 import type { Order } from '@/lib/definitions';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -24,19 +26,19 @@ export function OrderCard({ order, onSelect }: { order: Order; onSelect: (order:
     const cleanPhone = formatVenezuelaPhoneE164(order.customerPhone || '');
     const itemsCount = ((order as any).items || []).length;
     
-    const text = `*ATHLETICENTER C.A. - NOTIFICACIÓN DE PEDIDO B2B*\n\n` +
-      `Estimado(a) *${order.customerName}*,\n\n` +
-      `Le informamos sobre el estatus de su pedido N° *#${order.id.substring(0, 8).toUpperCase()}*:\n\n` +
-      `📦 *Estatus Actual:* ${order.status.toUpperCase()}\n` +
-      (order.trackingNumber ? `🚚 *N° Guía / Tracking:* ${order.trackingNumber}\n` : '') +
-      `💰 *Monto Total:* $${order.totalAmount.toFixed(2)} USD\n` +
-      (pendingDebt > 0.05 ? `⚠️ *Saldo Pendiente:* $${pendingDebt.toFixed(2)} USD\n` : `✅ *Estado de Pago:* Al Día\n`) +
-      `📍 *Asesor Asignado:* ${order.salespersonName || 'Atención General'}\n\n` +
-      `¿Desea consultar alguna novedad sobre su despacho?\n\n` +
-      `¡Estamos a su entera disposición!`;
-
-    const url = cleanPhone ? `https://wa.me/${cleanPhone}?text=${encodeURIComponent(text)}` : `https://wa.me/?text=${encodeURIComponent(text)}`;
-    window.open(url, '_blank');
+    sendWhatsAppWithFeedback({
+      phone: cleanPhone,
+      message: orderStatusMessage({
+        customerName: order.customerName,
+        orderId: order.id,
+        status: order.status,
+        trackingNumber: order.trackingNumber,
+        total: order.totalAmount,
+        pendingDebt,
+      }),
+      module: 'orders',
+      orderId: order.id,
+    });
   };
 
   return (

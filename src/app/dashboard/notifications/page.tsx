@@ -7,64 +7,29 @@ import {
   useMemoFirebase,
   useUser,
 } from '@/firebase';
-import { collection, orderBy, query, where, getDocs, writeBatch, limit, doc, updateDoc, setDoc, serverTimestamp } from 'firebase/firestore';
-import type { Notification, DirectMessage, User as AppUser, GroupChannel, Order } from '@/lib/definitions';
+import { collection, orderBy, query, where, getDocs, writeBatch, limit, doc, updateDoc, serverTimestamp } from 'firebase/firestore';
+import type { Notification, User as AppUser, Order } from '@/lib/definitions';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { 
   CheckCheck, 
   Loader2, 
-  MessageSquarePlus, 
-  Trash2, 
   Bell, 
   MessageSquare, 
-  Send, 
-  CheckCircle2, 
-  ShieldAlert, 
-  Info, 
-  Filter, 
-  Sparkles, 
-  FileText, 
-  Download,
-  Boxes,
-  CreditCard,
-  ShoppingCart,
-  Truck,
-  LifeBuoy,
+  Inbox,
   Search,
   ExternalLink,
-  ArrowLeft,
-  Clock,
-  User as UserIcon,
-  ChevronRight,
-  Inbox,
-  Users,
-  PlusCircle,
-  Hash,
-  Package
+  ArrowLeft
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
-import { NewMessageDialog } from './NewMessageDialog';
-import { DirectMessageThreadDialog, type ChatContact } from './DirectMessageThreadDialog';
-import { GroupChatWindow } from '@/components/dashboard/GroupChatWindow';
-import { CreateGroupDialog } from '@/components/dashboard/CreateGroupDialog';
-import { OrderTimelineModal } from '@/components/dashboard/OrderTimelineModal';
 import { cn } from '@/lib/utils';
 import { useRouter } from 'next/navigation';
-
-const DEFAULT_SYSTEM_GROUPS: Omit<GroupChannel, 'id'>[] = [
-  { name: '#general-anuncios', description: 'Comunicados corporativos para todo el equipo', iconName: 'Bell', isSystemDefault: true },
-  { name: '#equipo-ventas', description: 'Cotizaciones, ventas y atención a clientes B2B', iconName: 'ShoppingCart', isSystemDefault: true },
-  { name: '#almacen-despacho', description: 'Picking, empaque, rótulos QR y encomiendas', iconName: 'Truck', isSystemDefault: true },
-  { name: '#cobranzas-tesoreria', description: 'Verificación de pagos, facturación y finanzas', iconName: 'CreditCard', isSystemDefault: true },
-  { name: '#gerencia-superadmin', description: 'Canal de decisiones estratégicas y auditoría', iconName: 'ShieldAlert', isSystemDefault: true },
-];
+import { OrderTimelineModal } from '@/components/dashboard/OrderTimelineModal';
+import { ChatView } from './ChatView';
 
 export default function NotificationsPage() {
   const { user, profile: currentUser } = useUser();
@@ -72,24 +37,18 @@ export default function NotificationsPage() {
   const router = useRouter();
   const { toast } = useToast();
 
-  const [activeTab, setActiveTab] = useState<'notifications' | 'dms' | 'groups'>('notifications');
+  const [activeTab, setActiveTab] = useState<'notifications' | 'chats'>('notifications');
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [categoryFilter, setCategoryFilter] = useState<string>('todos');
   const [onlyUnread, setOnlyUnread] = useState<boolean>(false);
   const [isMarking, setIsMarking] = useState(false);
-  const [isNewMessageOpen, setIsNewMessageOpen] = useState(false);
-  const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
-
+  
   const [selectedNotification, setSelectedNotification] = useState<Notification | null>(null);
-  const [selectedGroup, setSelectedGroup] = useState<GroupChannel | null>(null);
-  const [activeThreadContact, setActiveThreadContact] = useState<ChatContact | null>(null);
-  const [isThreadOpen, setIsThreadOpen] = useState(false);
+  const [mobileDetailView, setMobileDetailView] = useState(false);
 
   // Modal para Traza 360° si se selecciona una orden
   const [timelineOrderId, setTimelineOrderId] = useState<string | null>(null);
   const [timelineOrder, setTimelineOrder] = useState<Order | null>(null);
-
-  const [mobileDetailView, setMobileDetailView] = useState(false);
 
   // Consulta de Notificaciones del Usuario
   const notificationsQuery = useMemoFirebase(
@@ -105,41 +64,12 @@ export default function NotificationsPage() {
   );
   const { data: allNotifications, isLoading: isLoadingInbox } = useCollection<Notification>(notificationsQuery);
 
-  // Consulta de Canales Grupales
-  const groupsQuery = useMemoFirebase(() => {
-    if (!firestore) return null;
-    return query(collection(firestore, 'group_channels'), orderBy('name', 'asc'), limit(50));
-  }, [firestore]);
-  const { data: dbGroups } = useCollection<GroupChannel>(groupsQuery);
-
-  // Inicializar grupos predeterminados si la colección está vacía
-  useEffect(() => {
-    if (firestore && dbGroups && dbGroups.length === 0 && currentUser?.role === 'superadmin') {
-      DEFAULT_SYSTEM_GROUPS.forEach(async (g) => {
-        const id = g.name.replace(/[^a-z0-9-]/gi, '-').toLowerCase();
-        await setDoc(doc(firestore, 'group_channels', id), {
-          ...g,
-          id,
-          membersCount: 1,
-          createdAt: serverTimestamp()
-        });
-      });
-    }
-  }, [firestore, dbGroups, currentUser?.role]);
-
-  // Consulta de Usuarios para Mensajería Directa
+  // Consulta de Usuarios
   const allUsersQuery = useMemoFirebase(() => {
     if (!firestore || !currentUser) return null;
     return query(collection(firestore, 'users'), limit(300));
   }, [firestore, currentUser]);
   const { data: allUsers } = useCollection<AppUser>(allUsersQuery);
-
-  // Seleccionar automáticamente la primera notificación al cargar
-  useEffect(() => {
-    if (allNotifications && allNotifications.length > 0 && !selectedNotification) {
-      setSelectedNotification(allNotifications[0]);
-    }
-  }, [allNotifications, selectedNotification]);
 
   // Filtrado de Notificaciones
   const filteredNotifications = useMemo(() => {
@@ -194,17 +124,6 @@ export default function NotificationsPage() {
     }
   };
 
-  const handleStartDirectChat = (contactUser: AppUser) => {
-    setActiveThreadContact({
-      id: contactUser.id,
-      name: contactUser.name,
-      avatarUrl: contactUser.avatarUrl,
-      role: contactUser.role,
-      email: contactUser.email
-    });
-    setIsThreadOpen(true);
-  };
-
   const handleOpenOrderModal = (orderId: string) => {
     setTimelineOrder({
       id: orderId,
@@ -215,8 +134,8 @@ export default function NotificationsPage() {
       totalAmount: 0,
       amountPaid: 0,
       status: 'Aprobado',
-      createdAt: serverTimestamp(),
-      orderDate: serverTimestamp(),
+      createdAt: serverTimestamp() as any,
+      orderDate: serverTimestamp() as any,
       customerPhone: '',
       items: [],
       paymentStatus: 'Pendiente'
@@ -240,28 +159,14 @@ export default function NotificationsPage() {
             )}
           </div>
           <h1 className="text-xl sm:text-2xl lg:text-3xl font-black uppercase tracking-tight text-white truncate">
-            Notificaciones & Chat de Equipo
+            Centro de Comunicaciones
           </h1>
           <p className="text-[11px] sm:text-xs text-slate-400 font-bold uppercase tracking-wider">
-            Comunicación instantánea, alertas de pedidos, chats directos y canales grupales
+            Alertas del sistema y mensajería unificada (Directos y Grupos)
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2 relative z-10 shrink-0">
-          <Button
-            onClick={() => setIsNewMessageOpen(true)}
-            className="bg-white/10 hover:bg-white/20 text-white border border-white/20 font-black text-[10px] sm:text-xs uppercase px-3.5 h-10 rounded-xl flex items-center gap-1.5 shadow-sm"
-          >
-            <MessageSquarePlus className="h-4 w-4 text-emerald-400" /> Mensaje Directo
-          </Button>
-
-          <Button
-            onClick={() => setIsCreateGroupOpen(true)}
-            className="bg-indigo-600 hover:bg-indigo-700 text-white font-black text-[10px] sm:text-xs uppercase px-3.5 h-10 rounded-xl flex items-center gap-1.5 shadow-md"
-          >
-            <PlusCircle className="h-4 w-4" /> Crear Grupo
-          </Button>
-
           {unreadCount > 0 && (
             <Button
               onClick={handleMarkAllAsRead}
@@ -276,7 +181,7 @@ export default function NotificationsPage() {
         </div>
       </div>
 
-      {/* BARRA DE PESTAÑAS DE NAVEGACIÓN ADAPTATIVA */}
+      {/* BARRA DE PESTAÑAS */}
       <div className="flex items-center gap-2 bg-white p-2 rounded-2xl border border-slate-200 shadow-sm overflow-x-auto">
         <Button
           onClick={() => setActiveTab('notifications')}
@@ -287,34 +192,22 @@ export default function NotificationsPage() {
           )}
         >
           <Bell className="h-4 w-4 text-indigo-400" />
-          <span>Notificaciones PWA</span>
+          <span>Alertas del Sistema</span>
           {unreadCount > 0 && (
             <Badge className="bg-rose-500 text-white text-[9px] font-black h-5 px-1.5 rounded-full">{unreadCount}</Badge>
           )}
         </Button>
 
         <Button
-          onClick={() => setActiveTab('dms')}
-          variant={activeTab === 'dms' ? 'default' : 'ghost'}
+          onClick={() => setActiveTab('chats')}
+          variant={activeTab === 'chats' ? 'default' : 'ghost'}
           className={cn(
             'flex-1 font-black text-xs uppercase rounded-xl h-11 flex items-center justify-center gap-2 transition-all',
-            activeTab === 'dms' ? 'bg-slate-900 text-white shadow-md' : 'text-slate-600 hover:bg-slate-50'
+            activeTab === 'chats' ? 'bg-slate-900 text-white shadow-md' : 'text-slate-600 hover:bg-slate-50'
           )}
         >
           <MessageSquare className="h-4 w-4 text-emerald-400" />
-          <span>Chats Directos (1-a-1)</span>
-        </Button>
-
-        <Button
-          onClick={() => setActiveTab('groups')}
-          variant={activeTab === 'groups' ? 'default' : 'ghost'}
-          className={cn(
-            'flex-1 font-black text-xs uppercase rounded-xl h-11 flex items-center justify-center gap-2 transition-all',
-            activeTab === 'groups' ? 'bg-slate-900 text-white shadow-md' : 'text-slate-600 hover:bg-slate-50'
-          )}
-        >
-          <Users className="h-4 w-4 text-amber-400" />
-          <span>Canales & Grupos</span>
+          <span>Bandeja de Chats</span>
         </Button>
       </div>
 
@@ -332,7 +225,7 @@ export default function NotificationsPage() {
                 <Input
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  placeholder="Buscar notificación..."
+                  placeholder="Buscar alerta..."
                   className="pl-10 h-11 rounded-2xl bg-slate-50 border-slate-200 text-xs font-bold"
                 />
               </div>
@@ -372,8 +265,7 @@ export default function NotificationsPage() {
               ) : filteredNotifications.length === 0 ? (
                 <div className="p-8 text-center space-y-2 bg-slate-50/50 rounded-2xl border border-dashed border-slate-200">
                   <Inbox className="h-8 w-8 text-slate-400 mx-auto" />
-                  <p className="text-xs font-black uppercase text-slate-700">Sin Notificaciones</p>
-                  <p className="text-[9px] font-bold text-slate-400 uppercase">No hay elementos que coincidan con la búsqueda</p>
+                  <p className="text-xs font-black uppercase text-slate-700">Sin Alertas</p>
                 </div>
               ) : (
                 filteredNotifications.map((n) => {
@@ -401,7 +293,6 @@ export default function NotificationsPage() {
                         </Badge>
                         <span className="text-[9px] font-mono text-slate-400 font-bold">{formattedTime}</span>
                       </div>
-
                       <h4 className="text-xs font-black uppercase text-slate-900 truncate">{n.title}</h4>
                       <p className="text-[11px] font-bold text-slate-600 line-clamp-2 leading-tight">{n.message}</p>
                     </div>
@@ -418,7 +309,6 @@ export default function NotificationsPage() {
           )}>
             {selectedNotification ? (
               <div className="space-y-6">
-                {/* BOTÓN VOLVER EN MÓVIL */}
                 <div className="md:hidden">
                   <Button
                     variant="outline"
@@ -447,7 +337,6 @@ export default function NotificationsPage() {
                   </p>
                 </div>
 
-                {/* ACCIONES AL PIE */}
                 <div className="pt-4 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3">
                   {selectedNotification.link && selectedNotification.link !== '#' && (
                     <Button
@@ -464,173 +353,23 @@ export default function NotificationsPage() {
                       <ExternalLink className="h-4 w-4 text-emerald-400" /> Abrir Módulo Afectado
                     </Button>
                   )}
-
-                  <Button
-                    onClick={() => setActiveTab('dms')}
-                    variant="outline"
-                    className="border-indigo-200 text-indigo-700 bg-indigo-50/50 hover:bg-indigo-100 font-black text-xs uppercase px-4 h-10 rounded-xl flex items-center gap-2 w-full sm:w-auto"
-                  >
-                    <MessageSquare className="h-4 w-4 text-indigo-600" /> Abrir Chat Directo
-                  </Button>
                 </div>
               </div>
             ) : (
               <div className="my-auto text-center space-y-3 p-8 sm:p-12">
                 <Inbox className="h-10 w-10 text-slate-300 mx-auto" />
-                <h4 className="text-xs sm:text-sm font-black uppercase text-slate-700">Selecciona una Notificación</h4>
-                <p className="text-[11px] text-slate-400 uppercase font-bold max-w-xs mx-auto">
-                  Elige cualquier aviso de la lista para inspeccionar sus detalles e interactuar.
-                </p>
+                <h4 className="text-xs sm:text-sm font-black uppercase text-slate-700">Selecciona una Alerta</h4>
               </div>
             )}
           </div>
         </div>
       )}
 
-      {/* VISTA 2: MENSAJERÍA DIRECTA 1-A-1 */}
-      {activeTab === 'dms' && (
-        <div className="bg-white p-6 sm:p-8 rounded-[2rem] border border-slate-200/80 shadow-sm space-y-6">
-          <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-100 pb-4">
-            <div>
-              <h3 className="text-lg font-black uppercase text-slate-900 tracking-tight flex items-center gap-2">
-                <MessageSquare className="h-5 w-5 text-emerald-600" /> Directorio de Mensajería Directa
-              </h3>
-              <p className="text-xs text-slate-500 font-bold uppercase mt-0.5">
-                Chatea en privado de 1-a-1 con cualquier asesor, almacenista o superadministrador
-              </p>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {allUsers?.map((u) => {
-              if (u.id === currentUser?.id) return null;
-              return (
-                <div
-                  key={u.id}
-                  onClick={() => handleStartDirectChat(u)}
-                  className="p-4 rounded-2xl border border-slate-200/80 hover:border-emerald-500/50 hover:bg-emerald-50/30 transition-all cursor-pointer flex items-center justify-between gap-3 group shadow-sm"
-                >
-                  <div className="flex items-center gap-3 min-w-0">
-                    <Avatar className="h-11 w-11 rounded-2xl border border-slate-200 shrink-0">
-                      <AvatarImage src={u.avatarUrl} />
-                      <AvatarFallback className="bg-slate-900 text-white font-black text-xs">
-                        {u.name.substring(0, 2).toUpperCase()}
-                      </AvatarFallback>
-                    </Avatar>
-
-                    <div className="min-w-0">
-                      <h4 className="text-xs font-black uppercase text-slate-900 truncate group-hover:text-emerald-700 transition-colors">
-                        {u.name}
-                      </h4>
-                      <Badge variant="secondary" className="text-[8px] font-mono font-black uppercase px-2 h-4 bg-slate-100">
-                        {u.role}
-                      </Badge>
-                    </div>
-                  </div>
-
-                  <ChevronRight className="h-5 w-5 text-slate-400 group-hover:text-emerald-600 transition-transform group-hover:translate-x-1 shrink-0" />
-                </div>
-              );
-            })}
-          </div>
-        </div>
+      {/* VISTA 2: NUEVO CENTRO DE CHATS */}
+      {activeTab === 'chats' && (
+        <ChatView allUsers={allUsers || []} />
       )}
 
-      {/* VISTA 3: CANALES GRUPALES Y DEPARTAMENTOS */}
-      {activeTab === 'groups' && (
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 min-h-[550px]">
-          {/* LISTA DE GRUPOS */}
-          <div className="lg:col-span-4 bg-white p-5 rounded-[2rem] border border-slate-200/80 shadow-sm space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-black uppercase text-slate-900 flex items-center gap-2">
-                <Users className="h-4 w-4 text-indigo-600" /> Canales de Equipo
-              </h3>
-              <Button
-                size="sm"
-                onClick={() => setIsCreateGroupOpen(true)}
-                className="h-8 text-[9px] font-black uppercase px-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white"
-              >
-                + Nuevo
-              </Button>
-            </div>
-
-            <div className="space-y-2 max-h-[480px] overflow-y-auto custom-scrollbar">
-              {dbGroups?.map((g) => {
-                const isSelected = selectedGroup?.id === g.id;
-                return (
-                  <div
-                    key={g.id}
-                    onClick={() => setSelectedGroup(g)}
-                    className={cn(
-                      'p-4 rounded-2xl border transition-all cursor-pointer space-y-1',
-                      isSelected ? 'bg-indigo-50/80 border-indigo-300 ring-2 ring-indigo-500/20' : 'bg-white border-slate-200/80 hover:bg-slate-50'
-                    )}
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-xs font-black uppercase text-slate-900 flex items-center gap-1.5">
-                        <Hash className="h-3.5 w-3.5 text-indigo-600" /> {g.name}
-                      </span>
-                      {g.isSystemDefault && (
-                        <Badge variant="outline" className="text-[7px] font-mono font-black uppercase px-1.5 h-4 border-indigo-200 text-indigo-700">
-                          OFICIAL
-                        </Badge>
-                      )}
-                    </div>
-                    <p className="text-[10px] font-bold text-slate-500 uppercase line-clamp-1">{g.description}</p>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* VENTANA DEL CANAL SELECCIONADO */}
-          <div className="lg:col-span-8 min-h-[500px]">
-            {selectedGroup ? (
-              <GroupChatWindow
-                channel={selectedGroup}
-                onSelectOrderRef={(orderId) => handleOpenOrderModal(orderId)}
-              />
-            ) : (
-              <div className="bg-white p-12 rounded-[2rem] border border-slate-200/80 h-full flex flex-col items-center justify-center text-center space-y-3">
-                <Users className="h-12 w-12 text-slate-300" />
-                <h4 className="text-sm font-black uppercase text-slate-800">Selecciona un Canal Grupal</h4>
-                <p className="text-xs text-slate-400 font-bold uppercase max-w-xs">
-                  Elige un canal corporativo de la izquierda para ver los mensajes del equipo y colaborar.
-                </p>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* DIÁLOGO MODAL PARA MENSAJE DIRECTO 1-A-1 */}
-      {isThreadOpen && activeThreadContact && (
-        <DirectMessageThreadDialog
-          isOpen={isThreadOpen}
-          onOpenChange={setIsThreadOpen}
-          contact={activeThreadContact}
-        />
-      )}
-
-      {/* DIÁLOGO PARA NUEVO MENSAJE */}
-      <NewMessageDialog
-        isOpen={isNewMessageOpen}
-        onOpenChange={setIsNewMessageOpen}
-        allUsers={allUsers || []}
-        onMessageSent={(contactUser) => handleStartDirectChat(contactUser)}
-      />
-
-      {/* DIÁLOGO PARA CREAR GRUPO */}
-      <CreateGroupDialog
-        isOpen={isCreateGroupOpen}
-        onOpenChange={setIsCreateGroupOpen}
-        onGroupCreated={(id) => {
-          const newG = dbGroups?.find(g => g.id === id);
-          if (newG) setSelectedGroup(newG);
-        }}
-      />
-
-      {/* MODAL DE TRAZA 360° SI SE MENCIONA UN PEDIDO */}
       {timelineOrder && (
         <OrderTimelineModal
           order={timelineOrder}

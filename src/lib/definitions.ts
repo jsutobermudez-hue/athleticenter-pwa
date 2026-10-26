@@ -630,3 +630,27 @@ export interface CommissionRecord extends Auditable {
   liquidatedAt?: Timestamp | any;
 }
 
+
+export interface ChatRoom extends Auditable {
+  id: string;
+  name?: string; // Solo para grupos
+  type: 'direct' | 'group';
+  participants: string[];
+  participantNames?: string[]; // Desnormalizado para búsqueda
+  lastMessage?: string;
+  lastMessageAt?: Timestamp | any;
+  avatarUrl?: string; // Para grupos
+  createdBy: string;
+}
+
+export interface ChatMessage extends Auditable {
+  id: string;
+  roomId: string;
+  senderId: string;
+  senderName: string;
+  senderAvatarUrl?: string;
+  body: string;
+  isSystemMessage?: boolean; // Para cuando se une alguien
+  readBy: string[]; // Arreglo de UIDs que han leído
+  createdAt: Timestamp | any;
+}

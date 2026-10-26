@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useMemo } from 'react';
+import { dispatchMessage } from '@/lib/whatsapp-templates';
 import {
   MoreHorizontal,
   Play,
@@ -91,13 +92,13 @@ function LogisticsOrderCard({ order, onOpenDialog, onNavigateToDetails, onZoom }
         e.stopPropagation();
         const cleanPhone = formatVenezuelaPhoneE164(order.customerPhone || '');
 
-        const text = `*ATHLETICENTER C.A. - NOTIFICACIÓN DE DESPACHO*\n\n` +
-            `Estimado(a) *${order.customerName}*,\n\n` +
-            `Su pedido N° *#${order.id.substring(0, 8).toUpperCase()}* ha sido despachado:\n\n` +
-            `🚚 *Empresa de Transporte:* ${order.carrier || (order as any).paymentMethod || 'Encomienda Nacional'}\n` +
-            `📍 *N° de Guía / Tracking:* ${order.trackingNumber || order.internalTrackingNumber || 'S/D'}\n` +
-            `📦 *Bultos:* ${order.packageCount || 1}\n\n` +
-            `Quedamos atentos a su confirmación de recepción. ¡Muchas gracias!`;
+        const text = dispatchMessage({
+            customerName: order.customerName,
+            orderId: order.id,
+            carrier: order.carrier || (order as any).paymentMethod,
+            trackingNumber: order.trackingNumber || order.internalTrackingNumber,
+            packages: order.packageCount,
+        });
 
         dispatchUniversalWhatsApp({
             phone: cleanPhone,

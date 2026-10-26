@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useState, useMemo } from 'react';
+import { welcomeMessage } from '@/lib/whatsapp-templates';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -248,11 +249,7 @@ export function NewUserDialog({ buttonLabel = "Crear Usuario", defaultRole = 've
                 if (cleanPhone) {
                     const spName = sp?.name || currentUser?.name || 'Athleticenter C.A.';
                     const creditLimit = Number(data.creditLimit || 0);
-                    const welcomeMsg = `¡Bienvenido(a) a Athleticenter C.A., ${data.razonSocial || clientName}! 🏆\n\n` +
-                        `Hemos registrado su ficha comercial en nuestro sistema:\n` +
-                        `• Asesor Asignado: ${spName}\n` +
-                        `• Límite de Crédito: $${creditLimit.toFixed(2)} USD\n\n` +
-                        `Quedamos a su entera disposición para gestionar sus pedidos y consultas. ¡Gracias por confiar en nosotros!`;
+                    const welcomeMsg = welcomeMessage({ name: data.razonSocial || clientName, creditLimit });
                     
                     dispatchUniversalWhatsApp({
                         phone: cleanPhone,

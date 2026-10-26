@@ -28,7 +28,7 @@ export async function generateWhatsAppReminder(input: WhatsAppReminderInput): Pr
 
 const whatsAppPrompt = ai.definePrompt({
   name: 'whatsAppCreditReminderPrompt',
-  model: 'googleai/gemini-1.5-flash',
+  model: 'googleai/gemini-2.5-flash',
   input: {schema: WhatsAppReminderInputSchema},
   output: {schema: WhatsAppReminderOutputSchema},
   prompt: `Eres un asistente útil que genera mensajes de WhatsApp para recordar a los clientes sobre su crédito y descuentos.
@@ -41,6 +41,8 @@ const whatsAppPrompt = ai.definePrompt({
   Si hay un descuento disponible (discountPercentage > 0), el mensaje debe resaltar el descuento y fomentar el pago puntual. Si no hay descuento (discountPercentage es 0), el mensaje debe recordar los días de crédito restantes.
 
   El mensaje debe ser amigable y profesional. Sé breve y directo.
+
+  REGLAS OBLIGATORIAS: No menciones nombres de personas, vendedores ni asesores; firma siempre como "el equipo de Athleticenter". No inventes montos, fechas, descuentos ni plazos distintos a los datos entregados. Máximo 60 palabras, tono cordial y profesional, con formato WhatsApp (*negritas*) y un máximo de 2 emojis.
 
   Responde en el siguiente formato JSON:
   {

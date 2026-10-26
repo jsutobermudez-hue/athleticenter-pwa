@@ -2,6 +2,8 @@
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
+import { billingReminderMessage } from '@/lib/whatsapp-templates';
+import { sendWhatsAppWithFeedback } from '@/lib/whatsapp-client';
 import { useSearchParams, useRouter } from 'next/navigation';
 import {
   Table,
@@ -440,20 +442,17 @@ export function AdminBillingView() {
   const handleSendWhatsAppInvoiceReminder = (invoice: Invoice, order?: Order) => {
     const cleanPhone = formatVenezuelaPhoneE164(order?.customerPhone || '');
 
-    const text = `*ATHLETICENTER C.A. - RECORDATORIO DE FACTURACIÓN Y PAGO*\n\n` +
-      `Estimado(a) *${invoice.customerName}*,\n\n` +
-      `Le saludamos del Departamento de Cobranzas. Le recordamos el estado de su expediente de facturación:\n\n` +
-      `📄 *Expediente:* #${invoice.id.substring(0, 8).toUpperCase()}\n` +
-      `💰 *Saldo Pendiente:* $${invoice.remainingBalance.toFixed(2)} USD\n` +
-      `📅 *Estado:* ${invoice.statusText}\n\n` +
-      `Por favor agradeceremos el envío de su comprobante de pago para proceder con la conciliación inmediata.\n\n` +
-      `¡Muchas gracias por su preferencia!`;
-
-    const url = cleanPhone 
-      ? `https://wa.me/${cleanPhone}?text=${encodeURIComponent(text)}` 
-      : `https://wa.me/?text=${encodeURIComponent(text)}`;
-
-    window.open(url, '_blank');
+    sendWhatsAppWithFeedback({
+      phone: cleanPhone,
+      message: billingReminderMessage({
+        customerName: invoice.customerName,
+        invoiceId: invoice.id,
+        remainingBalance: invoice.remainingBalance,
+        statusText: invoice.statusText,
+      }),
+      module: 'billing',
+      orderId: invoice.id,
+    });
   };
 
   const handleClearFilters = () => {

@@ -9,6 +9,7 @@ interface NotificationParams {
   message: string;
   category: NotificationCategory;
   link?: string;
+  imageUrl?: string;
   initiatorId: string;
   userIds?: (string | undefined)[];
   roles?: User['role'][];
@@ -32,6 +33,7 @@ export async function createAppNotifications(
     message, 
     category, 
     link, 
+    imageUrl,
     initiatorId, 
     userIds = [], 
     roles = [], 
@@ -123,7 +125,8 @@ export async function createAppNotifications(
       await triggerPushNotificationAction(finalTargetIds, {
         title,
         body: message,
-        url: link || '#'
+        url: link || '#',
+        imageUrl
       });
     } catch (pushErr) {
       console.warn("[Notifications] Error al invocar la acción de envío push:", pushErr);
@@ -132,16 +135,22 @@ export async function createAppNotifications(
     // 2. DISPARAR NOTIFICACIÓN OMNICANAL AUTOMÁTICA POR WHATSAPP EN SEGUNDO PLANO
     try {
       const { dispatchUniversalWhatsApp } = await import('./whatsapp-universal');
+      const { internalNoticeMessage } = await import('./whatsapp-templates');
       // Buscar teléfonos de los usuarios destinatarios o cliente
-      const userSnaps = await Promise.all(finalTargetIds.slice(0, 5).map(id => getDocs(query(collection(firestore, 'users'), where('__name__', '==', id), limit(1)))));
+      const { getDoc } = await import('firebase/firestore');
+      const userSnaps = await Promise.all(finalTargetIds.map(id => getDoc(doc(firestore, 'users', id))));
       
       for (const uSnap of userSnaps) {
-        if (!uSnap.empty) {
-          const uData = uSnap.docs[0].data();
-          if (uData.phone) {
+        if (uSnap.exists()) {
+          const uData = uSnap.data();
+          // Los clientes NO reciben avisos internos por WhatsApp (evita mensajes dobles y texto interno)
+          if (uData.role === 'cliente') continue;
+          const targetPhone = uData.phone || uData.whatsappPhone || uData.phoneNumber;
+          if (targetPhone) {
             dispatchUniversalWhatsApp({
-              phone: uData.phone,
-              message: `📱 *ATHLETICENTER OMNICANAL*\n\n*${title}*\n\n${message}`,
+              phone: targetPhone,
+              imageUrl,
+              message: internalNoticeMessage(title, message),
               module: 'orders'
             }).catch(e => console.warn("[Notifications] Error en despacho WhatsApp:", e));
           }

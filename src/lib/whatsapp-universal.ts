@@ -9,11 +9,12 @@ import { sendBackgroundWhatsAppMessage } from './whatsapp-gateway';
 export interface UniversalWhatsAppParams {
   phone?: string;
   message: string;
+  imageUrl?: string;
   pdfBase64?: string;
   fileName?: string;
   orderId?: string;
   quoteId?: string;
-  module?: 'billing' | 'quotes' | 'dispatch' | 'orders' | 'clients' | 'marketing' | 'treasury';
+  module?: 'billing' | 'quotes' | 'dispatch' | 'orders' | 'clients' | 'marketing' | 'treasury' | 'inventory';
 }
 
 /**
@@ -22,6 +23,7 @@ export interface UniversalWhatsAppParams {
 export async function dispatchUniversalWhatsApp({
   phone,
   message,
+  imageUrl,
   pdfBase64,
   fileName,
   orderId,
@@ -44,6 +46,7 @@ export async function dispatchUniversalWhatsApp({
     const res = await sendBackgroundWhatsAppMessage({
       phone: cleanPhone,
       message,
+      imageUrl,
       pdfBase64,
       fileName,
       orderId: orderId || quoteId
@@ -54,14 +57,14 @@ export async function dispatchUniversalWhatsApp({
       return { success: true, fallbackUrl };
     } else {
       console.warn(`[WhatsApp Universal] Servidores Gateway en segundo plano no disponibles (${res.error || 'Desconectado'}). Activando fallback directo a WhatsApp Web...`);
-      if (typeof window !== 'undefined') {
+      if (typeof window !== 'undefined' && module !== 'marketing') {
         window.open(fallbackUrl, '_blank');
       }
       return { success: false, fallbackUrl };
     }
   } catch (err) {
     console.warn(`[WhatsApp Universal] Aviso en gateway de fondo (módulo ${module}):`, err);
-    if (typeof window !== 'undefined') {
+    if (typeof window !== 'undefined' && module !== 'marketing') {
       window.open(fallbackUrl, '_blank');
     }
     return { success: false, fallbackUrl };

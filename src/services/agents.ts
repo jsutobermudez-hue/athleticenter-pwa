@@ -615,3 +615,89 @@ export async function executeDailyPricingAudit() {
 }
 
 
+
+
+/**
+ * BOT DE TESORERÍA: COBRANZA AUTOMÁTICA
+ * Escanea órdenes impagas y envía UN solo recordatorio por cliente (con todas sus facturas),
+ * con tono según antigüedad y un mínimo de 7 días entre avisos.
+ */
+export async function executeAutomatedDebtCollection(opts: { dryRun?: boolean; testPhone?: string } = {}) {
+  const MIN_DAYS_BETWEEN_REMINDERS = 7; // Anti-fatiga: máximo un aviso por cliente cada 7 días
+  const MIN_INVOICE_AGE_DAYS = 7;       // Solo facturas con 7+ días
+  const dryRun = opts.dryRun === true;
+  try {
+    const { firestore } = initializeFirebaseServer();
+    // Las reglas de Firestore exigen request.auth != null para leer órdenes
+    const { ensureServerAuth } = await import('@/firebase/server-init');
+    await ensureServerAuth();
+    const { collection, getDocs, query, where, doc, getDoc, updateDoc, serverTimestamp } = await import('firebase/firestore');
+    const { dispatchUniversalWhatsApp } = await import('@/lib/whatsapp-universal');
+    const { debtReminderMessage, debtToneForAge } = await import('@/lib/whatsapp-templates');
+
+    const ordersSnap = await getDocs(query(collection(firestore, 'orders'), where('status', '==', 'Facturado')));
+    const now = new Date();
+    const toDate = (v: any): Date | null => {
+      if (!v) return null;
+      if (typeof v.toDate === 'function') return v.toDate();
+      const d = new Date(v);
+      return isNaN(d.getTime()) ? null : d;
+    };
+
+    // 1) Agrupar las facturas pendientes por cliente (UN solo mensaje por cliente)
+    type Group = { customerId: string; customerName: string; phone: string; invoices: { id: string; pending: number; days: number }[] };
+    const groups = new Map<string, Group>();
+    for (const d of ordersSnap.docs) {
+      const o: any = d.data();
+      const pending = Number(o.totalAmount || 0) - Number(o.amountPaid || 0);
+      if (pending <= 0.5) continue;
+      const created = toDate(o.createdAt) || toDate(o.orderDate);
+      if (!created) continue;
+      const days = Math.floor((now.getTime() - created.getTime()) / 86_400_000);
+      if (days < MIN_INVOICE_AGE_DAYS) continue;
+      const key = String(o.customerId || o.customerPhone || o.customerName || d.id);
+      const g: Group = groups.get(key) || { customerId: String(o.customerId || ''), customerName: o.customerName || 'Cliente', phone: o.customerPhone || '', invoices: [] };
+      if (!g.phone && o.customerPhone) g.phone = o.customerPhone;
+      g.invoices.push({ id: d.id, pending, days });
+      groups.set(key, g);
+    }
+
+    let sentCount = 0;
+    const preview: { customer: string; invoices: number; tone: string; skipped?: string }[] = [];
+
+    for (const g of groups.values()) {
+      const oldest = g.invoices.reduce((m, i) => Math.max(m, i.days), 0);
+      const tone = debtToneForAge(oldest);
+      if (!g.phone && !opts.testPhone) { preview.push({ customer: g.customerName, invoices: g.invoices.length, tone, skipped: 'sin teléfono' }); continue; }
+
+      // 2) Memoria anti-fatiga por cliente
+      if (g.customerId) {
+        try {
+          const cs = await getDoc(doc(firestore, 'customers', g.customerId));
+          const last = toDate(cs.exists() ? (cs.data() as any).lastDebtReminderAt : null);
+          if (last && Math.floor((now.getTime() - last.getTime()) / 86_400_000) < MIN_DAYS_BETWEEN_REMINDERS) {
+            preview.push({ customer: g.customerName, invoices: g.invoices.length, tone, skipped: 'avisado hace menos de 7 días' });
+            continue;
+          }
+        } catch { /* si no se puede leer, seguimos */ }
+      }
+
+      const message = debtReminderMessage({ customerName: g.customerName, invoices: g.invoices, tone });
+      preview.push({ customer: g.customerName, invoices: g.invoices.length, tone });
+      if (dryRun) continue;
+
+      const res = await dispatchUniversalWhatsApp({ phone: opts.testPhone || g.phone, message, module: 'treasury' });
+      if (res?.success) {
+        sentCount++;
+        if (g.customerId && !opts.testPhone) {
+          try { await updateDoc(doc(firestore, 'customers', g.customerId), { lastDebtReminderAt: serverTimestamp(), lastDebtReminderTone: tone }); } catch { /* no bloquea */ }
+        }
+      }
+    }
+    console.log('[Debt Agent] Cobranza automática finalizada (' + (dryRun ? 'SIMULACIÓN' : 'EN VIVO') + '). Clientes con deuda: ' + groups.size + ', avisos enviados: ' + sentCount);
+    return dryRun ? { dryRun: true, customers: groups.size, preview } : sentCount;
+  } catch (e) {
+    console.error('[Debt Agent] Fallo en la cobranza automática:', e);
+    return 0;
+  }
+}

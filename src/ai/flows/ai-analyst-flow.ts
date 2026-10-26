@@ -1300,7 +1300,7 @@ export const aiAnalystFlow = ai.defineFlow(
         }
 
         const response = await ai.generate({
-          model: 'googleai/gemini-1.5-flash',
+          model: 'googleai/gemini-2.5-flash',
           tools: [
             getAutonomousExecutiveAlertsEngine,
             getAutonomousClientRiskScoring,

@@ -1,5 +1,32 @@
 node_modules/
 .next/
 .env.local
+.env
+.env.*
+!.env.example
 .wwebjs_auth/
 .wwebjs_cache/
+auth_info_baileys/
+
+# Firebase local artifacts
+.firebase/
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
+
+# WhatsApp pairing / QR artifacts (sensitive)
+*qr*.txt
+qr.py
+public/qr-*.png
+
+# One-off local scripts and scratch work
+scratch/
+scratch-*.mjs
+patch-*.js
+fix.js
+bot-server.mjs
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.log

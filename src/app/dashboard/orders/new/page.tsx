@@ -2,6 +2,7 @@
 'use client';
 
 import React, { useState, useMemo, useEffect, Suspense } from 'react';
+import { orderRegisteredMessage } from '@/lib/whatsapp-templates';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useCollection, useFirestore, useMemoFirebase, useUser, useDoc, errorEmitter, FirestorePermissionError } from '@/firebase';
 import { useCatalog } from '@/firebase/catalog-context';
@@ -362,11 +363,7 @@ const safeTotalAmount = isNaN(totalAmount) ? 0 : totalAmount;
                             autoSave: false
                         });
 
-                        const msg = `¡Hola, ${rawName}! 🛍️\n\n` +
-                            `Confirmamos que hemos registrado exitosamente tu pedido *#${finalOrderId}* en Athleticenter C.A.\n\n` +
-                            `• Total: $${safeTotalAmount.toFixed(2)} USD\n` +
-                            `• Asesor: ${spName}\n\n` +
-                            `Adjuntamos la Nota de Pedido correspondiente en PDF. ¡Muchas gracias por tu preferencia!`;
+                        const msg = orderRegisteredMessage({ customerName: rawName, orderId: finalOrderId, total: safeTotalAmount });
 
                         if (selectedCustomer?.phone) {
                             dispatchUniversalWhatsApp({

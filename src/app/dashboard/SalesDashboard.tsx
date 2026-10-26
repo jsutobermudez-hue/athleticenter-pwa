@@ -1,6 +1,8 @@
 'use client';
 
 import React, { useMemo, useState } from 'react';
+import { salesGreetingMessage } from '@/lib/whatsapp-templates';
+import { sendWhatsAppWithFeedback } from '@/lib/whatsapp-client';
 import { useCollection, useFirestore, useMemoFirebase } from '@/firebase';
 import { collection, query, where, limit, Timestamp } from 'firebase/firestore';
 import type { User, Order, Customer, Commission, Quote } from '@/lib/definitions';
@@ -94,9 +96,11 @@ export default function SalesDashboard({ user, profile }: { user: any, profile: 
         e.stopPropagation();
         const rawPhone = (c as any).phone || (c as any).telefono || '';
         const cleanPhone = formatVenezuelaPhoneE164(rawPhone);
-        const text = `Hola *${c.razonSocial}*, le saluda su asesor comercial en *ATHLETICENTER C.A.* Quedo a su disposición para apoyarle con nuevos requerimientos o cotizaciones.`;
-        const url = cleanPhone ? `https://wa.me/${cleanPhone}?text=${encodeURIComponent(text)}` : `https://wa.me/?text=${encodeURIComponent(text)}`;
-        window.open(url, '_blank');
+        sendWhatsAppWithFeedback({
+            phone: cleanPhone,
+            message: salesGreetingMessage({ customerName: c.razonSocial }),
+            module: 'clients',
+        });
     };
 
     return (

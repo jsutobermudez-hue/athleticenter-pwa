@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useMemo } from 'react';
+import { expedienteMessage } from '@/lib/whatsapp-templates';
 import { 
     Dialog, 
     DialogContent, 
@@ -335,17 +336,17 @@ export function OrderDetailsSheet({
       .map(i => `• ${i.product.name} ${i.size ? `[Talla ${i.size}]` : ''} x${i.quantity} ($${(i.unitPrice * i.quantity).toFixed(2)})`)
       .join('\n');
     
-    const text = `*ATHLETICENTER C.A. - ESTATUS DE EXPEDIENTE N° #${order.id.substring(0, 8).toUpperCase()}*\n\n` +
-      `👤 *Cliente:* ${order.customerName}\n` +
-      `📍 *RIF / Identificación:* ${finalCustomerRif || 'S/D'}\n` +
-      `📦 *Estatus Logístico:* ${order.status.toUpperCase()}\n` +
-      (order.trackingNumber ? `🚚 *Guía / Tracking:* ${order.trackingNumber}\n` : '') +
-      `💰 *Total Facturado:* $${totalAmount.toFixed(2)} USD\n` +
-      (pendingDebt > 0.05 ? `⚠️ *Saldo Pendiente:* $${pendingDebt.toFixed(2)} USD\n` : `✅ *Estado Financiero:* Totalmente Solvente\n`) +
-      `📍 *Asesor Asignado:* ${order.salespersonName || 'Atención General'}\n\n` +
-      `*Resumen de Productos:*\n${itemsSummary}` +
-      (itemsWithProductData.length > 5 ? `\n...y ${itemsWithProductData.length - 5} más.` : '') +
-      `\n\nQuedamos atentos a cualquier solicitud. ¡Gracias por confiar en Athleticenter!`;
+    const text = expedienteMessage({
+      orderId: order.id,
+      customerName: order.customerName,
+      rif: finalCustomerRif,
+      status: order.status,
+      trackingNumber: order.trackingNumber,
+      total: totalAmount,
+      pendingDebt,
+      itemsSummary,
+      extraItems: itemsWithProductData.length > 5 ? itemsWithProductData.length - 5 : 0,
+    });
 
     dispatchUniversalWhatsApp({
       phone: cleanPhone,

@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useMemo, useState } from 'react';
+import { quoteMessage } from '@/lib/whatsapp-templates';
 import { useCollection, useFirestore, useMemoFirebase, useUser } from '@/firebase';
 import { collection, query, orderBy, limit, addDoc, serverTimestamp, Timestamp } from 'firebase/firestore';
 import type { Quote, QuoteStatus } from '@/lib/definitions';
@@ -103,14 +104,13 @@ function QuoteCard({ quote, onSelect }: { quote: Quote; onSelect: (q: Quote) => 
             console.warn('[Quote PDF WA] Error:', pdfErr);
         }
 
-        const text = `*ATHLETICENTER C.A. - PROPUESTA COMERCIAL B2B*\n\n` +
-          `Estimado(a) *${quote.customerName}*,\n\n` +
-          `Le hacemos llegar la propuesta comercial N° *#${quote.id.substring(0, 8).toUpperCase()}*:\n\n` +
-          `📦 *Items Incluidos:* ${itemsCount} productos\n` +
-          `💰 *Inversión Total:* $${quote.totalAmount.toFixed(2)} USD\n` +
-          (validUntilDate && typeof validUntilDate.toDate === 'function' ? `📅 *Validez de Oferta:* Hasta el ${format(validUntilDate.toDate(), 'dd/MM/yyyy')}\n` : '') +
-          `📍 *Asesor Comercial:* ${quote.salespersonName || 'Atención General'}\n\n` +
-          `Quedamos atentos para formalizar su pedido de mercancía. ¡Muchas gracias por su preferencia!`;
+        const text = quoteMessage({
+            customerName: quote.customerName,
+            quoteId: quote.id,
+            itemsCount,
+            total: quote.totalAmount,
+            validUntil: validUntilDate && typeof validUntilDate.toDate === 'function' ? format(validUntilDate.toDate(), 'dd/MM/yyyy') : undefined,
+        });
 
         dispatchUniversalWhatsApp({
             phone: cleanPhone,

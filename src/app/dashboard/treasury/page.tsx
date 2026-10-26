@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
+import { debtReminderMessage } from '@/lib/whatsapp-templates';
 import { useRouter } from 'next/navigation';
 import { useForm, Controller, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -321,13 +322,10 @@ export default function TreasuryPage() {
   const handleSendWhatsAppDebtReminder = (client: { customerName: string; phone?: string; totalDebt: number; oldestOrderDays: number; oldestOrderId: string }) => {
     const cleanPhone = formatVenezuelaPhoneE164(client.phone || '');
     
-    const text = `*ATHLETICENTER C.A. - AVISO DE DEUDAS Y ESTADO DE CUENTA*\n\n` +
-      `Estimado(a) *${client.customerName}*,\n\n` +
-      `Le saludamos del Departamento de Tesorería. Le recordamos que su cuenta presenta un saldo pendiente por conciliar de:\n\n` +
-      `💰 *Monto Pendiente:* $${client.totalDebt.toFixed(2)} USD\n` +
-      `⏱️ *Antigüedad Máxima:* ${client.oldestOrderDays} días (Factura #${client.oldestOrderId.substring(0, 7).toUpperCase()})\n\n` +
-      `Agradecemos su valioso apoyo realizando su reporte de pago a la brevedad para mantener habilitado su cupo de crédito.\n\n` +
-      `Quedamos atentos a sus comprobantes. ¡Muchas gracias!`;
+    const text = debtReminderMessage({
+      customerName: client.customerName,
+      invoices: [{ id: client.oldestOrderId, pending: client.totalDebt, days: client.oldestOrderDays }],
+    });
 
     const url = cleanPhone 
       ? `https://wa.me/${cleanPhone}?text=${encodeURIComponent(text)}` 

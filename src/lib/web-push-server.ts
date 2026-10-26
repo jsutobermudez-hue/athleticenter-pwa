@@ -20,7 +20,7 @@ if (VAPID_PRIVATE_KEY) {
 export async function sendPushNotification(
     firestore: Firestore, 
     userId: string, 
-    payload: { title: string; body: string; url?: string }
+    payload: { title: string; body: string; url?: string; imageUrl?: string }
 ) {
 
     try {

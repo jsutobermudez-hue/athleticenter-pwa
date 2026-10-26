@@ -7,6 +7,7 @@
 export interface WhatsAppGatewaySendParams {
   phone: string;
   message: string;
+  imageUrl?: string;
   pdfBase64?: string;
   fileName?: string;
   orderId?: string;
@@ -41,6 +42,7 @@ export function formatVenezuelaPhoneE164(phone: string): string {
 export async function sendBackgroundWhatsAppMessage({
   phone,
   message,
+  imageUrl,
   pdfBase64,
   fileName = 'Recibo_Oficial_Athleticenter.pdf',
   orderId
@@ -51,7 +53,10 @@ export async function sendBackgroundWhatsAppMessage({
 
   const cleanPhone = formatVenezuelaPhoneE164(phone);
 
-  const gatewayUrl = '/api/whatsapp-gateway';
+  // En el navegador la ruta relativa funciona; en el servidor (bots/cron) Node exige URL absoluta
+  const gatewayUrl = typeof window !== 'undefined'
+    ? '/api/whatsapp-gateway'
+    : `${process.env.APP_INTERNAL_URL || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/whatsapp-gateway`;
 
   console.log(`[WhatsApp Gateway] Despachando mensaje en segundo plano a +${cleanPhone} para orden #${orderId || 'N/A'}`);
 
@@ -59,6 +64,7 @@ export async function sendBackgroundWhatsAppMessage({
     const payload = {
       number: cleanPhone,
       text: message,
+      imageUrl,
       media: pdfBase64 ? {
         base64: pdfBase64,
         filename: fileName,

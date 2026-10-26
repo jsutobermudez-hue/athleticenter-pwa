@@ -1,6 +1,8 @@
 'use client';
 
 import React, { useMemo, useState } from 'react';
+import { quoteMessage } from '@/lib/whatsapp-templates';
+import { sendWhatsAppWithFeedback } from '@/lib/whatsapp-client';
 import type { User, Quote, QuoteStatus } from '@/lib/definitions';
 import { useCollection, useFirestore, useMemoFirebase } from '@/firebase';
 import { collection, query, where, limit, Timestamp, addDoc, serverTimestamp } from 'firebase/firestore';
@@ -85,17 +87,13 @@ function QuoteCard({ quote, onSelect }: { quote: Quote; onSelect: (q: Quote) => 
         const cleanPhone = formatVenezuelaPhoneE164(quote.customerPhone || '');
         const itemsCount = ((quote as any).items || []).length;
         
-        const text = `*ATHLETICENTER C.A. - PROPUESTA COMERCIAL B2B*\n\n` +
-          `Estimado(a) *${quote.customerName}*,\n\n` +
-          `Le hacemos llegar la propuesta comercial N° *#${quote.id.substring(0, 8).toUpperCase()}*:\n\n` +
-          `📦 *Items Incluidos:* ${itemsCount} productos\n` +
-          `💰 *Inversión Total:* $${quote.totalAmount.toFixed(2)} USD\n` +
-          (validUntilDate && typeof validUntilDate.toDate === 'function' ? `📅 *Validez de Oferta:* Hasta el ${format(validUntilDate.toDate(), 'dd/MM/yyyy')}\n` : '') +
-          `📍 *Asesor Comercial:* ${quote.salespersonName || 'Atención General'}\n\n` +
-          `Quedamos atentos para formalizar su pedido de mercancía. ¡Muchas gracias por su preferencia!`;
-
-        const url = cleanPhone ? `https://wa.me/${cleanPhone}?text=${encodeURIComponent(text)}` : `https://wa.me/?text=${encodeURIComponent(text)}`;
-        window.open(url, '_blank');
+        const validUntilLabel = validUntilDate && typeof validUntilDate.toDate === 'function' ? format(validUntilDate.toDate(), 'dd/MM/yyyy') : undefined;
+        sendWhatsAppWithFeedback({
+            phone: cleanPhone,
+            message: quoteMessage({ customerName: quote.customerName, quoteId: quote.id, itemsCount, total: quote.totalAmount, validUntil: validUntilLabel }),
+            module: 'quotes',
+            quoteId: quote.id,
+        });
     };
 
     return (

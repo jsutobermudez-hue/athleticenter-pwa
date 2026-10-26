@@ -1,6 +1,8 @@
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
+import { accountStatementMessage } from '@/lib/whatsapp-templates';
+import { sendWhatsAppWithFeedback } from '@/lib/whatsapp-client';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
   Table,
@@ -473,19 +475,17 @@ function CustomerDetailsSheet({
 
     const handleWhatsAppClick = () => {
         const cleanPhone = formatVenezuelaPhoneE164(customer.phone || '');
-        const text = `*ATHLETICENTER C.A. - EXPEDIENTE Y ESTADO DE CUENTA B2B*\n\n` +
-          `Estimado(a) *${customer.razonSocial}*,\n\n` +
-          `Le saludamos del Departamento Comercial. Le enviamos el resumen de su cuenta corporativa:\n\n` +
-          `📄 *RIF Fiscal:* ${customer.rif}\n` +
-          `📊 *Total Comprado:* $${analytics.totalSpent.toFixed(2)} USD\n` +
-          (pendingBalance > 0.05 ? `💰 *Saldo Pendiente:* $${pendingBalance.toFixed(2)} USD\n` : `✅ *Estado de Cuenta:* Al Día\n`) +
-          `💳 *Límite de Crédito:* $${currentLimit.toFixed(2)} USD\n` +
-          `📍 *Asesor Asignado:* ${customer.assignedSalespersonName || 'Atención General'}\n\n` +
-          `¿Desea realizar algún requerimiento de reposición de mercancía?\n\n` +
-          `¡Quedamos a sus enteras órdenes!`;
-
-        const url = cleanPhone ? `https://wa.me/${cleanPhone}?text=${encodeURIComponent(text)}` : `https://wa.me/?text=${encodeURIComponent(text)}`;
-        window.open(url, '_blank');
+        sendWhatsAppWithFeedback({
+          phone: cleanPhone,
+          message: accountStatementMessage({
+            customerName: customer.razonSocial,
+            rif: customer.rif,
+            totalSpent: analytics.totalSpent,
+            pendingBalance,
+            creditLimit: currentLimit,
+          }),
+          module: 'clients',
+        });
     };
 
     return (

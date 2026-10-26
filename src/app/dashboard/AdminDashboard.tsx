@@ -41,6 +41,7 @@ import { LiveActivityFeed } from '@/components/dashboard/LiveActivityFeed';
 import { SalespersonRankingCard } from '@/components/dashboard/SalespersonRankingCard';
 import { PaidInvoicesCard } from '@/components/dashboard/PaidInvoicesCard';
 import { ExecutiveMetricsSuite } from '@/components/dashboard/ExecutiveMetricsSuite';
+import { TopProductsKpi } from '@/components/dashboard/TopProductsKpi';
 import { ReceivablesAuditModal } from '@/components/dashboard/ReceivablesAuditModal';
 import { CashAuditModal } from '@/components/dashboard/CashAuditModal';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -706,6 +707,11 @@ export default function AdminDashboard() {
                 {/* SUITE DE ANALÍTICA EJECUTIVA */}
                 <div>
                     <ExecutiveMetricsSuite orders={filteredOrdersForCharts} selectedSalespersonName={currentSalespersonName} />
+                </div>
+
+                {/* TOP PRODUCTOS ESTRELLA & ALERTA DE STOCK (FASE 1) */}
+                <div>
+                    <TopProductsKpi orders={filteredOrdersForCharts} products={products || []} onSelectProduct={(p) => setSelectedProduct(p)} />
                 </div>
             </div>
 

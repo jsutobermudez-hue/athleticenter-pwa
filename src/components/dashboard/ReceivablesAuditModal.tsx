@@ -1,6 +1,8 @@
 'use client';
 
 import React, { useMemo } from 'react';
+import { billingReminderMessage } from '@/lib/whatsapp-templates';
+import { sendWhatsAppWithFeedback } from '@/lib/whatsapp-client';
 import type { Order } from '@/lib/definitions';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
@@ -98,14 +100,6 @@ export function ReceivablesAuditModal({ isOpen, onClose, orders, onSelectOrder }
         router.push('/dashboard/billing?status=pendientes');
     };
 
-    const generateWhatsAppLink = (o: Order, pendingAmount: number) => {
-        const phone = o.customerPhone || (o as any).clientPhone || (o as any).phone || '';
-        const cleanPhone = phone.replace(/[^0-9]/g, '');
-        const message = encodeURIComponent(
-            `Hola ${o.customerName || 'Estimado Cliente'}, le saludamos de Athleticenter. Le recordamos amablemente que registra un saldo pendiente de $${pendingAmount.toFixed(2)} USD correspondiente al Pedido #${o.id}. Agradecemos coordinar la conciliación de su pago. ¡Gracias!`
-        );
-        return `https://wa.me/${cleanPhone.startsWith('58') ? cleanPhone : '58' + cleanPhone}?text=${message}`;
-    };
 
     return (
         <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
@@ -241,15 +235,24 @@ export function ReceivablesAuditModal({ isOpen, onClose, orders, onSelectOrder }
 
                                                     <td className="p-3 pr-6 text-center">
                                                         <div className="flex items-center justify-center gap-2">
-                                                            <a
-                                                                href={generateWhatsAppLink(o, pending)}
-                                                                target="_blank"
-                                                                rel="noopener noreferrer"
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => sendWhatsAppWithFeedback({
+                                                                    phone: o.customerPhone || (o as any).clientPhone || (o as any).phone || '',
+                                                                    message: billingReminderMessage({
+                                                                        customerName: o.customerName || 'Cliente',
+                                                                        invoiceId: o.id,
+                                                                        remainingBalance: pending,
+                                                                        statusText: 'Saldo pendiente por conciliar',
+                                                                    }),
+                                                                    module: 'treasury',
+                                                                    orderId: o.id,
+                                                                })}
                                                                 className="p-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-600 rounded-xl text-[9px] font-black uppercase flex items-center gap-1 transition-colors"
                                                                 title="Enviar Recordatorio por WhatsApp"
                                                             >
                                                                 <MessageSquare className="h-3.5 w-3.5" /> WhatsApp
-                                                            </a>
+                                                            </button>
 
                                                             {onSelectOrder && (
                                                                 <button
