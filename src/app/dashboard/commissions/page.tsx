@@ -178,6 +178,14 @@ function CommissionsContent() {
     const isAdminView = useMemo(() => currentUser && ['superadmin', 'admin', 'gerencia'].includes(currentUser.role), [currentUser]);
     const isExecutive = useMemo(() => currentUser && ['superadmin', 'admin', 'gerencia'].includes(currentUser.role), [currentUser]);
     const isSuperAdminOrAdmin = useMemo(() => currentUser && ['superadmin', 'admin'].includes(currentUser.role), [currentUser]);
+    const router = useRouter();
+    const canAccess = Boolean(currentUser && ['superadmin', 'gerencia', 'admin', 'ventas'].includes(currentUser.role));
+
+    React.useEffect(() => {
+        if (!isUserLoading && currentUser && !canAccess) {
+            router.replace('/dashboard');
+        }
+    }, [currentUser, canAccess, isUserLoading, router]);
 
     // Financial settings doc query
     const financialRef = useMemoFirebase(() => (firestore ? doc(firestore, 'system', 'financials') : null), [firestore]);
@@ -193,7 +201,7 @@ function CommissionsContent() {
     }, [globalFinancials]);
 
     const ordersQuery = useMemoFirebase(() => {
-        if (isUserLoading || !firestore || !currentUser) return null;
+        if (isUserLoading || !firestore || !currentUser || !canAccess) return null;
         const base = collection(firestore, 'orders');
         if (!isAdminView) return query(base, where('salespersonId', '==', currentUser.id), limit(1000));
         return query(base, limit(1000));

@@ -851,6 +851,7 @@ export default function ClientsPageContent() {
   const { profile: currentUser, isUserLoading } = useUser();
   const firestore = useFirestore();
   const searchParams = useSearchParams();
+  const router = useRouter();
 
   const [queryLimit, setQueryLimit] = useState(100);
   const [searchTerm, setSearchTerm] = useState('');
@@ -863,9 +864,16 @@ export default function ClientsPageContent() {
 
   const isSalesperson = currentUser?.role === 'ventas';
   const isAdmin = currentUser && ['superadmin', 'admin', 'gerencia'].includes(currentUser.role);
+  const canViewClients = Boolean(currentUser && ['superadmin', 'gerencia', 'admin', 'ventas'].includes(currentUser.role));
+
+  React.useEffect(() => {
+    if (!isUserLoading && currentUser && !canViewClients) {
+      router.replace('/dashboard');
+    }
+  }, [currentUser, canViewClients, isUserLoading, router]);
 
   const customersQuery = useMemoFirebase(() => {
-    if (!firestore || !currentUser) return null;
+    if (!firestore || !currentUser || !canViewClients) return null;
     const customersCollection = collection(firestore, 'customers');
     
     if (isSalesperson) {
@@ -880,12 +888,12 @@ export default function ClientsPageContent() {
   }, [firestore, currentUser, isSalesperson, queryLimit]);
 
   const usersQuery = useMemoFirebase(() => {
-    if (!firestore || !currentUser) return null;
+    if (!firestore || !currentUser || !canViewClients) return null;
     return query(collection(firestore, 'users'), limit(queryLimit));
   }, [firestore, currentUser, queryLimit]);
 
   const ordersQuery = useMemoFirebase(() => {
-    if (!firestore || !currentUser) return null;
+    if (!firestore || !currentUser || !canViewClients) return null;
     return query(collection(firestore, 'orders'), orderBy('updatedAt', 'desc'), limit(300));
   }, [firestore, currentUser]);
 

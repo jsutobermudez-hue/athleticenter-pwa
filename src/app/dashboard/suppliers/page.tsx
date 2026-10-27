@@ -199,13 +199,15 @@ export default function SuppliersPage() {
     const [editingSupplier, setEditingSupplier] = useState<Supplier | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
 
+    const canAccess = Boolean(profile && ['superadmin', 'gerencia'].includes(profile.role));
+
     useEffect(() => {
-        if (!isUserLoading && profile && !['superadmin', 'gerencia'].includes(profile.role)) {
+        if (!isUserLoading && profile && !canAccess) {
             router.replace('/dashboard');
         }
-    }, [profile, isUserLoading, router]);
+    }, [profile, canAccess, isUserLoading, router]);
 
-    const suppliersQuery = useMemoFirebase(() => (firestore ? query(collection(firestore, 'suppliers'), limit(100)) : null), [firestore]);
+    const suppliersQuery = useMemoFirebase(() => (firestore && canAccess ? query(collection(firestore, 'suppliers'), limit(100)) : null), [firestore, canAccess]);
     const { data: suppliers, isLoading: isLoadingSuppliers } = useCollection<Supplier>(suppliersQuery);
 
     // MÉTRICAS EJECUTIVAS

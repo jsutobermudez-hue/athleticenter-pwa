@@ -41,6 +41,7 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { format, subDays, startOfDay, isSameDay } from 'date-fns';
 import { es } from 'date-fns/locale';
+import { useRouter } from 'next/navigation';
 import { calculateGlobalFinancialMetrics, getEffectiveCashReceived, getInvoiceFromOrder } from '@/lib/billing';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -48,9 +49,18 @@ import { cn } from '@/lib/utils';
 import { openAuthenticatedUrl } from '@/lib/auth-fetch';
 
 export default function ReportsPage() {
-  const { profile: currentUser } = useUser();
+  const { profile: currentUser, isUserLoading } = useUser();
+  const router = useRouter();
   const firestore = useFirestore();
   const { toast } = useToast();
+
+  const canAccess = Boolean(currentUser && ['superadmin', 'gerencia', 'admin'].includes(currentUser.role));
+
+  React.useEffect(() => {
+    if (!isUserLoading && currentUser && !canAccess) {
+      router.replace('/dashboard');
+    }
+  }, [currentUser, canAccess, isUserLoading, router]);
 
   const [searchTerm, setSearchTerm] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string>('todos');
@@ -62,14 +72,14 @@ export default function ReportsPage() {
   const [isGeneratingAi, setIsGeneratingAi] = useState(false);
   const [aiReportContent, setAiReportContent] = useState<string | null>(null);
 
-  // Consultas de datos maestros
-  const ordersQuery = useMemoFirebase(() => firestore ? query(collection(firestore, 'orders'), limit(300)) : null, [firestore]);
+  // Consultas de datos maestros (protegidas por rol)
+  const ordersQuery = useMemoFirebase(() => (firestore && canAccess) ? query(collection(firestore, 'orders'), limit(300)) : null, [firestore, canAccess]);
   const { data: orders, isLoading: isLoadingOrders } = useCollection<Order>(ordersQuery);
 
-  const productsQuery = useMemoFirebase(() => firestore ? query(collection(firestore, 'products'), limit(300)) : null, [firestore]);
+  const productsQuery = useMemoFirebase(() => (firestore && canAccess) ? query(collection(firestore, 'products'), limit(300)) : null, [firestore, canAccess]);
   const { data: products } = useCollection<Product>(productsQuery);
 
-  const usersQuery = useMemoFirebase(() => firestore ? query(collection(firestore, 'users'), limit(300)) : null, [firestore]);
+  const usersQuery = useMemoFirebase(() => (firestore && canAccess) ? query(collection(firestore, 'users'), limit(300)) : null, [firestore, canAccess]);
   const { data: allUsers } = useCollection<AppUser>(usersQuery);
 
   const salespeople = useMemo(() => {

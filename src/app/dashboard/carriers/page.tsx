@@ -155,14 +155,23 @@ function CarrierCard({
 
 function CarriersContent() {
   const { profile: currentUser, isUserLoading } = useUser();
+  const router = useRouter();
   const firestore = useFirestore();
   const searchParams = useSearchParams();
   
   const [searchTerm, setSearchTerm] = useState('');
   const [editingCarrier, setEditingCarrier] = useState<Carrier | null>(null);
 
-  const carriersQuery = useMemoFirebase(() => (firestore ? query(collection(firestore, 'carriers'), limit(100)) : null), [firestore]);
-  const allOrdersQuery = useMemoFirebase(() => (firestore ? query(collection(firestore, 'orders'), limit(200)) : null), [firestore]);
+  const canAccess = Boolean(currentUser && ['superadmin', 'gerencia', 'admin', 'deposito'].includes(currentUser.role));
+
+  useEffect(() => {
+    if (!isUserLoading && currentUser && !canAccess) {
+      router.replace('/dashboard');
+    }
+  }, [canAccess, isUserLoading, currentUser, router]);
+
+  const carriersQuery = useMemoFirebase(() => (firestore && canAccess ? query(collection(firestore, 'carriers'), limit(100)) : null), [firestore, canAccess]);
+  const allOrdersQuery = useMemoFirebase(() => (firestore && canAccess ? query(collection(firestore, 'orders'), limit(200)) : null), [firestore, canAccess]);
 
   const { data: carriers, isLoading: isLoadingCarriers } = useCollection<Carrier>(carriersQuery);
   const { data: allOrders, isLoading: isLoadingOrders } = useCollection<Order>(allOrdersQuery);

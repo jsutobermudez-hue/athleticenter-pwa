@@ -128,6 +128,12 @@ export default function TreasuryPage() {
 
   const canManage = !isUserLoading && currentUser && ['superadmin', 'admin', 'gerencia'].includes(currentUser.role);
 
+  React.useEffect(() => {
+    if (!isUserLoading && currentUser && !canManage) {
+      router.replace('/dashboard');
+    }
+  }, [currentUser, canManage, isUserLoading, router]);
+
   const settingsRef = useMemoFirebase(() => firestore && canManage ? doc(firestore, 'system', 'financials') : null, [firestore, canManage]);
   const { data: settings, error: settingsError } = useDoc<FinancialSettings>(settingsRef);
 

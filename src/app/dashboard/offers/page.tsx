@@ -21,6 +21,7 @@ import {
   DropdownMenuSeparator
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
+import { useRouter } from 'next/navigation';
 import type { User, Offer, Product } from '@/lib/definitions';
 import { useCollection, useFirestore, useMemoFirebase, useUser, errorEmitter, FirestorePermissionError } from '@/firebase';
 import { collection, doc, getDocs, writeBatch, limit, query } from 'firebase/firestore';
@@ -117,8 +118,16 @@ export default function OffersPage() {
   const [selectedOffer, setSelectedOffer] = useState<Offer | null>(null);
   const [selectedOffers, setSelectedOffers] = useState<Record<string, boolean>>({});
   const [isBatchActionLoading, setIsBatchActionLoading] = useState(false);
+  const router = useRouter();
+  const canManage = Boolean(currentUser && ['superadmin', 'gerencia', 'admin'].includes(currentUser.role));
 
-  const offersQuery = useMemoFirebase(() => (firestore ? query(collection(firestore, 'offers'), limit(100)) : null), [firestore]);
+  React.useEffect(() => {
+    if (!isUserLoading && currentUser && !canManage) {
+      router.replace('/dashboard');
+    }
+  }, [currentUser, canManage, isUserLoading, router]);
+
+  const offersQuery = useMemoFirebase(() => (firestore && canManage ? query(collection(firestore, 'offers'), limit(100)) : null), [firestore, canManage]);
   const { data: offers, isLoading: isLoadingOffers } = useCollection<Offer>(offersQuery);
   
   const productsQuery = useMemoFirebase(() => (firestore ? query(collection(firestore, 'products'), limit(100)) : null), [firestore]);
