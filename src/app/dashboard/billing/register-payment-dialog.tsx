@@ -68,6 +68,7 @@ type PaymentFormValues = z.infer<typeof paymentSchema>;
 export function ConfirmPaymentDialog({ order }: { order: Order }) {
   const [isOpen, setIsOpen] = useState(false);
   const [isRejecting, setIsRejecting] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
   const { toast } = useToast();
   const firestore = useFirestore();
   const { user: authUser, profile: currentUser } = useUser();
@@ -134,8 +135,24 @@ export function ConfirmPaymentDialog({ order }: { order: Order }) {
     setIsRejecting(true);
     
     const batch = writeBatch(firestore);
-    batch.delete(doc(firestore, `orders/${order.id}/payments`, reportedPayment.id));
+    batch.update(doc(firestore, `orders/${order.id}/payments`, reportedPayment.id), {
+      status: 'rejected',
+      rejectedByUserId: currentUser.id,
+      rejectedByName: currentUser.name || authUser.displayName || 'Administración',
+      rejectedAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
+    });
     batch.update(doc(firestore, 'orders', order.id), { status: 'Entregado', updatedAt: serverTimestamp() });
+
+    const auditRef = doc(collection(firestore, 'auditLogs'));
+    batch.set(auditRef, {
+      id: auditRef.id,
+      timestamp: serverTimestamp(),
+      userId: currentUser.id,
+      userName: currentUser.name || authUser.displayName || 'Administración',
+      action: 'REJECT_PAYMENT',
+      details: `Abono de ${reportedPayment.amount} en pedido #${order.id} rechazado. Ref: ${reportedPayment.referenceNumber || 'N/A'}`
+    });
 
     batch.commit()
         .then(() => {
@@ -159,18 +176,32 @@ export function ConfirmPaymentDialog({ order }: { order: Order }) {
         });
   };
 
-  const onSubmit = (data: PaymentFormValues) => {
-    if (!firestore || !authUser || !currentUser) return;
+  const onSubmit = async (data: PaymentFormValues) => {
+    if (!firestore || !authUser || !currentUser || isProcessing) return;
+    setIsProcessing(true);
     
-    runTransaction(firestore, async (transaction) => {
+    try {
+      const result = await runTransaction(firestore, async (transaction) => {
         const orderRef = doc(firestore, 'orders', order.id);
         const customerRef = doc(firestore, 'customers', order.customerId);
         
-        const orderSnap = await transaction.get(orderRef);
+        const paymentRef = reportedPayment
+          ? doc(firestore, `orders/${order.id}/payments`, reportedPayment.id)
+          : doc(collection(firestore, `orders/${order.id}/payments`));
+
+        const [orderSnap, paymentSnap] = await Promise.all([
+          transaction.get(orderRef),
+          reportedPayment ? transaction.get(paymentRef) : Promise.resolve(null)
+        ]);
+
         if (!orderSnap.exists()) throw new Error("Pedido no encontrado.");
         
         const currentOrder = orderSnap.data() as Order;
         if (currentOrder.status === 'Pagado') throw new Error("Esta factura ya ha sido liquidada.");
+
+        if (paymentSnap && paymentSnap.exists() && paymentSnap.data()?.status === 'verified') {
+          throw new Error("Este abono ya ha sido verificado previamente.");
+        }
 
         const currentPaid = (currentOrder.totalCashReceived ?? currentOrder.amountPaid ?? 0);
         
@@ -179,13 +210,10 @@ export function ConfirmPaymentDialog({ order }: { order: Order }) {
         const commissionFee = (reportedPayment as any)?.bankCommission || 0;
         const effectiveAbono = baseAbono + commissionFee;
         
+        const orderTotal = currentOrder.totalAmount || order.totalAmount || 0;
         const newTotalPaid = currentPaid + effectiveAbono;
-        const isFullyPaid = newTotalPaid >= (order.totalAmount - 0.50);
-        const surplusAmount = Math.max(0, newTotalPaid - order.totalAmount);
-
-        const paymentRef = reportedPayment
-          ? doc(firestore, `orders/${order.id}/payments`, reportedPayment.id)
-          : doc(collection(firestore, `orders/${order.id}/payments`));
+        const isFullyPaid = newTotalPaid >= (orderTotal - 0.50);
+        const surplusAmount = Math.max(0, newTotalPaid - orderTotal);
 
         const cleanPaymentPayload = {
           ...data,
@@ -229,8 +257,11 @@ export function ConfirmPaymentDialog({ order }: { order: Order }) {
         const bcvRate = globalSettings?.bcvRate || 36.5;
         const invoiceNum = order.historicalInvoiceNumber || `#FACT-${(order.id || '').substring(0, 8).toUpperCase()}`;
 
-        // 1. COMISIÓN DEL ASESOR COMERCIAL DE LA VENTA
-        const spRatePct = typeof order.salespersonCommissionRate === 'number' ? order.salespersonCommissionRate * 100 : (globalSettings?.defaultCommission ?? 5);
+        // 1. COMISIÓN DEL ASESOR COMERCIAL DE LA VENTA (NORMALIZA FRACCIÓN O PORCENTAJE)
+        const rawSpRate = typeof order.salespersonCommissionRate === 'number' 
+          ? order.salespersonCommissionRate 
+          : (globalSettings?.defaultCommission ?? 5);
+        const spRatePct = rawSpRate <= 1 && rawSpRate > 0 ? rawSpRate * 100 : rawSpRate;
         const spRateFrac = spRatePct / 100;
         const commAmount = actualCash * spRateFrac;
 
@@ -342,11 +373,11 @@ export function ConfirmPaymentDialog({ order }: { order: Order }) {
         }
 
         return { isFullyPaid, actualCash, newTotalPaid };
-    })
-    .then(async (result) => {
-        const isFullyPaid = result?.isFullyPaid || false;
-        const actualCash = result?.actualCash || data.amount;
-        const newTotalPaid = result?.newTotalPaid || data.amount;
+      });
+
+      const isFullyPaid = result?.isFullyPaid || false;
+      const actualCash = result?.actualCash || data.amount;
+      const newTotalPaid = result?.newTotalPaid || data.amount;
 
         try {
             const receiptPdfBase64 = await generatePaymentReceiptPDF({
@@ -430,11 +461,12 @@ export function ConfirmPaymentDialog({ order }: { order: Order }) {
 
         toast({ title: isFullyPaid ? '🎉 ¡Pedido Liquidado y Solvente!' : '¡Abono Conciliado!', description: `Deuda actualizada y Recibo Oficial PDF emitido.` });
         setIsOpen(false);
-    })
-    .catch(async (serverError: any) => {
-        console.error("Error al conciliar abono:", serverError);
-        toast({ variant: 'destructive', title: 'Fallo de Conciliación', description: serverError?.message || 'Error al procesar abono.' });
-    });
+    } catch (serverError: any) {
+      console.error("Error al conciliar abono:", serverError);
+      toast({ variant: 'destructive', title: 'Fallo de Conciliación', description: serverError?.message || 'Error al procesar abono.' });
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   const canReconcile = currentUser && ['superadmin', 'admin'].includes(currentUser.role);
@@ -561,11 +593,11 @@ export function ConfirmPaymentDialog({ order }: { order: Order }) {
                 </ScrollArea>
 
                 <DialogFooter className="p-8 bg-slate-50 border-t flex flex-col sm:flex-row gap-4 shrink-0">
-                    <Button type="button" variant="outline" onClick={handleRejectPayment} disabled={isSubmitting || isRejecting} className="h-14 flex-1 rounded-2xl border-rose-200 text-rose-600 hover:bg-rose-50 font-black uppercase text-[10px]">
+                    <Button type="button" variant="outline" onClick={handleRejectPayment} disabled={isSubmitting || isRejecting || isProcessing} className="h-14 flex-1 rounded-2xl border-rose-200 text-rose-600 hover:bg-rose-50 font-black uppercase text-[10px]">
                         {isRejecting ? <Loader2 className="animate-spin h-4 w-4 mr-2" /> : <XCircle className="mr-2 h-4 w-4" />} Rechazar Reporte
                     </Button>
-                    <Button type="submit" disabled={isSubmitting || isRejecting} className="h-14 flex-[1.5] rounded-2xl bg-slate-900 hover:bg-slate-800 shadow-2xl font-black uppercase text-[10px] tracking-[0.2em]">
-                        {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ShieldCheck className="mr-2 h-4 w-4 text-emerald-400" />} CONCILIAR ABONO
+                    <Button type="submit" disabled={isSubmitting || isRejecting || isProcessing} className="h-14 flex-[1.5] rounded-2xl bg-slate-900 hover:bg-slate-800 shadow-2xl font-black uppercase text-[10px] tracking-[0.2em]">
+                        {(isSubmitting || isProcessing) ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ShieldCheck className="mr-2 h-4 w-4 text-emerald-400" />} CONCILIAR ABONO
                     </Button>
                 </DialogFooter>
             </form>

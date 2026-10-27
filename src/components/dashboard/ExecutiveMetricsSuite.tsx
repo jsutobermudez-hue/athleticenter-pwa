@@ -261,11 +261,11 @@ export function ExecutiveMetricsSuite({ orders, selectedSalespersonName }: Execu
             orders.forEach(o => {
                 let orderCashForPeriod = 0;
                 if (Array.isArray((o as any).payments) && (o as any).payments.length > 0) {
-                    (o as any).payments.forEach((p: any) => {
-                        if (p.status === 'verified' || !p.status) {
-                            const pDate = convertToDate(p.paymentDate || p.createdAt || p.date);
+                    (o as any).payments.forEach((pay: any) => {
+                        if (pay.status === 'verified' || (!pay.status && pay.status !== 'rejected')) {
+                            const pDate = convertToDate(pay.paymentDate || pay.createdAt || pay.date);
                             if (pDate >= p.start && pDate <= p.end) {
-                                orderCashForPeriod += (Number(p.amount || p.monto) || 0);
+                                orderCashForPeriod += (Number(pay.amount || pay.monto) || 0);
                             }
                         }
                     });

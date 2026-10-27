@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { getCashBreakdown, type PaymentItem } from '@/lib/billing';
 import { useFirestore } from '@/firebase';
-import { collection, collectionGroup, getDocs } from 'firebase/firestore';
+import { collection, collectionGroup, getDocs, query, limit } from 'firebase/firestore';
 import { 
     Banknote, 
     Printer, 
@@ -70,7 +70,7 @@ export function CashAuditModal({ isOpen, onClose, orders, periodFilter = 'all', 
 
         const fetchAllPaymentsFromFirestore = async () => {
             try {
-                const querySnap = await getDocs(collectionGroup(firestore, 'payments'));
+                const querySnap = await getDocs(query(collectionGroup(firestore, 'payments'), limit(1500)));
                 if (!isMounted) return;
 
                 const fetchedItems: PaymentItem[] = [];

@@ -15,7 +15,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useToast } from '@/hooks/use-toast';
-import { cn } from '@/lib/utils';
+import { cn, generateSecureEntityCode } from '@/lib/utils';
 import { Loader2, Search, Trash2, ArrowLeft, ShoppingCart, Check, ChevronsUpDown, Plus, X, Boxes, ShieldAlert, User as UserIcon, Info, ChevronDown, ChevronUp, Save, AlertTriangle, ShieldCheck, Wallet, RefreshCw, Lock, Box, CheckCircle2 } from 'lucide-react';
 import { ProductDetailsSheet } from '../../inventory/product-details-sheet';
 import { ProductCard } from '@/components/dashboard/ProductCard';
@@ -262,7 +262,7 @@ function NewOrderForm() {
         const rawName = selectedCustomer?.razonSocial || (selectedCustomer as any)?.name || 'Cliente';
         const acronym = rawName.substring(0,3).toUpperCase().replace(/[^A-Z]/g, 'X');
         const prefix = isDraft ? 'BORR' : 'P';
-        const finalOrderId = `${prefix}-${acronym}-${Date.now().toString().slice(-4)}`;
+        const finalOrderId = generateSecureEntityCode(prefix, acronym);
         
 const safeTotalAmount = isNaN(totalAmount) ? 0 : totalAmount;
         const spId = isSalesperson ? currentUser.id : (selectedCustomer?.assignedSalespersonId || currentUser.id);
@@ -293,7 +293,7 @@ const safeTotalAmount = isNaN(totalAmount) ? 0 : totalAmount;
                 isNetPrice: hasNetOrPromoItems,
                 bcvDiscountSnapshot: effectiveBcvDiscount,
                 earlyPayment7dSnapshot: hasNetOrPromoItems ? 0 : (globalSettings?.earlyPayment7Days !== undefined ? globalSettings.earlyPayment7Days : 10),
-                earlyPayment15dSnapshot: hasNetOrPromoItems ? 0 : (globalSettings?.earlyPayment15Days !== undefined ? globalSettings.earlyPayment15Days : 5),
+                earlyPayment15dSnapshot: 0,
                 bcvRateSnapshot: globalSettings?.bcvRate || 65.50,
                 status: isDraft ? 'Borrador' : 'Pendiente',
                 updatedAt: serverTimestamp()

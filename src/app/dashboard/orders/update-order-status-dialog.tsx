@@ -49,11 +49,14 @@ const statusTransitions: Record<OrderStatus, OrderStatus[]> = {
 const getAvailableStatuses = (currentStatus: OrderStatus, userRole: User['role'] | undefined): OrderStatus[] => {
     if (!userRole) return [];
     
+    // 'Cancelado' requiere rutina transaccional de stock/crédito en ficha. 'Pagado' requiere conciliación en tesorería.
+    const forbiddenDirectTransitions: OrderStatus[] = ['Cancelado', 'Pagado'];
+
     if (['superadmin', 'admin', 'gerencia'].includes(userRole)) {
-        return ALL_ORDER_STATUSES.filter(s => s !== currentStatus);
+        return ALL_ORDER_STATUSES.filter(s => s !== currentStatus && !forbiddenDirectTransitions.includes(s));
     }
 
-    return statusTransitions[currentStatus] || [];
+    return (statusTransitions[currentStatus] || []).filter(s => !forbiddenDirectTransitions.includes(s));
 };
 
 type UpdateOrderStatusDialogProps = {

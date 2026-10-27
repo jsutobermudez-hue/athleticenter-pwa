@@ -12,7 +12,7 @@ export function getEffectiveCashReceived(o: Order): number {
     let sumPayments = 0;
     if (Array.isArray((o as any).payments) && (o as any).payments.length > 0) {
         sumPayments = (o as any).payments.reduce((s: number, p: any) => {
-            if (p.status === 'verified' || !p.status) {
+            if (p.status === 'verified' || (!p.status && p.status !== 'rejected')) {
                 return s + (Number(p.amount || p.monto || p.amountUSD) || 0);
             }
             return s;
@@ -23,14 +23,6 @@ export function getEffectiveCashReceived(o: Order): number {
         return roundCurrency(sumPayments);
     }
 
-    const discountPct = (o as any).bcvDiscountSnapshot ?? o.treasurySnapshot?.bcvDiscountPercent ?? 25;
-    const isNet = (o as any).incentivesApplied === true || (o as any).isNetPrice === true;
-
-    if (o.status === 'Pagado' || (o as any).isPaid === true || (o as any).paymentStatus === 'Pagado') {
-        const netVal = isNet ? o.totalAmount : (o.totalAmount || 0) * (1 - (discountPct / 100));
-        return roundCurrency(netVal > 0 ? netVal : o.totalAmount || 0);
-    }
-
     const cash = typeof o.totalCashReceived === 'number' && o.totalCashReceived > 0 ? o.totalCashReceived : 0;
     const paid = typeof o.amountPaid === 'number' && o.amountPaid > 0 ? o.amountPaid : 0;
     const altPaid = (o as any).paidAmount || (o as any).totalPaid || (o as any).montoPagado || 0;
@@ -38,11 +30,11 @@ export function getEffectiveCashReceived(o: Order): number {
 
     const explicitCash = Math.max(cash, paid, numAltPaid);
     if (explicitCash > 0) {
-        if (explicitCash >= (o.totalAmount || 0) && (o.totalAmount || 0) > 0) {
-            const netVal = isNet ? o.totalAmount : (o.totalAmount || 0) * (1 - (discountPct / 100));
-            return roundCurrency(netVal);
-        }
         return roundCurrency(explicitCash);
+    }
+
+    if (o.status === 'Pagado' || (o as any).isPaid === true || (o as any).paymentStatus === 'Pagado') {
+        return roundCurrency(o.totalAmount || 0);
     }
 
     return 0;
@@ -849,8 +841,9 @@ export async function processAutomaticCommissionsForPayment(
         const paymentAmountBS = roundCurrency(paymentAmountUSD * bcvRate);
         const invoiceNum = order.historicalInvoiceNumber || `#FACT-${(order.id || '').substring(0, 8).toUpperCase()}`;
 
-        // Porcentajes dinámicos desde Tesorería / Perfil de Vendedor
-        const salespersonRate = typeof order.salespersonCommissionRate === 'number' ? order.salespersonCommissionRate : (settings?.defaultCommission ?? 5);
+        // Porcentajes dinámicos desde Tesorería / Perfil de Vendedor (normaliza fracción 0.05 o porcentaje 5)
+        const rawSpRate = typeof order.salespersonCommissionRate === 'number' ? order.salespersonCommissionRate : (settings?.defaultCommission ?? 5);
+        const salespersonRate = rawSpRate <= 1 && rawSpRate > 0 ? rawSpRate * 100 : rawSpRate;
         const managerRate = settings?.salesManagerCommission ?? 5;
         const adminRate = settings?.adminCommission ?? 0;
 

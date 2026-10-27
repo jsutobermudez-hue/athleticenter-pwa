@@ -58,3 +58,27 @@ export function normalizeSalespersonName(name: string | null | undefined): strin
   return SALESPERSON_CANONICAL_MAP[clean] || SALESPERSON_CANONICAL_MAP[upper] || clean;
 }
 
+/**
+ * Retorna la fecha actual o dada en zona horaria de Venezuela (America/Caracas, UTC-4)
+ * en formato YYYY-MM-DD, evitando saltos de fecha nocturnos producidos por toISOString (UTC).
+ */
+export function getCaracasDateString(d: Date = new Date()): string {
+  try {
+    return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Caracas' }).format(d);
+  } catch {
+    return d.toISOString().split('T')[0];
+  }
+}
+
+/**
+ * Generador de códigos únicos de pedidos y cotizaciones con alta resistencia a colisiones.
+ * Formato: PREFIJO-ACRÓNIMO-TIMESTAMP36-RANDOM
+ */
+export function generateSecureEntityCode(prefix: string, acronym: string): string {
+  const cleanAcronym = (acronym || 'CLI').replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(0, 8);
+  const cleanPrefix = (prefix || 'P').toUpperCase();
+  const timeHex = Date.now().toString(36).toUpperCase();
+  const rand = Math.floor(100 + Math.random() * 900);
+  return `${cleanPrefix}-${cleanAcronym}-${timeHex}-${rand}`;
+}
+

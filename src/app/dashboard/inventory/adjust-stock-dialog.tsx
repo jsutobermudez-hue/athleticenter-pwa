@@ -56,6 +56,9 @@ export function AdjustStockDialog({ product, useTriggerButton = false }: AdjustS
     
     try {
         await runTransaction(firestore, async (transaction) => {
+            // Lectura obligatoria dentro de la transacción (antes de escribir).
+            const snap = await transaction.get(doc(firestore, 'products', product.id!));
+            if (!snap.exists()) throw new Error('El producto ya no existe.');
             await InventoryService.updateStockInTransaction(
                 transaction,
                 firestore,
@@ -64,7 +67,8 @@ export function AdjustStockDialog({ product, useTriggerButton = false }: AdjustS
                 currentUser.id,
                 currentUser.name,
                 reason,
-                null // Ajuste global
+                null, // Ajuste global
+                { id: snap.id, ...snap.data() } as any
             );
         });
         

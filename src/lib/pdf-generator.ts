@@ -290,7 +290,7 @@ export async function generateOrderPDF({
 
     doc.setFontSize(6.5); doc.setTextColor(71, 85, 105); doc.setFont("helvetica", "normal");
     doc.text(`• PAGO EN DIVISAS (CASH / ZELLE / USDT): Aplica Descuento Contado Divisas (${bcvDiscountPct}%) + Incentivo Pronto Pago.`, 18, bannerY + 10);
-    doc.text(`• ESCALA DE MONTO NETO A PAGAR: 7D (32.5% OFF): $${pp7d.toFixed(2)} USD  |  15D (28.75% OFF): $${pp15d.toFixed(2)} USD  |  16-30D (25% OFF): $${cashSub.toFixed(2)} USD`, 18, bannerY + 15);
+    doc.text(`• CONDICIONES DE PAGO: CONTADO / PRONTO PAGO (32.5% OFF Total Cascada): ${pp7d.toFixed(2)} USD  |  CRÉDITO HASTA 30D (25% OFF Divisas): ${cashSub.toFixed(2)} USD`, 18, bannerY + 15);
     doc.text(`* Término de Crédito: 30 Días continuos desde emisión. Pagos >30 Días (Mora) no reciben descuento ($${totalAmountUSD.toFixed(2)} USD).`, 18, bannerY + 19);
 
     bannerHeight = 26;

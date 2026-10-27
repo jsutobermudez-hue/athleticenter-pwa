@@ -14,7 +14,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useToast } from '@/hooks/use-toast';
-import { cn } from '@/lib/utils';
+import { cn, generateSecureEntityCode } from '@/lib/utils';
 import { 
     Loader2, 
     Search, 
@@ -83,7 +83,7 @@ function NewQuoteForm() {
 
     const settingsRef = useMemoFirebase(() => firestore ? doc(firestore, 'system', 'financials') : null, [firestore]);
     const { data: globalSettings } = useDoc<FinancialSettings>(settingsRef);
-    const bcvDiscount = globalSettings?.defaultBcvDiscount || 30;
+    const bcvDiscount = globalSettings?.defaultBcvDiscount !== undefined ? globalSettings.defaultBcvDiscount : 25;
     
     const isClient = currentUser?.role === 'cliente';
     const isSalesperson = currentUser?.role === 'ventas';
@@ -207,7 +207,7 @@ function NewQuoteForm() {
         const customerName = rawName.trim();
         const prefix = isCloudDraft ? 'BORR' : 'C';
         const customerAcronym = customerName.substring(0, 3).toUpperCase().replace(/[^A-Z]/g, 'X');
-        const finalQuoteId = `${prefix}-${customerAcronym}-${Date.now().toString().slice(-4)}`;
+        const finalQuoteId = generateSecureEntityCode(prefix, customerAcronym);
         
         const salespersonId = isSalesperson ? currentUser.id : (selectedCustomer?.assignedSalespersonId || currentUser.id);
         const salespersonName = isSalesperson ? currentUser.name : (selectedCustomer?.assignedSalespersonName || currentUser.name);
@@ -228,8 +228,8 @@ function NewQuoteForm() {
             expiryDate: Timestamp.fromDate(addDays(new Date(), 15)),
             totalAmount: safeTotal,
             bcvDiscountSnapshot: globalSettings?.defaultBcvDiscount !== undefined ? globalSettings.defaultBcvDiscount : 25,
-            earlyPayment7dSnapshot: globalSettings?.earlyPayment7Days !== undefined ? globalSettings.earlyPayment7Days : 5,
-            earlyPayment15dSnapshot: globalSettings?.earlyPayment15Days !== undefined ? globalSettings.earlyPayment15Days : 3,
+            earlyPayment7dSnapshot: globalSettings?.earlyPayment7Days !== undefined ? globalSettings.earlyPayment7Days : 10,
+            earlyPayment15dSnapshot: 0,
             bcvRateSnapshot: globalSettings?.bcvRate || 65.50,
             status: isCloudDraft ? 'Borrador' : 'Enviada',
             createdAt: serverTimestamp(),

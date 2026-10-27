@@ -108,7 +108,6 @@ export function OrderSheetController({ order, onOpenChange }: { order: Order, on
         if (!window.confirm("¿Confirmar anulación definitiva?")) return;
 
         setIsCanceling(true);
-        const isApproved = ['Aprobado', 'En Preparación', 'Completado', 'Despachado', 'Entregado'].includes(order.status);
 
         try {
             await runTransaction(firestore, async (transaction) => {
@@ -124,19 +123,27 @@ export function OrderSheetController({ order, onOpenChange }: { order: Order, on
 
                 if (!orderSnap.exists()) throw new Error("Pedido no encontrado.");
 
+                const currentOrder = orderSnap.data() as Order;
+                if (currentOrder.status === 'Cancelado') {
+                    throw new Error("Este pedido ya ha sido cancelado previamente.");
+                }
+
                 const productDataMap = new Map<string, Product>();
                 productSnaps.forEach(snap => { if (snap.exists()) productDataMap.set(snap.id, snap.data() as Product); });
 
+                const isApproved = ['Aprobado', 'En Preparación', 'Completado', 'Despachado', 'Entregado'].includes(currentOrder.status);
+                const isStillInHouse = ['Aprobado', 'En Preparación', 'Completado'].includes(currentOrder.status);
+                const orderTotal = currentOrder.totalAmount || order.totalAmount || 0;
+
                 // --- 2. ESCRITURAS (WRITES) ---
-                if (isApproved) {
+                if (isApproved && !(currentOrder as any).creditRestored) {
                     transaction.update(custRef, {
-                        creditUsed: increment(-order.totalAmount),
+                        creditUsed: increment(-orderTotal),
                         updatedAt: serverTimestamp()
                     });
                 }
 
-                const isStillInHouse = ['Aprobado', 'En Preparación', 'Completado'].includes(order.status);
-                if (isStillInHouse) {
+                if (isStillInHouse && !(currentOrder as any).stockRestored) {
                     for (const item of orderItemsData!) {
                         const pData = productDataMap.get(item.productId);
                         await InventoryService.updateStockInTransaction(
@@ -151,11 +158,21 @@ export function OrderSheetController({ order, onOpenChange }: { order: Order, on
                             pData
                         );
                     }
-                    transaction.update(orderRef, { status: 'Cancelado', stockRestored: true, updatedAt: serverTimestamp() });
+                    transaction.update(orderRef, { 
+                        status: 'Cancelado', 
+                        stockRestored: true, 
+                        creditRestored: isApproved,
+                        canceledAt: serverTimestamp(),
+                        canceledBy: currentUser.id,
+                        updatedAt: serverTimestamp() 
+                    });
                 } else {
                     transaction.update(orderRef, { 
                         status: 'Cancelado', 
-                        stockRestored: !isApproved,
+                        stockRestored: (currentOrder as any).stockRestored || !isApproved,
+                        creditRestored: isApproved,
+                        canceledAt: serverTimestamp(),
+                        canceledBy: currentUser.id,
                         updatedAt: serverTimestamp() 
                     });
                 }

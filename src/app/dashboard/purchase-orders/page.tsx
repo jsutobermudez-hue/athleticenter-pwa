@@ -73,9 +73,9 @@ function PurchaseOrdersContent() {
     const router = useRouter();
     const firestore = useFirestore();
     const { toast } = useToast();
-    const { user, isUserLoading } = useUser();
-    const userRole = (user as any)?.role || 'invitado';
-    const canManage = true; // Permiso otorgado a la vista de gestión
+    const { user, profile: currentUser, isUserLoading } = useUser();
+    const userRole = (user as any)?.role || currentUser?.role || 'invitado';
+    const canManage = ['admin', 'superadmin', 'gerente', 'gerencia', 'deposito', 'almacen'].includes(String(userRole).toLowerCase());
 
     const [activeTab, setActiveTab] = useState<'kanban' | 'comparison' | 'radar' | 'scanner'>('kanban');
 
@@ -203,9 +203,17 @@ function PurchaseOrdersContent() {
     // CÁLCULO DE CAMBIO DE ETAPA EN EL KANBAN
     const handleUpdateStage = async (poId: string, newStage: PurchaseOrder['status']) => {
       if (!firestore) return;
+      if (newStage === 'Recibido') {
+        toast({ 
+          variant: 'destructive', 
+          title: 'Acción Requiere Auditoría', 
+          description: 'Para marcar como Recibido e ingresar inventario atómicamente, abre la ficha detallada de la orden.' 
+        });
+        return;
+      }
       try {
         const docRef = doc(firestore, 'purchaseOrders', poId);
-        await updateDoc(docRef, { status: newStage });
+        await updateDoc(docRef, { status: newStage, updatedAt: serverTimestamp() });
         toast({ title: 'Etapa Logística Actualizada', description: `La importación avanzó a: ${newStage}` });
       } catch (err) {
         console.error('Error actualizando etapa:', err);
@@ -396,7 +404,6 @@ function PurchaseOrdersContent() {
                                   <SelectItem value="En Fabricación" className="text-[9px] font-bold">⚙️ Fabricación</SelectItem>
                                   <SelectItem value="En Tránsito" className="text-[9px] font-bold">🚢 Zarpó</SelectItem>
                                   <SelectItem value="Aduana" className="text-[9px] font-bold">🛃 Aduana</SelectItem>
-                                  <SelectItem value="Recibido" className="text-[9px] font-bold">📦 Recibido</SelectItem>
                                 </SelectContent>
                               </Select>
                             </div>

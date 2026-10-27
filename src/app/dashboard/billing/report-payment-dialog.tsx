@@ -256,8 +256,6 @@ export function ReportPaymentDialog({ invoice, mode = 'partial' }: { invoice: In
     }
     if (is7DaysEligible) {
       setValue('earlyPaymentType', '7days');
-    } else if (is15DaysEligible) {
-      setValue('earlyPaymentType', '15days');
     } else if (!isDiscountOverridden) {
       setValue('earlyPaymentType', 'none');
     }
@@ -289,9 +287,6 @@ export function ReportPaymentDialog({ invoice, mode = 'partial' }: { invoice: In
       if (earlyPaymentType === '7days' && (is7DaysEligible || isDiscountOverridden)) {
         earlyDiscountPct = early7Factor;
         if (discountType === 'none') discountType = '7days';
-      } else if (earlyPaymentType === '15days' && (is15DaysEligible || isDiscountOverridden)) {
-        earlyDiscountPct = early15Factor;
-        if (discountType === 'none') discountType = '15days';
       }
     }
 
@@ -584,7 +579,7 @@ export function ReportPaymentDialog({ invoice, mode = 'partial' }: { invoice: In
                                     <Clock className="h-4 w-4 text-primary" />
                                     <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Descuento de Pronto Pago (Manual)</h3>
                                 </div>
-                                <div className="grid grid-cols-3 gap-3">
+                                <div className="grid grid-cols-2 gap-3">
                                     <div 
                                         className={cn(
                                             "p-3.5 rounded-2xl border-2 cursor-pointer text-center transition-all flex flex-col justify-between h-22",
@@ -593,7 +588,7 @@ export function ReportPaymentDialog({ invoice, mode = 'partial' }: { invoice: In
                                         onClick={() => setValue('earlyPaymentType', 'none')}
                                     >
                                         <span className="text-[9px] font-black uppercase">Sin Pronto Pago</span>
-                                        <span className="text-[7px] font-bold text-slate-400 uppercase">0% Descuento</span>
+                                        <span className="text-[7px] font-bold text-slate-400 uppercase">0% Descuento Adicional</span>
                                     </div>
 
                                     <div 
@@ -607,30 +602,11 @@ export function ReportPaymentDialog({ invoice, mode = 'partial' }: { invoice: In
                                         }}
                                     >
                                         <div className="flex flex-col">
-                                            <span className="text-[9px] font-black uppercase">Pronto Pago 7 Días</span>
-                                            <span className="text-[7px] font-bold text-emerald-600 uppercase">{globalSettings?.earlyPayment7Days || 5}% OFF</span>
+                                            <span className="text-[9px] font-black uppercase">Pronto Pago Contado</span>
+                                            <span className="text-[7px] font-bold text-emerald-600 uppercase">{globalSettings?.earlyPayment7Days || 10}% OFF Cascada</span>
                                         </div>
                                         <span className="text-[7px] font-black uppercase flex items-center justify-center gap-1">
                                             {isNetOrPromotional ? '🔒 Precio Neto Oferta' : is7DaysEligible ? '🟢 Disponible' : `🔒 Vencido (${elapsedDays}d)`}
-                                        </span>
-                                    </div>
-
-                                    <div 
-                                        className={cn(
-                                            "p-3.5 rounded-2xl border-2 text-center transition-all flex flex-col justify-between h-22",
-                                            earlyPaymentType === '15days' ? "border-emerald-500 bg-emerald-50 shadow-sm" : "border-slate-100",
-                                            (is15DaysEligible && !isNetOrPromotional) ? "cursor-pointer hover:bg-slate-50" : "opacity-40 cursor-not-allowed bg-slate-100 grayscale"
-                                        )}
-                                        onClick={() => {
-                                            if (is15DaysEligible && !isNetOrPromotional) setValue('earlyPaymentType', '15days');
-                                        }}
-                                    >
-                                        <div className="flex flex-col">
-                                            <span className="text-[9px] font-black uppercase">Pronto Pago 15 Días</span>
-                                            <span className="text-[7px] font-bold text-emerald-600 uppercase">{globalSettings?.earlyPayment15Days || 3}% OFF</span>
-                                        </div>
-                                        <span className="text-[7px] font-black uppercase flex items-center justify-center gap-1">
-                                            {isNetOrPromotional ? '🔒 Precio Neto Oferta' : is15DaysEligible ? '🟢 Disponible' : `🔒 Vencido (${elapsedDays}d)`}
                                         </span>
                                     </div>
                                 </div>

@@ -272,64 +272,93 @@ export function PurchaseOrderDetailSheet({ order, isOpen, onOpenChange }: Purcha
                 ...productRefs.map(ref => transaction.get(ref))
             ]);
 
+            // Idempotencia: una orden de compra solo se recibe una vez.
+            if (!poSnap.exists()) throw new Error('La orden de compra ya no existe.');
+            if ((poSnap.data() as any).status === 'Recibido' || (poSnap.data() as any).stockReceived === true) {
+                throw new Error('Esta orden de compra ya fue recibida. El stock no se volverá a sumar.');
+            }
+
             const productDataMap = new Map<string, Product>();
             productSnaps.forEach(snap => {
                 if (snap.exists()) productDataMap.set(snap.id, snap.data() as Product);
             });
 
-            // --- 2. ESCRITURAS (WRITES) ---
+            const missing = uniqueProductIds.filter(id => !productDataMap.has(id));
+            if (missing.length > 0) {
+                throw new Error(`Hay ${missing.length} producto(s) de la orden que no existen en el inventario. Corrija la orden antes de recibirla.`);
+            }
+
+            // Agrupar líneas repetidas del mismo producto (cantidades, costo y tallas).
+            const grouped = new Map<string, { qty: number; costTotal: number; sizes: Record<string, number> }>();
             for (const item of safeItemsWithLanded) {
-                const productData = productDataMap.get(item.productId);
-                
-                if (productData) {
-                    const oldStock = productData.stockLevel ?? (productData as any).stock ?? 0;
-                    const oldCost = productData.cost || 0;
-                    const newQty = item.quantity;
-                    const newCost = item.landedUnitCost || item.unitCost;
+                const qty = Number(item.quantity) || 0;
+                if (qty <= 0) continue;
+                const unit = Number(item.landedUnitCost || item.unitCost) || 0;
+                const g = grouped.get(item.productId) || { qty: 0, costTotal: 0, sizes: {} };
+                g.qty += qty;
+                g.costTotal += qty * unit;
+                const size = (item as any).size;
+                if (size) g.sizes[size] = (g.sizes[size] || 0) + qty;
+                grouped.set(item.productId, g);
+            }
 
-                    const totalStock = oldStock + newQty;
-                    const weightedCost = oldStock > 0 
-                        ? ((oldStock * oldCost) + (newQty * newCost)) / totalStock
-                        : newCost;
+            // --- 2. ESCRITURAS (WRITES) ---
+            for (const [productId, g] of grouped) {
+                const productData = productDataMap.get(productId)!;
+                const oldStock = Number(productData.stockLevel ?? (productData as any).stock ?? 0);
+                const oldCost = Number(productData.cost) || 0;
+                const newQty = g.qty;
+                const newCost = g.qty > 0 ? g.costTotal / g.qty : 0;
 
-                    const pvpCash = productData.priceCashUSD || (productData.price * (1 - (bcvDiscount / 100)));
-                    const netProfit = pvpCash - (pvpCash * 0.25) - weightedCost; 
-                    const margin = pvpCash > 0 ? (netProfit / pvpCash) * 100 : 0;
+                const totalStock = oldStock + newQty;
+                const weightedCost = oldStock > 0 
+                    ? ((oldStock * oldCost) + (newQty * newCost)) / totalStock
+                    : newCost;
 
-                    if (margin < 15) {
-                        criticalErosions.push(`${productData.name} (${margin.toFixed(1)}%)`);
-                    }
+                const pvpCash = productData.priceCashUSD || (productData.price * (1 - (bcvDiscount / 100)));
+                const netProfit = pvpCash - (pvpCash * 0.25) - weightedCost; 
+                const margin = pvpCash > 0 ? (netProfit / pvpCash) * 100 : 0;
 
-                    transaction.update(doc(firestore, 'products', item.productId), {
-                        stock: totalStock,
-                        stockLevel: totalStock,
-                        cost: weightedCost,
-                        lastPurchaseRate: newCost,
-                        lastPurchaseDate: serverTimestamp(),
-                        updatedAt: serverTimestamp()
-                    });
-
-                    const logRef = doc(collection(firestore, `products/${item.productId}/stockHistory`));
-                    transaction.set(logRef, {
-                        productId: item.productId,
-                        userId: currentUser.id,
-                        userName: currentUser.name,
-                        previousStock: oldStock,
-                        newStock: totalStock,
-                        change: newQty,
-                        reason: `WAC: Importación #${order.id?.substring(0, 6)}`,
-                        createdAt: serverTimestamp()
-                    });
+                if (margin < 15) {
+                    criticalErosions.push(`${productData.name} (${margin.toFixed(1)}%)`);
                 }
+
+                const update: any = {
+                    stock: totalStock,
+                    stockLevel: totalStock,
+                    cost: Math.round(weightedCost * 10000) / 10000,
+                    lastPurchaseRate: Math.round(newCost * 10000) / 10000,
+                    lastPurchaseDate: serverTimestamp(),
+                    updatedAt: serverTimestamp()
+                };
+                if (productData.hasSizes && productData.sizes && Object.keys(g.sizes).length) {
+                    const sizes = { ...productData.sizes } as Record<string, number>;
+                    for (const [s, q] of Object.entries(g.sizes)) sizes[s] = Number(sizes[s] || 0) + q;
+                    update.sizes = sizes;
+                }
+                transaction.update(doc(firestore, 'products', productId), update);
+
+                const logRef = doc(collection(firestore, `products/${productId}/stockHistory`));
+                transaction.set(logRef, {
+                    productId,
+                    userId: currentUser.id,
+                    userName: currentUser.name,
+                    previousStock: oldStock,
+                    newStock: totalStock,
+                    change: newQty,
+                    reason: `WAC: Importación #${order.id?.substring(0, 6)}`,
+                    createdAt: serverTimestamp()
+                });
             }
 
             transaction.update(poRef, {
                 status: 'Recibido',
+                stockReceived: true,
+                receivedBy: currentUser.id,
                 receptionDate: serverTimestamp(),
                 updatedAt: serverTimestamp()
             });
         });
-
         if (criticalErosions.length > 0) {
             await createAppNotifications(firestore, {
                 category: 'Inventario',

@@ -1019,10 +1019,10 @@ export default function ClientsPageContent() {
       `Estimado(a) *${customer.razonSocial}*,\n\n` +
       `Le saludamos del Departamento Comercial de Athleticenter. Queremos hacer seguimiento a su cuenta corporativa:\n\n` +
       `📄 *RIF Fiscal:* ${customer.rif}\n` +
-      (pendingDebt > 0.05 ? `💰 *Saldo Pendiente (Lista BCV):* $${pendingDebt.toFixed(2)} USD\n` : `✅ *Estado de Cuenta:* Al Día\n`) +
-      `📍 *Asesor Asignado:* ${customer.assignedSalespersonName || 'Atención General'}\n\n` +
+      (pendingDebt > 0.05 ? `💰 *Saldo Pendiente (Lista BCV):* ${pendingDebt.toFixed(2)} USD\n` : `✅ *Estado de Cuenta:* Al Día\n`) +
+      `📍 *Canal de Atención:* Atención Corporativa Athleticenter\n\n` +
       `¿En qué podemos apoyarle hoy con el despacho de mercancía o actualización de ofertas?\n\n` +
-      `¡Muchas gracias por su preferencia!`;
+      `¡Muchas gracias por su preferencia!\n\n_El equipo de Athleticenter_`;
 
     const url = cleanPhone ? `https://wa.me/${cleanPhone}?text=${encodeURIComponent(text)}` : `https://wa.me/?text=${encodeURIComponent(text)}`;
     window.open(url, '_blank');

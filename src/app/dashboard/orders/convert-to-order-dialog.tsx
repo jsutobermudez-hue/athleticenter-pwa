@@ -20,6 +20,7 @@ import { createAppNotifications } from '@/lib/notifications';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { errorEmitter } from '@/firebase/error-emitter';
 import { FirestorePermissionError } from '@/firebase/errors';
+import { generateSecureEntityCode } from '@/lib/utils';
 
 type ConvertToOrderDialogProps = {
     quote: Quote;
@@ -87,7 +88,7 @@ export function ConvertToOrderDialog({ quote }: ConvertToOrderDialogProps) {
     setIsPending(true);
 
     const acronym = quote.customerName.substring(0, 3).toUpperCase().replace(/[^A-Z]/g, 'X');
-    const finalOrderId = `P-CONV-${acronym}-${Date.now().toString().slice(-4)}`;
+    const finalOrderId = generateSecureEntityCode('P-CONV', acronym);
     
     runTransaction(firestore, async (transaction) => {
         const customerRef = doc(firestore, 'customers', quote.customerId);
