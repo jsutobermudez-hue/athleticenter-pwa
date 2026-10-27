@@ -29,6 +29,7 @@ import { useUser, useFirestore, useCollection, useMemoFirebase } from '@/firebas
 import { collection, query, orderBy, limit, doc, setDoc, serverTimestamp, updateDoc } from 'firebase/firestore';
 import { useToast } from '@/hooks/use-toast';
 import { triggerPushNotificationAction } from '@/app/actions';
+import { getCurrentIdToken } from '@/lib/auth-fetch';
 import type { DirectMessage, SentMessage } from '@/lib/definitions';
 import { cn } from '@/lib/utils';
 
@@ -222,11 +223,11 @@ export function DirectMessageThreadDialog({
       }, { merge: true });
 
       // 4. Disparar Push Notification en tiempo real al dispositivo/navegador del contacto
-      triggerPushNotificationAction([contact.id], {
+      getCurrentIdToken().then(idToken => triggerPushNotificationAction([contact.id], {
         title: `💬 ${currentUser.name}`,
         body: messageContent,
         url: '/dashboard/notifications',
-      }).catch(() => {});
+      }, idToken || undefined)).catch(() => {});
 
       toast({
         title: "Mensaje Enviado",

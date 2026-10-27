@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { timingSafeEqual } from 'crypto';
 import { initializeFirebaseServer, ensureServerAuth } from '@/firebase/server-init';
 import { collection, query, where, getDocs, limit, orderBy, doc, getDoc, updateDoc, addDoc, serverTimestamp } from 'firebase/firestore';
 import { sendBackgroundWhatsAppMessage, formatVenezuelaPhoneE164 } from '@/lib/whatsapp-gateway';
@@ -17,9 +18,16 @@ import { sendBackgroundWhatsAppMessage, formatVenezuelaPhoneE164 } from '@/lib/w
  *  5. Menú de ayuda general ("HOLA", "ASESOR", "AYUDA")
  */
 export async function POST(req: Request) {
+  // Seguridad: solo el gateway de WhatsApp (São Paulo) puede notificar mensajes entrantes.
+  const secret = process.env.WHATSAPP_WEBHOOK_SECRET || '';
+  const provided = req.headers.get('x-webhook-secret') || '';
+  if (!secret || secret.length < 24 || provided.length !== secret.length || !timingSafeEqual(Buffer.from(provided), Buffer.from(secret))) {
+    return NextResponse.json({ success: false, error: 'No autorizado' }, { status: 401 });
+  }
+
   try {
     const body = await req.json();
-    console.log(`[WhatsApp Webhook] Mensaje entrante:`, JSON.stringify(body));
+    console.log(`[WhatsApp Webhook] Mensaje entrante de ...${String(body?.from || '').slice(-4)} (${String(body?.body || '').length} caracteres)`);
 
     const fromRaw = body?.from || body?.From || body?.data?.from || body?.data?.author || '';
     const textRaw = body?.body || body?.Body || body?.data?.body || body?.text || '';

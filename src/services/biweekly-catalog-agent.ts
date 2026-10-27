@@ -9,6 +9,7 @@ import {
   doc,
   setDoc,
   addDoc,
+  updateDoc,
   serverTimestamp,
   Timestamp
 } from 'firebase/firestore';
@@ -246,61 +247,62 @@ export async function runBiweeklyCatalogAgent(options: BiweeklyCatalogOptions = 
     };
   }
 
-  // 8. Despacho real con protección anti-bloqueo
+  // 8. Despacho real
+  //    - Prueba (testPhone): envío directo inmediato.
+  //    - Envío a clientes: se encola en el gateway de São Paulo, que respeta pausas anti-bloqueo
+  //      y horario comercial, y reporta el progreso de la campaña a la app.
   let sentCount = 0;
   let failedCount = 0;
+  let queued = 0;
 
-  console.log(`[Biweekly Catalog] 🚀 Despachando a ${recipients.length} clientes...`);
-
-  for (let i = 0; i < recipients.length; i++) {
-    const item = recipients[i];
-    const personalizedMessage = messageTemplate.replace(/{{nombre}}/gi, item.name);
-
-    try {
-      const res = await sendBackgroundWhatsAppMessage({
-        phone: item.phone,
-        message: personalizedMessage,
-        imageUrl: heroImageUrl
-      });
-
-      if (res.success) {
-        sentCount++;
-      } else {
-        failedCount++;
-      }
-    } catch (sendErr) {
-      failedCount++;
-    }
-
-    // Intervalo de seguridad entre mensajes (8 a 14 segundos)
-    if (i < recipients.length - 1) {
-      if ((i + 1) % 20 === 0) {
-        console.log(`[Biweekly Catalog] ⏳ Pausa de enfriamiento (60s) tras ${i + 1} envíos...`);
-        await new Promise(r => setTimeout(r, 60000));
-      } else {
-        const jitter = Math.floor(Math.random() * (14000 - 8000 + 1)) + 8000;
-        await new Promise(r => setTimeout(r, jitter));
-      }
-    }
-  }
-
-  // Registrar en historial de campañas
+  // Registrar la campaña primero para que el gateway pueda reportar su progreso.
+  let campaignId: string | undefined;
   try {
-    await addDoc(collection(firestore, 'marketing_campaigns'), {
+    const ref = await addDoc(collection(firestore, 'marketing_campaigns'), {
       title: `Catálogo Oficial (${editionName})`,
       message: messageTemplate,
       mediaUrl: heroImageUrl ? 'Foto de inventario' : null,
       mediaType: heroImageUrl ? 'image' : 'none',
       audienceType: options.testPhone ? 'test' : 'all',
       totalTarget: recipients.length,
-      sentCount,
-      failedCount,
-      status: 'completed',
+      sentCount: 0,
+      failedCount: 0,
+      status: options.testPhone ? 'completed' : 'queued',
       type: 'biweekly_catalog',
-      createdAt: serverTimestamp()
+      sentByName: 'Sistema Athleticenter',
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
     });
+    campaignId = ref.id;
   } catch (histErr) {
     console.warn('[Biweekly Catalog] Error guardando historial:', histErr);
+  }
+
+  if (options.testPhone) {
+    for (const item of recipients) {
+      const res = await sendBackgroundWhatsAppMessage({
+        phone: item.phone,
+        message: messageTemplate.replace(/{{nombre}}/gi, item.name),
+        imageUrl: heroImageUrl
+      }).catch((e: any) => ({ success: false, error: e?.message }));
+      if (res.success) sentCount++; else failedCount++;
+    }
+    if (campaignId) {
+      await updateDoc(doc(firestore, 'marketing_campaigns', campaignId), { sentCount, failedCount, updatedAt: serverTimestamp() }).catch(() => {});
+    }
+  } else {
+    const { enqueueWhatsAppBatch } = await import('@/lib/whatsapp-dispatch-server');
+    const q = await enqueueWhatsAppBatch(
+      recipients.map(r => ({ number: r.phone, text: messageTemplate.replace(/{{nombre}}/gi, r.name), imageUrl: heroImageUrl })),
+      { campaignId, label: `Catálogo ${editionName}` }
+    );
+    if (!q.success) {
+      console.error('[Biweekly Catalog] ❌ No se pudo encolar en el gateway:', q.error);
+      if (campaignId) await updateDoc(doc(firestore, 'marketing_campaigns', campaignId), { status: 'failed', error: q.error || 'Gateway no disponible', updatedAt: serverTimestamp() }).catch(() => {});
+      return { success: false, dryRun: false, edition: editionName, products: finalProducts, totalRecipients: recipients.length, sentCount: 0, failedCount: recipients.length, heroProduct: heroProduct?.name, error: q.error } as any;
+    }
+    queued = q.queued || 0;
+    console.log(`[Biweekly Catalog] ✅ ${queued} mensajes encolados en São Paulo (campaña ${campaignId}).`);
   }
 
   return {
@@ -311,6 +313,7 @@ export async function runBiweeklyCatalogAgent(options: BiweeklyCatalogOptions = 
     totalRecipients: recipients.length,
     sentCount,
     failedCount,
+    queued,
     heroProduct: heroProduct?.name
-  };
+  } as any;
 }

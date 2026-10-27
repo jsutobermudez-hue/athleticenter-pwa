@@ -388,7 +388,9 @@ export function ConfirmPaymentDialog({ order }: { order: Order }) {
 
         try {
             const { sendPaymentReceiptEmailAction } = await import('@/app/actions');
+            const { getCurrentIdToken } = await import('@/lib/auth-fetch');
             await sendPaymentReceiptEmailAction({
+                idToken: (await getCurrentIdToken()) || undefined,
                 toEmail: (order as any).customerEmail || (order as any).email || currentUser?.email || authUser?.email || '',
                 customerName: order.customerName,
                 receiptId: `#REC-${(order.id || '').replace('#','').substring(0,8)}-1`,

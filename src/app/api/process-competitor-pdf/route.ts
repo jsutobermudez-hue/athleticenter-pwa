@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import * as XLSX from 'xlsx';
+import { authorizeRequest, MANAGER_ROLES } from '@/lib/server-auth';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60; // 60 segundos de tiempo de ejecución para archivos grandes
@@ -30,6 +31,8 @@ REGLAS DE EXTRACCIÓN ESTRICTAS:
 `;
 
 export async function POST(req: NextRequest) {
+    const auth = await authorizeRequest(req, MANAGER_ROLES);
+    if (!auth.ok) return NextResponse.json({ success: false, error: auth.error }, { status: auth.status });
   try {
     const apiKey = process.env.GOOGLE_GENAI_API_KEY || process.env.GEMINI_API_KEY;
     if (!apiKey) {

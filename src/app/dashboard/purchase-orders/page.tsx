@@ -41,6 +41,7 @@ import {
 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
+import { authFetch } from '@/lib/auth-fetch';
 import { cn } from '@/lib/utils';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -222,7 +223,7 @@ function PurchaseOrdersContent() {
       formData.append('file', file);
 
       try {
-        const res = await fetch('/api/process-import-invoice', {
+        const res = await authFetch('/api/process-import-invoice', {
           method: 'POST',
           body: formData
         });

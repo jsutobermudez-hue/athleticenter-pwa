@@ -45,6 +45,7 @@ import { calculateGlobalFinancialMetrics, getEffectiveCashReceived, getInvoiceFr
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn } from '@/lib/utils';
+import { openAuthenticatedUrl } from '@/lib/auth-fetch';
 
 export default function ReportsPage() {
   const { profile: currentUser } = useUser();
@@ -164,7 +165,7 @@ export default function ReportsPage() {
     const targetUser = salespeople.find(u => u.id === targetId);
     const name = spName || targetUser?.name || 'Vendedor';
     const pdfUrl = `/api/reports/salesperson-receivables-pdf?salespersonId=${encodeURIComponent(targetId)}&salespersonName=${encodeURIComponent(name)}`;
-    window.open(pdfUrl, '_blank');
+    openAuthenticatedUrl(pdfUrl);
   };
 
   // 4. Generador de Informe Ejecutivo por IA

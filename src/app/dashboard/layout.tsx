@@ -137,7 +137,8 @@ export default function DashboardLayout({
         if (typeof window !== 'undefined' && !sessionStorage.getItem(sessionKey)) {
             sessionStorage.setItem(sessionKey, 'true');
             try {
-                const res = await syncBcvRateAction();
+                const { getCurrentIdToken } = await import('@/lib/auth-fetch');
+                const res = await syncBcvRateAction((await getCurrentIdToken()) || undefined);
                 if (res.success && res.action === 'updated') {
                     console.log(`[BCV Auto Sync] Tasa oficial actualizada automáticamente a ${res.newRate} Bs.`);
                 }

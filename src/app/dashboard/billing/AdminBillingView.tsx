@@ -70,6 +70,7 @@ import type { FinancialSettings } from '@/lib/definitions';
 
 import { logActivity } from '@/lib/audit';
 import { useToast } from '@/hooks/use-toast';
+import { openAuthenticatedUrl } from '@/lib/auth-fetch';
 
 export function AdminBillingView() {
   const { toast } = useToast();
@@ -558,7 +559,7 @@ export function AdminBillingView() {
 
   const handleSendSalespersonPDFReport = () => {
     if (salespersonFilter === 'todos') return;
-    window.open(`/api/reports/salesperson-receivables-pdf?salespersonId=${salespersonFilter}`, '_blank');
+    openAuthenticatedUrl(`/api/reports/salesperson-receivables-pdf?salespersonId=${salespersonFilter}`);
   };
 
   if (isUserLoading || !currentUser) {

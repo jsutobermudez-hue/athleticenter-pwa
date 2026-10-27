@@ -16,6 +16,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
+import { authFetch } from '@/lib/auth-fetch';
 import {
     Megaphone,
     Users,
@@ -171,7 +172,7 @@ export function BroadcastCampaignModal({
                 phone: c.phone || (c as any).whatsappPhone || (c as any).telefono || ''
             }));
 
-            const res = await fetch('/api/marketing/broadcast', {
+            const res = await authFetch('/api/marketing/broadcast', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({

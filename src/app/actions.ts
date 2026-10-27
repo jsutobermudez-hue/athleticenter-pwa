@@ -7,6 +7,7 @@ import { generateWhatsAppReminder } from '@/ai/flows/whatsapp-credit-reminder';
 import { generateWhatsAppStatusUpdate } from '@/ai/flows/whatsapp-status-update';
 import { executeBcvRateSync } from '@/services/agents';
 import { sendPushNotification } from '@/lib/web-push-server';
+import { authorizeAction, MANAGER_ROLES, STAFF_ROLES } from '@/lib/server-auth';
 
 
 import { 
@@ -43,12 +44,19 @@ export async function handlePasswordReset(email: string) {
 
 export async function runAIAnalyst(input: any) {
     try {
-        try {
-            await ensureServerAuth();
-        } catch (authErr) {
-            console.warn("[Action Warning] ensureServerAuth soft warning:", authErr);
-        }
-        const result = await aiAnalystFlow(input);
+        // Seguridad: el rol se toma de la sesión verificada, nunca del cliente.
+        const auth = await authorizeAction(input?.idToken, STAFF_ROLES);
+        if (!auth.ok) return { success: false, error: auth.error };
+
+        const { idToken: _omit, userRole: _ignored, ...rest } = input || {};
+        const history = Array.isArray(rest.history) ? rest.history.slice(-12) : [];
+        const result = await aiAnalystFlow({
+            ...rest,
+            query: String(rest.query || '').slice(0, 2000),
+            history,
+            userId: auth.uid,
+            userRole: auth.role,
+        });
         return { success: true, data: result };
     } catch (e: any) {
         console.error("[Action Error] AI Analyst failed:", e?.message || e);
@@ -61,7 +69,10 @@ export async function runAIAnalyst(input: any) {
 
 export async function handleWhatsAppReminder(input: any) {
     try {
-        const result = await generateWhatsAppReminder(input);
+        const auth = await authorizeAction(input?.idToken, STAFF_ROLES);
+        if (!auth.ok) return { success: false, error: auth.error };
+        const { idToken: _omit, ...rest } = input || {};
+        const result = await generateWhatsAppReminder(rest);
         return { success: true, data: result };
     } catch (e: any) {
         return { success: false, error: "Error al generar el recordatorio." };
@@ -70,15 +81,20 @@ export async function handleWhatsAppReminder(input: any) {
 
 export async function handleWhatsAppStatusUpdate(input: any) {
     try {
-        const result = await generateWhatsAppStatusUpdate(input);
+        const auth = await authorizeAction(input?.idToken, STAFF_ROLES);
+        if (!auth.ok) return { success: false, error: auth.error };
+        const { idToken: _omit, ...rest } = input || {};
+        const result = await generateWhatsAppStatusUpdate(rest);
         return { success: true, data: result };
     } catch (e: any) {
         return { success: false, error: "Error al generar la actualización de estado." };
     }
 }
 
-export async function syncBcvRateAction() {
+export async function syncBcvRateAction(idToken?: string) {
     try {
+        const auth = await authorizeAction(idToken, MANAGER_ROLES);
+        if (!auth.ok) return { success: false, error: auth.error };
         await ensureServerAuth();
         const result = await executeBcvRateSync();
         return result;
@@ -90,12 +106,22 @@ export async function syncBcvRateAction() {
 
 export async function triggerPushNotificationAction(
     userIds: string[], 
-    payload: { title: string; body: string; url?: string; imageUrl?: string }
+    payload: { title: string; body: string; url?: string; imageUrl?: string },
+    idToken?: string
 ) {
     try {
+        // Cualquier usuario con sesión válida puede notificar (chat, pedidos), con límites anti-abuso.
+        const auth = await authorizeAction(idToken, [...STAFF_ROLES, 'cliente']);
+        if (!auth.ok) return { success: false, error: auth.error };
+        const targets = Array.from(new Set((userIds || []).filter(Boolean))).slice(0, 200);
+        const safePayload = {
+            ...payload,
+            title: String(payload?.title || '').slice(0, 120),
+            body: String(payload?.body || '').slice(0, 500),
+        };
         await ensureServerAuth();
         const { firestore } = initializeFirebaseServer();
-        const promises = userIds.map(uid => sendPushNotification(firestore, uid, payload));
+        const promises = targets.map(uid => sendPushNotification(firestore, uid, safePayload));
         await Promise.all(promises);
         return { success: true };
     } catch (e: any) {
@@ -112,8 +138,12 @@ export async function executePriceAdjustment(params: {
     modelFilter: string;
     userId: string;
     userName: string;
+    idToken?: string;
 }) {
     try {
+        const auth = await authorizeAction(params.idToken, MANAGER_ROLES);
+        if (!auth.ok) return { success: false, error: auth.error };
+        params = { ...params, userId: auth.uid, userName: auth.name };
         await ensureServerAuth();
         const { firestore } = initializeFirebaseServer();
         
@@ -296,8 +326,12 @@ export async function executePriceAdjustment(params: {
 export async function executePriceRollback(params: {
     userId: string;
     userName: string;
+    idToken?: string;
 }) {
     try {
+        const auth = await authorizeAction(params.idToken, MANAGER_ROLES);
+        if (!auth.ok) return { success: false, error: auth.error };
+        params = { ...params, userId: auth.uid, userName: auth.name };
         await ensureServerAuth();
         const { firestore } = initializeFirebaseServer();
         const { userId, userName } = params;
@@ -431,10 +465,14 @@ export async function sendPaymentReceiptEmailAction(params: {
     referenceNumber?: string;
     remainingBalanceUSD: number;
     isFullyPaid: boolean;
+    idToken?: string;
 }) {
     try {
+        const auth = await authorizeAction(params.idToken, STAFF_ROLES);
+        if (!auth.ok) return { success: false, error: auth.error };
+        const { idToken: _omit, ...emailParams } = params;
         const { sendPaymentReceiptEmail } = await import('@/lib/email');
-        return await sendPaymentReceiptEmail(params);
+        return await sendPaymentReceiptEmail(emailParams);
     } catch (err: any) {
         console.warn("[Action Email Warning] Error sending payment receipt email:", err?.message);
         return { success: false, error: err?.message };

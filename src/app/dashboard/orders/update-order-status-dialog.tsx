@@ -117,11 +117,12 @@ export function UpdateOrderStatusDialog({ order, isOpen, onOpenChange }: UpdateO
             });
             
             if (order.customerPhone && !['En Verificación', 'Pagado'].includes(status)) {
-                handleWhatsAppStatusUpdate({
+                import('@/lib/auth-fetch').then(({ getCurrentIdToken }) => getCurrentIdToken()).then(idToken => handleWhatsAppStatusUpdate({
+                    idToken,
                     customerName: order.customerName,
                     orderId: order.id.substring(0, 6),
                     newStatus: status,
-                }).then(result => {
+                })).then(result => {
                     if (result.success && result.data) {
                         dispatchUniversalWhatsApp({
                             phone: order.customerPhone!,

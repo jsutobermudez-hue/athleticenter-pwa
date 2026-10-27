@@ -463,8 +463,16 @@ function MarketingContent() {
                                     <div key={camp.id} className="p-6 rounded-2xl bg-slate-50 border border-slate-100 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                                         <div className="space-y-1 flex-1">
                                             <div className="flex items-center gap-2">
-                                                <Badge className={cn("text-[8px] font-black uppercase border-none px-2", camp.status === 'completed' ? "bg-emerald-100 text-emerald-700" : "bg-blue-100 text-blue-700")}>
-                                                    {camp.status === 'completed' ? 'Completada' : 'Procesando en Fondo'}
+                                                <Badge className={cn("text-[8px] font-black uppercase border-none px-2",
+                                                    camp.status === 'completed' ? "bg-emerald-100 text-emerald-700"
+                                                    : camp.status === 'failed' ? "bg-red-100 text-red-700"
+                                                    : camp.status === 'queued' ? "bg-amber-100 text-amber-700"
+                                                    : "bg-blue-100 text-blue-700")}
+                                                    title={(camp as any).error || ((camp as any).lastErrors || []).join('\n') || undefined}>
+                                                    {camp.status === 'completed' ? 'Completada'
+                                                        : camp.status === 'failed' ? 'Fallida'
+                                                        : camp.status === 'queued' ? 'En cola (São Paulo)'
+                                                        : 'Enviando'}
                                                 </Badge>
                                                 <span className="text-[10px] text-slate-400 font-mono">
                                                     {camp.createdAt ? new Date((camp.createdAt as any).toDate ? (camp.createdAt as any).toDate() : camp.createdAt).toLocaleDateString() : 'Hoy'}

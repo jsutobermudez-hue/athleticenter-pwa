@@ -121,13 +121,18 @@ export async function createAppNotifications(
 
     // 1. DISPARAR NOTIFICACIONES PUSH NATIVAS WEBPUSH (SEGUNDO PLANO)
     try {
-      const { triggerPushNotificationAction } = await import('@/app/actions');
-      await triggerPushNotificationAction(finalTargetIds, {
-        title,
-        body: message,
-        url: link || '#',
-        imageUrl
-      });
+      const pushPayload = { title, body: message, url: link || '#', imageUrl };
+      if (typeof window === 'undefined') {
+        // Servidor (agentes/crons): envío directo, ya autenticado como agente.
+        const { sendPushNotification } = await import('@/lib/web-push-server');
+        await Promise.all(finalTargetIds.slice(0, 200).map(uid => sendPushNotification(firestore, uid, pushPayload)));
+      } else {
+        const [{ triggerPushNotificationAction }, { getCurrentIdToken }] = await Promise.all([
+          import('@/app/actions'),
+          import('@/lib/auth-fetch'),
+        ]);
+        await triggerPushNotificationAction(finalTargetIds, pushPayload, (await getCurrentIdToken()) || undefined);
+      }
     } catch (pushErr) {
       console.warn("[Notifications] Error al invocar la acción de envío push:", pushErr);
     }

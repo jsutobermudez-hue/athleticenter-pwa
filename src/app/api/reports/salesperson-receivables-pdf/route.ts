@@ -5,6 +5,7 @@ import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { getEffectiveCashReceived } from '@/lib/billing';
 import { format } from 'date-fns';
+import { authorizeRequest, STAFF_ROLES } from '@/lib/server-auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -21,6 +22,13 @@ export async function GET(req: NextRequest) {
         const { searchParams } = new URL(req.url);
         const salespersonId = searchParams.get('salespersonId');
         const salespersonNameParam = searchParams.get('salespersonName');
+
+        // Seguridad: requiere sesión del personal. Un vendedor solo descarga su propia cartera.
+        const auth = await authorizeRequest(req, STAFF_ROLES, { queryTokenParam: 'idToken' });
+        if (!auth.ok) return NextResponse.json({ success: false, error: auth.error }, { status: auth.status });
+        if (!auth.internal && auth.role === 'ventas' && salespersonId !== auth.uid) {
+            return NextResponse.json({ success: false, error: 'Solo puedes descargar tu propia cartera.' }, { status: 403 });
+        }
 
         const { firestore } = initializeFirebaseServer();
         const { ensureServerAuth } = await import('@/firebase/server-init');

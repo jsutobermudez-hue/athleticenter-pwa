@@ -30,3 +30,5 @@ bot-server.mjs
 .DS_Store
 Thumbs.db
 *.log
+
+.rules-rollback.json

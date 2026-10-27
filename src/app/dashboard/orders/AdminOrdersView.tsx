@@ -96,6 +96,7 @@ function DashboardMetricCard({
 import { doc } from 'firebase/firestore';
 import { useDoc } from '@/firebase';
 import type { FinancialSettings } from '@/lib/definitions';
+import { openAuthenticatedUrl } from '@/lib/auth-fetch';
 
 export default function AdminOrdersView() {
     const firestore = useFirestore();
@@ -418,7 +419,7 @@ export default function AdminOrdersView() {
 
     const handleSendSalespersonPDFReport = () => {
         if (salespersonFilter === 'todos') return;
-        window.open(`/api/reports/salesperson-receivables-pdf?salespersonId=${salespersonFilter}`, '_blank');
+        openAuthenticatedUrl(`/api/reports/salesperson-receivables-pdf?salespersonId=${salespersonFilter}`);
     };
 
     const allSections = [

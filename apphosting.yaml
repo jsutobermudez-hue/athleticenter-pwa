@@ -1,0 +1,21 @@
+# Firebase App Hosting — configuración de variables de entorno adicionales.
+# Las variables existentes (GOOGLE_GENAI_API_KEY, FIREBASE_SERVER_EMAIL/PASSWORD, VAPID_*)
+# se administran en la consola de Firebase. Aquí solo se declaran las nuevas, referenciando
+# Secret Manager (los valores nunca se guardan en el repositorio).
+env:
+  - variable: CRON_SECRET
+    secret: cron-secret
+    availability:
+      - RUNTIME
+  - variable: WHATSAPP_GATEWAY_KEY
+    secret: whatsapp-gateway-key
+    availability:
+      - RUNTIME
+  - variable: WHATSAPP_WEBHOOK_SECRET
+    secret: whatsapp-webhook-secret
+    availability:
+      - RUNTIME
+  - variable: WHATSAPP_GATEWAY_SP_URL
+    value: http://35.199.85.127:3001
+    availability:
+      - RUNTIME

@@ -187,10 +187,12 @@ export function AIReportingHub() {
             }));
 
         try {
+            const { getCurrentIdToken } = await import('@/lib/auth-fetch');
             const result = await runAIAnalyst({
                 query: currentQuery,
                 userId: profile.id,
-                history: historyPayload
+                history: historyPayload,
+                idToken: await getCurrentIdToken()
             });
 
             if (result && result.success && result.data) {

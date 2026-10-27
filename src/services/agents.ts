@@ -136,7 +136,7 @@ export async function executeWeeklySalespersonReceivablesSummary() {
 
         // Crear notificaciones internas y links de descarga
         for (const sp of salespeople) {
-            const pdfUrl = `/api/reports/salesperson-receivables-pdf?salespersonId=${encodeURIComponent(sp.id)}&salespersonName=${encodeURIComponent(sp.name)}`;
+            const pdfUrl = `/dashboard/reports/receivables-pdf?salespersonId=${encodeURIComponent(sp.id)}&salespersonName=${encodeURIComponent(sp.name)}`;
             await createAppNotifications(firestore, {
                 category: 'Facturación',
                 title: `📊 Resumen Semanal de Cartera: ${sp.name}`,

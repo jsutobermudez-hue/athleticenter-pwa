@@ -1,110 +1,254 @@
 rules_version = '2';
+
+// =====================================================================
+// ATHLETICENTER PRO — REGLAS DE SEGURIDAD FIRESTORE v2 (por rol)
+// Roles: superadmin | gerencia | admin | ventas | deposito | cliente
+// El rol se lee del perfil users/{uid}. Nadie puede cambiarse su propio rol.
+// =====================================================================
 service cloud.firestore {
   match /databases/{database}/documents {
-    
-    // Reglas para perfiles de usuario y su comunicación (Permite a Admin crear clientes)
-    match /users/{userId} {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null; 
 
-      match /directMessages/{messageId} {
-        allow read, write: if request.auth != null;
-      }
+    // ---------- Helpers ----------
+    function signedIn() { return request.auth != null; }
+    function me() { return get(/databases/$(database)/documents/users/$(request.auth.uid)).data; }
+    function hasProfile() { return signedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid)); }
+    function role() { return hasProfile() ? me().get('role', 'cliente') : 'none'; }
+
+    function isSuper()   { return role() == 'superadmin'; }
+    function isManager() { return role() in ['superadmin', 'gerencia', 'admin']; }
+    function isStaff()   { return role() in ['superadmin', 'gerencia', 'admin', 'ventas', 'deposito']; }
+    function isWarehouse() { return isManager() || role() == 'deposito'; }
+    function isClient()  { return role() == 'cliente'; }
+
+    // El cliente opera sobre su ficha de cliente (associatedCustomerId) o, en su defecto, su propio uid.
+    function myCustomerId() { return me().get('associatedCustomerId', request.auth.uid); }
+    function ownsCustomer(cid) { return signedIn() && (cid == request.auth.uid || (hasProfile() && cid == myCustomerId())); }
+
+    function orderDoc(orderId) { return get(/databases/$(database)/documents/orders/$(orderId)).data; }
+    function quoteDoc(quoteId) { return get(/databases/$(database)/documents/quotes/$(quoteId)).data; }
+
+    function onlyChanges(keys) { return request.resource.data.diff(resource.data).affectedKeys().hasOnly(keys); }
+    function unchanged(field) { return request.resource.data.get(field, null) == resource.data.get(field, null); }
+
+    // ---------- Usuarios ----------
+    match /users/{userId} {
+      allow read: if signedIn();
+
+      // Alta: gerencia/admin crean cuentas; un usuario solo puede auto-registrarse como cliente.
+      allow create: if (isManager() && (request.resource.data.get('role', 'cliente') != 'superadmin' || isSuper()))
+                    || (request.auth.uid == userId && request.resource.data.get('role', 'cliente') == 'cliente');
+
+      // Edición: el propio usuario NO puede tocar rol ni vínculo de cliente ni comisiones.
+      // Gerencia/admin editan a otros; solo superadmin asigna o modifica superadmins.
+      allow update: if (request.auth.uid == userId
+                        && unchanged('role') && unchanged('associatedCustomerId')
+                        && unchanged('commissionRate') && unchanged('isActive'))
+                    || (isManager()
+                        && (isSuper() || (resource.data.get('role', '') != 'superadmin'
+                                          && request.resource.data.get('role', '') != 'superadmin')));
+
+      allow delete: if isSuper() || (isManager() && resource.data.get('role', '') != 'superadmin');
 
       match /notifications/{notificationId} {
-        allow read, write: if request.auth != null;
+        allow read, update, delete: if request.auth.uid == userId || isManager();
+        allow create: if signedIn();
       }
-
+      match /directMessages/{messageId} {
+        allow read, write: if signedIn();
+      }
       match /sentMessages/{messageId} {
-        allow read, write: if request.auth != null;
+        allow read, write: if request.auth.uid == userId || isManager();
       }
     }
 
-    // Reglas para productos e inventario (Permite guardar en subcolección /private/pricing)
+    // ---------- Catálogo ----------
     match /products/{productId} {
       allow read: if true;
-      allow write: if request.auth != null;
+      allow create, update: if isStaff();
+      allow delete: if isManager();
 
       match /stockHistory/{logId} {
-        allow read, write: if request.auth != null;
+        allow read, create: if isStaff();
+        allow update, delete: if false;
       }
-
+      match /priceHistory/{logId} {
+        allow read, create: if isStaff();
+        allow update, delete: if false;
+      }
+      // Costos y estructura de precios: solo gerencia/admin/depósito.
       match /private/{docId} {
-        allow read, write: if request.auth != null;
+        allow read, write: if isWarehouse();
       }
-    }
-
-    // Reglas para la gestión comercial y pedidos
-    match /orders/{orderId} {
-      allow read, write: if request.auth != null;
-
-      match /orderItems/{itemId} {
-        allow read, write: if request.auth != null;
-      }
-
-      match /payments/{paymentId} {
-        allow read, write: if request.auth != null;
-      }
-    }
-
-    match /quotes/{quoteId} {
-      allow read, write: if request.auth != null;
-
-      match /quoteItems/{itemId} {
-        allow read, write: if request.auth != null;
-      }
-    }
-
-    match /customers/{customerId} {
-      allow read, write: if request.auth != null;
-    }
-
-    match /carriers/{carrierId} {
-      allow read, write: if request.auth != null;
-    }
-
-    match /commissions/{commissionId} {
-      allow read, write: if request.auth != null;
     }
 
     match /offers/{offerId} {
       allow read: if true;
-      allow write: if request.auth != null;
+      allow write: if isManager();
     }
 
+    // ---------- Pedidos ----------
+    match /orders/{orderId} {
+      allow read: if isStaff() || ownsCustomer(resource.data.get('customerId', ''));
+
+      allow create: if isStaff()
+                    || (isClient()
+                        && ownsCustomer(request.resource.data.get('customerId', ''))
+                        && request.resource.data.get('status', '') in ['Pendiente', 'Borrador']
+                        && request.resource.data.get('amountPaid', 0) == 0);
+
+      // El cliente solo puede: editar su borrador, o pasar su pedido a "En Verificación" al reportar un pago,
+      // o solicitar anulación. Nunca montos pagados, crédito ni aprobaciones.
+      allow update: if isStaff()
+                    || (isClient() && ownsCustomer(resource.data.get('customerId', ''))
+                        && unchanged('customerId') && unchanged('amountPaid')
+                        && (resource.data.get('status', '') == 'Borrador'
+                              && request.resource.data.get('status', '') in ['Borrador', 'Pendiente']
+                            || onlyChanges(['status', 'updatedAt'])
+                              && request.resource.data.status == 'En Verificación'
+                            || onlyChanges(['cancellationRequested', 'cancellationReason', 'cancellationRequestedAt', 'updatedAt'])));
+
+      allow delete: if isManager();
+
+      match /orderItems/{itemId} {
+        allow read: if isStaff() || ownsCustomer(orderDoc(orderId).get('customerId', ''));
+        allow create: if isStaff()
+                      || (ownsCustomer(orderDoc(orderId).get('customerId', ''))
+                          && orderDoc(orderId).get('status', '') in ['Pendiente', 'Borrador']);
+        allow update, delete: if isStaff()
+                      || (ownsCustomer(orderDoc(orderId).get('customerId', ''))
+                          && orderDoc(orderId).get('status', '') == 'Borrador');
+      }
+
+      match /payments/{paymentId} {
+        allow read: if isStaff() || ownsCustomer(orderDoc(orderId).get('customerId', ''));
+        // El cliente solo reporta pagos pendientes de verificación, a su nombre.
+        allow create: if isStaff()
+                      || (ownsCustomer(orderDoc(orderId).get('customerId', ''))
+                          && request.resource.data.get('status', '') == 'pending_verification'
+                          && request.resource.data.get('registeredBy', '') == request.auth.uid);
+        allow update, delete: if isManager();
+      }
+
+      match /statusHistory/{entryId} {
+        allow read: if isStaff() || ownsCustomer(orderDoc(orderId).get('customerId', ''));
+        allow create: if isStaff();
+        allow update, delete: if false;
+      }
+    }
+
+    // Consultas collectionGroup('payments') (caja, estado de cuenta del cliente)
+    match /{path=**}/payments/{paymentId} {
+      allow read: if isStaff() || (signedIn() && resource.data.get('registeredBy', '') == request.auth.uid)
+                  || (hasProfile() && resource.data.get('registeredBy', '') == myCustomerId());
+    }
+
+    // ---------- Cotizaciones ----------
+    match /quotes/{quoteId} {
+      allow read: if isStaff() || ownsCustomer(resource.data.get('customerId', ''));
+      allow create: if isStaff() || (isClient() && ownsCustomer(request.resource.data.get('customerId', '')));
+      allow update: if isStaff()
+                    || (isClient() && ownsCustomer(resource.data.get('customerId', ''))
+                        && unchanged('customerId') && unchanged('totalAmount') && unchanged('salespersonId'));
+      allow delete: if isManager();
+
+      match /quoteItems/{itemId} {
+        allow read: if isStaff() || ownsCustomer(quoteDoc(quoteId).get('customerId', ''));
+        allow write: if isStaff();
+      }
+    }
+
+    // ---------- Clientes ----------
+    match /customers/{customerId} {
+      allow read: if isStaff() || ownsCustomer(customerId);
+      allow create, update: if isStaff();
+      allow delete: if isManager();
+    }
+
+    // ---------- Logística ----------
+    match /carriers/{carrierId} {
+      allow read: if signedIn();
+      allow write: if isStaff();
+    }
+    match /stockMovements/{movementId} {
+      allow read, create: if isStaff();
+      allow update, delete: if isManager();
+    }
+
+    // ---------- Compras ----------
+    match /suppliers/{supplierId} {
+      allow read, write: if isWarehouse();
+    }
+    match /purchaseOrders/{poId} {
+      allow read, write: if isWarehouse();
+    }
+
+    // ---------- Finanzas ----------
+    match /commissions/{commissionId} {
+      allow read: if isManager() || (isStaff() && resource.data.get('salespersonId', '') == request.auth.uid);
+      allow create: if isStaff();
+      allow update, delete: if isManager();
+    }
+    match /expenses/{expenseId} {
+      allow read, write: if isManager();
+    }
+    match /treasuryTransactions/{txId} {
+      allow read, write: if isManager();
+    }
+    match /priceAdjustmentHistory/{historyId} {
+      allow read, write: if isManager();
+    }
+
+    // ---------- Auditoría (solo agregar, nunca editar ni borrar) ----------
     match /auditLogs/{logId} {
-      allow read, write: if request.auth != null;
+      allow read: if isManager();
+      allow create: if signedIn();
+      allow update, delete: if false;
+    }
+    match /audit_logs/{logId} {
+      allow read: if isManager();
+      allow create: if signedIn();
+      allow update, delete: if false;
     }
 
+    // ---------- Configuración ----------
     match /system/{docId} {
       allow read: if true;
-      allow write: if request.auth != null;
+      allow write: if isManager();
     }
-
     match /companyProfile/{docId} {
       allow read: if true;
-      allow write: if request.auth != null;
+      allow write: if isManager();
     }
 
-    match /suppliers/{supplierId} {
-      allow read, write: if request.auth != null;
+    // ---------- Marketing ----------
+    match /marketing_campaigns/{campaignId} {
+      allow read, write: if isManager();
+    }
+    match /catalog_leads/{leadId} {
+      allow read, write: if isStaff();
     }
 
-    match /purchaseOrders/{poId} {
-      allow read, write: if request.auth != null;
+    // ---------- Mensajería interna ----------
+    match /chats/{chatId} {
+      allow read, write: if signedIn();
+      match /messages/{messageId} {
+        allow read, write: if signedIn();
+      }
     }
-
-    match /priceAdjustmentHistory/{historyId} {
-      allow read, write: if request.auth != null;
+    match /group_channels/{channelId} {
+      allow read: if signedIn();
+      allow create, update: if signedIn();
+      allow delete: if isManager();
+      match /messages/{messageId} {
+        allow read, create, update: if signedIn();
+        allow delete: if isManager();
+      }
     }
-
     match /supportTickets/{ticketId} {
-      allow read, write: if request.auth != null;
+      allow read, create, update: if signedIn();
+      allow delete: if isManager();
     }
 
-    // Fallback de seguridad global para cualquier colección o subcolección de usuarios autenticados
-    match /{document=**} {
-      allow read, write: if request.auth != null;
-    }
+    // Sin regla comodín: cualquier colección no declarada queda cerrada por defecto.
   }
 }

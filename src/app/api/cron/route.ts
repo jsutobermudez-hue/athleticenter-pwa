@@ -11,19 +11,20 @@ import {
     executePendingReconciliationAlert,
     executeRoleBasedDailyWhatsAppBriefing
 } from '@/services/agents';
+import { isInternalSecret } from '@/lib/server-auth';
 
 export const dynamic = 'force-dynamic';
 
 /**
  * ENDPOINT DE AUTOMATIZACIÓN v7.0 (ALERTAS MULTICANAL DE CONCILIACIÓN BANCARIA Y WEB PUSH)
  * Orquestador maestro de procesos autónomos de la terminal.
+ * Seguridad: solo acepta la clave interna CRON_SECRET (falla cerrado si no está configurada).
  */
 export async function GET(request: Request) {
-  const authHeader = request.headers.get('authorization');
-  const cronSecret = process.env.CRON_SECRET;
+  const authHeader = request.headers.get('authorization') || '';
+  const token = authHeader.toLowerCase().startsWith('bearer ') ? authHeader.slice(7).trim() : '';
 
-  // Verificación de seguridad para evitar disparos accidentales
-  if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+  if (!isInternalSecret(token)) {
     console.warn("[Cron] Intento de ejecución no autorizado.");
     return new Response('Unauthorized', { status: 401 });
   }

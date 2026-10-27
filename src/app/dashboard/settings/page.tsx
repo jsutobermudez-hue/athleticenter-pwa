@@ -454,8 +454,12 @@ function RoleBasedNotificationsControlWidget() {
     const handleTriggerRoleBriefing = async (mode: 'single' | 'all') => {
         setIsExecuting(true);
         try {
-            const { executeRoleBasedDailyWhatsAppBriefing } = await import('@/services/agents');
-            const res = await executeRoleBasedDailyWhatsAppBriefing(
+            const [{ runRoleBriefingAction }, { getCurrentIdToken }] = await Promise.all([
+                import('@/app/admin-actions'),
+                import('@/lib/auth-fetch'),
+            ]);
+            const res: any = await runRoleBriefingAction(
+                await getCurrentIdToken(),
                 mode === 'single' ? (testPhone || undefined) : undefined,
                 mode === 'single' ? selectedTestRole : undefined
             );
@@ -595,8 +599,11 @@ function AutomatedNotificationsControlWidget() {
     const handleRunWeeklyReport = async () => {
         setIsRunningAgent(true);
         try {
-            const { executeWeeklySalespersonReceivablesSummary } = await import('@/services/agents');
-            const res = await executeWeeklySalespersonReceivablesSummary();
+            const [{ runWeeklyReceivablesAction }, { getCurrentIdToken }] = await Promise.all([
+                import('@/app/admin-actions'),
+                import('@/lib/auth-fetch'),
+            ]);
+            const res: any = await runWeeklyReceivablesAction(await getCurrentIdToken());
             if (res.success) {
                 toast({
                     title: "📊 Reporte Semanal de Cartera Generado",

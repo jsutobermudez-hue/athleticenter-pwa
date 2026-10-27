@@ -155,12 +155,13 @@ export function NewMessageDialog({ isOpen, onOpenChange, allUsers, onMessageSent
             // Disparar notificaciones Push en segundo plano a los destinatarios
             const targetIds = targetUsers.map(u => u.id).filter(Boolean);
             if (targetIds.length > 0) {
-                import('@/app/actions').then(({ triggerPushNotificationAction }) => {
+                Promise.all([import('@/app/actions'), import('@/lib/auth-fetch')]).then(async ([{ triggerPushNotificationAction }, { getCurrentIdToken }]) => {
+                    const idToken = (await getCurrentIdToken()) || undefined;
                     triggerPushNotificationAction(targetIds, {
                         title: `💬 Mensaje de ${currentUser.name}`,
                         body: data.subject,
                         url: '/dashboard/notifications'
-                    }).catch(err => console.warn("[Push] Error al emitir notificación:", err));
+                    }, idToken).catch(err => console.warn("[Push] Error al emitir notificación:", err));
                 });
             }
 

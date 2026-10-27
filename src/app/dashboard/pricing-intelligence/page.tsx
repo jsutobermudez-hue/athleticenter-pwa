@@ -35,6 +35,7 @@ import {
     ExternalLink
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { authFetch } from '@/lib/auth-fetch';
 import { cn } from '@/lib/utils';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { matchCompetitorCatalog, type MatchedResultItem, type CompetitorExtractedItem } from '@/lib/matchingEngine';
@@ -134,7 +135,7 @@ export default function PricingIntelligencePage() {
       setAnalysisStep('Gemini 2.5 Flash analizando tabla y lista de precios...');
       setAnalysisProgress(50);
 
-      const response = await fetch('/api/process-competitor-pdf', {
+      const response = await authFetch('/api/process-competitor-pdf', {
         method: 'POST',
         body: formData
       });

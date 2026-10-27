@@ -34,7 +34,9 @@ export function WhatsAppReminderDialog({ invoice }: { invoice: Invoice }) {
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     startGenerating(async () => {
+      const { getCurrentIdToken } = await import('@/lib/auth-fetch');
       const result = await handleWhatsAppReminder({
+        idToken: await getCurrentIdToken(),
         customerName: invoice.customerName,
         remainingCreditDays: remainingDays,
         discountPercentage: discount,

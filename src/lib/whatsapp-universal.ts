@@ -4,7 +4,7 @@
  * al motor Gateway silencioso en segundo plano (0 ventanas emergentes, 0 clics manuales).
  */
 
-import { sendBackgroundWhatsAppMessage } from './whatsapp-gateway';
+import { sendBackgroundWhatsAppMessage, formatVenezuelaPhoneE164 } from './whatsapp-gateway';
 
 export interface UniversalWhatsAppParams {
   phone?: string;
@@ -35,7 +35,7 @@ export async function dispatchUniversalWhatsApp({
     return { success: false };
   }
 
-  const cleanPhone = phone.replace(/[^\d]/g, '');
+  const cleanPhone = formatVenezuelaPhoneE164(phone);
   const encodedText = encodeURIComponent(message);
   const fallbackUrl = cleanPhone 
     ? `https://wa.me/${cleanPhone}?text=${encodedText}` 

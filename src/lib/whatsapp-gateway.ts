@@ -53,33 +53,35 @@ export async function sendBackgroundWhatsAppMessage({
 
   const cleanPhone = formatVenezuelaPhoneE164(phone);
 
-  // En el navegador la ruta relativa funciona; en el servidor (bots/cron) Node exige URL absoluta
-  const gatewayUrl = typeof window !== 'undefined'
-    ? '/api/whatsapp-gateway'
-    : `${process.env.APP_INTERNAL_URL || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/whatsapp-gateway`;
-
   console.log(`[WhatsApp Gateway] Despachando mensaje en segundo plano a +${cleanPhone} para orden #${orderId || 'N/A'}`);
 
-  try {
-    const payload = {
-      number: cleanPhone,
-      text: message,
-      imageUrl,
-      media: pdfBase64 ? {
-        base64: pdfBase64,
-        filename: fileName,
-        mimetype: 'application/pdf'
-      } : undefined,
-      orderId
-    };
+  const payload = {
+    number: cleanPhone,
+    text: message,
+    imageUrl,
+    media: pdfBase64 ? {
+      base64: pdfBase64,
+      filename: fileName,
+      mimetype: 'application/pdf'
+    } : undefined,
+    orderId
+  };
 
-    const response = await fetch(gatewayUrl, {
+  // SERVIDOR (agentes, crons, rutas API): despacho directo, sin auto-llamada HTTP.
+  if (typeof window === 'undefined') {
+    const { dispatchViaGateways } = await import('./whatsapp-dispatch-server');
+    const r = await dispatchViaGateways(payload);
+    return r.success ? { success: true, messageId: r.messageId || 'GATEWAY_SENT_OK' } : { success: false, error: r.error };
+  }
+
+  // NAVEGADOR: ruta protegida con el token de sesión del usuario.
+  try {
+    const { authFetch } = await import('./auth-fetch');
+    const response = await authFetch('/api/whatsapp-gateway', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(10000)
+      signal: AbortSignal.timeout(25000)
     });
 
     if (response.ok) {

@@ -1,7 +1,11 @@
 import { NextResponse } from 'next/server';
 import { initializeFirebaseServer, ensureServerAuth } from '@/firebase/server-init';
 import { collection, addDoc, doc, updateDoc, serverTimestamp, getDocs, query, orderBy, limit } from 'firebase/firestore';
-import { sendBackgroundWhatsAppMessage, formatVenezuelaPhoneE164 } from '@/lib/whatsapp-gateway';
+import { formatVenezuelaPhoneE164 } from '@/lib/whatsapp-gateway';
+import { enqueueWhatsAppBatch } from '@/lib/whatsapp-dispatch-server';
+import { authorizeRequest, MANAGER_ROLES } from '@/lib/server-auth';
+
+const MAX_RECIPIENTS = 500;
 
 /**
  * REGLAS DE SEGURIDAD ANTI-BLOQUEO PARA DIFUSIÓN MASIVA (WHATSAPP):
@@ -27,7 +31,10 @@ export interface BroadcastRecipient {
 /**
  * GET: Obtener el historial reciente de campañas de marketing
  */
-export async function GET() {
+export async function GET(req: Request) {
+  const auth = await authorizeRequest(req, MANAGER_ROLES);
+  if (!auth.ok) return NextResponse.json({ success: false, error: auth.error }, { status: auth.status });
+
   try {
     await ensureServerAuth();
     const { firestore } = initializeFirebaseServer();
@@ -51,6 +58,10 @@ export async function GET() {
  * POST: Iniciar una campaña de difusión masiva en segundo plano
  */
 export async function POST(req: Request) {
+  // Seguridad: solo gerencia/admin/superadmin con sesión válida (o proceso interno).
+  const auth = await authorizeRequest(req, MANAGER_ROLES);
+  if (!auth.ok) return NextResponse.json({ success: false, error: auth.error }, { status: auth.status });
+
   try {
     const body = await req.json();
     const {
@@ -60,9 +71,17 @@ export async function POST(req: Request) {
       mediaType = 'none',
       audienceType = 'all',
       recipients = [],
-      userId = 'admin',
-      userName = 'Administrador'
     } = body;
+    // La auditoría se toma de la sesión verificada, nunca del cuerpo de la petición.
+    const userId = auth.uid;
+    const userName = auth.name;
+
+    if (Array.isArray(recipients) && recipients.length > MAX_RECIPIENTS) {
+      return NextResponse.json({ success: false, error: `Máximo ${MAX_RECIPIENTS} destinatarios por campaña.` }, { status: 400 });
+    }
+    if (mediaUrl && typeof mediaUrl === 'string' && !mediaUrl.startsWith('data:image/') && !mediaUrl.startsWith('https://')) {
+      return NextResponse.json({ success: false, error: 'La imagen debe ser una foto del inventario (https o imagen embebida).' }, { status: 400 });
+    }
 
     if (!title || !message) {
       return NextResponse.json({ success: false, error: 'Título y mensaje son requeridos.' }, { status: 400 });
@@ -106,95 +125,39 @@ export async function POST(req: Request) {
     });
 
     const campaignId = campaignRef.id;
-    console.log(`[Marketing Broadcast] 🚀 Campaña #${campaignId} iniciada para ${validRecipients.length} destinatarios.`);
+    console.log(`[Marketing Broadcast] 🚀 Campaña #${campaignId} creada para ${validRecipients.length} destinatarios por ${userName}.`);
 
-    // 2. Procesar el envío en segundo plano (asíncrono, no bloquea la respuesta HTTP)
-    (async () => {
-      let sentCount = 0;
-      let failedCount = 0;
-      const logs: { phone: string; name: string; success: boolean; error?: string; time: string }[] = [];
-
-      for (let i = 0; i < validRecipients.length; i++) {
-        const item = validRecipients[i];
-        
-        // Reemplazar variable {{nombre}}
-        const personalized = message.replace(/{{nombre}}/gi, item.name || 'Cliente');
-        
-        // Construir mensaje oficial con formato Athleticenter
-        const finalMessage = `*ATHLETICENTER*\n\n` +
-          `*${title}*\n\n` +
-          `${personalized}\n\n` +
-          `Atentamente,\n*El equipo de Athleticenter*`;
-
-        try {
-          const res = await sendBackgroundWhatsAppMessage({
-            phone: item.phone,
-            message: finalMessage,
-            imageUrl: mediaType === 'image' && mediaUrl ? mediaUrl : undefined
-          });
-
-          if (res.success) {
-            sentCount++;
-            logs.push({ phone: item.phone, name: item.name || '', success: true, time: new Date().toISOString() });
-          } else {
-            failedCount++;
-            logs.push({ phone: item.phone, name: item.name || '', success: false, error: res.error, time: new Date().toISOString() });
-          }
-        } catch (err: any) {
-          failedCount++;
-          logs.push({ phone: item.phone, name: item.name || '', success: false, error: err.message, time: new Date().toISOString() });
-        }
-
-        // Actualizar progreso periódicamente cada 5 mensajes o al final
-        if ((i + 1) % 5 === 0 || i === validRecipients.length - 1) {
-          try {
-            await updateDoc(doc(firestore, 'marketing_campaigns', campaignId), {
-              sentCount,
-              failedCount,
-              updatedAt: serverTimestamp()
-            });
-          } catch (updateErr) {
-            console.warn(`[Marketing Broadcast] Error actualizando progreso en Firestore:`, updateErr);
-          }
-        }
-
-        // Pausa de seguridad anti-bloqueo si quedan más mensajes
-        if (i < validRecipients.length - 1) {
-          // Si completamos un lote de 20 mensajes, enfriar 60 segundos
-          if ((i + 1) % BATCH_SIZE === 0) {
-            console.log(`[Marketing Broadcast] ⏳ Pausa de enfriamiento por lote (${BATCH_COOLDOWN_MS / 1000}s) tras ${i + 1} envíos...`);
-            await new Promise(r => setTimeout(r, BATCH_COOLDOWN_MS));
-          } else {
-            // Jitter aleatorio (8-14s)
-            const waitTime = getRandomJitter();
-            await new Promise(r => setTimeout(r, waitTime));
-          }
-        }
-      }
-
-      // Marcar campaña como completada
-      try {
-        await updateDoc(doc(firestore, 'marketing_campaigns', campaignId), {
-          sentCount,
-          failedCount,
-          status: 'completed',
-          completedAt: serverTimestamp(),
-          logs: logs.slice(0, 100) // Guardar los primeros 100 logs de auditoría
-        });
-        console.log(`[Marketing Broadcast] ✅ Campaña #${campaignId} finalizada. Enviados: ${sentCount}, Fallidos: ${failedCount}`);
-      } catch (finalErr) {
-        console.error('[Marketing Broadcast] Error marcando campaña como completada:', finalErr);
-      }
-    })().catch(bgErr => {
-      console.error('[Marketing Broadcast Worker] Error fatal en worker de fondo:', bgErr);
+    // 2. Encolar en el gateway 24/7 de São Paulo: allí se aplican las pausas anti-bloqueo
+    //    (8-14 s, enfriamiento 60 s cada 20) y el horario comercial. El gateway reporta el progreso
+    //    a /api/marketing/campaign-progress. Así el envío no depende de que esta petición siga viva.
+    const items = validRecipients.map(item => {
+      const personalized = message.replace(/{{nombre}}/gi, item.name || 'Cliente');
+      const finalMessage = `*ATHLETICENTER*\n\n` +
+        `*${title}*\n\n` +
+        `${personalized}\n\n` +
+        `Atentamente,\n*El equipo de Athleticenter*`;
+      return { number: item.phone, text: finalMessage, imageUrl: mediaType === 'image' && mediaUrl ? mediaUrl : undefined };
     });
 
-    // Responder inmediatamente al navegador para que no se congele
+    const q = await enqueueWhatsAppBatch(items, { campaignId, label: title });
+    if (!q.success) {
+      await updateDoc(doc(firestore, 'marketing_campaigns', campaignId), {
+        status: 'failed',
+        error: q.error || 'Gateway no disponible',
+        updatedAt: serverTimestamp()
+      }).catch(() => {});
+      return NextResponse.json({ success: false, error: `No se pudo encolar la campaña: ${q.error}` }, { status: 502 });
+    }
+
+    await updateDoc(doc(firestore, 'marketing_campaigns', campaignId), { status: 'queued', updatedAt: serverTimestamp() }).catch(() => {});
+
     return NextResponse.json({
       success: true,
       campaignId,
       totalTarget: validRecipients.length,
-      message: `Campaña iniciada con éxito en segundo plano con protección anti-bloqueo. Total destinatarios: ${validRecipients.length}.`
+      message: q.businessHours
+        ? `Campaña en cola con protección anti-bloqueo. Total destinatarios: ${validRecipients.length}.`
+        : `Campaña en cola. Por estar fuera del horario comercial (lun-sáb 8:00-19:00), el envío comenzará en el próximo horario hábil. Total: ${validRecipients.length}.`
     });
 
   } catch (error: any) {
