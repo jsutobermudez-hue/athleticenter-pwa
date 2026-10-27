@@ -618,8 +618,8 @@ export function AdminBillingView() {
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 relative z-10">
             <div 
-                onClick={() => setAgingFilter('0-7d')}
-                className="p-5 rounded-[1.8rem] bg-emerald-950/40 border border-emerald-500/30 hover:border-emerald-400/60 hover:bg-emerald-900/40 transition-all cursor-pointer space-y-2 shadow-lg group"
+                onClick={() => setAgingFilter(agingFilter === 'al_dia' ? 'todos' : 'al_dia')}
+                className={cn("p-5 rounded-[1.8rem] bg-emerald-950/40 border transition-all cursor-pointer space-y-2 shadow-lg group", agingFilter === 'al_dia' ? "ring-2 ring-emerald-400 border-emerald-400 bg-emerald-900/60" : "border-emerald-500/30 hover:border-emerald-400/60 hover:bg-emerald-900/40")}
             >
                 <div className="flex items-center justify-between">
                     <span className="text-[9px] font-black uppercase text-emerald-400 tracking-wider">Próximos 7 Días</span>
@@ -634,8 +634,8 @@ export function AdminBillingView() {
             </div>
 
             <div 
-                onClick={() => setAgingFilter('8-15d')}
-                className="p-5 rounded-[1.8rem] bg-blue-950/40 border border-blue-500/30 hover:border-blue-400/60 hover:bg-blue-900/40 transition-all cursor-pointer space-y-2 shadow-lg group"
+                onClick={() => setAgingFilter(agingFilter === 'vencimiento' ? 'todos' : 'vencimiento')}
+                className={cn("p-5 rounded-[1.8rem] bg-blue-950/40 border transition-all cursor-pointer space-y-2 shadow-lg group", agingFilter === 'vencimiento' ? "ring-2 ring-blue-400 border-blue-400 bg-blue-900/60" : "border-blue-500/30 hover:border-blue-400/60 hover:bg-blue-900/40")}
             >
                 <div className="flex items-center justify-between">
                     <span className="text-[9px] font-black uppercase text-blue-400 tracking-wider">Días 8 a 15</span>
@@ -650,8 +650,8 @@ export function AdminBillingView() {
             </div>
 
             <div 
-                onClick={() => setAgingFilter('16-30d')}
-                className="p-5 rounded-[1.8rem] bg-indigo-950/40 border border-indigo-500/30 hover:border-indigo-400/60 hover:bg-indigo-900/40 transition-all cursor-pointer space-y-2 shadow-lg group"
+                onClick={() => setAgingFilter(agingFilter === 'mora' ? 'todos' : 'mora')}
+                className={cn("p-5 rounded-[1.8rem] bg-indigo-950/40 border transition-all cursor-pointer space-y-2 shadow-lg group", agingFilter === 'mora' ? "ring-2 ring-indigo-400 border-indigo-400 bg-indigo-900/60" : "border-indigo-500/30 hover:border-indigo-400/60 hover:bg-indigo-900/40")}
             >
                 <div className="flex items-center justify-between">
                     <span className="text-[9px] font-black uppercase text-indigo-400 tracking-wider">Días 16 a 30</span>
@@ -666,8 +666,8 @@ export function AdminBillingView() {
             </div>
 
             <div 
-                onClick={() => setAgingFilter('vencidos')}
-                className="p-5 rounded-[1.8rem] bg-rose-950/40 border border-rose-500/30 hover:border-rose-400/60 hover:bg-rose-900/40 transition-all cursor-pointer space-y-2 shadow-lg group"
+                onClick={() => setAgingFilter(agingFilter === 'mora_critica' ? 'todos' : 'mora_critica')}
+                className={cn("p-5 rounded-[1.8rem] bg-rose-950/40 border transition-all cursor-pointer space-y-2 shadow-lg group", agingFilter === 'mora_critica' ? "ring-2 ring-rose-400 border-rose-400 bg-rose-900/60" : "border-rose-500/30 hover:border-rose-400/60 hover:bg-rose-900/40")}
             >
                 <div className="flex items-center justify-between">
                     <span className="text-[9px] font-black uppercase text-rose-400 tracking-wider">Mora Crítica (Vencido)</span>
@@ -897,7 +897,7 @@ export function AdminBillingView() {
                                     <div className="flex items-start justify-between gap-3 pl-2">
                                         <div className="flex items-center gap-3 min-w-0">
                                             <Avatar className="h-10 w-10 rounded-2xl border-2 border-white shadow-md shrink-0">
-                                                <AvatarFallback className="bg-slate-900 text-white font-black text-xs uppercase">{invoice.customerName.charAt(0)}</AvatarFallback>
+                                                <AvatarFallback className="bg-slate-900 text-white font-black text-xs uppercase">{(invoice.customerName || 'Cliente').charAt(0)}</AvatarFallback>
                                             </Avatar>
                                             <div className="flex flex-col min-w-0">
                                                 <span className="font-black text-sm uppercase text-slate-900 leading-tight truncate">{invoice.customerName}</span>
@@ -1024,7 +1024,7 @@ export function AdminBillingView() {
                                                 className="p-4 rounded-2xl bg-white border border-slate-200/80 shadow-md hover:shadow-lg transition-all space-y-3 cursor-pointer"
                                             >
                                                 <div className="flex items-center justify-between gap-2">
-                                                    <span className="font-black text-xs uppercase text-slate-900 truncate">{invoice.customerName}</span>
+                                                    <span className="font-black text-xs uppercase text-slate-900 truncate">{invoice.customerName || 'Cliente'}</span>
                                                     <span className="font-mono text-[10px] font-black text-primary">#{invoice.id.substring(0, 6)}</span>
                                                 </div>
                                                 <div className="flex items-center justify-between text-[11px] font-black">
@@ -1140,13 +1140,13 @@ export function AdminBillingView() {
                                             <TableCell className="py-4 pl-6">
                                                 <div className="flex flex-col">
                                                     <span className="font-mono text-[11px] font-black text-primary">#{invoice.id.substring(0, 8)}</span>
-                                                    <span className="text-[8px] font-bold text-slate-400 uppercase mt-0.5">Vence: {format(invoice.dueDate as any, 'dd/MM/yy')}</span>
+                                                    <span className="text-[8px] font-bold text-slate-400 uppercase mt-0.5">Vence: {invoice.dueDate instanceof Date && !isNaN(invoice.dueDate.getTime()) ? format(invoice.dueDate, 'dd/MM/yy') : 'N/A'}</span>
                                                 </div>
                                             </TableCell>
                                             <TableCell className="py-4">
                                                 <div className="flex items-center gap-3">
                                                     <Avatar className="h-9 w-9 rounded-xl border-2 border-white shadow-sm shrink-0">
-                                                        <AvatarFallback className="bg-slate-100 text-slate-400 font-black text-[10px] uppercase">{invoice.customerName.charAt(0)}</AvatarFallback>
+                                                        <AvatarFallback className="bg-slate-100 text-slate-400 font-black text-[10px] uppercase">{(invoice.customerName || 'Cliente').charAt(0)}</AvatarFallback>
                                                     </Avatar>
                                                     <div className="flex flex-col min-w-0">
                                                         <span className="font-black text-[12px] uppercase text-slate-900 leading-none truncate">{invoice.customerName}</span>

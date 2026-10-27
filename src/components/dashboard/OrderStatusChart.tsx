@@ -155,6 +155,21 @@ export function OrderStatusChart({ orders, isLoading = false, selectedSalesperso
     if (targetBucket && targetBucket.orders && targetBucket.orders.length > 0) {
       return targetBucket.orders;
     }
+    if (selectedStatusFilter.includes('Mora') || selectedStatusFilter.includes('mora')) {
+      return funnelData.moraCritica;
+    }
+    if (selectedStatusFilter.includes('0-15')) {
+      return funnelData.aging0_15;
+    }
+    if (selectedStatusFilter.includes('16-30')) {
+      return funnelData.aging16_30;
+    }
+    if (selectedStatusFilter.includes('31-60')) {
+      return funnelData.aging31_60;
+    }
+    if (selectedStatusFilter.includes('+60')) {
+      return funnelData.aging60Plus;
+    }
     if (selectedStatusFilter.includes('Pagados') || selectedStatusFilter === 'Completado') {
       return orders.filter(o => ['Pagado', 'Completado', 'Entregado'].includes(o.status));
     }
@@ -171,7 +186,7 @@ export function OrderStatusChart({ orders, isLoading = false, selectedSalesperso
       return orders.filter(o => ['Cancelado', 'Rechazado'].includes(o.status));
     }
     return orders.filter(o => ['Pendiente', 'Borrador'].includes(o.status));
-  }, [orders, selectedStatusFilter, chartData]);
+  }, [orders, selectedStatusFilter, chartData, funnelData]);
 
   // Generador e Impresor de Reportes PDF Oficiales
   const handleExportPDF = async (filterTargetName?: string) => {
