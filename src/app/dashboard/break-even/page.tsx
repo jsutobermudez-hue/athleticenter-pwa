@@ -18,7 +18,8 @@ import { useToast } from '@/hooks/use-toast';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
 import { 
-    Calculator, 
+    Calculator,
+    Receipt, 
     DollarSign, 
     TrendingUp, 
     Landmark, 
@@ -169,8 +170,18 @@ export default function BreakEvenPage() {
       ]
     };
 
-    // Mapeo de unidades por pedido desde la subcolección orderItems de Firestore
+    // Mapeo de unidades por pedido (resiliente: primero desde monthOrders y luego allOrderItems)
     const unitsByOrderMap: Record<string, number> = {};
+    if (monthOrders && Array.isArray(monthOrders)) {
+      monthOrders.forEach(o => {
+        const embeddedItems = (o as any).items || (o as any).orderItems;
+        if (embeddedItems && Array.isArray(embeddedItems)) {
+          let sum = 0;
+          embeddedItems.forEach((i: any) => { sum += Number(i.quantity || 1); });
+          if (sum > 0) unitsByOrderMap[o.id] = sum;
+        }
+      });
+    }
     if (allOrderItems && Array.isArray(allOrderItems)) {
       allOrderItems.forEach(item => {
         const qty = Number(item.quantity || 1);
@@ -403,6 +414,7 @@ export default function BreakEvenPage() {
           </p>
         </div>
         <div className="flex items-center gap-3">
+          <Button variant="outline" size="sm" onClick={() => router.push('/dashboard/gastos')} className="h-10 px-4 rounded-xl border-slate-200 font-black text-[9px] uppercase tracking-wider text-amber-700 bg-amber-50 hover:bg-amber-100"><Receipt className="h-4 w-4 mr-1.5 text-amber-600" /> CONTROL DE GASTOS</Button>
           <Button variant="outline" size="sm" onClick={() => router.push('/dashboard/treasury')} className="h-10 px-4 rounded-xl border-slate-200 font-black text-[9px] uppercase tracking-wider">
             <Landmark className="h-4 w-4 mr-1.5 text-primary" /> TESORERÍA
           </Button>

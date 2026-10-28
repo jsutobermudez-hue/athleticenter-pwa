@@ -422,7 +422,7 @@ export default function AdminDashboard() {
                         subtitle={`Fijos: $${(stats.totalFixedExpenses || 0).toLocaleString()} | Var: $${(stats.totalVariableExpenses || 0).toLocaleString()}`} 
                         tooltip="Estructura de costos fijos y variables registrados en el Módulo de Punto de Equilibrio. Clic para gestionar gastos."
                         icon={Calculator} iconBg="bg-amber-50" iconColor="text-amber-600" 
-                        onClick={() => router.push('/dashboard/break-even')}
+                        onClick={() => router.push('/dashboard/gastos')}
                     />
                     <DashboardMetricCard 
                         title="Pagos Registrados" 

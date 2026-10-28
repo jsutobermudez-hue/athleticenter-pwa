@@ -29,6 +29,7 @@ import {
   Tag,
   Landmark,
   Calculator,
+  Receipt,
   CreditCard,
   Briefcase,
   ShieldAlert,
@@ -88,6 +89,7 @@ const financieraItems: MenuItem[] = [
   { href: '/dashboard/billing', label: 'Facturación y Cobros', icon: CreditCard, roles: ['superadmin', 'gerencia', 'admin', 'ventas', 'cliente'] },
   { href: '/dashboard/treasury', label: 'Tesorería', icon: Landmark, roles: ['superadmin', 'gerencia', 'admin'] },
   { href: '/dashboard/commissions', label: 'Comisiones', icon: Tag, roles: ['superadmin', 'gerencia', 'admin', 'ventas'] },
+  { href: '/dashboard/gastos', label: 'Control de Gastos', icon: Receipt, roles: ['superadmin', 'gerencia', 'admin'] },
   { href: '/dashboard/break-even', label: 'Punto de Equilibrio', icon: Calculator, roles: ['superadmin', 'gerencia', 'admin'] },
   { href: '/dashboard/inventory/pricing-calculator', label: 'Calculadora Smart', icon: Calculator, roles: ['superadmin', 'gerencia', 'admin'] },
 ];

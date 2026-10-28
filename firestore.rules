@@ -142,6 +142,11 @@ service cloud.firestore {
                   || (hasProfile() && resource.data.get('registeredBy', '') == myCustomerId());
     }
 
+    // Consultas collectionGroup('orderItems') (analítica comercial, desglose de pedidos)
+    match /{path=**}/orderItems/{itemId} {
+      allow read: if isStaff();
+    }
+
     // ---------- Cotizaciones ----------
     match /quotes/{quoteId} {
       allow read: if isStaff() || ownsCustomer(resource.data.get('customerId', ''));
