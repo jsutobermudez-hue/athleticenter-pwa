@@ -92,7 +92,9 @@ function MarketingContent() {
     useEffect(() => {
         if (!searchParams) return;
         if (searchParams.get('action') === 'broadcast' || searchParams.get('broadcast') === 'true') {
-            setIsBroadcastOpen(true);
+            const aud = searchParams.get('audience');
+            router.replace('/dashboard/broadcast' + (aud ? '?audience=' + aud : ''));
+            return;
         }
         const aud = searchParams.get('audience');
         if (aud === 'all' || aud === 'vips' || aud === 'dormant') {
@@ -233,7 +235,7 @@ function MarketingContent() {
                 </div>
 
                 <Button 
-                    onClick={() => setIsBroadcastOpen(true)}
+                    onClick={() => router.push('/dashboard/broadcast')}
                     className="h-12 px-6 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-black uppercase text-xs tracking-wider shadow-xl shadow-emerald-600/25 flex items-center gap-2.5 active:scale-95 transition-all shrink-0"
                 >
                     <Megaphone className="h-4 w-4" /> Crear Envío Masivo WhatsApp
@@ -464,7 +466,7 @@ function MarketingContent() {
                                 </p>
                             </div>
                             <Button 
-                                onClick={() => setIsBroadcastOpen(true)}
+                                onClick={() => router.push('/dashboard/broadcast')}
                                 size="sm" 
                                 className="h-10 rounded-xl font-black uppercase text-[10px] bg-primary text-white"
                             >

@@ -97,7 +97,8 @@ const financieraItems: MenuItem[] = [
 
 // --- GRUPO 5: INTELIGENCIA ESTRATÉGICA ---
 const inteligenciaItems: MenuItem[] = [
-  { href: '/dashboard/marketing', label: 'Envíos Masivos (WhatsApp)', icon: Megaphone, roles: ['superadmin', 'gerencia', 'admin'] },
+  { href: '/dashboard/broadcast', label: 'Difusión WhatsApp Studio', icon: Megaphone, roles: ['superadmin', 'gerencia', 'admin'] },
+  { href: '/dashboard/marketing', label: 'Marketing & Retención', icon: Activity, roles: ['superadmin', 'gerencia', 'admin'] },
   { href: '/dashboard/pricing-intelligence', label: 'Pricing Intelligence', icon: Sparkles, roles: ['superadmin', 'gerencia', 'admin'] },
   { href: '/dashboard/intelligence', label: 'Tablero BI', icon: BarChart3, roles: ['superadmin', 'gerencia'] },
   { href: '/dashboard/reports', label: 'Reportes y BI', icon: FileBarChart, roles: ['superadmin', 'gerencia', 'admin'] },

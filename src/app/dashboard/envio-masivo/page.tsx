@@ -7,7 +7,7 @@ export default function EnvioMasivoRedirect() {
   const router = useRouter();
 
   useEffect(() => {
-    router.replace('/dashboard/marketing?action=broadcast');
+    router.replace('/dashboard/broadcast');
   }, [router]);
 
   return (
