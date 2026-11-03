@@ -23,6 +23,7 @@ import {
     Medal,
     ClipboardList,
     PlusCircle,
+    Megaphone,
     FileText,
     Calculator,
     Globe,
@@ -319,6 +320,11 @@ export default function AdminDashboard() {
                 
                 {/* ACCIONES RÁPIDAS EN 1-CLIC */}
                 <div className="flex flex-wrap items-center gap-2">
+                    <Link href="/dashboard/marketing?action=broadcast">
+                        <Button className="h-11 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black uppercase text-[9px] tracking-widest shadow-lg active:scale-95">
+                            <Megaphone className="mr-1.5 h-4 w-4" /> Difusión WhatsApp
+                        </Button>
+                    </Link>
                     <Link href="/dashboard/pricing-intelligence">
                         <Button className="h-11 px-4 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-black uppercase text-[9px] tracking-widest shadow-lg active:scale-95">
                             <Sparkles className="mr-1.5 h-4 w-4" /> Pricing Intelligence

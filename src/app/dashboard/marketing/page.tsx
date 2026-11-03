@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useMemo, useState, useEffect, Suspense } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useUser, useCollection, useFirestore, useMemoFirebase } from '@/firebase';
 import { collection, query, where, limit, Timestamp, orderBy } from 'firebase/firestore';
 import type { Customer, Order, Quote, Product } from '@/lib/definitions';
@@ -82,10 +82,27 @@ function MarketingContent() {
     const router = useRouter();
     const firestore = useFirestore();
     const { toast } = useToast();
+    const searchParams = useSearchParams();
     const [searchTerm, setSearchTerm] = useState('');
     const [activeTab, setActiveTab] = useState('pulse');
     const [isMounted, setIsMounted] = useState(false);
     const [isBroadcastOpen, setIsBroadcastOpen] = useState(false);
+    const [initialAudience, setInitialAudience] = useState<'all' | 'vips' | 'dormant'>('all');
+
+    useEffect(() => {
+        if (!searchParams) return;
+        if (searchParams.get('action') === 'broadcast' || searchParams.get('broadcast') === 'true') {
+            setIsBroadcastOpen(true);
+        }
+        const aud = searchParams.get('audience');
+        if (aud === 'all' || aud === 'vips' || aud === 'dormant') {
+            setInitialAudience(aud);
+        }
+        const tab = searchParams.get('tab');
+        if (tab && ['pulse', 'pareto', 'leakage', 'campaigns'].includes(tab)) {
+            setActiveTab(tab);
+        }
+    }, [searchParams]);
 
     useEffect(() => { 
         setIsMounted(true); 
@@ -201,23 +218,25 @@ function MarketingContent() {
             <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-6">
                 <div className="space-y-2">
                     <div className="flex items-center gap-4">
-                        <div className="p-3 rounded-2xl bg-primary text-white shadow-xl shadow-primary/20 animate-pulse">
-                            <Zap className="h-6 w-6" />
+                        <div className="p-3 rounded-2xl bg-emerald-600 text-white shadow-xl shadow-emerald-600/25">
+                            <Megaphone className="h-6 w-6" />
                         </div>
-                        <h1 className="text-4xl font-black uppercase tracking-tighter text-slate-900 leading-none italic">
-                            Revenue Command Center
-                        </h1>
+                        <div>
+                            <h1 className="text-3xl sm:text-4xl font-black uppercase tracking-tighter text-slate-900 leading-none">
+                                Envíos Masivos & Difusión WhatsApp
+                            </h1>
+                            <p className="text-[10px] sm:text-xs font-black uppercase tracking-[0.25em] text-slate-400 mt-1">
+                                Revenue Command Center: Campañas WhatsApp, Inteligencia Comercial y Recuperación de Cartera
+                            </p>
+                        </div>
                     </div>
-                    <p className="tech-label opacity-60">
-                        DIRECCIÓN GENERAL: INTELIGENCIA PREDICTIVA, DIFUSIÓN WHATSAPP Y BLINDAJE DE INGRESOS.
-                    </p>
                 </div>
 
                 <Button 
                     onClick={() => setIsBroadcastOpen(true)}
-                    className="h-12 px-6 rounded-2xl bg-primary text-white hover:bg-primary/90 font-black uppercase text-xs tracking-wider shadow-xl shadow-primary/25 flex items-center gap-2.5 active:scale-95 transition-all shrink-0"
+                    className="h-12 px-6 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-black uppercase text-xs tracking-wider shadow-xl shadow-emerald-600/25 flex items-center gap-2.5 active:scale-95 transition-all shrink-0"
                 >
-                    <Megaphone className="h-4 w-4" /> Nueva Difusión Masiva
+                    <Megaphone className="h-4 w-4" /> Crear Envío Masivo WhatsApp
                 </Button>
             </header>
 
@@ -513,6 +532,7 @@ function MarketingContent() {
                 customers={allCustomers || []} 
                 products={allProducts || []}
                 paretoCustomers={metrics?.pareto || []}
+                initialAudienceType={initialAudience}
             />
         </div>
     );

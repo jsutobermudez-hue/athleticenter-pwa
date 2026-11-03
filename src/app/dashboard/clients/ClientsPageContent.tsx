@@ -48,7 +48,8 @@ import {
     Maximize2,
     Calendar,
     DollarSign,
-    Eye
+    Eye,
+    Megaphone
 } from 'lucide-react';
 import { formatVenezuelaPhoneE164 } from '@/lib/whatsapp-gateway';
 import { cn } from '@/lib/utils';
@@ -1052,7 +1053,16 @@ export default function ClientsPageContent() {
                 {isAdmin ? "Directorio Maestro de Cuentas B2B (Visión Global)" : "Gestión de Cuentas B2B y Agenda Comercial."}
             </p>
         </div>
-        <NewUserDialog defaultRole="cliente" buttonLabel="Registrar Cliente" />
+        <div className="flex items-center gap-2">
+          {isAdmin && (
+            <Link href="/dashboard/marketing?action=broadcast">
+              <Button className="h-11 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black uppercase text-[10px] tracking-wider shadow-md active:scale-95 flex items-center gap-1.5">
+                <Megaphone className="h-4 w-4" /> Difusión WhatsApp
+              </Button>
+            </Link>
+          )}
+          <NewUserDialog defaultRole="cliente" buttonLabel="Registrar Cliente" />
+        </div>
       </header>
       
       {/* METRICAS KPI EJECUTIVAS */}

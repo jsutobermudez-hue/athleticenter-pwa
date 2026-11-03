@@ -36,6 +36,7 @@ interface BroadcastModalProps {
     customers: Customer[];
     products: Product[];
     paretoCustomers?: Customer[];
+    initialAudienceType?: 'all' | 'vips' | 'dormant';
     onCampaignCreated?: () => void;
 }
 
@@ -45,12 +46,19 @@ export function BroadcastCampaignModal({
     customers = [],
     products = [],
     paretoCustomers = [],
+    initialAudienceType = 'all',
     onCampaignCreated
 }: BroadcastModalProps) {
     const { profile } = useUser();
     const { toast } = useToast();
 
-    const [audienceType, setAudienceType] = useState<'all' | 'vips' | 'dormant'>('all');
+    const [audienceType, setAudienceType] = useState<'all' | 'vips' | 'dormant'>(initialAudienceType || 'all');
+
+    React.useEffect(() => {
+        if (initialAudienceType) {
+            setAudienceType(initialAudienceType);
+        }
+    }, [initialAudienceType]);
     const [title, setTitle] = useState('');
     const [message, setMessage] = useState('');
     const [mediaUrl, setMediaUrl] = useState('');
