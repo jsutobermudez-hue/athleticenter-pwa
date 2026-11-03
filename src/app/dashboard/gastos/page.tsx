@@ -229,7 +229,7 @@ export default function GastosPage() {
 
         <div className="flex items-center gap-2.5 flex-wrap">
           <Badge variant="outline" className="border-slate-200 text-slate-700 bg-slate-50 font-mono text-[10px] px-3 py-1.5 rounded-xl font-bold">
-            Tasa BCV: Bs. {bcvRate.toFixed(2)}
+            Tasa BCV: Bs. {Number(bcvRate || 0).toFixed(2)}
           </Badge>
           <Button
             variant="outline"
@@ -666,7 +666,7 @@ export default function GastosPage() {
                           </Badge>
                         </td>
                         <td className="p-3 text-right font-mono font-black text-slate-900">
-                          ${(e.amountUSD || 0).toFixed(2)}
+                          ${Number(e.amountUSD || 0).toFixed(2)}
                         </td>
                         <td className="p-3 pr-6 sm:pr-8 text-right">
                           {e.id && (

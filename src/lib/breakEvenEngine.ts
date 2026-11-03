@@ -68,14 +68,18 @@ export function calculateMultiProductBreakEven(
   let totalFixedExpensesUSD = 0;
   let totalVariableExpensesUSD = 0;
 
-  expenses.forEach(e => {
-    const monthlyAmount = e.periodicity === 'anual' ? e.amountUSD / 12 : e.amountUSD;
-    if (e.isFixed) {
-      totalFixedExpensesUSD += monthlyAmount;
-    } else {
-      totalVariableExpensesUSD += monthlyAmount;
-    }
-  });
+  if (Array.isArray(expenses)) {
+    expenses.forEach(e => {
+      if (!e) return;
+      const rawAmt = Number(e.amountUSD || 0);
+      const monthlyAmount = e.periodicity === 'anual' ? rawAmt / 12 : rawAmt;
+      if (e.isFixed) {
+        totalFixedExpensesUSD += monthlyAmount;
+      } else {
+        totalVariableExpensesUSD += monthlyAmount;
+      }
+    });
+  }
 
   const totalFixedCostsPlusTarget = totalFixedExpensesUSD + safeTargetProfit;
 
@@ -240,18 +244,18 @@ export function calculateMultiProductBreakEven(
   return {
     items,
     summary: {
-      totalFixedExpensesUSD: Number(totalFixedExpensesUSD.toFixed(2)),
-      totalVariableExpensesUSD: Number(totalVariableExpensesUSD.toFixed(2)),
-      targetProfitUSD: Number(safeTargetProfit.toFixed(2)),
-      totalRequiredRevenueUSD: Number(totalRequiredRevenueUSD.toFixed(2)),
-      totalRequiredRevenueVES,
-      totalRequiredUnits,
-      weightedContributionMargin: Number(weightedContributionMargin.toFixed(2)),
-      bcvRate,
-      actualMonthSalesUSD,
-      actualMonthUnits,
-      breakEvenProgressPercent,
-      totalHistoricalUnitsSold
+      totalFixedExpensesUSD: Number((totalFixedExpensesUSD || 0).toFixed(2)),
+      totalVariableExpensesUSD: Number((totalVariableExpensesUSD || 0).toFixed(2)),
+      targetProfitUSD: Number((safeTargetProfit || 0).toFixed(2)),
+      totalRequiredRevenueUSD: Number((totalRequiredRevenueUSD || 0).toFixed(2)),
+      totalRequiredRevenueVES: Number((totalRequiredRevenueVES || 0).toFixed(2)),
+      totalRequiredUnits: Math.max(0, totalRequiredUnits || 0),
+      weightedContributionMargin: Number((weightedContributionMargin || 0).toFixed(2)),
+      bcvRate: Number(bcvRate || 1),
+      actualMonthSalesUSD: Number(actualMonthSalesUSD || 0),
+      actualMonthUnits: Number(actualMonthUnits || 0),
+      breakEvenProgressPercent: Number(breakEvenProgressPercent || 0),
+      totalHistoricalUnitsSold: Number(totalHistoricalUnitsSold || 0)
     }
   };
 }

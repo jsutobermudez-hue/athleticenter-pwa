@@ -3,8 +3,8 @@
 import React, { useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useCollection, useFirestore, useMemoFirebase, useUser, useDoc } from '@/firebase';
-import { collection, query, limit, doc, collectionGroup, updateDoc } from 'firebase/firestore';
-import type { Product, FinancialSettings, Order, OrderItem } from '@/lib/definitions';
+import { collection, query, limit, doc, updateDoc } from 'firebase/firestore';
+import type { Product, FinancialSettings, Order } from '@/lib/definitions';
 import { useFinance } from '@/context/FinanceContext';
 import { calculateMultiProductBreakEven, type ExpenseItem } from '@/lib/breakEvenEngine';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -73,11 +73,7 @@ export default function BreakEvenPage() {
   const ordersQuery = useMemoFirebase(() => (firestore && canManage ? query(collection(firestore, 'orders'), limit(200)) : null), [firestore, canManage]);
   const { data: monthOrders } = useCollection<Order>(ordersQuery);
 
-  const orderItemsQuery = useMemoFirebase(
-    () => (firestore && canManage ? query(collectionGroup(firestore, 'orderItems'), limit(1500)) : null),
-    [firestore, canManage]
-  );
-  const { data: allOrderItems } = useCollection<OrderItem>(orderItemsQuery);
+
 
   // FORMULARIO DE NUEVO GASTO
   const [newConcept, setNewConcept] = useState('');
@@ -182,15 +178,7 @@ export default function BreakEvenPage() {
         }
       });
     }
-    if (allOrderItems && Array.isArray(allOrderItems)) {
-      allOrderItems.forEach(item => {
-        const qty = Number(item.quantity || 1);
-        const orderId = (item as any).orderId || (item as any).ref?.parent?.parent?.id;
-        if (orderId) {
-          unitsByOrderMap[orderId] = (unitsByOrderMap[orderId] || 0) + qty;
-        }
-      });
-    }
+
 
     const now = new Date();
     const currentMonth = now.getMonth();
@@ -284,7 +272,7 @@ export default function BreakEvenPage() {
       unitsTotalAllTime,
       weeklyBreakdown
     };
-  }, [monthOrders, allOrderItems]);
+  }, [monthOrders]);
 
   // EJECUCIÓN DEL MOTOR FINANCIERO REACTIVO CON CÁLCULO DE MIX AUTOMÁTICO POR VENTAS REALES
   const calculation = useMemo(() => {
@@ -296,10 +284,9 @@ export default function BreakEvenPage() {
       customSalesMix,
       actualSalesMetrics.salesMonthUSD,
       actualSalesMetrics.unitsMonth,
-      monthOrders || undefined,
-      allOrderItems || undefined
+      monthOrders || undefined
     );
-  }, [catalogProducts, expenses, targetProfitUSD, globalSettings, customSalesMix, actualSalesMetrics, monthOrders, allOrderItems]);
+  }, [catalogProducts, expenses, targetProfitUSD, globalSettings, customSalesMix, actualSalesMetrics, monthOrders]);
 
   const { items, summary } = calculation;
 
@@ -754,7 +741,7 @@ export default function BreakEvenPage() {
                               {e.paymentStatus === 'PAID' ? 'PAGADO' : 'PENDIENTE'}
                             </Badge>
                           </td>
-                          <td className="p-3 text-right font-mono font-black text-slate-900">${e.amountUSD.toFixed(2)}</td>
+                          <td className="p-3 text-right font-mono font-black text-slate-900">${Number(e.amountUSD || 0).toFixed(2)}</td>
                           <td className="p-3 pr-8 text-right">
                             {e.id && (
                               <Button size="sm" variant="ghost" onClick={() => deleteExpense(e.id!)} className="h-7 w-7 p-0 text-rose-500 hover:bg-rose-50 rounded-lg">
@@ -810,7 +797,7 @@ export default function BreakEvenPage() {
                               {e.paymentStatus === 'PAID' ? 'PAGADO' : 'PENDIENTE'}
                             </Badge>
                           </td>
-                          <td className="p-3 text-right font-mono font-black text-purple-950">${e.amountUSD.toFixed(2)}</td>
+                          <td className="p-3 text-right font-mono font-black text-purple-950">${Number(e.amountUSD || 0).toFixed(2)}</td>
                           <td className="p-3 pr-8 text-right">
                             {e.id && (
                               <Button size="sm" variant="ghost" onClick={() => deleteExpense(e.id!)} className="h-7 w-7 p-0 text-rose-500 hover:bg-rose-50 rounded-lg">
@@ -975,7 +962,7 @@ export default function BreakEvenPage() {
                         </div>
                       </td>
 
-                      <td className="p-4 text-right font-mono font-black text-blue-700">${item.priceCashUSD.toFixed(2)}</td>
+                      <td className="p-4 text-right font-mono font-black text-blue-700">${Number(item.priceCashUSD || 0).toFixed(2)}</td>
 
                       <td className="p-4 text-right font-mono font-black">
                         {item.landedCost === 0 ? (
@@ -985,14 +972,14 @@ export default function BreakEvenPage() {
                           </div>
                         ) : (
                           <div className="flex flex-col items-end gap-0.5">
-                            <span className="text-emerald-600 text-sm">+${item.netProfitUSD.toFixed(2)}</span>
+                            <span className="text-emerald-600 text-sm">+${Number(item.netProfitUSD || 0).toFixed(2)}</span>
                             <Badge className={cn(
                               "text-[8px] font-black font-mono border-none px-1.5 py-0",
                               item.netMarginPercent >= 25 ? "bg-emerald-100 text-emerald-800" :
                               item.netMarginPercent >= 10 ? "bg-amber-100 text-amber-800" :
                               "bg-rose-100 text-rose-800"
                             )}>
-                              {item.netMarginPercent.toFixed(1)}% Ganancia Neta
+                              {Number(item.netMarginPercent || 0).toFixed(1)}% Ganancia Neta
                             </Badge>
                           </div>
                         )}
@@ -1074,8 +1061,8 @@ export default function BreakEvenPage() {
                       <Badge className="bg-primary text-white font-mono text-[9px] border-none">{g.discipline}</Badge>
                     </td>
                     <td className="p-4 text-center font-mono">{g.productCount} artículos</td>
-                    <td className="p-4 text-right font-mono font-black text-slate-700">${g.avgLandedCost.toFixed(2)}</td>
-                    <td className="p-4 text-right font-mono font-black text-blue-700">${g.avgCashPrice.toFixed(2)}</td>
+                    <td className="p-4 text-right font-mono font-black text-slate-700">${Number(g.avgLandedCost || 0).toFixed(2)}</td>
+                    <td className="p-4 text-right font-mono font-black text-blue-700">${Number(g.avgCashPrice || 0).toFixed(2)}</td>
                     <td className="p-4 text-center font-mono font-black text-amber-600 bg-amber-50/50">
                       <span className="text-sm">{g.totalRequiredUnits}</span> <span className="text-[8px] uppercase">unids</span>
                     </td>
@@ -1123,7 +1110,7 @@ export default function BreakEvenPage() {
                     <p className="font-black text-slate-900 uppercase">{exp.concept}</p>
                     <span className="text-[8px] font-black text-slate-400 uppercase">{exp.category}</span>
                   </div>
-                  <span className="font-mono font-black text-slate-900">${exp.amountUSD.toFixed(2)} USD</span>
+                  <span className="font-mono font-black text-slate-900">${Number(exp.amountUSD || 0).toFixed(2)} USD</span>
                 </div>
               ))}
             </div>
@@ -1219,7 +1206,7 @@ export default function BreakEvenPage() {
               </div>
               <div className="flex justify-between text-xs font-bold text-slate-700">
                 <span>Tasa Oficial BCV Aplicada:</span>
-                <span className="font-mono font-black text-primary">Bs. {summary.bcvRate.toFixed(2)}</span>
+                <span className="font-mono font-black text-primary">Bs. {Number(summary?.bcvRate || 1).toFixed(2)}</span>
               </div>
             </div>
           </div>
