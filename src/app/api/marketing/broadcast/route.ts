@@ -1,74 +1,51 @@
 import { NextResponse } from 'next/server';
 import { initializeFirebaseServer, ensureServerAuth } from '@/firebase/server-init';
-import { collection, addDoc, doc, updateDoc, serverTimestamp, getDocs, query, orderBy, limit } from 'firebase/firestore';
-import { formatVenezuelaPhoneE164 } from '@/lib/whatsapp-gateway';
+import { collection, addDoc, serverTimestamp, updateDoc, doc } from 'firebase/firestore';
 import { enqueueWhatsAppBatch, dispatchViaGateways } from '@/lib/whatsapp-dispatch-server';
+import { formatVenezuelaPhoneE164 } from '@/lib/whatsapp-gateway';
 import { authorizeRequest, MANAGER_ROLES } from '@/lib/server-auth';
 
-const MAX_RECIPIENTS = 500;
+export const dynamic = 'force-dynamic';
+export const maxDuration = 300; // 5 minutos máximo para procesar listas masivas
 
-/**
- * REGLAS DE SEGURIDAD ANTI-BLOQUEO PARA DIFUSIÓN MASIVA (WHATSAPP):
- *  - Jitter orgánico entre mensajes: 8 a 14 segundos (evita detección de cadencia robótica).
- *  - Pausa de enfriamiento por lotes: Cada 20 mensajes enviados, pausa de 60 segundos.
- *  - Firma institucional unificada: Siempre 'El equipo de Athleticenter'.
- */
-const MIN_DELAY_MS = 8000;
-const MAX_DELAY_MS = 14000;
-const BATCH_SIZE = 20;
-const BATCH_COOLDOWN_MS = 60000;
-
-function getRandomJitter(min = MIN_DELAY_MS, max = MAX_DELAY_MS) {
-  return Math.floor(Math.random() * (max - min + 1)) + min;
-}
-
-export interface BroadcastRecipient {
-  id?: string;
-  name?: string;
+interface BroadcastRecipient {
+  id: string;
+  name: string;
   phone: string;
 }
 
-/**
- * GET: Obtener el historial reciente de campañas de marketing
- */
-export async function GET(req: Request) {
-  const auth = await authorizeRequest(req, MANAGER_ROLES);
-  if (!auth.ok) return NextResponse.json({ success: false, error: auth.error }, { status: auth.status });
-
-  try {
-    await ensureServerAuth();
-    const { firestore } = initializeFirebaseServer();
-
-    const campaignsRef = collection(firestore, 'marketing_campaigns');
-    const snap = await getDocs(query(campaignsRef, orderBy('createdAt', 'desc'), limit(20)));
-
-    const campaigns = snap.docs.map(d => ({
-      id: d.id,
-      ...d.data()
-    }));
-
-    return NextResponse.json({ success: true, campaigns });
-  } catch (error: any) {
-    console.error('[Marketing Broadcast GET] Error:', error);
-    return NextResponse.json({ success: false, error: error?.message }, { status: 500 });
-  }
+interface BroadcastPayload {
+  title: string;
+  message: string;
+  mediaUrl?: string;
+  mediaType?: 'none' | 'image' | 'video' | 'pdf' | 'document';
+  mediaFileName?: string;
+  audienceType: 'all' | 'debtors' | 'recurrent' | 'inactive' | 'vip' | 'custom' | 'test';
+  recipients: BroadcastRecipient[];
+  userId?: string;
+  userName?: string;
+  isTest?: boolean;
+  testPhone?: string;
+  testNumber?: string;
 }
 
-/**
- * POST: Iniciar una campaña de difusión masiva en segundo plano
- */
-export async function POST(req: Request) {
-  // Seguridad: solo gerencia/admin/superadmin con sesión válida (o proceso interno).
-  const auth = await authorizeRequest(req, MANAGER_ROLES);
-  if (!auth.ok) return NextResponse.json({ success: false, error: auth.error }, { status: auth.status });
+// Límite de seguridad para evitar DoS o bloqueos por WhatsApp
+const MAX_RECIPIENTS = 1000;
 
+export async function POST(req: Request) {
   try {
-    const body = await req.json();
+    const auth = await authorizeRequest(req, MANAGER_ROLES);
+    if (!auth.ok) {
+      return NextResponse.json({ success: false, error: auth.error }, { status: auth.status });
+    }
+
+    const body: BroadcastPayload = await req.json();
     const {
       title,
       message,
       mediaUrl,
       mediaType = 'none',
+      mediaFileName,
       audienceType = 'all',
       recipients = [],
     } = body;
@@ -82,10 +59,16 @@ export async function POST(req: Request) {
     if (mediaUrl && typeof mediaUrl === 'string' && 
         !mediaUrl.startsWith('data:image/') && 
         !mediaUrl.startsWith('data:video/') && 
+        !mediaUrl.startsWith('data:application/pdf') &&
+        !mediaUrl.startsWith('data:@file/pdf') &&
+        !mediaUrl.startsWith('data:') &&
         !mediaUrl.startsWith('https://') && 
         !mediaUrl.startsWith('http://')) {
-      return NextResponse.json({ success: false, error: 'El archivo multimedia debe ser una imagen o video válido.' }, { status: 400 });
+      return NextResponse.json({ success: false, error: 'El archivo multimedia debe ser una imagen, video o documento PDF válido.' }, { status: 400 });
     }
+
+    const isDoc = mediaType === 'pdf' || mediaType === 'document' || (mediaUrl && mediaUrl.includes('application/pdf'));
+    const resolvedDocName = mediaFileName || (title ? `${title.replace(/[^a-zA-Z0-9_-]/g, '_')}.pdf` : 'Catalogo_Athleticenter.pdf');
 
     // Modo de prueba inmediata a un solo número
     const testNum = body.testNumber || body.testPhone || (body.isTest && Array.isArray(body.recipients) && body.recipients[0]?.phone);
@@ -100,7 +83,9 @@ export async function POST(req: Request) {
         number: testPhone,
         text: finalMessage,
         imageUrl: mediaType === 'image' && mediaUrl ? mediaUrl : undefined,
-        videoUrl: mediaType === 'video' && mediaUrl ? mediaUrl : undefined
+        videoUrl: mediaType === 'video' && mediaUrl ? mediaUrl : undefined,
+        documentUrl: isDoc && mediaUrl ? mediaUrl : undefined,
+        fileName: resolvedDocName
       });
       return NextResponse.json({
         success: res.success,
@@ -134,14 +119,15 @@ export async function POST(req: Request) {
 
     // 1. Crear documento de campaña en Firestore (Protegiendo límite de 1MB de Firestore para Base64)
     const firestoreMediaUrl = (mediaUrl && typeof mediaUrl === 'string' && mediaUrl.startsWith('data:'))
-      ? (mediaUrl.length > 500000 ? `[Archivo ${mediaType.toUpperCase()} Base64 (${(mediaUrl.length / (1024 * 1024)).toFixed(1)} MB)]` : mediaUrl)
+      ? (mediaUrl.length > 500000 ? `[Archivo ${(isDoc ? 'PDF' : mediaType).toUpperCase()} Base64 (${(mediaUrl.length / (1024 * 1024)).toFixed(1)} MB)]` : mediaUrl)
       : (mediaType !== 'none' ? mediaUrl : null);
 
     const campaignRef = await addDoc(collection(firestore, 'marketing_campaigns'), {
       title,
       message,
       mediaUrl: firestoreMediaUrl,
-      mediaType,
+      mediaType: isDoc ? 'pdf' : mediaType,
+      mediaFileName: isDoc ? resolvedDocName : null,
       audienceType,
       totalTarget: validRecipients.length,
       sentCount: 0,
@@ -172,11 +158,17 @@ export async function POST(req: Request) {
       };
     });
 
+    const resolvedBatchMediaType: 'image' | 'video' | 'pdf' | undefined = 
+      mediaType === 'image' ? 'image' : 
+      mediaType === 'video' ? 'video' : 
+      isDoc ? 'pdf' : undefined;
+
     const q = await enqueueWhatsAppBatch(items, { 
       campaignId, 
       label: title,
       commonMediaUrl: hasCommonMedia ? mediaUrl : undefined,
-      commonMediaType: mediaType !== 'none' ? mediaType : undefined
+      commonMediaType: resolvedBatchMediaType,
+      commonMediaFileName: resolvedDocName
     });
     if (!q.success) {
       await updateDoc(doc(firestore, 'marketing_campaigns', campaignId), {
@@ -193,13 +185,17 @@ export async function POST(req: Request) {
       success: true,
       campaignId,
       totalTarget: validRecipients.length,
-      message: q.businessHours
-        ? `Campaña en cola con protección anti-bloqueo. Total destinatarios: ${validRecipients.length}.`
-        : `Campaña en cola. Por estar fuera del horario comercial (lun-sáb 8:00-19:00), el envío comenzará en el próximo horario hábil. Total: ${validRecipients.length}.`
+      queuedInGateway: q.queued,
+      totalQueued: q.totalQueued,
+      businessHours: q.businessHours,
+      message: `Campaña encolada exitosamente para ${validRecipients.length} destinatarios en el gateway de São Paulo (blindaje anti-bloqueo activo).`
     });
 
   } catch (error: any) {
-    console.error('[Marketing Broadcast POST] Error:', error);
-    return NextResponse.json({ success: false, error: error?.message || 'Error iniciando campaña' }, { status: 500 });
+    console.error('[Marketing Broadcast] Error crítico:', error);
+    return NextResponse.json(
+      { success: false, error: error?.message || 'Error inesperado al programar la difusión.' },
+      { status: 500 }
+    );
   }
 }

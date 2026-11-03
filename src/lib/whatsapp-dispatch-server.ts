@@ -1,20 +1,26 @@
 /**
- * ATHLETICENTER PRO — DESPACHO DE WHATSAPP DEL LADO DEL SERVIDOR
+ * DISPATCHER DE WHATSAPP DEL LADO DEL SERVIDOR (Multi-Tier)
  *
- * Única puerta de salida hacia el gateway de WhatsApp (servidor 24/7 de São Paulo).
- * Solo debe ejecutarse en el servidor (rutas API, server actions, agentes/crons).
+ * Jerarquía de envío:
+ *  1. Gateway 24/7 en São Paulo (Google Compute Engine, IP estática, Node.js + Baileys + PM2).
+ *     Recomendado para producción: 100% aislado de los reinicios de Cloud Run.
+ *  2. Gateway local (solo desarrollo, configurable vía WHATSAPP_LOCAL_GATEWAY=true).
+ *  3. Fallback wa.me si ningún gateway responde.
  *
- * Variables de entorno:
- *   WHATSAPP_GATEWAY_SP_URL  -> URL base del gateway (por defecto el servidor de São Paulo)
- *   WHATSAPP_GATEWAY_KEY     -> clave Bearer compartida con el gateway (obligatoria en producción)
- *   WHATSAPP_LOCAL_GATEWAY   -> "true" para intentar también http://localhost:3001 (solo desarrollo)
+ * Cola anti-bloqueo:
+ *  Para difusiones masivas o catálogo bi-semanal, usar `enqueueWhatsAppBatch`.
+ *  El gateway procesa los mensajes con jitter humano (8-14 s) y descansos cada 20 envíos.
  */
+
+import { formatVenezuelaPhoneE164 } from './whatsapp-gateway';
 
 export interface GatewayPayload {
   number: string;
   text?: string;
   imageUrl?: string;
   videoUrl?: string;
+  documentUrl?: string;
+  fileName?: string;
   media?: { base64: string; filename?: string; mimetype?: string };
   orderId?: string;
 }
@@ -50,7 +56,9 @@ async function postTo(url: string, key: string, payload: GatewayPayload, timeout
 export async function dispatchViaGateways(input: GatewayPayload): Promise<GatewayResult> {
   const number = normalizeVePhone(input.number);
   if (!number || number.length < 11) return { success: false, error: 'Número de teléfono inválido' };
-  if (!input.text && !input.imageUrl && !input.media) return { success: false, error: 'Mensaje vacío' };
+  if (!input.text && !input.imageUrl && !input.videoUrl && !input.documentUrl && !input.media) {
+    return { success: false, error: 'Mensaje vacío' };
+  }
 
   const payload: GatewayPayload = { ...input, number };
   const key = process.env.WHATSAPP_GATEWAY_KEY || '';
@@ -63,7 +71,7 @@ export async function dispatchViaGateways(input: GatewayPayload): Promise<Gatewa
   } else {
     // TIER 1: servidor 24/7 de São Paulo
     try {
-      const r = await postTo(spUrl, key, payload, 20000);
+      const r = await postTo(spUrl, key, payload, 35000);
       if (r.success) return { ...r, provider: r.provider || 'saopaulo' };
       errors.push(`São Paulo: ${r.error}`);
     } catch (e: any) {
@@ -95,6 +103,8 @@ export interface QueueItem {
   text: string;
   imageUrl?: string;
   videoUrl?: string;
+  documentUrl?: string;
+  fileName?: string;
 }
 
 /**
@@ -105,7 +115,13 @@ export interface QueueItem {
  */
 export async function enqueueWhatsAppBatch(
   items: QueueItem[],
-  opts: { campaignId?: string; label?: string; commonMediaUrl?: string; commonMediaType?: 'image' | 'video' } = {}
+  opts: {
+    campaignId?: string;
+    label?: string;
+    commonMediaUrl?: string;
+    commonMediaType?: 'image' | 'video' | 'pdf';
+    commonMediaFileName?: string;
+  } = {}
 ): Promise<{ success: boolean; queued?: number; totalQueued?: number; businessHours?: boolean; error?: string }> {
   const key = process.env.WHATSAPP_GATEWAY_KEY || '';
   const spUrl = process.env.WHATSAPP_GATEWAY_SP_URL || 'http://35.199.85.127:3001';
@@ -113,15 +129,22 @@ export async function enqueueWhatsAppBatch(
 
   const clean = items
     .map(i => ({ ...i, number: normalizeVePhone(i.number) }))
-    .filter(i => i.number.length >= 11 && (i.text || i.imageUrl || i.videoUrl || opts.commonMediaUrl));
+    .filter(i => i.number.length >= 11 && (i.text || i.imageUrl || i.videoUrl || i.documentUrl || opts.commonMediaUrl));
   if (!clean.length) return { success: false, error: 'Ningún destinatario válido' };
 
   try {
     const res = await fetch(`${spUrl.replace(/\/$/, '')}/api/queue`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
-      body: JSON.stringify({ campaignId: opts.campaignId, label: opts.label, items: clean, commonMediaUrl: opts.commonMediaUrl, commonMediaType: opts.commonMediaType }),
-      signal: AbortSignal.timeout(30000),
+      body: JSON.stringify({
+        campaignId: opts.campaignId,
+        label: opts.label,
+        items: clean,
+        commonMediaUrl: opts.commonMediaUrl,
+        commonMediaType: opts.commonMediaType,
+        commonMediaFileName: opts.commonMediaFileName,
+      }),
+      signal: AbortSignal.timeout(35000),
     });
     const data = await res.json().catch(() => ({} as any));
     if (!res.ok || !data?.success) return { success: false, error: data?.error || `HTTP ${res.status}` };

@@ -39,7 +39,8 @@ import {
     Play,
     Tag,
     DollarSign,
-    UserCheck
+    UserCheck,
+    FileText
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { InventoryProductPicker } from '@/components/dashboard/InventoryProductPicker';
@@ -82,7 +83,9 @@ export function BroadcastCampaignModal({
     const [title, setTitle] = useState('');
     const [message, setMessage] = useState('');
     const [mediaUrl, setMediaUrl] = useState('');
-    const [mediaType, setMediaType] = useState<'none' | 'image' | 'video'>('none');
+    const [mediaType, setMediaType] = useState<'none' | 'image' | 'video' | 'pdf'>('none');
+    const [mediaFileName, setMediaFileName] = useState('');
+    const [mediaFileSize, setMediaFileSize] = useState('');
     const [selectedProductSku, setSelectedProductSku] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -310,30 +313,30 @@ export function BroadcastCampaignModal({
         }
     };
 
-    // CARGA DE ARCHIVO LOCAL (VIDEO O IMAGEN)
+    // CARGA DE ARCHIVO LOCAL (PDF, VIDEO O IMAGEN)
     const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
 
         const isVideo = file.type.startsWith('video/');
         const isImage = file.type.startsWith('image/');
+        const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
 
-        if (!isVideo && !isImage) {
+        if (!isVideo && !isImage && !isPdf) {
             toast({
                 variant: 'destructive',
                 title: 'Formato no soportado',
-                description: 'Por favor selecciona un archivo de video (MP4) o imagen (JPG/PNG).'
+                description: 'Por favor selecciona un catálogo en formato PDF, video (MP4) o imagen (JPG/PNG).'
             });
             return;
         }
 
-        // Límite de tamaño: 16 MB para video, 5 MB para imagen
-        const maxSize = isVideo ? 16 * 1024 * 1024 : 5 * 1024 * 1024;
+        const maxSize = 25 * 1024 * 1024;
         if (file.size > maxSize) {
             toast({
                 variant: 'destructive',
                 title: 'Archivo demasiado grande',
-                description: `El tamaño máximo permitido es de ${isVideo ? '16 MB' : '5 MB'} para garantizar entrega fluida por WhatsApp.`
+                description: `El tamaño máximo permitido es de 25 MB para garantizar entrega fluida por WhatsApp.`
             });
             return;
         }
@@ -342,9 +345,11 @@ export function BroadcastCampaignModal({
         reader.onload = () => {
             const result = reader.result as string;
             setMediaUrl(result);
-            setMediaType(isVideo ? 'video' : 'image');
+            setMediaType(isPdf ? 'pdf' : isVideo ? 'video' : 'image');
+            setMediaFileName(file.name);
+            setMediaFileSize((file.size / (1024 * 1024)).toFixed(2) + ' MB');
             toast({
-                title: isVideo ? '🎥 Video cargado con éxito' : '🖼️ Imagen cargada con éxito',
+                title: isPdf ? '📄 Catálogo PDF cargado con éxito' : isVideo ? '🎥 Video cargado con éxito' : '🖼️ Imagen cargada con éxito',
                 description: `${file.name} (${(file.size / (1024 * 1024)).toFixed(2)} MB)`
             });
         };
@@ -388,6 +393,7 @@ export function BroadcastCampaignModal({
                     message: message.trim(),
                     mediaUrl: mediaType !== 'none' ? mediaUrl.trim() : null,
                     mediaType,
+                    mediaFileName: mediaType === 'pdf' ? mediaFileName : undefined,
                 })
             });
 
@@ -452,6 +458,7 @@ export function BroadcastCampaignModal({
                     message: message.trim(),
                     mediaUrl: mediaType !== 'none' ? mediaUrl.trim() : null,
                     mediaType,
+                    mediaFileName: mediaType === 'pdf' ? mediaFileName : undefined,
                     audienceType,
                     recipients: recipientsPayload,
                     userId: profile?.id || 'admin',
@@ -644,19 +651,19 @@ export function BroadcastCampaignModal({
                                     />
                                 </div>
 
-                                {/* Adjunto Multimedia (Video o Imagen) */}
+                                {/* Adjunto Multimedia (PDF, Video o Imagen) */}
                                 <div className="space-y-2 p-3.5 rounded-2xl bg-slate-50 border border-slate-100">
                                     <div className="flex justify-between items-center">
                                         <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 flex items-center gap-1.5">
-                                            {mediaType === 'video' ? <Video className="h-3.5 w-3.5 text-purple-600" /> : <ImageIcon className="h-3.5 w-3.5 text-primary" />}
-                                            Adjunto Multimedia (Video MP4 o Imagen)
+                                            {mediaType === 'pdf' ? <FileText className="h-3.5 w-3.5 text-red-600" /> : mediaType === 'video' ? <Video className="h-3.5 w-3.5 text-purple-600" /> : <ImageIcon className="h-3.5 w-3.5 text-primary" />}
+                                            Adjunto (PDF, Video MP4 o Foto)
                                         </label>
                                         {mediaUrl && (
                                             <Button
                                                 type="button"
                                                 size="sm"
                                                 variant="ghost"
-                                                onClick={() => { setMediaUrl(''); setMediaType('none'); }}
+                                                onClick={() => { setMediaUrl(''); setMediaType('none'); setMediaFileName(''); setMediaFileSize(''); }}
                                                 className="h-6 text-[8px] text-rose-500 font-bold uppercase p-0"
                                             >
                                                 Quitar archivo
@@ -668,7 +675,7 @@ export function BroadcastCampaignModal({
                                         <input
                                             ref={fileInputRef}
                                             type="file"
-                                            accept="video/mp4,video/quicktime,video/webm,image/png,image/jpeg,image/webp"
+                                            accept="application/pdf,video/mp4,video/quicktime,video/webm,image/png,image/jpeg,image/webp"
                                             className="hidden"
                                             onChange={handleFileUpload}
                                         />
@@ -679,13 +686,23 @@ export function BroadcastCampaignModal({
                                             className="h-8 text-[9px] font-black uppercase rounded-xl flex items-center gap-1"
                                             onClick={() => fileInputRef.current?.click()}
                                         >
-                                            <Upload className="h-3 w-3" /> Subir Video o Foto
+                                            <Upload className="h-3 w-3" /> Subir Catálogo PDF, Video o Foto
                                         </Button>
                                     </div>
 
                                     {mediaUrl && (
                                         <div className="mt-2 p-2 bg-white rounded-xl border border-slate-200">
-                                            {mediaType === 'video' ? (
+                                            {mediaType === 'pdf' ? (
+                                                <div className="flex items-center gap-2.5 p-2 bg-red-50/60 rounded-lg border border-red-200">
+                                                    <div className="h-8 w-8 rounded bg-red-600 text-white flex items-center justify-center font-black text-[10px] shrink-0">
+                                                        PDF
+                                                    </div>
+                                                    <div className="min-w-0 flex-1">
+                                                        <p className="text-[11px] font-bold text-slate-800 truncate">{mediaFileName || 'Catalogo_Athleticenter.pdf'}</p>
+                                                        <p className="text-[9px] text-slate-500 font-mono">{mediaFileSize || 'Documento adjunto'}</p>
+                                                    </div>
+                                                </div>
+                                            ) : mediaType === 'video' ? (
                                                 <div className="space-y-1">
                                                     <div className="flex items-center gap-1.5 text-purple-700 text-[10px] font-black">
                                                         <Video className="h-3.5 w-3.5" /> Video MP4 adjunto
@@ -906,7 +923,23 @@ export function BroadcastCampaignModal({
                             {/* Área de Mensajes */}
                             <div className="flex-1 p-3 overflow-y-auto space-y-2">
                                 <div className="bg-white rounded-2xl rounded-tl-none p-3 shadow-sm border border-slate-200/60 max-w-[90%] space-y-2">
-                                    {/* Previsualización de Multimedia */}
+                                    {/* Previsualización de Multimedia o Documento PDF */}
+                                    {mediaType === 'pdf' && (
+                                        <div className="rounded-xl overflow-hidden bg-[#005c4b]/10 border border-[#005c4b]/20 p-2.5 flex items-center gap-2.5 shadow-sm">
+                                            <div className="h-8 w-8 rounded bg-red-600 text-white flex items-center justify-center font-black text-[10px] shrink-0">
+                                                PDF
+                                            </div>
+                                            <div className="min-w-0 flex-1">
+                                                <p className="text-[11px] font-bold text-slate-900 truncate">
+                                                    {mediaFileName || 'Catalogo_Athleticenter.pdf'}
+                                                </p>
+                                                <p className="text-[9px] text-slate-500 font-mono">
+                                                    {mediaFileSize || 'Documento PDF'} · Catálogo Oficial
+                                                </p>
+                                            </div>
+                                        </div>
+                                    )}
+
                                     {mediaType === 'video' && mediaUrl && (
                                         <div className="rounded-xl overflow-hidden bg-black flex items-center justify-center h-28 relative">
                                             <video src={mediaUrl} className="h-full w-full object-contain" />

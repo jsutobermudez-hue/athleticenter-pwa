@@ -35,7 +35,8 @@ import {
     Play,
     Tag,
     Trash2,
-    Check
+    Check,
+    FileText
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { InventoryProductPicker } from '@/components/dashboard/InventoryProductPicker';
@@ -63,7 +64,9 @@ function BroadcastStudioContent() {
     const [title, setTitle] = useState('');
     const [message, setMessage] = useState('');
     const [mediaUrl, setMediaUrl] = useState('');
-    const [mediaType, setMediaType] = useState<'none' | 'image' | 'video'>('none');
+    const [mediaType, setMediaType] = useState<'none' | 'image' | 'video' | 'pdf'>('none');
+    const [mediaFileName, setMediaFileName] = useState('');
+    const [mediaFileSize, setMediaFileSize] = useState('');
     const [selectedProductSku, setSelectedProductSku] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [activeTab, setActiveTab] = useState('content');
@@ -331,29 +334,30 @@ function BroadcastStudioContent() {
         }
     };
 
-    // CARGA DE ARCHIVO LOCAL (VIDEO O IMAGEN)
+    // CARGA DE ARCHIVO LOCAL (PDF, VIDEO O IMAGEN)
     const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
 
         const isVideo = file.type.startsWith('video/');
         const isImage = file.type.startsWith('image/');
+        const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
 
-        if (!isVideo && !isImage) {
+        if (!isVideo && !isImage && !isPdf) {
             toast({
                 variant: 'destructive',
                 title: 'Formato no soportado',
-                description: 'Por favor selecciona un archivo de video (MP4) o imagen (JPG/PNG).'
+                description: 'Por favor selecciona un catálogo en formato PDF, video (MP4) o imagen (JPG/PNG).'
             });
             return;
         }
 
-        const maxSize = isVideo ? 16 * 1024 * 1024 : 5 * 1024 * 1024;
+        const maxSize = 25 * 1024 * 1024; // 25 MB máximo para entrega ágil
         if (file.size > maxSize) {
             toast({
                 variant: 'destructive',
                 title: 'Archivo demasiado grande',
-                description: `El tamaño máximo permitido es de ${isVideo ? '16 MB' : '5 MB'} para garantizar entrega fluida por WhatsApp.`
+                description: `El tamaño máximo permitido es de 25 MB para garantizar entrega fluida por WhatsApp.`
             });
             return;
         }
@@ -362,9 +366,11 @@ function BroadcastStudioContent() {
         reader.onload = () => {
             const result = reader.result as string;
             setMediaUrl(result);
-            setMediaType(isVideo ? 'video' : 'image');
+            setMediaType(isPdf ? 'pdf' : isVideo ? 'video' : 'image');
+            setMediaFileName(file.name);
+            setMediaFileSize((file.size / (1024 * 1024)).toFixed(2) + ' MB');
             toast({
-                title: isVideo ? '🎥 Video cargado con éxito' : '🖼️ Imagen cargada con éxito',
+                title: isPdf ? '📄 Catálogo PDF cargado con éxito' : isVideo ? '🎥 Video cargado con éxito' : '🖼️ Imagen cargada con éxito',
                 description: `${file.name} (${(file.size / (1024 * 1024)).toFixed(2)} MB)`
             });
         };
@@ -412,6 +418,7 @@ function BroadcastStudioContent() {
                     message: previewText,
                     mediaUrl: mediaType !== 'none' ? mediaUrl : null,
                     mediaType,
+                    mediaFileName: mediaType === 'pdf' ? mediaFileName : undefined,
                     audienceType: 'test',
                     isTest: true,
                     testNumber: testPhone.trim(),
@@ -487,6 +494,7 @@ function BroadcastStudioContent() {
                     message: message.trim(),
                     mediaUrl: mediaType !== 'none' ? mediaUrl.trim() : null,
                     mediaType,
+                    mediaFileName: mediaType === 'pdf' ? mediaFileName : undefined,
                     audienceType,
                     recipients: recipientsPayload,
                     userId: profile?.id || 'admin',
@@ -765,7 +773,7 @@ function BroadcastStudioContent() {
                                             <input
                                                 ref={fileInputRef}
                                                 type="file"
-                                                accept="video/mp4,video/quicktime,video/webm,image/png,image/jpeg,image/webp"
+                                                accept="application/pdf,video/mp4,video/quicktime,video/webm,image/png,image/jpeg,image/webp"
                                                 className="hidden"
                                                 onChange={handleFileUpload}
                                             />
@@ -775,7 +783,7 @@ function BroadcastStudioContent() {
                                                 onClick={() => fileInputRef.current?.click()}
                                                 className="h-11 px-5 text-xs font-black uppercase rounded-xl border-dashed border-2 border-slate-300 hover:border-emerald-500 hover:bg-emerald-50/50 flex items-center gap-2"
                                             >
-                                                <Upload className="h-4 w-4 text-emerald-600" /> Subir Video MP4 o Fotografía
+                                                <Upload className="h-4 w-4 text-emerald-600" /> Subir Catálogo PDF, Video o Foto
                                             </Button>
                                             <span className="text-xs text-slate-400 font-medium">
                                                 {mediaUrl ? 'Archivo listo para transmisión' : 'Ningún archivo adjunto'}
@@ -784,7 +792,25 @@ function BroadcastStudioContent() {
 
                                         {mediaUrl && (
                                             <div className="p-4 bg-white rounded-2xl border border-slate-200">
-                                                {mediaType === 'video' ? (
+                                                {mediaType === 'pdf' ? (
+                                                    <div className="space-y-2">
+                                                        <div className="flex items-center justify-between text-red-700 text-xs font-black uppercase">
+                                                            <span className="flex items-center gap-2">
+                                                                <FileText className="h-4 w-4" /> Catálogo / Documento PDF Preparado
+                                                            </span>
+                                                            <Badge className="bg-red-100 text-red-800 border-none font-bold">PDF Oficial</Badge>
+                                                        </div>
+                                                        <div className="flex items-center gap-4 p-4 rounded-xl bg-red-50/60 border border-red-200">
+                                                            <div className="h-12 w-12 rounded-xl bg-red-600 text-white flex items-center justify-center font-black text-sm shrink-0 shadow-sm">
+                                                                PDF
+                                                            </div>
+                                                            <div className="min-w-0 flex-1">
+                                                                <p className="text-sm font-bold text-slate-800 truncate">{mediaFileName || 'Catalogo_Athleticenter.pdf'}</p>
+                                                                <p className="text-xs text-slate-500 font-medium">{mediaFileSize || 'Documento adjunto para WhatsApp'}</p>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                ) : mediaType === 'video' ? (
                                                     <div className="space-y-2">
                                                         <div className="flex items-center justify-between text-purple-700 text-xs font-black uppercase">
                                                             <span className="flex items-center gap-2">
@@ -1082,7 +1108,23 @@ function BroadcastStudioContent() {
                             <div className="flex-1 p-3.5 overflow-y-auto space-y-2 bg-[#EFEAE2]">
                                 <div className="bg-white rounded-2xl rounded-tl-none p-3.5 shadow-sm border border-slate-200 max-w-[95%] space-y-2.5">
                                     
-                                    {/* Video en Vivo o Imagen */}
+                                    {/* Documento PDF, Video en Vivo o Imagen */}
+                                    {mediaType === 'pdf' && (
+                                        <div className="rounded-xl overflow-hidden bg-[#005c4b]/10 border border-[#005c4b]/20 p-3 flex items-center gap-3 shadow-sm">
+                                            <div className="h-10 w-10 rounded-lg bg-red-600 text-white flex items-center justify-center font-black text-xs shrink-0 shadow">
+                                                PDF
+                                            </div>
+                                            <div className="min-w-0 flex-1">
+                                                <p className="text-xs font-bold text-slate-900 truncate">
+                                                    {mediaFileName || 'Catalogo_Athleticenter.pdf'}
+                                                </p>
+                                                <p className="text-[10px] text-slate-500 font-medium font-mono">
+                                                    {mediaFileSize || 'Documento PDF'} · Catálogo Oficial
+                                                </p>
+                                            </div>
+                                        </div>
+                                    )}
+
                                     {mediaType === 'video' && mediaUrl && (
                                         <div className="rounded-xl overflow-hidden bg-black flex items-center justify-center min-h-[140px] relative shadow-inner">
                                             <video src={mediaUrl} className="w-full max-h-44 object-contain" />
@@ -1138,7 +1180,7 @@ function BroadcastStudioContent() {
                             <div className="flex justify-between items-center text-xs">
                                 <span className="text-slate-400">Adjunto Multimedia:</span>
                                 <span className="font-bold text-white capitalize">
-                                    {mediaType === 'video' ? '🎥 Video MP4' : mediaType === 'image' ? '🖼️ Imagen' : 'Ninguno (Solo Texto)'}
+                                    {mediaType === 'pdf' ? '📄 Catálogo PDF' : mediaType === 'video' ? '🎥 Video MP4' : mediaType === 'image' ? '🖼️ Imagen' : 'Ninguno (Solo Texto)'}
                                 </span>
                             </div>
                             <div className="flex justify-between items-center text-xs">
