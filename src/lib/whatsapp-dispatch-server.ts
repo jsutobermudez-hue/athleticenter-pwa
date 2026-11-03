@@ -105,7 +105,7 @@ export interface QueueItem {
  */
 export async function enqueueWhatsAppBatch(
   items: QueueItem[],
-  opts: { campaignId?: string; label?: string } = {}
+  opts: { campaignId?: string; label?: string; commonMediaUrl?: string; commonMediaType?: 'image' | 'video' } = {}
 ): Promise<{ success: boolean; queued?: number; totalQueued?: number; businessHours?: boolean; error?: string }> {
   const key = process.env.WHATSAPP_GATEWAY_KEY || '';
   const spUrl = process.env.WHATSAPP_GATEWAY_SP_URL || 'http://35.199.85.127:3001';
@@ -113,14 +113,14 @@ export async function enqueueWhatsAppBatch(
 
   const clean = items
     .map(i => ({ ...i, number: normalizeVePhone(i.number) }))
-    .filter(i => i.number.length >= 11 && (i.text || i.imageUrl || i.videoUrl));
+    .filter(i => i.number.length >= 11 && (i.text || i.imageUrl || i.videoUrl || opts.commonMediaUrl));
   if (!clean.length) return { success: false, error: 'Ningún destinatario válido' };
 
   try {
     const res = await fetch(`${spUrl.replace(/\/$/, '')}/api/queue`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
-      body: JSON.stringify({ campaignId: opts.campaignId, label: opts.label, items: clean }),
+      body: JSON.stringify({ campaignId: opts.campaignId, label: opts.label, items: clean, commonMediaUrl: opts.commonMediaUrl, commonMediaType: opts.commonMediaType }),
       signal: AbortSignal.timeout(30000),
     });
     const data = await res.json().catch(() => ({} as any));

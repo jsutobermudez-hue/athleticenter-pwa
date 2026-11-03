@@ -159,6 +159,7 @@ export async function POST(req: Request) {
     // 2. Encolar en el gateway 24/7 de São Paulo: allí se aplican las pausas anti-bloqueo
     //    (8-14 s, enfriamiento 60 s cada 20) y el horario comercial. El gateway reporta el progreso
     //    a /api/marketing/campaign-progress. Así el envío no depende de que esta petición siga viva.
+    const hasCommonMedia = Boolean(mediaUrl);
     const items = validRecipients.map(item => {
       const personalized = message.replace(/{{nombre}}/gi, item.name || 'Cliente');
       const finalMessage = `*ATHLETICENTER*\n\n` +
@@ -167,13 +168,16 @@ export async function POST(req: Request) {
         `Atentamente,\n*El equipo de Athleticenter*`;
       return { 
         number: item.phone, 
-        text: finalMessage, 
-        imageUrl: mediaType === 'image' && mediaUrl ? mediaUrl : undefined,
-        videoUrl: mediaType === 'video' && mediaUrl ? mediaUrl : undefined
+        text: finalMessage
       };
     });
 
-    const q = await enqueueWhatsAppBatch(items, { campaignId, label: title });
+    const q = await enqueueWhatsAppBatch(items, { 
+      campaignId, 
+      label: title,
+      commonMediaUrl: hasCommonMedia ? mediaUrl : undefined,
+      commonMediaType: mediaType !== 'none' ? mediaType : undefined
+    });
     if (!q.success) {
       await updateDoc(doc(firestore, 'marketing_campaigns', campaignId), {
         status: 'failed',

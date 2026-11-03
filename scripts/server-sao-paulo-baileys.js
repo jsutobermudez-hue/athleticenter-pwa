@@ -35,7 +35,7 @@ if (API_KEY.length < 24) {
 
 const app = express();
 app.disable('x-powered-by');
-app.use(express.json({ limit: '25mb' }));
+app.use(express.json({ limit: '60mb' }));
 
 const log = (...a) => console.log(new Date().toISOString(), ...a);
 const logErr = (...a) => console.error(new Date().toISOString(), ...a);
@@ -254,7 +254,14 @@ async function processQueue() {
 
       const remainingForCampaign = queue.some(q => q.campaignId === item.campaignId);
       if ((c.sent + c.failed) % 5 === 0 || !remainingForCampaign) await reportProgress(item.campaignId, !remainingForCampaign);
-      if (!remainingForCampaign) { log(`[Cola] ✅ Campaña ${item.campaignId} finalizada: ${c.sent} enviados, ${c.failed} fallidos.`); delete campaigns[item.campaignId]; persist(); }
+      if (!remainingForCampaign) {
+        log(`[Cola] ✅ Campaña ${item.campaignId} finalizada: ${c.sent} enviados, ${c.failed} fallidos.`);
+        if (c.mediaFile && fs.existsSync(c.mediaFile)) {
+          try { fs.unlinkSync(c.mediaFile); log(`[Cola] 🧹 Archivo multimedia temporal liberado: ${c.mediaFile}`); } catch {}
+        }
+        delete campaigns[item.campaignId];
+        persist();
+      }
 
       if (queue.length) {
         sentInBatch++;
