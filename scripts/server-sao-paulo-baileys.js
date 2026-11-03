@@ -145,32 +145,46 @@ async function sendOne({ number, text, imageUrl, videoUrl, media }) {
   }
   if (videoUrl) {
     let buf = null;
-    if (videoUrl.startsWith('data:video/')) {
+    if (typeof videoUrl === 'string' && fs.existsSync(videoUrl)) {
+      try { buf = fs.readFileSync(videoUrl); } catch (e) { logErr('[Send] Error leyendo video de disco:', e.message); }
+    } else if (typeof videoUrl === 'string' && videoUrl.startsWith('data:video/')) {
       buf = Buffer.from(videoUrl.split(';base64,').pop(), 'base64');
-    } else if (videoUrl.startsWith('https://') || videoUrl.startsWith('http://')) {
+    } else if (typeof videoUrl === 'string' && (videoUrl.startsWith('https://') || videoUrl.startsWith('http://'))) {
       const vr = await fetch(videoUrl, { signal: AbortSignal.timeout(45000) });
       if (vr.ok) buf = Buffer.from(await vr.arrayBuffer());
     }
-    if (buf && buf.length < 25 * 1024 * 1024) {
+    if (buf && buf.length < 50 * 1024 * 1024) {
+      log(`[Send] 🎥 Transmitiendo video MP4 (${(buf.length / (1024 * 1024)).toFixed(2)} MB) a ...${String(number).slice(-4)}`);
       const r = await sock.sendMessage(jid, {
         video: buf,
         caption: text || '',
         mimetype: 'video/mp4'
       });
       return r?.key?.id;
+    } else if (buf) {
+      logErr(`[Send] ⚠️ Video excede 50 MB (${(buf.length / (1024 * 1024)).toFixed(2)} MB), enviando solo texto`);
+    } else {
+      logErr(`[Send] ⚠️ Buffer de video no disponible para ...${String(number).slice(-4)}, enviando solo texto`);
     }
   }
   if (imageUrl) {
     let buf = null;
-    if (imageUrl.startsWith('data:image/')) {
+    if (typeof imageUrl === 'string' && fs.existsSync(imageUrl)) {
+      try { buf = fs.readFileSync(imageUrl); } catch (e) { logErr('[Send] Error leyendo imagen de disco:', e.message); }
+    } else if (typeof imageUrl === 'string' && imageUrl.startsWith('data:image/')) {
       buf = Buffer.from(imageUrl.split(';base64,').pop(), 'base64');
-    } else if (imageUrl.startsWith('https://')) {
+    } else if (typeof imageUrl === 'string' && (imageUrl.startsWith('https://') || imageUrl.startsWith('http://'))) {
       const ir = await fetch(imageUrl, { signal: AbortSignal.timeout(20000) });
       if (ir.ok && (ir.headers.get('content-type') || '').startsWith('image/')) buf = Buffer.from(await ir.arrayBuffer());
     }
-    if (buf && buf.length < 15 * 1024 * 1024) {
+    if (buf && buf.length < 20 * 1024 * 1024) {
+      log(`[Send] 🖼️ Transmitiendo imagen (${(buf.length / (1024 * 1024)).toFixed(2)} MB) a ...${String(number).slice(-4)}`);
       const r = await sock.sendMessage(jid, { image: buf, caption: text || '' });
       return r?.key?.id;
+    } else if (buf) {
+      logErr(`[Send] ⚠️ Imagen excede 20 MB, enviando solo texto`);
+    } else {
+      logErr(`[Send] ⚠️ Buffer de imagen no disponible para ...${String(number).slice(-4)}, enviando solo texto`);
     }
   }
   const r = await sock.sendMessage(jid, { text: text || '' });
@@ -196,8 +210,8 @@ function requireKey(req, res, next) {
 
 // ---------------------------------------------------------------- Cola persistente
 const QUEUE_FILE = path.join(__dirname, 'queue.json');
-let queue = [];      // [{ id, campaignId, number, text, imageUrl, attempts }]
-let campaigns = {};  // campaignId -> { sent, failed, total, label }
+let queue = [];      // [{ id, campaignId, number, text, imageUrl, videoUrl, attempts }]
+let campaigns = {};  // campaignId -> { sent, failed, total, label, mediaFile }
 try {
   const saved = JSON.parse(fs.readFileSync(QUEUE_FILE, 'utf8'));
   queue = saved.queue || [];
@@ -257,7 +271,12 @@ async function processQueue() {
       if (!remainingForCampaign) {
         log(`[Cola] ✅ Campaña ${item.campaignId} finalizada: ${c.sent} enviados, ${c.failed} fallidos.`);
         if (c.mediaFile && fs.existsSync(c.mediaFile)) {
-          try { fs.unlinkSync(c.mediaFile); log(`[Cola] 🧹 Archivo multimedia temporal liberado: ${c.mediaFile}`); } catch {}
+          try {
+            fs.unlinkSync(c.mediaFile);
+            log(`[Cola] 🧹 Archivo multimedia temporal liberado: ${c.mediaFile}`);
+          } catch (err) {
+            logErr('[Cola] Error al eliminar archivo temporal:', err.message);
+          }
         }
         delete campaigns[item.campaignId];
         persist();
@@ -301,16 +320,68 @@ app.post('/api/send', requireKey, async (req, res) => {
 });
 
 app.post('/api/queue', requireKey, (req, res) => {
-  const { campaignId, items, label } = req.body || {};
+  const { campaignId, items, label, commonMediaUrl, commonMediaType } = req.body || {};
   if (!Array.isArray(items) || !items.length) return res.status(400).json({ success: false, error: 'Lista vacía' });
   if (items.length > 1000) return res.status(400).json({ success: false, error: 'Máximo 1000 mensajes por lote' });
   const cid = String(campaignId || `adhoc-${Date.now()}`);
-  const valid = items.filter(i => i && i.number && (i.text || i.imageUrl || i.videoUrl || i.media));
-  campaigns[cid] = campaigns[cid] || { sent: 0, failed: 0, total: 0, errors: [], label: label || '' };
+
+  // Gestionar archivo multimedia común para evitar duplicidad en memoria y disco
+  let commonFilePath = null;
+  if (commonMediaUrl && typeof commonMediaUrl === 'string') {
+    const mediaDir = path.join(__dirname, 'media_cache');
+    try {
+      if (!fs.existsSync(mediaDir)) fs.mkdirSync(mediaDir, { recursive: true });
+      if (commonMediaUrl.startsWith('data:')) {
+        const parts = commonMediaUrl.split(';base64,');
+        const header = parts[0] || '';
+        const b64 = parts[1] || '';
+        let ext = 'bin';
+        if (header.includes('video/') || commonMediaType === 'video') ext = 'mp4';
+        else if (header.includes('image/png')) ext = 'png';
+        else if (header.includes('image/webp')) ext = 'webp';
+        else if (header.includes('image/')) ext = 'jpg';
+
+        commonFilePath = path.join(mediaDir, `${cid}.${ext}`);
+        fs.writeFileSync(commonFilePath, Buffer.from(b64, 'base64'));
+        const sizeMb = (Buffer.byteLength(b64, 'base64') / (1024 * 1024)).toFixed(2);
+        log(`[Cola] 💾 Multimedia común guardada en disco (${sizeMb} MB): ${commonFilePath}`);
+      } else if (commonMediaUrl.startsWith('http://') || commonMediaUrl.startsWith('https://')) {
+        commonFilePath = commonMediaUrl;
+      }
+    } catch (err) {
+      logErr('[Cola] ❌ Error almacenando multimedia común:', err.message);
+    }
+  }
+
+  const valid = items.filter(i => i && i.number && (i.text || i.imageUrl || i.videoUrl || i.media || commonFilePath));
+  campaigns[cid] = campaigns[cid] || { sent: 0, failed: 0, total: 0, errors: [], label: label || '', mediaFile: commonFilePath };
   campaigns[cid].total += valid.length;
-  for (const i of valid) queue.push({ id: crypto.randomUUID(), campaignId: cid, number: String(i.number), text: i.text || '', imageUrl: i.imageUrl || undefined, videoUrl: i.videoUrl || undefined, media: i.media || undefined, attempts: 0 });
+  if (commonFilePath) campaigns[cid].mediaFile = commonFilePath;
+
+  for (const i of valid) {
+    let itemVideo = i.videoUrl;
+    let itemImage = i.imageUrl;
+    if (commonFilePath) {
+      if (commonMediaType === 'video' || commonFilePath.endsWith('.mp4')) {
+        itemVideo = commonFilePath;
+      } else if (commonMediaType === 'image' || commonFilePath.endsWith('.jpg') || commonFilePath.endsWith('.png') || commonFilePath.endsWith('.webp')) {
+        itemImage = commonFilePath;
+      }
+    }
+    queue.push({
+      id: crypto.randomUUID(),
+      campaignId: cid,
+      number: String(i.number),
+      text: i.text || '',
+      imageUrl: itemImage || undefined,
+      videoUrl: itemVideo || undefined,
+      media: i.media || undefined,
+      attempts: 0
+    });
+  }
+
   persist();
-  log(`[Cola] ➕ ${valid.length} mensajes encolados (campaña ${cid}${label ? ' · ' + label : ''}). Total en cola: ${queue.length}`);
+  log(`[Cola] ➕ ${valid.length} mensajes encolados (campaña ${cid}${label ? ' · ' + label : ''}${commonFilePath ? ' [MULTIMEDIA ADJUNTO]' : ''}). Total en cola: ${queue.length}`);
   processQueue();
   res.json({ success: true, campaignId: cid, queued: valid.length, totalQueued: queue.length, businessHours: inBusinessHours() });
 });
