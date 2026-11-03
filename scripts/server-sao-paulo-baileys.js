@@ -128,7 +128,7 @@ async function startWhatsApp() {
   });
 }
 
-async function sendOne({ number, text, imageUrl, media }) {
+async function sendOne({ number, text, imageUrl, videoUrl, media }) {
   if (!isConnected || !sock) throw new Error('WhatsApp no está conectado en São Paulo');
   const clean = String(number).replace(/\D/g, '');
   if (clean.length < 11) throw new Error('Número inválido');
@@ -142,6 +142,23 @@ async function sendOne({ number, text, imageUrl, media }) {
       caption: text || '',
     });
     return r?.key?.id;
+  }
+  if (videoUrl) {
+    let buf = null;
+    if (videoUrl.startsWith('data:video/')) {
+      buf = Buffer.from(videoUrl.split(';base64,').pop(), 'base64');
+    } else if (videoUrl.startsWith('https://') || videoUrl.startsWith('http://')) {
+      const vr = await fetch(videoUrl, { signal: AbortSignal.timeout(45000) });
+      if (vr.ok) buf = Buffer.from(await vr.arrayBuffer());
+    }
+    if (buf && buf.length < 25 * 1024 * 1024) {
+      const r = await sock.sendMessage(jid, {
+        video: buf,
+        caption: text || '',
+        mimetype: 'video/mp4'
+      });
+      return r?.key?.id;
+    }
   }
   if (imageUrl) {
     let buf = null;
@@ -264,10 +281,10 @@ app.get('/api/status', (req, res) => {
 });
 
 app.post('/api/send', requireKey, async (req, res) => {
-  const { number, text, imageUrl, media } = req.body || {};
-  if (!number || (!text && !imageUrl && !media)) return res.status(400).json({ success: false, error: 'Faltan parámetros obligatorios' });
+  const { number, text, imageUrl, videoUrl, media } = req.body || {};
+  if (!number || (!text && !imageUrl && !videoUrl && !media)) return res.status(400).json({ success: false, error: 'Faltan parámetros obligatorios' });
   try {
-    const id = await sendOne({ number, text, imageUrl, media });
+    const id = await sendOne({ number, text, imageUrl, videoUrl, media });
     log(`[Send] ✅ Enviado a ...${String(number).slice(-4)}`);
     res.json({ success: true, messageId: id || 'SENT_OK', provider: 'baileys-saopaulo' });
   } catch (e) {
@@ -281,10 +298,10 @@ app.post('/api/queue', requireKey, (req, res) => {
   if (!Array.isArray(items) || !items.length) return res.status(400).json({ success: false, error: 'Lista vacía' });
   if (items.length > 1000) return res.status(400).json({ success: false, error: 'Máximo 1000 mensajes por lote' });
   const cid = String(campaignId || `adhoc-${Date.now()}`);
-  const valid = items.filter(i => i && i.number && (i.text || i.imageUrl));
+  const valid = items.filter(i => i && i.number && (i.text || i.imageUrl || i.videoUrl || i.media));
   campaigns[cid] = campaigns[cid] || { sent: 0, failed: 0, total: 0, errors: [], label: label || '' };
   campaigns[cid].total += valid.length;
-  for (const i of valid) queue.push({ id: crypto.randomUUID(), campaignId: cid, number: String(i.number), text: i.text || '', imageUrl: i.imageUrl || undefined, attempts: 0 });
+  for (const i of valid) queue.push({ id: crypto.randomUUID(), campaignId: cid, number: String(i.number), text: i.text || '', imageUrl: i.imageUrl || undefined, videoUrl: i.videoUrl || undefined, media: i.media || undefined, attempts: 0 });
   persist();
   log(`[Cola] ➕ ${valid.length} mensajes encolados (campaña ${cid}${label ? ' · ' + label : ''}). Total en cola: ${queue.length}`);
   processQueue();

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { useUser } from '@/firebase';
 import type { Customer, Product } from '@/lib/definitions';
 import {
@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
 import { authFetch } from '@/lib/auth-fetch';
 import {
@@ -27,8 +28,31 @@ import {
     Sparkles,
     ShieldCheck,
     Clock,
-    Percent
+    Percent,
+    Phone,
+    Upload,
+    CheckSquare,
+    Search,
+    AlertTriangle,
+    CheckCircle2,
+    FileSpreadsheet,
+    Play,
+    Tag,
+    DollarSign,
+    UserCheck
 } from 'lucide-react';
+import { cn } from '@/lib/utils';
+
+export type ExtendedAudienceType = 
+    | 'all' 
+    | 'vips' 
+    | 'debtors' 
+    | 'mora_critica' 
+    | 'dormant' 
+    | 'new' 
+    | 'by_salesperson' 
+    | 'by_discipline' 
+    | 'manual';
 
 interface BroadcastModalProps {
     isOpen: boolean;
@@ -36,7 +60,7 @@ interface BroadcastModalProps {
     customers: Customer[];
     products: Product[];
     paretoCustomers?: Customer[];
-    initialAudienceType?: 'all' | 'vips' | 'dormant';
+    initialAudienceType?: ExtendedAudienceType;
     onCampaignCreated?: () => void;
 }
 
@@ -52,13 +76,8 @@ export function BroadcastCampaignModal({
     const { profile } = useUser();
     const { toast } = useToast();
 
-    const [audienceType, setAudienceType] = useState<'all' | 'vips' | 'dormant'>(initialAudienceType || 'all');
-
-    React.useEffect(() => {
-        if (initialAudienceType) {
-            setAudienceType(initialAudienceType);
-        }
-    }, [initialAudienceType]);
+    // ESTADOS PRINCIPALES
+    const [audienceType, setAudienceType] = useState<ExtendedAudienceType>(initialAudienceType || 'all');
     const [title, setTitle] = useState('');
     const [message, setMessage] = useState('');
     const [mediaUrl, setMediaUrl] = useState('');
@@ -66,52 +85,171 @@ export function BroadcastCampaignModal({
     const [selectedProductSku, setSelectedProductSku] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
 
-    // Filtrar audiencia seleccionada con cálculo riguroso de Pareto e Inactivos
-    const targetCustomers = React.useMemo(() => {
+    // FILTROS AVANZADOS
+    const [selectedSalesperson, setSelectedSalesperson] = useState<string>('all');
+    const [selectedDiscipline, setSelectedDiscipline] = useState<string>('all');
+    const [manualSearch, setManualSearch] = useState('');
+    const [selectedCustomerIds, setSelectedCustomerIds] = useState<Set<string>>(new Set());
+
+    // MODO PRUEBA
+    const [testPhone, setTestPhone] = useState('');
+    const [isSendingTest, setIsSendingTest] = useState(false);
+
+    // REFERENCIA ARCHIVO
+    const fileInputRef = useRef<HTMLInputElement>(null);
+
+    React.useEffect(() => {
+        if (initialAudienceType) {
+            setAudienceType(initialAudienceType);
+        }
+    }, [initialAudienceType]);
+
+    // Lista de vendedores únicos
+    const availableSalespeople = useMemo(() => {
+        const set = new Set<string>();
+        customers.forEach(c => {
+            const sp = (c as any).salesperson || (c as any).vendedor || (c as any).salespersonName;
+            if (sp) set.add(String(sp).trim());
+        });
+        return Array.from(set).sort();
+    }, [customers]);
+
+    // Lista de disciplinas deportivas únicas
+    const availableDisciplines = useMemo(() => {
+        const set = new Set<string>();
+        products.forEach(p => {
+            const d = p.discipline || p.category;
+            if (d) set.add(String(d).trim());
+        });
+        return Array.from(set).sort();
+    }, [products]);
+
+    // Helper para verificar si tiene teléfono
+    const hasPhone = (c: any) => Boolean(c.phone || c.whatsappPhone || c.telefono);
+
+    // FILTRADO DINÁMICO DE AUDIENCIA
+    const targetCustomers = useMemo(() => {
         if (!customers || customers.length === 0) return [];
+        const now = Date.now();
 
-        const hasPhone = (c: any) => Boolean(c.phone || c.whatsappPhone || c.telefono);
+        switch (audienceType) {
+            case 'all':
+                return customers.filter(hasPhone);
 
-        if (audienceType === 'all') {
-            return customers.filter(hasPhone);
-        }
-
-        if (audienceType === 'vips') {
-            if (paretoCustomers && paretoCustomers.length > 0) {
-                return paretoCustomers.filter(hasPhone);
-            }
-            return customers.slice(0, Math.ceil(customers.length * 0.2)).filter(hasPhone);
-        }
-
-        if (audienceType === 'dormant') {
-            const now = Date.now();
-            return customers.filter(c => {
-                if (!hasPhone(c)) return false;
-                let lastMillis = 0;
-                if (c.lastOrderDate) {
-                    if (typeof (c.lastOrderDate as any).toMillis === 'function') {
-                        lastMillis = (c.lastOrderDate as any).toMillis();
-                    } else if (c.lastOrderDate instanceof Date) {
-                        lastMillis = c.lastOrderDate.getTime();
-                    }
+            case 'vips':
+                if (paretoCustomers && paretoCustomers.length > 0) {
+                    return paretoCustomers.filter(hasPhone);
                 }
-                const daysSince = lastMillis > 0 ? (now - lastMillis) / 86_400_000 : 999;
-                return daysSince > 30;
-            });
+                return customers.slice(0, Math.ceil(customers.length * 0.2)).filter(hasPhone);
+
+            case 'debtors':
+                return customers.filter(c => {
+                    if (!hasPhone(c)) return false;
+                    const balance = Number((c as any).balanceUSD || (c as any).currentBalanceUSD || (c as any).saldoPendienteUSD || 0);
+                    return balance > 0;
+                });
+
+            case 'mora_critica':
+                return customers.filter(c => {
+                    if (!hasPhone(c)) return false;
+                    const daysOverdue = Number((c as any).daysOverdue || (c as any).diasMora || 0);
+                    const balance = Number((c as any).balanceUSD || (c as any).currentBalanceUSD || (c as any).saldoPendienteUSD || 0);
+                    return balance > 0 && daysOverdue > 15;
+                });
+
+            case 'dormant':
+                return customers.filter(c => {
+                    if (!hasPhone(c)) return false;
+                    let lastMillis = 0;
+                    if (c.lastOrderDate) {
+                        if (typeof (c.lastOrderDate as any).toMillis === 'function') {
+                            lastMillis = (c.lastOrderDate as any).toMillis();
+                        } else if (c.lastOrderDate instanceof Date) {
+                            lastMillis = c.lastOrderDate.getTime();
+                        }
+                    }
+                    const daysSince = lastMillis > 0 ? (now - lastMillis) / 86_400_000 : 999;
+                    return daysSince > 30;
+                });
+
+            case 'new':
+                return customers.filter(c => {
+                    if (!hasPhone(c)) return false;
+                    let createdMillis = 0;
+                    if ((c as any).createdAt) {
+                        if (typeof (c as any).createdAt.toMillis === 'function') {
+                            createdMillis = (c as any).createdAt.toMillis();
+                        } else if ((c as any).createdAt instanceof Date) {
+                            createdMillis = (c as any).createdAt.getTime();
+                        }
+                    }
+                    const days = createdMillis > 0 ? (now - createdMillis) / 86_400_000 : 999;
+                    return days <= 30;
+                });
+
+            case 'by_salesperson':
+                return customers.filter(c => {
+                    if (!hasPhone(c)) return false;
+                    if (selectedSalesperson === 'all') return true;
+                    const sp = (c as any).salesperson || (c as any).vendedor || (c as any).salespersonName;
+                    return String(sp).trim().toLowerCase() === selectedSalesperson.toLowerCase();
+                });
+
+            case 'by_discipline':
+                return customers.filter(c => {
+                    if (!hasPhone(c)) return false;
+                    if (selectedDiscipline === 'all') return true;
+                    const disc = (c as any).preferredDiscipline || (c as any).discipline;
+                    return disc && String(disc).toLowerCase().includes(selectedDiscipline.toLowerCase());
+                });
+
+            case 'manual':
+                return customers.filter(c => hasPhone(c) && Boolean(c.id && selectedCustomerIds.has(c.id)));
+
+            default:
+                return customers.filter(hasPhone);
         }
+    }, [customers, audienceType, paretoCustomers, selectedSalesperson, selectedDiscipline, selectedCustomerIds]);
 
-        return customers.filter(hasPhone);
-    }, [customers, audienceType, paretoCustomers]);
+    // MANEJO DE SELECCIÓN MANUAL DE CLIENTES
+    const filteredManualCustomers = useMemo(() => {
+        if (!manualSearch.trim()) return customers.filter(hasPhone);
+        const q = manualSearch.toLowerCase();
+        return customers.filter(c => {
+            if (!hasPhone(c)) return false;
+            const name = (c.razonSocial || (c as any).nombre || '').toLowerCase();
+            const rif = (c.rif || '').toLowerCase();
+            const phone = (c.phone || (c as any).whatsappPhone || '').toLowerCase();
+            return name.includes(q) || rif.includes(q) || phone.includes(q);
+        });
+    }, [customers, manualSearch]);
 
-    // Plantillas oficiales predefinidas
-    const handleApplyTemplate = (type: 'divisas' | 'reactivacion' | 'stock') => {
+    const toggleSelectCustomer = (id: string) => {
+        setSelectedCustomerIds(prev => {
+            const next = new Set(prev);
+            if (next.has(id)) next.delete(id);
+            else next.add(id);
+            return next;
+        });
+    };
+
+    const toggleSelectAllManual = () => {
+        if (selectedCustomerIds.size === filteredManualCustomers.length) {
+            setSelectedCustomerIds(new Set());
+        } else {
+            setSelectedCustomerIds(new Set(filteredManualCustomers.map(c => c.id).filter(Boolean) as string[]));
+        }
+    };
+
+    // PLANTILLAS RÁPIDAS
+    const handleApplyTemplate = (type: 'divisas' | 'reactivacion' | 'stock' | 'cobranza' | 'mora_critica') => {
         if (type === 'divisas') {
             setTitle('Aprovecha la Política Comercial Oficial');
             setMessage(
                 `Estimado(a) {{nombre}},\n\n` +
                 `Te recordamos las condiciones preferenciales para pedidos mayoristas en Athleticenter:\n\n` +
                 `💵 *25% de descuento* cancelando en divisas / efectivo sobre precio de lista.\n` +
-                `✅ *10% adicional* por pago de la factura de contado dentro del plazo.\n\n` +
+                `✅ *10% adicional* por pago de contado dentro del plazo pactado.\n\n` +
                 `¿Deseas cotizar algún pedido para despacho esta semana? Estamos a tu orden.`
             );
         } else if (type === 'reactivacion') {
@@ -129,21 +267,39 @@ export function BroadcastCampaignModal({
                 `🚚 Fletes coordinados con las principales agencias del país.\n\n` +
                 `Comunícate con nosotros para apartar tus unidades antes de que se agoten.`
             );
+        } else if (type === 'cobranza') {
+            setTitle('Recordatorio de Vencimiento de Factura');
+            setMessage(
+                `Estimado(a) {{nombre}}, un cordial saludo de Athleticenter.\n\n` +
+                `Le contactamos cordialmente para coordinar la conciliación de su saldo pendiente en cuenta por un monto de *${'{{saldo_usd}}'} USD* (o al cambio oficial BCV).\n\n` +
+                `Agradecemos remitir el comprobante de transferencia o programar el pago en divisas para mantener su línea de crédito activa y sin interrupciones en sus despachos.`
+            );
+        } else if (type === 'mora_critica') {
+            setTitle('Atención Urgente: Estado de Cuenta en Mora');
+            setMessage(
+                `Estimado(a) {{nombre}},\n\n` +
+                `Nos comunicamos formalmente del departamento de Administración de Athleticenter.\n\n` +
+                `Registramos facturas vencidas en su expediente con más de 15 días de vencimiento. Le solicitamos ponerse en contacto a la brevedad posible para conciliar el pago y evitar la suspensión temporal de nuevos despachos.\n\n` +
+                `Agradecemos su pronta atención para regularizar su estatus comercial.`
+            );
         }
     };
 
+    // SELECCIONAR PRODUCTO PARA AUTORELLENAR
     const handleProductSelect = (sku: string) => {
         setSelectedProductSku(sku);
         const prod = products.find(p => p.sku === sku);
         if (prod) {
+            const rawPrice = Number(prod.price || prod.priceCashUSD || 0);
+            const priceDivisas = (rawPrice * 0.75).toFixed(2);
             setTitle(`🔥 ¡Nuevo Ingreso: ${prod.name}!`);
             setMessage(
                 `Estimado(a) {{nombre}},\n\n` +
                 `Te presentamos el producto *${prod.name}* (Ref: ${prod.sku}).\n\n` +
-                `🏆 *Precio Lista:* $${prod.price || prod.priceCashUSD || '0.00'}\n` +
-                `💵 *Precio en Divisas (25% desc.):* $${((Number(prod.price || prod.priceCashUSD || 0)) * 0.75).toFixed(2)}\n` +
-                `📦 Stock disponible para despacho inmediato.\n\n` +
-                `¿Te apartamos unidades para tu próximo pedido?`
+                `🏆 *Precio Lista:* $${rawPrice.toFixed(2)}\n` +
+                `💵 *Precio en Divisas (25% desc.):* $${priceDivisas}\n` +
+                `📦 Stock disponible para despacho inmediato a nivel nacional.\n\n` +
+                `¿Deseas apartar tus unidades para entrega esta semana?`
             );
             if (prod.imageUrl) {
                 setMediaUrl(prod.imageUrl);
@@ -152,6 +308,112 @@ export function BroadcastCampaignModal({
         }
     };
 
+    // CARGA DE ARCHIVO LOCAL (VIDEO O IMAGEN)
+    const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        const isVideo = file.type.startsWith('video/');
+        const isImage = file.type.startsWith('image/');
+
+        if (!isVideo && !isImage) {
+            toast({
+                variant: 'destructive',
+                title: 'Formato no soportado',
+                description: 'Por favor selecciona un archivo de video (MP4) o imagen (JPG/PNG).'
+            });
+            return;
+        }
+
+        // Límite de tamaño: 16 MB para video, 5 MB para imagen
+        const maxSize = isVideo ? 16 * 1024 * 1024 : 5 * 1024 * 1024;
+        if (file.size > maxSize) {
+            toast({
+                variant: 'destructive',
+                title: 'Archivo demasiado grande',
+                description: `El tamaño máximo permitido es de ${isVideo ? '16 MB' : '5 MB'} para garantizar entrega fluida por WhatsApp.`
+            });
+            return;
+        }
+
+        const reader = new FileReader();
+        reader.onload = () => {
+            const result = reader.result as string;
+            setMediaUrl(result);
+            setMediaType(isVideo ? 'video' : 'image');
+            toast({
+                title: isVideo ? '🎥 Video cargado con éxito' : '🖼️ Imagen cargada con éxito',
+                description: `${file.name} (${(file.size / (1024 * 1024)).toFixed(2)} MB)`
+            });
+        };
+        reader.readAsDataURL(file);
+    };
+
+    // INSERCIÓN DE VARIABLES DINÁMICAS
+    const insertVariable = (variable: string) => {
+        setMessage(prev => `${prev} ${variable} `);
+    };
+
+    // ENVÍO DE PRUEBA PREVIA A UN NÚMERO INDIVIDUAL
+    const handleSendTest = async () => {
+        if (!testPhone.trim() || testPhone.length < 10) {
+            toast({
+                variant: 'destructive',
+                title: 'Número inválido',
+                description: 'Ingresa un número telefónico válido (ej. 04122683183 o +584122683183).'
+            });
+            return;
+        }
+
+        if (!title.trim() || !message.trim()) {
+            toast({
+                variant: 'destructive',
+                title: 'Mensaje vacío',
+                description: 'Escribe un título y mensaje antes de enviar la prueba.'
+            });
+            return;
+        }
+
+        setIsSendingTest(true);
+        try {
+            const res = await authFetch('/api/marketing/broadcast', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    isTest: true,
+                    testNumber: testPhone.trim(),
+                    title: title.trim(),
+                    message: message.trim(),
+                    mediaUrl: mediaType !== 'none' ? mediaUrl.trim() : null,
+                    mediaType,
+                })
+            });
+
+            const data = await res.json();
+            if (data.success) {
+                toast({
+                    title: '✅ Prueba enviada exitosamente',
+                    description: `Revisa tu WhatsApp en ${testPhone} para verificar el formato y video.`
+                });
+            } else {
+                toast({
+                    variant: 'destructive',
+                    title: 'Fallo al enviar prueba',
+                    description: data.error || 'No se pudo conectar con el gateway de WhatsApp.'
+                });
+            }
+        } catch (e: any) {
+            toast({
+                variant: 'destructive',
+                title: 'Error de conexión',
+                description: e.message || 'No se pudo contactar el servidor.'
+            });
+        } finally {
+            setIsSendingTest(false);
+        }
+    };
+
+    // LANZAMIENTO OFICIAL DE LA CAMPAÑA
     const handleLaunchBroadcast = async () => {
         if (!title.trim() || !message.trim()) {
             toast({
@@ -199,8 +461,8 @@ export function BroadcastCampaignModal({
 
             if (data.success) {
                 toast({
-                    title: '🚀 Difusión iniciada en segundo plano',
-                    description: `Se están enviando los mensajes a ${data.totalTarget} clientes con protección anti-bloqueo (jitter 8-14s y pausas por lotes). Puedes cerrar esta pantalla.`
+                    title: '🚀 Difusión encolada exitosamente',
+                    description: `Se enviará a ${data.totalTarget} clientes con protección anti-bloqueo (jitter 8-14s y pausas por lotes). Puedes cerrar esta pantalla.`
                 });
                 onOpenChange(false);
                 if (onCampaignCreated) onCampaignCreated();
@@ -224,198 +486,480 @@ export function BroadcastCampaignModal({
 
     return (
         <Dialog open={isOpen} onOpenChange={isSubmitting ? undefined : onOpenChange}>
-            <DialogContent className="max-w-[95vw] sm:max-w-3xl p-0 overflow-hidden rounded-[2.5rem] border-none shadow-2xl flex flex-col max-h-[92vh]">
-                <DialogHeader className="p-8 bg-slate-900 text-white shrink-0 relative">
-                    <div className="flex items-center gap-4">
-                        <div className="p-3.5 rounded-2xl bg-primary/20 text-primary shadow-xl shrink-0">
-                            <Megaphone className="h-6 w-6" />
-                        </div>
-                        <div className="text-left">
-                            <DialogTitle className="text-2xl font-black uppercase tracking-tight text-white flex items-center gap-2">
-                                Difusión y Publicidad Masiva
-                                <Badge className="bg-primary/20 text-primary border-none text-[8px] font-black uppercase">
-                                    Anti-Bloqueo Activo
-                                </Badge>
-                            </DialogTitle>
-                            <DialogDescription className="text-slate-400 font-medium text-xs mt-1">
-                                Envía promociones oficiales, ofertas y catálogos en segundo plano a clientes segmentados.
-                            </DialogDescription>
+            <DialogContent className="max-w-[95vw] sm:max-w-5xl p-0 overflow-hidden rounded-[2.5rem] border-none shadow-2xl flex flex-col max-h-[94vh]">
+                <DialogHeader className="p-6 sm:p-8 bg-slate-900 text-white shrink-0 relative">
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-4">
+                            <div className="p-3.5 rounded-2xl bg-primary/20 text-primary shadow-xl shrink-0">
+                                <Megaphone className="h-6 w-6" />
+                            </div>
+                            <div className="text-left">
+                                <DialogTitle className="text-xl sm:text-2xl font-black uppercase tracking-tight text-white flex items-center gap-2">
+                                    Difusión Masiva & Campañas Multimedia
+                                    <Badge className="bg-emerald-500/20 text-emerald-400 border-none text-[8px] font-black uppercase">
+                                        Gateway São Paulo 24/7
+                                    </Badge>
+                                </DialogTitle>
+                                <DialogDescription className="text-slate-400 font-medium text-xs mt-1">
+                                    Envía videos, ofertas, catálogos y avisos de cobranza con segmentación inteligente y protección anti-bloqueo.
+                                </DialogDescription>
+                            </div>
                         </div>
                     </div>
                 </DialogHeader>
 
-                <div className="p-8 space-y-6 overflow-y-auto flex-1">
-                    {/* 1. Audiencia */}
-                    <div className="space-y-3">
-                        <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 flex items-center gap-2">
-                            <Users className="h-3.5 w-3.5" /> 1. Segmentar Audiencia
-                        </label>
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                            {[
-                                { id: 'all', label: 'Todos los Clientes', desc: 'Cartera general' },
-                                { id: 'vips', label: 'Clientes VIP (80/20)', desc: 'Mayor facturación real' },
-                                { id: 'dormant', label: 'Inactivos (+30 Días)', desc: 'Cuentas por reactivar' }
-                            ].map(item => (
-                                <button
-                                    key={item.id}
-                                    type="button"
-                                    onClick={() => setAudienceType(item.id as any)}
-                                    className={`p-4 rounded-2xl border text-left transition-all ${
-                                        audienceType === item.id
-                                            ? 'border-primary bg-primary/5 ring-2 ring-primary/20'
-                                            : 'border-slate-200 bg-white hover:border-slate-300'
-                                    }`}
-                                >
-                                    <p className="text-[10px] font-black uppercase text-slate-900">{item.label}</p>
-                                    <p className="text-[9px] text-slate-400 font-bold uppercase mt-0.5">{item.desc}</p>
-                                    {audienceType === item.id && (
-                                        <p className="text-xs font-black text-primary mt-2">
-                                            {targetCustomers.length} con teléfono
-                                        </p>
+                <div className="grid grid-cols-1 lg:grid-cols-12 flex-1 overflow-hidden">
+                    {/* COLUMNA IZQUIERDA: CONFIGURADOR CON TABS */}
+                    <div className="lg:col-span-7 p-6 overflow-y-auto space-y-6 border-r border-slate-100 max-h-[calc(94vh-170px)]">
+                        <Tabs defaultValue="content" className="w-full">
+                            <TabsList className="grid grid-cols-3 bg-slate-100 p-1 rounded-2xl mb-4">
+                                <TabsTrigger value="content" className="rounded-xl text-[10px] font-black uppercase">
+                                    1. Contenido
+                                </TabsTrigger>
+                                <TabsTrigger value="audience" className="rounded-xl text-[10px] font-black uppercase">
+                                    2. Audiencia ({targetCustomers.length})
+                                </TabsTrigger>
+                                <TabsTrigger value="preview" className="rounded-xl text-[10px] font-black uppercase">
+                                    3. Prueba Previa
+                                </TabsTrigger>
+                            </TabsList>
+
+                            {/* TAB 1: CONTENIDO Y MULTIMEDIA */}
+                            <TabsContent value="content" className="space-y-4">
+                                {/* Plantillas Rápidas */}
+                                <div className="space-y-2 p-3.5 rounded-2xl bg-slate-50 border border-slate-100">
+                                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 flex items-center gap-2">
+                                        <Sparkles className="h-3.5 w-3.5 text-primary" /> Plantillas Comerciales Predefinidas
+                                    </label>
+                                    <div className="flex flex-wrap gap-1.5">
+                                        <Button
+                                            type="button"
+                                            size="sm"
+                                            variant="outline"
+                                            className="h-7 text-[8px] font-black uppercase rounded-lg"
+                                            onClick={() => handleApplyTemplate('divisas')}
+                                        >
+                                            <Percent className="h-2.5 w-2.5 mr-1 text-primary" /> 25% + 10% Divisas
+                                        </Button>
+                                        <Button
+                                            type="button"
+                                            size="sm"
+                                            variant="outline"
+                                            className="h-7 text-[8px] font-black uppercase rounded-lg"
+                                            onClick={() => handleApplyTemplate('stock')}
+                                        >
+                                            <Megaphone className="h-2.5 w-2.5 mr-1 text-emerald-500" /> Ingreso de Mercancía
+                                        </Button>
+                                        <Button
+                                            type="button"
+                                            size="sm"
+                                            variant="outline"
+                                            className="h-7 text-[8px] font-black uppercase rounded-lg"
+                                            onClick={() => handleApplyTemplate('cobranza')}
+                                        >
+                                            <Clock className="h-2.5 w-2.5 mr-1 text-amber-500" /> Cobranza Preventiva
+                                        </Button>
+                                        <Button
+                                            type="button"
+                                            size="sm"
+                                            variant="outline"
+                                            className="h-7 text-[8px] font-black uppercase rounded-lg"
+                                            onClick={() => handleApplyTemplate('mora_critica')}
+                                        >
+                                            <AlertTriangle className="h-2.5 w-2.5 mr-1 text-rose-500" /> Mora Crítica
+                                        </Button>
+                                    </div>
+                                </div>
+
+                                {/* Autocompletar con Producto */}
+                                {products && products.length > 0 && (
+                                    <div className="space-y-1.5">
+                                        <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                                            Vincular Producto del Inventario (Opcional)
+                                        </label>
+                                        <select
+                                            className="w-full h-10 px-3 rounded-xl bg-slate-50 border border-slate-200 text-xs font-bold uppercase text-slate-800"
+                                            value={selectedProductSku}
+                                            onChange={(e) => handleProductSelect(e.target.value)}
+                                        >
+                                            <option value="">-- Seleccionar producto para autorellenar texto y foto --</option>
+                                            {products.map(p => (
+                                                <option key={p.id} value={p.sku}>
+                                                    {p.name} ({p.sku}) - Lista: ${p.price || p.priceCashUSD || 0}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                )}
+
+                                {/* Título de la Campaña */}
+                                <div className="space-y-1.5">
+                                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                                        Título del Mensaje
+                                    </label>
+                                    <Input
+                                        placeholder="Ej: 🔥 Promoción Especial de Balones Profesionales"
+                                        value={title}
+                                        onChange={(e) => setTitle(e.target.value)}
+                                        className="h-10 rounded-xl font-bold text-xs"
+                                    />
+                                </div>
+
+                                {/* Variables dinámicas */}
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                    <span className="text-[9px] font-black uppercase text-slate-400">Insertar variable:</span>
+                                    <button
+                                        type="button"
+                                        onClick={() => insertVariable('{{nombre}}')}
+                                        className="text-[9px] font-mono font-bold bg-primary/10 text-primary px-2 py-0.5 rounded hover:bg-primary/20"
+                                    >
+                                        {'{{nombre}}'}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => insertVariable('{{empresa}}')}
+                                        className="text-[9px] font-mono font-bold bg-slate-100 text-slate-700 px-2 py-0.5 rounded hover:bg-slate-200"
+                                    >
+                                        {'{{empresa}}'}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => insertVariable('{{saldo_usd}}')}
+                                        className="text-[9px] font-mono font-bold bg-rose-50 text-rose-700 px-2 py-0.5 rounded hover:bg-rose-100"
+                                    >
+                                        {'{{saldo_usd}}'}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => insertVariable('{{tasa_bcv}}')}
+                                        className="text-[9px] font-mono font-bold bg-amber-50 text-amber-700 px-2 py-0.5 rounded hover:bg-amber-100"
+                                    >
+                                        {'{{tasa_bcv}}'}
+                                    </button>
+                                </div>
+
+                                {/* Cuerpo del Mensaje */}
+                                <div className="space-y-1.5">
+                                    <Textarea
+                                        rows={4}
+                                        placeholder="Escribe el mensaje publicitario o aviso..."
+                                        value={message}
+                                        onChange={(e) => setMessage(e.target.value)}
+                                        className="rounded-xl font-medium text-xs leading-relaxed"
+                                    />
+                                </div>
+
+                                {/* Adjunto Multimedia (Video o Imagen) */}
+                                <div className="space-y-2 p-3.5 rounded-2xl bg-slate-50 border border-slate-100">
+                                    <div className="flex justify-between items-center">
+                                        <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 flex items-center gap-1.5">
+                                            {mediaType === 'video' ? <Video className="h-3.5 w-3.5 text-purple-600" /> : <ImageIcon className="h-3.5 w-3.5 text-primary" />}
+                                            Adjunto Multimedia (Video MP4 o Imagen)
+                                        </label>
+                                        {mediaUrl && (
+                                            <Button
+                                                type="button"
+                                                size="sm"
+                                                variant="ghost"
+                                                onClick={() => { setMediaUrl(''); setMediaType('none'); }}
+                                                className="h-6 text-[8px] text-rose-500 font-bold uppercase p-0"
+                                            >
+                                                Quitar archivo
+                                            </Button>
+                                        )}
+                                    </div>
+
+                                    <div className="flex gap-2">
+                                        <input
+                                            ref={fileInputRef}
+                                            type="file"
+                                            accept="video/mp4,video/quicktime,video/webm,image/png,image/jpeg,image/webp"
+                                            className="hidden"
+                                            onChange={handleFileUpload}
+                                        />
+                                        <Button
+                                            type="button"
+                                            size="sm"
+                                            variant="outline"
+                                            className="h-8 text-[9px] font-black uppercase rounded-xl flex items-center gap-1"
+                                            onClick={() => fileInputRef.current?.click()}
+                                        >
+                                            <Upload className="h-3 w-3" /> Subir Video o Foto
+                                        </Button>
+                                    </div>
+
+                                    {mediaUrl && (
+                                        <div className="mt-2 p-2 bg-white rounded-xl border border-slate-200">
+                                            {mediaType === 'video' ? (
+                                                <div className="space-y-1">
+                                                    <div className="flex items-center gap-1.5 text-purple-700 text-[10px] font-black">
+                                                        <Video className="h-3.5 w-3.5" /> Video MP4 adjunto
+                                                    </div>
+                                                    <video
+                                                        src={mediaUrl}
+                                                        controls
+                                                        className="w-full max-h-36 rounded-lg bg-black object-contain"
+                                                    />
+                                                </div>
+                                            ) : (
+                                                <div className="space-y-1">
+                                                    <div className="flex items-center gap-1.5 text-blue-700 text-[10px] font-black">
+                                                        <ImageIcon className="h-3.5 w-3.5" /> Imagen adjunta
+                                                    </div>
+                                                    <img
+                                                        src={mediaUrl}
+                                                        alt="Preview"
+                                                        className="w-full max-h-36 rounded-lg object-contain bg-slate-100"
+                                                    />
+                                                </div>
+                                            )}
+                                        </div>
                                     )}
-                                </button>
-                            ))}
-                        </div>
-                    </div>
+                                </div>
+                            </TabsContent>
 
-                    {/* Atajos de Plantillas Oficiales */}
-                    <div className="space-y-2 p-4 rounded-2xl bg-slate-50 border border-slate-100">
-                        <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 flex items-center gap-2">
-                            <Sparkles className="h-3.5 w-3.5 text-primary" /> Plantillas Comerciales Oficiales
-                        </label>
-                        <div className="flex flex-wrap gap-2">
-                            <Button
-                                type="button"
-                                size="sm"
-                                variant="outline"
-                                className="h-8 rounded-xl text-[9px] font-black uppercase"
-                                onClick={() => handleApplyTemplate('divisas')}
-                            >
-                                <Percent className="h-3 w-3 mr-1 text-primary" /> Política Divisas (25% + 10%)
-                            </Button>
-                            <Button
-                                type="button"
-                                size="sm"
-                                variant="outline"
-                                className="h-8 rounded-xl text-[9px] font-black uppercase"
-                                onClick={() => handleApplyTemplate('reactivacion')}
-                            >
-                                <Clock className="h-3 w-3 mr-1 text-amber-500" /> Reactivación de Inactivos
-                            </Button>
-                            <Button
-                                type="button"
-                                size="sm"
-                                variant="outline"
-                                className="h-8 rounded-xl text-[9px] font-black uppercase"
-                                onClick={() => handleApplyTemplate('stock')}
-                            >
-                                <Megaphone className="h-3 w-3 mr-1 text-emerald-500" /> Llegada de Mercancía
-                            </Button>
-                        </div>
-                    </div>
-
-                    {/* Autocompletar con Producto del Inventario */}
-                    {products && products.length > 0 && (
-                        <div className="space-y-2 p-4 rounded-2xl bg-slate-50 border border-slate-100">
-                            <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 flex items-center gap-2">
-                                <Sparkles className="h-3.5 w-3.5 text-primary" /> Publicitar un Producto del Catálogo
-                            </label>
-                            <select
-                                className="w-full h-11 px-4 rounded-xl bg-white border border-slate-200 text-xs font-bold uppercase text-slate-800"
-                                value={selectedProductSku}
-                                onChange={(e) => handleProductSelect(e.target.value)}
-                            >
-                                <option value="">-- Seleccionar producto para autorellenar texto y foto --</option>
-                                {products.map(p => (
-                                    <option key={p.id} value={p.sku}>
-                                        {p.name} ({p.sku}) - Lista: ${p.price || p.priceCashUSD || 0}
-                                    </option>
-                                ))}
-                            </select>
-                        </div>
-                    )}
-
-                    {/* Título y Mensaje */}
-                    <div className="space-y-4">
-                        <div className="space-y-1.5">
-                            <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">
-                                Título del Mensaje
-                            </label>
-                            <Input
-                                placeholder="Ej: 🔥 Promoción Especial de Balones Profesionales"
-                                value={title}
-                                onChange={(e) => setTitle(e.target.value)}
-                                className="h-11 rounded-xl font-bold text-xs"
-                            />
-                        </div>
-
-                        <div className="space-y-1.5">
-                            <div className="flex justify-between items-center">
-                                <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">
-                                    Cuerpo del Mensaje (Soporta variable {'{{nombre}}'})
+                            {/* TAB 2: AUDIENCIA Y SEGMENTACIÓN */}
+                            <TabsContent value="audience" className="space-y-4">
+                                <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 flex items-center gap-2">
+                                    <Users className="h-3.5 w-3.5" /> Selecciona el Criterio de Segmentación
                                 </label>
-                                <span className="text-[9px] text-slate-400 font-bold">Firma institucional automática</span>
+
+                                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                                    {[
+                                        { id: 'all', label: 'Todos los Clientes', desc: 'Cartera Total' },
+                                        { id: 'vips', label: 'Clientes VIP (80/20)', desc: 'Mayor Facturación' },
+                                        { id: 'debtors', label: 'Con Deuda Pendiente', desc: 'Facturas por Cobrar' },
+                                        { id: 'mora_critica', label: 'Mora Crítica (>15d)', desc: 'Facturas Vencidas' },
+                                        { id: 'dormant', label: 'Inactivos (+30 Días)', desc: 'Cuentas por Reactivar' },
+                                        { id: 'new', label: 'Nuevos Registrados', desc: 'Últimos 30 días' },
+                                        { id: 'by_salesperson', label: 'Por Vendedor', desc: 'Cartera de Asesor' },
+                                        { id: 'by_discipline', label: 'Por Disciplina', desc: 'Interés Deportivo' },
+                                        { id: 'manual', label: 'Selección Manual', desc: 'Elegir uno a uno' },
+                                    ].map(item => (
+                                        <button
+                                            key={item.id}
+                                            type="button"
+                                            onClick={() => setAudienceType(item.id as any)}
+                                            className={`p-3 rounded-2xl border text-left transition-all ${
+                                                audienceType === item.id
+                                                    ? 'border-primary bg-primary/5 ring-2 ring-primary/20'
+                                                    : 'border-slate-200 bg-white hover:border-slate-300'
+                                            }`}
+                                        >
+                                            <p className="text-[10px] font-black uppercase text-slate-900 leading-tight">{item.label}</p>
+                                            <p className="text-[8px] text-slate-400 font-bold uppercase mt-0.5">{item.desc}</p>
+                                        </button>
+                                    ))}
+                                </div>
+
+                                {/* Filtro adicional por vendedor */}
+                                {audienceType === 'by_salesperson' && (
+                                    <div className="p-3 bg-slate-50 rounded-2xl border border-slate-200 space-y-1.5">
+                                        <label className="text-[10px] font-black uppercase text-slate-600">Filtrar por Vendedor Asignado:</label>
+                                        <select
+                                            className="w-full h-9 px-3 rounded-xl bg-white border border-slate-200 text-xs font-bold uppercase"
+                                            value={selectedSalesperson}
+                                            onChange={(e) => setSelectedSalesperson(e.target.value)}
+                                        >
+                                            <option value="all">-- Todos los Vendedores --</option>
+                                            {availableSalespeople.map(sp => (
+                                                <option key={sp} value={sp}>{sp}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                )}
+
+                                {/* Filtro adicional por disciplina */}
+                                {audienceType === 'by_discipline' && (
+                                    <div className="p-3 bg-slate-50 rounded-2xl border border-slate-200 space-y-1.5">
+                                        <label className="text-[10px] font-black uppercase text-slate-600">Filtrar por Disciplina Deportiva:</label>
+                                        <select
+                                            className="w-full h-9 px-3 rounded-xl bg-white border border-slate-200 text-xs font-bold uppercase"
+                                            value={selectedDiscipline}
+                                            onChange={(e) => setSelectedDiscipline(e.target.value)}
+                                        >
+                                            <option value="all">-- Todas las Disciplinas --</option>
+                                            {availableDisciplines.map(d => (
+                                                <option key={d} value={d}>{d}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                )}
+
+                                {/* Selector manual con buscador y checkboxes */}
+                                {audienceType === 'manual' && (
+                                    <div className="space-y-2 p-3 bg-slate-50 rounded-2xl border border-slate-200">
+                                        <div className="flex items-center justify-between gap-2">
+                                            <div className="relative flex-1">
+                                                <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-slate-400" />
+                                                <Input
+                                                    placeholder="Buscar cliente por nombre o RIF..."
+                                                    value={manualSearch}
+                                                    onChange={(e) => setManualSearch(e.target.value)}
+                                                    className="h-8 pl-8 rounded-xl text-xs bg-white"
+                                                />
+                                            </div>
+                                            <Button
+                                                type="button"
+                                                size="sm"
+                                                variant="outline"
+                                                onClick={toggleSelectAllManual}
+                                                className="h-8 text-[9px] font-black uppercase rounded-xl shrink-0"
+                                            >
+                                                {selectedCustomerIds.size === filteredManualCustomers.length ? 'Deseleccionar Todos' : 'Marcar Todos'}
+                                            </Button>
+                                        </div>
+
+                                        <div className="max-h-48 overflow-y-auto space-y-1 divide-y divide-slate-100">
+                                            {filteredManualCustomers.map(c => {
+                                                const isChecked = Boolean(c.id && selectedCustomerIds.has(c.id));
+                                                return (
+                                                    <div
+                                                        key={c.id}
+                                                        onClick={() => { if (c.id) toggleSelectCustomer(c.id); }}
+                                                        className={cn(
+                                                            "p-2 rounded-xl flex items-center justify-between cursor-pointer transition-colors text-xs",
+                                                            isChecked ? "bg-primary/10 text-primary font-bold" : "hover:bg-white text-slate-700"
+                                                        )}
+                                                    >
+                                                        <div className="flex items-center gap-2">
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={isChecked}
+                                                                onChange={() => {}}
+                                                                className="rounded border-slate-300 text-primary"
+                                                            />
+                                                            <span className="uppercase text-[11px] font-bold">{c.razonSocial || (c as any).nombre}</span>
+                                                        </div>
+                                                        <span className="font-mono text-[10px] text-slate-500">{c.phone || (c as any).whatsappPhone}</span>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                )}
+
+                                <div className="p-3 bg-primary/10 rounded-2xl border border-primary/20 flex items-center justify-between">
+                                    <span className="text-xs font-bold text-slate-700">Total Destinatarios con Teléfono Válido:</span>
+                                    <Badge className="bg-primary text-white text-xs font-mono font-black">
+                                        {targetCustomers.length} Clientes
+                                    </Badge>
+                                </div>
+                            </TabsContent>
+
+                            {/* TAB 3: PRUEBA PREVIA Y SIMULADOR */}
+                            <TabsContent value="preview" className="space-y-4">
+                                <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200/80 space-y-3">
+                                    <div className="flex items-center gap-2 text-amber-900 font-black text-xs uppercase">
+                                        <Phone className="h-4 w-4 text-amber-600" />
+                                        Enviar Prueba Previa a mi WhatsApp
+                                    </div>
+                                    <p className="text-[10px] text-amber-800">
+                                        Valida cómo se visualiza el video o foto y el mensaje en tu teléfono real antes de lanzarlo a toda la base.
+                                    </p>
+                                    <div className="flex gap-2">
+                                        <Input
+                                            placeholder="Ej: 04122683183"
+                                            value={testPhone}
+                                            onChange={(e) => setTestPhone(e.target.value)}
+                                            className="h-10 rounded-xl bg-white font-mono text-xs"
+                                        />
+                                        <Button
+                                            type="button"
+                                            disabled={isSendingTest || !testPhone.trim()}
+                                            onClick={handleSendTest}
+                                            className="h-10 px-4 rounded-xl bg-amber-600 text-white font-black uppercase text-[10px] hover:bg-amber-700 shrink-0"
+                                        >
+                                            {isSendingTest ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Disparar Prueba'}
+                                        </Button>
+                                    </div>
+                                </div>
+
+                                <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200/60 flex items-start gap-3">
+                                    <ShieldCheck className="h-5 w-5 text-emerald-600 shrink-0 mt-0.5" />
+                                    <div className="space-y-0.5">
+                                        <p className="text-[10px] font-black uppercase text-emerald-900 tracking-wide">
+                                            Protección Anti-Bloqueo de 3 Niveles
+                                        </p>
+                                        <p className="text-[9px] text-emerald-700 font-medium leading-relaxed">
+                                            1) Jitter humano aleatorio (8-14s entre mensajes).<br/>
+                                            2) Pausa de enfriamiento (60s cada 20 envíos).<br/>
+                                            3) Horario comercial estricto de Venezuela (8:00 AM - 7:00 PM).
+                                        </p>
+                                    </div>
+                                </div>
+                            </TabsContent>
+                        </Tabs>
+                    </div>
+
+                    {/* COLUMNA DERECHA: SIMULADOR DE WHATSAPP EN VIVO */}
+                    <div className="lg:col-span-5 bg-slate-100 p-6 flex flex-col items-center justify-center border-t lg:border-t-0 border-slate-200">
+                        <div className="w-full max-w-[320px] rounded-[2rem] border-4 border-slate-800 bg-[#ECE5DD] shadow-2xl overflow-hidden flex flex-col h-[480px]">
+                            {/* Cabecera WhatsApp */}
+                            <div className="bg-[#075E54] text-white px-3 py-2.5 flex items-center justify-between shrink-0">
+                                <div className="flex items-center gap-2">
+                                    <div className="h-7 w-7 rounded-full bg-emerald-700 flex items-center justify-center font-black text-[10px]">
+                                        A
+                                    </div>
+                                    <div>
+                                        <p className="font-bold text-[11px] leading-tight">Athleticenter Pro</p>
+                                        <p className="text-[8px] text-emerald-200">en línea</p>
+                                    </div>
+                                </div>
                             </div>
-                            <Textarea
-                                rows={4}
-                                placeholder="Escribe el mensaje publicitario..."
-                                value={message}
-                                onChange={(e) => setMessage(e.target.value)}
-                                className="rounded-xl font-medium text-xs leading-relaxed"
-                            />
-                        </div>
-                    </div>
 
-                    {/* Multimedia */}
-                    <div className="space-y-3 p-4 rounded-2xl bg-slate-50 border border-slate-100">
-                        <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 flex items-center gap-2">
-                            <ImageIcon className="h-3.5 w-3.5" /> Adjuntar Fotografía (Se enviará con el texto)
-                        </label>
-                        <div className="flex gap-2 mb-2">
-                            <Button
-                                type="button"
-                                size="sm"
-                                variant={mediaType === 'image' ? 'default' : 'outline'}
-                                className="h-8 rounded-lg text-[9px] font-black uppercase"
-                                onClick={() => setMediaType('image')}
-                            >
-                                <ImageIcon className="h-3 w-3 mr-1" /> Imagen (JPG/PNG)
-                            </Button>
-                            <Button
-                                type="button"
-                                size="sm"
-                                variant={mediaType === 'none' ? 'default' : 'outline'}
-                                className="h-8 rounded-lg text-[9px] font-black uppercase"
-                                onClick={() => { setMediaType('none'); setMediaUrl(''); }}
-                            >
-                                Solo Texto
-                            </Button>
-                        </div>
-                        {mediaType === 'image' && (
-                            <Input
-                                placeholder="https://ejemplo.com/foto-producto.jpg (se autorrellena si eliges un producto)"
-                                value={mediaUrl}
-                                onChange={(e) => setMediaUrl(e.target.value)}
-                                className="h-10 rounded-xl font-mono text-[11px] bg-white"
-                            />
-                        )}
-                    </div>
+                            {/* Área de Mensajes */}
+                            <div className="flex-1 p-3 overflow-y-auto space-y-2">
+                                <div className="bg-white rounded-2xl rounded-tl-none p-3 shadow-sm border border-slate-200/60 max-w-[90%] space-y-2">
+                                    {/* Previsualización de Multimedia */}
+                                    {mediaType === 'video' && mediaUrl && (
+                                        <div className="rounded-xl overflow-hidden bg-black flex items-center justify-center h-28 relative">
+                                            <video src={mediaUrl} className="h-full w-full object-contain" />
+                                            <div className="absolute inset-0 flex items-center justify-center bg-black/20">
+                                                <Play className="h-8 w-8 text-white/90 drop-shadow" />
+                                            </div>
+                                        </div>
+                                    )}
 
-                    {/* Aviso de Seguridad Anti-Bloqueo */}
-                    <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200/60 flex items-start gap-3">
-                        <ShieldCheck className="h-5 w-5 text-emerald-600 shrink-0 mt-0.5" />
-                        <div className="space-y-0.5">
-                            <p className="text-[10px] font-black uppercase text-emerald-900 tracking-wide">
-                                Protección Anti-Bloqueo Activada
-                            </p>
-                            <p className="text-[9px] text-emerald-700 font-medium leading-relaxed">
-                                El despacho se procesará en segundo plano con intervalos orgánicos aleatorios (8 a 14 segundos) y pausas de enfriamiento cada 20 mensajes. Podrás cerrar el navegador sin interrumpir los envíos.
-                            </p>
+                                    {mediaType === 'image' && mediaUrl && (
+                                        <div className="rounded-xl overflow-hidden bg-slate-100 h-28">
+                                            <img src={mediaUrl} alt="Adjunto" className="h-full w-full object-cover" />
+                                        </div>
+                                    )}
+
+                                    {/* Cabecera del Mensaje */}
+                                    <p className="font-bold text-[10px] text-slate-500 uppercase tracking-wider">*ATHLETICENTER*</p>
+                                    {title && (
+                                        <p className="font-black text-xs text-slate-900 leading-tight">*{title}*</p>
+                                    )}
+
+                                    {/* Cuerpo del Mensaje con renderizado simulado */}
+                                    <p className="text-[10px] text-slate-800 whitespace-pre-wrap leading-relaxed">
+                                        {message 
+                                            ? message.replace(/{{nombre}}/gi, 'Deportes Caracas C.A.')
+                                                     .replace(/{{empresa}}/gi, 'Deportes Caracas C.A.')
+                                                     .replace(/{{saldo_usd}}/gi, '$450.00')
+                                                     .replace(/{{tasa_bcv}}/gi, 'Bs. 36.50')
+                                            : 'Escribe tu mensaje en la pestaña de Contenido para previsualizarlo aquí...'
+                                        }
+                                    </p>
+
+                                    {/* Firma Institucional */}
+                                    <div className="pt-1 border-t border-slate-100 text-[9px] text-slate-500">
+                                        <span>Atentamente,<br/><b>El equipo de Athleticenter</b></span>
+                                    </div>
+
+                                    {/* Hora simulada */}
+                                    <div className="text-right">
+                                        <span className="text-[8px] text-slate-400">10:45 AM ✓✓</span>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
 
-                <DialogFooter className="p-6 bg-slate-50 border-t border-slate-100 flex items-center justify-between">
+                <DialogFooter className="p-4 sm:p-6 bg-slate-50 border-t border-slate-100 flex items-center justify-between shrink-0">
                     <Button
                         type="button"
                         variant="ghost"
@@ -423,17 +967,17 @@ export function BroadcastCampaignModal({
                         onClick={() => onOpenChange(false)}
                         className="rounded-xl font-black uppercase text-[10px]"
                     >
-                        Cancelar
+                        Cerrar
                     </Button>
                     <Button
                         type="button"
                         disabled={isSubmitting || targetCustomers.length === 0}
                         onClick={handleLaunchBroadcast}
-                        className="h-12 px-8 rounded-xl bg-slate-900 text-white hover:bg-primary font-black uppercase text-xs tracking-wider shadow-xl active:scale-95 transition-all flex items-center gap-2"
+                        className="h-12 px-6 sm:px-8 rounded-xl bg-slate-900 text-white hover:bg-primary font-black uppercase text-xs tracking-wider shadow-xl active:scale-95 transition-all flex items-center gap-2"
                     >
                         {isSubmitting ? (
                             <>
-                                <Loader2 className="h-4 w-4 animate-spin" /> Programando despacho...
+                                <Loader2 className="h-4 w-4 animate-spin" /> Encolando Campaña...
                             </>
                         ) : (
                             <>

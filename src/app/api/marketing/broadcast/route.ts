@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { initializeFirebaseServer, ensureServerAuth } from '@/firebase/server-init';
 import { collection, addDoc, doc, updateDoc, serverTimestamp, getDocs, query, orderBy, limit } from 'firebase/firestore';
 import { formatVenezuelaPhoneE164 } from '@/lib/whatsapp-gateway';
-import { enqueueWhatsAppBatch } from '@/lib/whatsapp-dispatch-server';
+import { enqueueWhatsAppBatch, dispatchViaGateways } from '@/lib/whatsapp-dispatch-server';
 import { authorizeRequest, MANAGER_ROLES } from '@/lib/server-auth';
 
 const MAX_RECIPIENTS = 500;
@@ -79,8 +79,32 @@ export async function POST(req: Request) {
     if (Array.isArray(recipients) && recipients.length > MAX_RECIPIENTS) {
       return NextResponse.json({ success: false, error: `Máximo ${MAX_RECIPIENTS} destinatarios por campaña.` }, { status: 400 });
     }
-    if (mediaUrl && typeof mediaUrl === 'string' && !mediaUrl.startsWith('data:image/') && !mediaUrl.startsWith('https://')) {
-      return NextResponse.json({ success: false, error: 'La imagen debe ser una foto del inventario (https o imagen embebida).' }, { status: 400 });
+    if (mediaUrl && typeof mediaUrl === 'string' && 
+        !mediaUrl.startsWith('data:image/') && 
+        !mediaUrl.startsWith('data:video/') && 
+        !mediaUrl.startsWith('https://') && 
+        !mediaUrl.startsWith('http://')) {
+      return NextResponse.json({ success: false, error: 'El archivo multimedia debe ser una imagen o video válido.' }, { status: 400 });
+    }
+
+    // Modo de prueba inmediata a un solo número
+    if (body.isTest && body.testNumber) {
+      const testPhone = formatVenezuelaPhoneE164(body.testNumber);
+      const personalized = message.replace(/{{nombre}}/gi, 'Cliente de Prueba');
+      const finalMessage = `*ATHLETICENTER [VISTA PREVIA]*\n\n` +
+        `*${title}*\n\n` +
+        `${personalized}\n\n` +
+        `Atentamente,\n*El equipo de Athleticenter*`;
+      const res = await dispatchViaGateways({
+        number: testPhone,
+        text: finalMessage,
+        imageUrl: mediaType === 'image' && mediaUrl ? mediaUrl : undefined,
+        videoUrl: mediaType === 'video' && mediaUrl ? mediaUrl : undefined
+      });
+      return NextResponse.json({
+        success: res.success,
+        message: res.success ? `Mensaje de prueba enviado exitosamente a ${testPhone}` : `Fallo al enviar prueba: ${res.error}`
+      });
     }
 
     if (!title || !message) {
@@ -136,7 +160,12 @@ export async function POST(req: Request) {
         `*${title}*\n\n` +
         `${personalized}\n\n` +
         `Atentamente,\n*El equipo de Athleticenter*`;
-      return { number: item.phone, text: finalMessage, imageUrl: mediaType === 'image' && mediaUrl ? mediaUrl : undefined };
+      return { 
+        number: item.phone, 
+        text: finalMessage, 
+        imageUrl: mediaType === 'image' && mediaUrl ? mediaUrl : undefined,
+        videoUrl: mediaType === 'video' && mediaUrl ? mediaUrl : undefined
+      };
     });
 
     const q = await enqueueWhatsAppBatch(items, { campaignId, label: title });

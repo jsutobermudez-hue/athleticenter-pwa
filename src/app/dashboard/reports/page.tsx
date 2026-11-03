@@ -3,12 +3,15 @@
 import React, { useMemo, useState } from 'react';
 import {
   useCollection,
+  useDoc,
   useFirestore,
   useMemoFirebase,
   useUser,
 } from '@/firebase';
-import { collection, query, orderBy, getDocs, limit } from 'firebase/firestore';
-import type { Order, Product, Customer, User as AppUser } from '@/lib/definitions';
+import { collection, doc, query, orderBy, getDocs, limit } from 'firebase/firestore';
+import type { Order, Product, Customer, User as AppUser, FinancialSettings } from '@/lib/definitions';
+import { Client360ReportModal } from './Client360ReportModal';
+import { ClientDirectoryReportModal } from './ClientDirectoryReportModal';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -72,12 +75,23 @@ export default function ReportsPage() {
   const [isGeneratingAi, setIsGeneratingAi] = useState(false);
   const [aiReportContent, setAiReportContent] = useState<string | null>(null);
 
+  // Estados para Nuevos Reportes de Clientes
+  const [isClient360Open, setIsClient360Open] = useState(false);
+  const [isClientDirectoryOpen, setIsClientDirectoryOpen] = useState(false);
+  const [selectedClientForReport, setSelectedClientForReport] = useState<string>('');
+
   // Consultas de datos maestros (protegidas por rol)
   const ordersQuery = useMemoFirebase(() => (firestore && canAccess) ? query(collection(firestore, 'orders'), limit(300)) : null, [firestore, canAccess]);
   const { data: orders, isLoading: isLoadingOrders } = useCollection<Order>(ordersQuery);
 
   const productsQuery = useMemoFirebase(() => (firestore && canAccess) ? query(collection(firestore, 'products'), limit(300)) : null, [firestore, canAccess]);
   const { data: products } = useCollection<Product>(productsQuery);
+
+  const customersQuery = useMemoFirebase(() => (firestore && canAccess) ? query(collection(firestore, 'customers'), limit(500)) : null, [firestore, canAccess]);
+  const { data: customers } = useCollection<Customer>(customersQuery);
+
+  const settingsRef = useMemoFirebase(() => (firestore && canAccess ? doc(firestore, 'system', 'financials') : null), [firestore, canAccess]);
+  const { data: globalSettings } = useDoc<FinancialSettings>(settingsRef);
 
   const usersQuery = useMemoFirebase(() => (firestore && canAccess) ? query(collection(firestore, 'users'), limit(300)) : null, [firestore, canAccess]);
   const { data: allUsers } = useCollection<AppUser>(usersQuery);
@@ -210,6 +224,26 @@ export default function ReportsPage() {
 
   // Definición del Catálogo de Reportes BI
   const reportsList = [
+    {
+      id: 'ficha_cliente_360',
+      title: 'Ficha Integral de Cliente 360° (Expediente Imprimible)',
+      category: 'Clientes',
+      format: 'CARTA / A4 / IMPRESIÓN',
+      description: 'Expediente formal con identificación fiscal, crédito autorizado, saldo deudor en USD/Bs y registro histórico de compras.',
+      icon: FileText,
+      badgeColor: 'bg-indigo-50 text-indigo-700 border-indigo-200',
+      action: () => setIsClient360Open(true)
+    },
+    {
+      id: 'directorio_telefonos',
+      title: 'Directorio Telefónico y Comercial de Clientes',
+      category: 'Clientes',
+      format: 'EXCEL / WHATSAPP / IMPRESIÓN',
+      description: 'Directorio telefónico general e individual con números de WhatsApp, exportación a Excel y enlace directo a chat.',
+      icon: Users,
+      badgeColor: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+      action: () => setIsClientDirectoryOpen(true)
+    },
     {
       id: 'cartera_pdf',
       title: 'Auxiliar Consolidado de Cartera y Cobranzas',
@@ -503,6 +537,24 @@ export default function ReportsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* MODAL 1: FICHA INTEGRAL DE CLIENTE 360° */}
+      <Client360ReportModal
+        isOpen={isClient360Open}
+        onOpenChange={setIsClient360Open}
+        customers={customers || []}
+        orders={orders || []}
+        bcvRate={globalSettings?.bcvRate || 36.5}
+        initialCustomerId={selectedClientForReport}
+      />
+
+      {/* MODAL 2: DIRECTORIO TELEFÓNICO Y COMERCIAL DE CLIENTES */}
+      <ClientDirectoryReportModal
+        isOpen={isClientDirectoryOpen}
+        onOpenChange={setIsClientDirectoryOpen}
+        customers={customers || []}
+        salespeople={salespeople}
+      />
     </div>
   );
 }

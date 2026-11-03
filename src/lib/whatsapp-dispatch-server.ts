@@ -14,6 +14,7 @@ export interface GatewayPayload {
   number: string;
   text?: string;
   imageUrl?: string;
+  videoUrl?: string;
   media?: { base64: string; filename?: string; mimetype?: string };
   orderId?: string;
 }
@@ -93,6 +94,7 @@ export interface QueueItem {
   number: string;
   text: string;
   imageUrl?: string;
+  videoUrl?: string;
 }
 
 /**
@@ -111,7 +113,7 @@ export async function enqueueWhatsAppBatch(
 
   const clean = items
     .map(i => ({ ...i, number: normalizeVePhone(i.number) }))
-    .filter(i => i.number.length >= 11 && (i.text || i.imageUrl));
+    .filter(i => i.number.length >= 11 && (i.text || i.imageUrl || i.videoUrl));
   if (!clean.length) return { success: false, error: 'Ningún destinatario válido' };
 
   try {
