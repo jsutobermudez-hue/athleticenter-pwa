@@ -414,6 +414,7 @@ function BroadcastStudioContent() {
                     mediaType,
                     audienceType: 'test',
                     isTest: true,
+                    testNumber: testPhone.trim(),
                     testPhone: testPhone.trim(),
                     recipients: [{
                         id: 'test-recipient',

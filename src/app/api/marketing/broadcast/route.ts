@@ -88,11 +88,12 @@ export async function POST(req: Request) {
     }
 
     // Modo de prueba inmediata a un solo número
-    if (body.isTest && body.testNumber) {
-      const testPhone = formatVenezuelaPhoneE164(body.testNumber);
-      const personalized = message.replace(/{{nombre}}/gi, 'Cliente de Prueba');
+    const testNum = body.testNumber || body.testPhone || (body.isTest && Array.isArray(body.recipients) && body.recipients[0]?.phone);
+    if (body.isTest && testNum) {
+      const testPhone = formatVenezuelaPhoneE164(testNum);
+      const personalized = message ? message.replace(/{{nombre}}/gi, 'Cliente de Prueba') : '';
       const finalMessage = `*ATHLETICENTER [VISTA PREVIA]*\n\n` +
-        `*${title}*\n\n` +
+        (title ? `*${title}*\n\n` : '') +
         `${personalized}\n\n` +
         `Atentamente,\n*El equipo de Athleticenter*`;
       const res = await dispatchViaGateways({
@@ -131,11 +132,15 @@ export async function POST(req: Request) {
     await ensureServerAuth();
     const { firestore } = initializeFirebaseServer();
 
-    // 1. Crear documento de campaña en Firestore
+    // 1. Crear documento de campaña en Firestore (Protegiendo límite de 1MB de Firestore para Base64)
+    const firestoreMediaUrl = (mediaUrl && typeof mediaUrl === 'string' && mediaUrl.startsWith('data:'))
+      ? (mediaUrl.length > 500000 ? `[Archivo ${mediaType.toUpperCase()} Base64 (${(mediaUrl.length / (1024 * 1024)).toFixed(1)} MB)]` : mediaUrl)
+      : (mediaType !== 'none' ? mediaUrl : null);
+
     const campaignRef = await addDoc(collection(firestore, 'marketing_campaigns'), {
       title,
       message,
-      mediaUrl: mediaType !== 'none' ? mediaUrl : null,
+      mediaUrl: firestoreMediaUrl,
       mediaType,
       audienceType,
       totalTarget: validRecipients.length,
