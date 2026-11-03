@@ -38,6 +38,7 @@ import {
     Check
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { InventoryProductPicker } from '@/components/dashboard/InventoryProductPicker';
 
 export type ExtendedAudienceType = 
     | 'all' 
@@ -307,25 +308,26 @@ function BroadcastStudioContent() {
     };
 
     // SELECCIONAR PRODUCTO PARA AUTORELLENAR
-    const handleProductSelect = (sku: string) => {
-        setSelectedProductSku(sku);
-        const prod = products.find(p => p.sku === sku);
-        if (prod) {
-            const rawPrice = Number(prod.price || prod.priceCashUSD || 0);
-            const priceDivisas = (rawPrice * 0.75).toFixed(2);
-            setTitle(`🔥 ¡Nuevo Ingreso: ${prod.name}!`);
-            setMessage(
-                `Estimado(a) {{nombre}},\n\n` +
-                `Te presentamos el producto *${prod.name}* (Ref: ${prod.sku}).\n\n` +
-                `🏆 *Precio Lista:* $${rawPrice.toFixed(2)}\n` +
-                `💵 *Precio en Divisas (25% desc.):* $${priceDivisas}\n` +
-                `📦 Stock disponible para despacho inmediato a nivel nacional.\n\n` +
-                `¿Deseas apartar tus unidades para entrega esta semana?`
-            );
-            if (prod.imageUrl) {
-                setMediaUrl(prod.imageUrl);
-                setMediaType('image');
-            }
+    const handleProductSelect = (prod: Product | null) => {
+        if (!prod) {
+            setSelectedProductSku('');
+            return;
+        }
+        setSelectedProductSku(prod.sku);
+        const rawPrice = Number(prod.price || prod.priceCashUSD || 0);
+        const priceDivisas = (rawPrice * 0.75).toFixed(2);
+        setTitle(`🔥 ¡Nuevo Ingreso: ${prod.name}!`);
+        setMessage(
+            `Estimado(a) {{nombre}},\n\n` +
+            `Te presentamos el producto *${prod.name}* (Ref: ${prod.sku}).\n\n` +
+            `🏆 *Precio Lista:* $${rawPrice.toFixed(2)}\n` +
+            `💵 *Precio en Divisas (25% desc.):* $${priceDivisas}\n` +
+            `📦 Stock disponible para despacho inmediato a nivel nacional.\n\n` +
+            `¿Deseas apartar tus unidades para entrega esta semana?`
+        );
+        if (prod.imageUrl) {
+            setMediaUrl(prod.imageUrl);
+            setMediaType('image');
         }
     };
 
@@ -655,24 +657,17 @@ function BroadcastStudioContent() {
                                         </div>
                                     </div>
 
-                                    {/* Selector de Producto de Inventario */}
+                                    {/* Selector Avanzado de Producto con Filtros de Inventario Maestro */}
                                     {products.length > 0 && (
                                         <div className="space-y-2">
                                             <label className="text-xs font-black uppercase tracking-wider text-slate-700 flex items-center gap-2">
-                                                <Tag className="h-4 w-4 text-primary" /> Vincular Producto del Inventario (Opcional)
+                                                <Tag className="h-4 w-4 text-emerald-600" /> Vincular Producto del Inventario Maestro (Búsqueda por Nombre, Marca, Disciplina, Stock)
                                             </label>
-                                            <select
-                                                className="w-full h-11 px-4 rounded-xl bg-slate-50 border border-slate-200 text-xs font-bold uppercase text-slate-800 focus:ring-2 focus:ring-emerald-500 focus:outline-none transition-all"
-                                                value={selectedProductSku}
-                                                onChange={(e) => handleProductSelect(e.target.value)}
-                                            >
-                                                <option value="">-- Seleccionar producto para autorellenar texto, precio y foto --</option>
-                                                {products.map(p => (
-                                                    <option key={p.id} value={p.sku}>
-                                                        {p.name} ({p.sku}) - Lista: ${p.price || p.priceCashUSD || 0} USD | Stock: {(p as any).stock || 'Disponible'}
-                                                    </option>
-                                                ))}
-                                            </select>
+                                            <InventoryProductPicker
+                                                products={products}
+                                                selectedProductSku={selectedProductSku}
+                                                onSelectProduct={handleProductSelect}
+                                            />
                                         </div>
                                     )}
 

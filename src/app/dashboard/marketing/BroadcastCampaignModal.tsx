@@ -42,6 +42,7 @@ import {
     UserCheck
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { InventoryProductPicker } from '@/components/dashboard/InventoryProductPicker';
 
 export type ExtendedAudienceType = 
     | 'all' 
@@ -286,25 +287,26 @@ export function BroadcastCampaignModal({
     };
 
     // SELECCIONAR PRODUCTO PARA AUTORELLENAR
-    const handleProductSelect = (sku: string) => {
-        setSelectedProductSku(sku);
-        const prod = products.find(p => p.sku === sku);
-        if (prod) {
-            const rawPrice = Number(prod.price || prod.priceCashUSD || 0);
-            const priceDivisas = (rawPrice * 0.75).toFixed(2);
-            setTitle(`🔥 ¡Nuevo Ingreso: ${prod.name}!`);
-            setMessage(
-                `Estimado(a) {{nombre}},\n\n` +
-                `Te presentamos el producto *${prod.name}* (Ref: ${prod.sku}).\n\n` +
-                `🏆 *Precio Lista:* $${rawPrice.toFixed(2)}\n` +
-                `💵 *Precio en Divisas (25% desc.):* $${priceDivisas}\n` +
-                `📦 Stock disponible para despacho inmediato a nivel nacional.\n\n` +
-                `¿Deseas apartar tus unidades para entrega esta semana?`
-            );
-            if (prod.imageUrl) {
-                setMediaUrl(prod.imageUrl);
-                setMediaType('image');
-            }
+    const handleProductSelect = (prod: Product | null) => {
+        if (!prod) {
+            setSelectedProductSku('');
+            return;
+        }
+        setSelectedProductSku(prod.sku);
+        const rawPrice = Number(prod.price || prod.priceCashUSD || 0);
+        const priceDivisas = (rawPrice * 0.75).toFixed(2);
+        setTitle(`🔥 ¡Nuevo Ingreso: ${prod.name}!`);
+        setMessage(
+            `Estimado(a) {{nombre}},\n\n` +
+            `Te presentamos el producto *${prod.name}* (Ref: ${prod.sku}).\n\n` +
+            `🏆 *Precio Lista:* ${rawPrice.toFixed(2)}\n` +
+            `💵 *Precio en Divisas (25% desc.):* ${priceDivisas}\n` +
+            `📦 Stock disponible para despacho inmediato a nivel nacional.\n\n` +
+            `¿Deseas apartar tus unidades para entrega esta semana?`
+        );
+        if (prod.imageUrl) {
+            setMediaUrl(prod.imageUrl);
+            setMediaType('image');
         }
     };
 
@@ -573,24 +575,17 @@ export function BroadcastCampaignModal({
 
                                 {/* Autocompletar con Producto */}
                                 {products && products.length > 0 && (
-                                    <div className="space-y-1.5">
-                                        <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">
-                                            Vincular Producto del Inventario (Opcional)
-                                        </label>
-                                        <select
-                                            className="w-full h-10 px-3 rounded-xl bg-slate-50 border border-slate-200 text-xs font-bold uppercase text-slate-800"
-                                            value={selectedProductSku}
-                                            onChange={(e) => handleProductSelect(e.target.value)}
-                                        >
-                                            <option value="">-- Seleccionar producto para autorellenar texto y foto --</option>
-                                            {products.map(p => (
-                                                <option key={p.id} value={p.sku}>
-                                                    {p.name} ({p.sku}) - Lista: ${p.price || p.priceCashUSD || 0}
-                                                </option>
-                                            ))}
-                                        </select>
-                                    </div>
-                                )}
+        <div className="space-y-1.5">
+            <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 flex items-center gap-1.5">
+                <Tag className="h-3.5 w-3.5 text-primary" /> Vincular Producto del Inventario (Filtro por Nombre, Marca, Disciplina, Stock)
+            </label>
+            <InventoryProductPicker
+                products={products}
+                selectedProductSku={selectedProductSku}
+                onSelectProduct={handleProductSelect}
+            />
+        </div>
+    )}
 
                                 {/* Título de la Campaña */}
                                 <div className="space-y-1.5">
