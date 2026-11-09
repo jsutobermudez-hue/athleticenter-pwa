@@ -112,7 +112,8 @@ function MarketingContent() {
         setIsMounted(true); 
     }, []);
 
-    const isAdmin = profile && ['superadmin', 'admin', 'gerencia'].includes(profile.role);
+    const isAdmin = profile && ['superadmin', 'admin', 'gerencia', 'ventas'].includes(profile.role);
+    const isManager = profile && ['superadmin', 'admin', 'gerencia'].includes(profile.role);
 
     useEffect(() => {
         if (!isUserLoading && !isAdmin && isMounted) {
@@ -124,7 +125,7 @@ function MarketingContent() {
     const quotesQuery = useMemoFirebase(() => (firestore && isAdmin) ? query(collection(firestore, 'quotes'), limit(200)) : null, [firestore, isAdmin]);
     const ordersQuery = useMemoFirebase(() => (firestore && isAdmin) ? query(collection(firestore, 'orders'), orderBy('orderDate', 'desc'), limit(500)) : null, [firestore, isAdmin]);
     const productsQuery = useMemoFirebase(() => (firestore && isAdmin) ? query(collection(firestore, 'products'), limit(300)) : null, [firestore, isAdmin]);
-    const campaignsQuery = useMemoFirebase(() => (firestore && isAdmin) ? query(collection(firestore, 'marketing_campaigns'), orderBy('createdAt', 'desc'), limit(30)) : null, [firestore, isAdmin]);
+    const campaignsQuery = useMemoFirebase(() => (firestore && isManager) ? query(collection(firestore, 'marketing_campaigns'), orderBy('createdAt', 'desc'), limit(30)) : null, [firestore, isManager]);
 
     const { data: allCustomers } = useCollection<Customer>(customersQuery);
     const { data: allQuotes } = useCollection<Quote>(quotesQuery);
@@ -227,7 +228,7 @@ function MarketingContent() {
                         </div>
                         <div>
                             <h1 className="text-3xl sm:text-4xl font-black uppercase tracking-tighter text-slate-900 leading-none">
-                                Envíos Masivos & Difusión WhatsApp
+                                Centro WhatsApp & Agente ARM 360°
                             </h1>
                             <p className="text-[10px] sm:text-xs font-black uppercase tracking-[0.25em] text-slate-400 mt-1">
                                 Revenue Command Center: Campañas WhatsApp, Inteligencia Comercial y Recuperación de Cartera
@@ -280,6 +281,13 @@ function MarketingContent() {
                         <TabsTrigger value="arm" className="px-6 rounded-xl font-black uppercase text-[10px] tracking-widest data-[state=active]:bg-emerald-600 data-[state=active]:shadow-lg data-[state=active]:text-white">
                             <Bot className="h-4 w-4 mr-2" /> Agente ARM (WhatsApp IA)
                         </TabsTrigger>
+                        <button
+                            type="button"
+                            onClick={() => router.push('/dashboard/broadcast')}
+                            className="inline-flex items-center justify-center whitespace-nowrap px-5 py-1.5 rounded-xl font-black uppercase text-[10px] tracking-widest text-emerald-700 hover:bg-emerald-50 transition-all"
+                        >
+                            <Megaphone className="h-4 w-4 mr-2" /> Estudio de Difusión
+                        </button>
                         <TabsTrigger value="pulse" className="px-6 rounded-xl font-black uppercase text-[10px] tracking-widest data-[state=active]:bg-white data-[state=active]:shadow-lg data-[state=active]:text-primary">
                             <Activity className="h-4 w-4 mr-2" /> Radar de Pulso
                         </TabsTrigger>
@@ -307,11 +315,23 @@ function MarketingContent() {
 
                 {/* 0. Agente ARM WhatsApp IA */}
                 <TabsContent value="arm" className="mt-0 outline-none">
-                    <ArmAgentPanel />
+                    <ArmAgentPanel customers={allCustomers || []} />
                 </TabsContent>
 
                 {/* 1. Radar de Pulso */}
-                <TabsContent value="pulse" className="mt-0 outline-none animate-in slide-in-from-bottom-4 duration-700">
+                <TabsContent value="pulse" className="mt-0 outline-none animate-in slide-in-from-bottom-4 duration-700 space-y-6">
+                    <div className="p-5 rounded-3xl bg-slate-900 text-white flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                        <div>
+                            <h3 className="text-sm font-black uppercase tracking-tight">Reactivación de Cartera Inactiva</h3>
+                            <p className="text-xs text-slate-400">Envía una campaña multimedia o catálogo PDF a todos los clientes sin compras recientes en 1 clic.</p>
+                        </div>
+                        <Button
+                            onClick={() => router.push('/dashboard/broadcast?audience=dormant')}
+                            className="h-10 px-5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black uppercase text-[10px] tracking-wider shrink-0"
+                        >
+                            <Megaphone className="h-3.5 w-3.5 mr-2" /> Lanzar Difusión a todos los Inactivos
+                        </Button>
+                    </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                         {filteredPulse.map(c => (
                             <Card key={c.id} className={cn("border-none shadow-sm rounded-[2rem] bg-white group transition-all hover:shadow-2xl hover:-translate-y-1 relative overflow-hidden", c.health === 'critical' && "ring-2 ring-rose-500/20 bg-rose-50/10")}>
@@ -353,7 +373,19 @@ function MarketingContent() {
                 </TabsContent>
 
                 {/* 2. Club Pareto (80/20) */}
-                <TabsContent value="pareto" className="mt-0 outline-none animate-in fade-in-50 duration-700">
+                <TabsContent value="pareto" className="mt-0 outline-none animate-in fade-in-50 duration-700 space-y-6">
+                    <div className="p-5 rounded-3xl bg-amber-950 text-white flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                        <div>
+                            <h3 className="text-sm font-black uppercase tracking-tight text-amber-300">Club VIP Pareto 80/20 (Cuentas Clave)</h3>
+                            <p className="text-xs text-amber-100/80">Dispara ofertas exclusivas, nuevos ingresos o lista preferencial en divisas a tu top 20% de facturación.</p>
+                        </div>
+                        <Button
+                            onClick={() => router.push('/dashboard/broadcast?audience=vips')}
+                            className="h-10 px-5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black uppercase text-[10px] tracking-wider shrink-0"
+                        >
+                            <Trophy className="h-3.5 w-3.5 mr-2" /> Lanzar Campaña Exclusiva a VIPs
+                        </Button>
+                    </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                         {filteredPareto.map((vip, idx) => (
                             <Card key={vip.id} className="border-none shadow-md rounded-[2rem] bg-white group hover:shadow-2xl hover:-translate-y-1 transition-all overflow-hidden border border-amber-100">

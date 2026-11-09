@@ -85,7 +85,7 @@ function BroadcastStudioContent() {
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     // CARGA DE DATOS DESDE FIRESTORE
-    const isAdmin = profile && ['superadmin', 'admin', 'gerencia'].includes(profile.role);
+    const isAdmin = profile && ['superadmin', 'admin', 'gerencia', 'ventas'].includes(profile.role);
 
     useEffect(() => {
         if (!isUserLoading && !isAdmin) {
@@ -540,6 +540,43 @@ function BroadcastStudioContent() {
 
     return (
         <div className="w-full flex flex-col gap-6 pb-20 animate-in fade-in duration-500">
+            {/* CONMUTADOR RÁPIDO DEL HUB COMERCIAL 360° */}
+            <div className="flex flex-wrap items-center gap-2 bg-white/70 backdrop-blur-xl p-2.5 rounded-2xl ring-1 ring-black/5 shadow-sm">
+                <Link
+                    href="/dashboard/marketing?tab=arm"
+                    className="px-4 py-2 rounded-xl font-black uppercase text-[10px] tracking-widest text-slate-600 hover:bg-slate-100 transition-all"
+                >
+                    🤖 Agente ARM (WhatsApp IA)
+                </Link>
+                <span className="px-4 py-2 rounded-xl font-black uppercase text-[10px] tracking-widest bg-emerald-600 text-white shadow-md">
+                    📢 Estudio de Difusión
+                </span>
+                <Link
+                    href="/dashboard/marketing?tab=pulse"
+                    className="px-4 py-2 rounded-xl font-black uppercase text-[10px] tracking-widest text-slate-600 hover:bg-slate-100 transition-all"
+                >
+                    💓 Radar de Pulso
+                </Link>
+                <Link
+                    href="/dashboard/marketing?tab=pareto"
+                    className="px-4 py-2 rounded-xl font-black uppercase text-[10px] tracking-widest text-slate-600 hover:bg-slate-100 transition-all"
+                >
+                    🏆 Club Pareto (80/20)
+                </Link>
+                <Link
+                    href="/dashboard/marketing?tab=leakage"
+                    className="px-4 py-2 rounded-xl font-black uppercase text-[10px] tracking-widest text-slate-600 hover:bg-slate-100 transition-all"
+                >
+                    🚨 Capital en Fuga
+                </Link>
+                <Link
+                    href="/dashboard/marketing?tab=campaigns"
+                    className="px-4 py-2 rounded-xl font-black uppercase text-[10px] tracking-widest text-slate-600 hover:bg-slate-100 transition-all"
+                >
+                    📜 Historial Difusiones
+                </Link>
+            </div>
+
             {/* BARRA SUPERIOR DE NAVEGACIÓN Y ACCIONES */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-6 bg-slate-900 text-white rounded-3xl shadow-xl">
                 <div className="space-y-1.5">

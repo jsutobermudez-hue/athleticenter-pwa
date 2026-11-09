@@ -1,5 +1,13 @@
 'use client';
-import React from 'react';
-export default function IntelligencePage() {
-    return <div className="p-10 font-black uppercase text-slate-900">BI Studio (Vaciado para liberar espacio)...</div>;
+
+import { useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+
+export default function IntelligenceRedirectPage() {
+    const router = useRouter();
+    useEffect(() => {
+        router.replace('/dashboard/reports');
+    }, [router]);
+
+    return null;
 }

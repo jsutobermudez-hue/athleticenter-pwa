@@ -97,10 +97,10 @@ const financieraItems: MenuItem[] = [
 
 // --- GRUPO 5: INTELIGENCIA ESTRATÉGICA ---
 const inteligenciaItems: MenuItem[] = [
-  { href: '/dashboard/broadcast', label: 'Difusión WhatsApp Studio', icon: Megaphone, roles: ['superadmin', 'gerencia', 'admin'] },
-  { href: '/dashboard/marketing', label: 'Marketing & Retención', icon: Activity, roles: ['superadmin', 'gerencia', 'admin'] },
+  { href: '/dashboard/marketing', label: 'WhatsApp & Agente ARM', icon: Megaphone, roles: ['superadmin', 'gerencia', 'admin', 'ventas'] },
+
   { href: '/dashboard/pricing-intelligence', label: 'Pricing Intelligence', icon: Sparkles, roles: ['superadmin', 'gerencia', 'admin'] },
-  { href: '/dashboard/intelligence', label: 'Tablero BI', icon: BarChart3, roles: ['superadmin', 'gerencia'] },
+
   { href: '/dashboard/reports', label: 'Reportes y BI', icon: FileBarChart, roles: ['superadmin', 'gerencia', 'admin'] },
 ];
 
@@ -177,7 +177,7 @@ export function AppSidebar() {
             label = 'Catálogo';
         }
 
-        const isActive = pathname === item.href || (item.href !== '/dashboard' && pathname.startsWith(item.href));
+        const isActive = pathname === item.href || (item.href !== '/dashboard' && pathname.startsWith(item.href)) || (item.href === '/dashboard/marketing' && pathname.startsWith('/dashboard/broadcast'));
         const isNotificationsItem = item.href === '/dashboard/notifications';
         const isOrdersItem = item.href === '/dashboard/orders';
         
@@ -262,7 +262,7 @@ export function AppSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
 
-        {(profile?.role === 'admin' || profile?.role === 'gerencia' || profile?.role === 'superadmin') && (
+        {(profile?.role === 'admin' || profile?.role === 'gerencia' || profile?.role === 'superadmin' || profile?.role === 'ventas') && (
             <SidebarGroup>
                 <SidebarGroupLabel className="text-white/40 font-black text-[9px] uppercase tracking-[0.2em] px-4 pt-2 mb-1">Inteligencia de Negocio</SidebarGroupLabel>
                 <SidebarGroupContent>
@@ -271,7 +271,7 @@ export function AppSidebar() {
             </SidebarGroup>
         )}
 
-        {(profile?.role === 'admin' || profile?.role === 'gerencia' || profile?.role === 'superadmin') && (
+        {(profile?.role === 'admin' || profile?.role === 'gerencia' || profile?.role === 'superadmin' || profile?.role === 'ventas') && (
             <SidebarGroup>
                 <SidebarGroupLabel className="text-white/40 font-black text-[9px] uppercase tracking-[0.2em] px-4 pt-2 mb-1">Gestión de Red</SidebarGroupLabel>
                 <SidebarGroupContent>
