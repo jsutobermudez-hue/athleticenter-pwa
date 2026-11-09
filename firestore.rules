@@ -232,6 +232,18 @@ service cloud.firestore {
     match /catalog_leads/{leadId} {
       allow read, write: if isStaff();
     }
+    match /crm_hot_leads/{leadId} {
+      allow read, create, update: if isStaff();
+      allow delete: if isManager();
+    }
+    match /crm_lead_enrichments/{enrichmentId} {
+      allow read, create, update: if isStaff();
+      allow delete: if isManager();
+    }
+    match /whatsapp_inbound_logs/{logId} {
+      allow read, create, update: if isStaff();
+      allow delete: if isManager();
+    }
 
     // ---------- Mensajería interna ----------
     match /chats/{chatId} {

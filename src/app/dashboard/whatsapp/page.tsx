@@ -7,7 +7,7 @@ export default function WhatsappRedirect() {
   const router = useRouter();
 
   useEffect(() => {
-    router.replace('/dashboard/marketing');
+    router.replace('/dashboard/marketing?tab=arm');
   }, [router]);
 
   return (

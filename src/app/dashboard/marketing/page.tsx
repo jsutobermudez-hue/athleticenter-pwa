@@ -36,6 +36,8 @@ import { Progress } from '@/components/ui/progress';
 import { Separator } from '@/components/ui/separator';
 import { DashboardMetricCard } from '@/components/dashboard/DashboardMetricCard';
 import { BroadcastCampaignModal } from './BroadcastCampaignModal';
+import { ArmAgentPanel } from './ArmAgentPanel';
+import { Bot } from 'lucide-react';
 import { sendWhatsAppWithFeedback } from '@/lib/whatsapp-client';
 
 export const dynamic = 'force-dynamic';
@@ -84,7 +86,7 @@ function MarketingContent() {
     const { toast } = useToast();
     const searchParams = useSearchParams();
     const [searchTerm, setSearchTerm] = useState('');
-    const [activeTab, setActiveTab] = useState('pulse');
+    const [activeTab, setActiveTab] = useState('arm');
     const [isMounted, setIsMounted] = useState(false);
     const [isBroadcastOpen, setIsBroadcastOpen] = useState(false);
     const [initialAudience, setInitialAudience] = useState<'all' | 'vips' | 'dormant'>('all');
@@ -101,7 +103,7 @@ function MarketingContent() {
             setInitialAudience(aud);
         }
         const tab = searchParams.get('tab');
-        if (tab && ['pulse', 'pareto', 'leakage', 'campaigns'].includes(tab)) {
+        if (tab && ['arm', 'pulse', 'pareto', 'leakage', 'campaigns'].includes(tab)) {
             setActiveTab(tab);
         }
     }, [searchParams]);
@@ -275,6 +277,9 @@ function MarketingContent() {
             <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full space-y-8">
                 <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-6 bg-white/40 backdrop-blur-xl p-4 rounded-[2.5rem] ring-1 ring-black/5 shadow-sm">
                     <TabsList className="bg-slate-100/50 p-1.5 rounded-2xl border-none shadow-inner flex flex-wrap gap-1">
+                        <TabsTrigger value="arm" className="px-6 rounded-xl font-black uppercase text-[10px] tracking-widest data-[state=active]:bg-emerald-600 data-[state=active]:shadow-lg data-[state=active]:text-white">
+                            <Bot className="h-4 w-4 mr-2" /> Agente ARM (WhatsApp IA)
+                        </TabsTrigger>
                         <TabsTrigger value="pulse" className="px-6 rounded-xl font-black uppercase text-[10px] tracking-widest data-[state=active]:bg-white data-[state=active]:shadow-lg data-[state=active]:text-primary">
                             <Activity className="h-4 w-4 mr-2" /> Radar de Pulso
                         </TabsTrigger>
@@ -299,6 +304,11 @@ function MarketingContent() {
                         />
                     </div>
                 </div>
+
+                {/* 0. Agente ARM WhatsApp IA */}
+                <TabsContent value="arm" className="mt-0 outline-none">
+                    <ArmAgentPanel />
+                </TabsContent>
 
                 {/* 1. Radar de Pulso */}
                 <TabsContent value="pulse" className="mt-0 outline-none animate-in slide-in-from-bottom-4 duration-700">
