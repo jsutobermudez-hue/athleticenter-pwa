@@ -3,6 +3,7 @@ import { timingSafeEqual } from 'crypto';
 import { initializeFirebaseServer, ensureServerAuth } from '@/firebase/server-init';
 import { collection, query, where, getDocs, limit, orderBy, doc, getDoc, updateDoc, addDoc, serverTimestamp } from 'firebase/firestore';
 import { sendBackgroundWhatsAppMessage, formatVenezuelaPhoneE164 } from '@/lib/whatsapp-gateway';
+import { processArmInboundMessage } from '@/services/arm-inbound-agent';
 
 /**
  * WEBHOOK MULTI-GATEWAY DE WHATSAPP (ATHLETICENTER)
@@ -246,26 +247,25 @@ export async function POST(req: Request) {
     }
 
     // ─────────────────────────────────────────────────────────────
-    // INTENT 5: MENÚ DE AYUDA Y SALUDO GENERAL
+    // INTENT 5: AGENTE AGÉNTICO COMERCIAL (ARM INBOUND CON GEMINI)
     // ─────────────────────────────────────────────────────────────
-    if (
-      upperText.includes('HOLA') || upperText.includes('BUENOS') || upperText.includes('BUENAS') ||
-      upperText.includes('AYUDA') || upperText.includes('ASESOR') || upperText.includes('INFO') ||
-      upperText.includes('CATALOGO')
-    ) {
-      const replyText = `*ATHLETICENTER*\n\n` +
-        `¡Hola! Bienvenido a Athleticenter, mayoristas en balones y artículos deportivos.\n\n` +
-        `Comandos automáticos disponibles:\n` +
-        `• Escriba *ESTADO* para rastrear su pedido.\n` +
-        `• Escriba *TASA* para consultar la tasa BCV oficial.\n` +
-        `• Escriba *SÍ* si desea confirmar una cotización recibida.\n\n` +
-        `Si requiere atención personalizada, en breve un asesor de nuestro equipo le atenderá con gusto. 🙌`;
+    // Cualquier consulta natural, saludo, solicitud de productos, precios o catálogo
+    // es atendida por el Asesor Comercial Agéntico 24/7 (ARM).
+    console.log(`[WhatsApp Webhook] 🤖 Activando Agente ARM para +${cleanPhone}: "${messageText}"`);
+    const armResult = await processArmInboundMessage({ phone: cleanPhone, messageText });
 
-      await sendBackgroundWhatsAppMessage({ phone: cleanPhone, message: replyText });
-      return NextResponse.json({ success: true, action: 'reply_menu' });
+    if (armResult.replyText) {
+      await sendBackgroundWhatsAppMessage({ phone: cleanPhone, message: armResult.replyText });
+      return NextResponse.json({
+        success: true,
+        action: 'arm_agent_processed',
+        leadQualified: armResult.leadQualified,
+        handoffTriggered: armResult.handoffTriggered,
+        matchedProductsCount: armResult.matchedProductsCount
+      });
     }
 
-    return NextResponse.json({ success: true, message: 'Evento recibido sin comando coincidente' });
+    return NextResponse.json({ success: true, message: 'Evento recibido y procesado por ARM' });
 
   } catch (error: any) {
     console.error(`[WhatsApp Webhook] Error en procesamiento:`, error);
