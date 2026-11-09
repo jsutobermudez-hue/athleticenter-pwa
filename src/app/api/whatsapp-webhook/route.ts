@@ -229,12 +229,23 @@ export async function POST(req: Request) {
         imageUrl: armResult.imageUrl
       });
 
+      if (armResult.extraPhotos && armResult.extraPhotos.length > 0) {
+        for (const extra of armResult.extraPhotos) {
+          await sendBackgroundWhatsAppMessage({
+            phone: cleanPhone,
+            message: extra.caption,
+            imageUrl: extra.imageUrl
+          });
+        }
+      }
+
       return NextResponse.json({
         success: true,
         action: 'arm_agent_processed',
         replyText: armResult.replyText,
         pdfSent: Boolean(armResult.pdfBase64),
         imageSent: Boolean(armResult.imageUrl),
+        extraPhotosSent: armResult.extraPhotos?.length || 0,
         leadQualified: armResult.leadQualified,
         handoffTriggered: armResult.handoffTriggered,
         matchedProductsCount: armResult.matchedProductsCount

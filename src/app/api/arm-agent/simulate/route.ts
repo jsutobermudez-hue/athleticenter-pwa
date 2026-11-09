@@ -35,14 +35,26 @@ export async function POST(req: Request) {
         imageUrl: armResult.imageUrl,
       });
       whatsappDispatched = gw.success;
+
+      if (armResult.extraPhotos && armResult.extraPhotos.length > 0) {
+        for (const extra of armResult.extraPhotos) {
+          await sendBackgroundWhatsAppMessage({
+            phone,
+            message: extra.caption,
+            orderId: 'ARM-TEST-PHOTO',
+            imageUrl: extra.imageUrl,
+          });
+        }
+      }
     }
 
-    const { pdfBase64: _omitPdf, imageUrl: _omitImg, ...safeResult } = armResult;
+    const { pdfBase64: _omitPdf, imageUrl: _omitImg, extraPhotos: _omitExtra, ...safeResult } = armResult;
 
     return NextResponse.json({
       ...safeResult,
       hasPdfAttached: Boolean(armResult.pdfBase64),
       hasPhotoAttached: Boolean(armResult.imageUrl),
+      photosCount: (armResult.imageUrl ? 1 : 0) + (armResult.extraPhotos?.length || 0),
       intent: armResult.handoffTriggered ? 'HOT_LEAD_HANDOFF' : 'ARM_SALES_AGENT',
       isHotLead: Boolean(armResult.handoffTriggered),
       whatsappDispatched,

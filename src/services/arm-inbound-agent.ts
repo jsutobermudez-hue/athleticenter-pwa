@@ -27,6 +27,7 @@ export interface ArmInboundResult {
     pdfBase64?: string;
     pdfFileName?: string;
     imageUrl?: string;
+    extraPhotos?: Array<{ imageUrl: string; caption: string }>;
     leadQualified?: boolean;
     handoffTriggered?: boolean;
     matchedProductsCount?: number;
@@ -430,14 +431,62 @@ export async function processArmInboundMessage({ phone, messageText }: ArmInboun
     }
 
     const normCurrent = normalizeText(messageText);
-    const normContext = normalizeText(`${messageText} ${recentHistory[recentHistory.length - 1]?.message || ''}`);
-    const queryTokens = normContext.split(' ').filter(w => w.length >= 3).map(stemSpanishToken);
+    const prevTurnText = recentHistory.length > 0
+        ? `${recentHistory[recentHistory.length - 1].message} ${recentHistory[recentHistory.length - 1].reply}`
+        : '';
+    const normContext = normalizeText(`${messageText} ${prevTurnText}`);
 
-    const directMatches = inStockProducts.filter(p => {
-        const s = normalizeText(`${p.name} ${p.brand} ${p.category} ${p.discipline} ${p.sku}`);
-        if (normContext.includes('bici') && p.category === 'BICICLETAS') return true;
-        return queryTokens.some(t => s.includes(t));
-    });
+    const STOPWORDS = new Set([
+        'hola', 'buenos', 'buenas', 'dias', 'tardes', 'noches', 'tienen', 'tiene', 'tienes',
+        'disponible', 'disponibles', 'precio', 'precios', 'foto', 'fotos', 'imagen', 'imagenes',
+        'enviame', 'mandame', 'pasame', 'por', 'favor', 'como', 'del', 'las', 'los', 'una', 'uno',
+        'para', 'ver', 'quiero', 'necesito', 'cotizar', 'marca', 'marcas', 'mostrar', 'muestrame',
+        'hay', 'que', 'cual', 'cuales', 'son', 'ese', 'esa', 'esos', 'esas', 'este', 'esta',
+        'puedes', 'puede', 'enviar', 'mandar', 'pasar', 'catalogo', 'lista'
+    ]);
+
+    const currentTokens = normCurrent
+        .split(' ')
+        .filter(w => w.length >= 2 && !STOPWORDS.has(w))
+        .map(stemSpanishToken);
+
+    const fallbackTokens = normalizeText(prevTurnText)
+        .split(' ')
+        .filter(w => w.length >= 3 && !STOPWORDS.has(w))
+        .map(stemSpanishToken);
+
+    const activeTokens = currentTokens.length > 0 ? currentTokens : fallbackTokens;
+    const activeNormText = currentTokens.length > 0 ? normCurrent : normContext;
+
+    const scoredMatches = inStockProducts
+        .map(p => {
+            let score = 0;
+            const normName = normalizeText(p.name);
+            const normBrand = normalizeText(p.brand);
+            const normCat = normalizeText(`${p.category} ${p.discipline}`);
+            const normSku = normalizeText(p.sku);
+
+            if (normSku && normSku.length >= 3 && activeNormText.includes(normSku)) {
+                score += 25;
+            }
+            if (normBrand && normBrand !== 'generica' && activeNormText.includes(normBrand)) {
+                score += 12;
+            }
+            if ((activeNormText.includes('bici') || activeNormText.includes('rin')) && p.category === 'BICICLETAS') {
+                score += 12;
+            }
+            for (const t of activeTokens) {
+                if (t.length < 2) continue;
+                if (normBrand.includes(t)) score += 6;
+                if (normName.includes(t)) score += 4;
+                else if (normCat.includes(t)) score += 2;
+            }
+            return { product: p, score };
+        })
+        .filter(item => item.score > 0)
+        .sort((a, b) => b.score - a.score);
+
+    const directMatches = scoredMatches.map(item => item.product);
 
     // ─────────────────────────────────────────────────────────────
     // 5. Detectar si el cliente solicita el CATÁLOGO EN PDF o FOTOS
@@ -459,6 +508,7 @@ export async function processArmInboundMessage({ phone, messageText }: ArmInboun
     let pdfBase64: string | undefined = undefined;
     let pdfFileName: string | undefined = undefined;
     let productImageUrl: string | undefined = undefined;
+    const extraPhotos: Array<{ imageUrl: string; caption: string }> = [];
 
     if (wantsCatalogPdf && inStockProducts.length > 0) {
         try {
@@ -493,14 +543,25 @@ export async function processArmInboundMessage({ phone, messageText }: ArmInboun
         }
     } else if (wantsProductPhoto && directMatches.length > 0) {
         try {
-            const targetProd = directMatches[0];
-            if (targetProd.docId) {
+            const wantsMultiplePhotos = /\b(fotos|imagenes)\b/i.test(normCurrent) && directMatches.length > 1;
+            const maxPhotosToFetch = wantsMultiplePhotos ? Math.min(directMatches.length, 3) : 1;
+
+            for (let i = 0; i < maxPhotosToFetch; i++) {
+                const targetProd = directMatches[i];
+                if (!targetProd?.docId) continue;
                 const pDoc = await getDoc(doc(firestore, 'products', targetProd.docId));
-                if (pDoc.exists()) {
-                    const pData = pDoc.data() as Product;
-                    if (pData.imageUrl) {
-                        productImageUrl = pData.imageUrl;
-                    }
+                if (!pDoc.exists()) continue;
+                const pData = pDoc.data() as Product & { imageUrls?: string[] };
+                const imgSource = pData.imageUrl || (Array.isArray(pData.imageUrls) && pData.imageUrls[0]) || '';
+                if (!imgSource) continue;
+
+                if (!productImageUrl) {
+                    productImageUrl = imgSource;
+                } else {
+                    extraPhotos.push({
+                        imageUrl: imgSource,
+                        caption: `📸 *[${targetProd.brand}] ${targetProd.name}* (SKU: ${targetProd.sku})\n• Stock disponible: *${targetProd.stock} unid.*\n• Precio Lista: ${money(targetProd.priceLista)}\n• Pago en Divisas (-${divisasDiscountPct}%): *${money(targetProd.priceDivisas)}*\n• Pronto Pago (-${prontoPagoDiscountPct}% adic.): *${money(targetProd.priceProntoPago)}*`
+                    });
                 }
             }
         } catch (imgErr: any) {
@@ -684,6 +745,7 @@ Redacta ahora la respuesta completa de WhatsApp para el cliente:`;
         pdfBase64,
         pdfFileName,
         imageUrl: productImageUrl,
+        extraPhotos: extraPhotos.length > 0 ? extraPhotos : undefined,
         leadQualified,
         handoffTriggered,
         matchedProductsCount: directMatches.length || inStockProducts.length
