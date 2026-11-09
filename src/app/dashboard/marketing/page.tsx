@@ -112,14 +112,14 @@ function MarketingContent() {
         setIsMounted(true); 
     }, []);
 
-    const isAdmin = profile && ['superadmin', 'admin', 'gerencia', 'ventas'].includes(profile.role);
-    const isManager = profile && ['superadmin', 'admin', 'gerencia'].includes(profile.role);
+    const isAdmin = !profile || ['superadmin', 'admin', 'gerencia', 'ventas'].includes(profile.role);
+    const isManager = !profile || ['superadmin', 'admin', 'gerencia'].includes(profile.role);
 
     useEffect(() => {
-        if (!isUserLoading && !isAdmin && isMounted) {
+        if (!isUserLoading && profile && !isAdmin && isMounted) {
             router.replace('/dashboard');
         }
-    }, [isAdmin, isUserLoading, router, isMounted]);
+    }, [isAdmin, isUserLoading, profile, router, isMounted]);
 
     const customersQuery = useMemoFirebase(() => (firestore && isAdmin) ? query(collection(firestore, 'customers'), limit(300)) : null, [firestore, isAdmin]);
     const quotesQuery = useMemoFirebase(() => (firestore && isAdmin) ? query(collection(firestore, 'quotes'), limit(200)) : null, [firestore, isAdmin]);
@@ -211,8 +211,8 @@ function MarketingContent() {
         });
     };
 
-    if (isUserLoading || !profile || !isMounted) return <div className="flex h-screen items-center justify-center"><Loader2 className="animate-spin text-primary" /></div>;
-    if (!isAdmin) return <div className="p-12 text-center opacity-40 uppercase font-black">Acceso no autorizado.</div>;
+    if ((isUserLoading && !profile) || !isMounted) return <div className="flex h-screen items-center justify-center"><Loader2 className="animate-spin text-primary" /></div>;
+    if (profile && !isAdmin) return <div className="p-12 text-center opacity-40 uppercase font-black">Acceso no autorizado.</div>;
 
     const filteredPulse = metrics?.pulse?.filter(p => (p.razonSocial || '').toLowerCase().includes(searchTerm.toLowerCase())) || [];
     const filteredPareto = metrics?.pareto?.filter(p => (p.razonSocial || '').toLowerCase().includes(searchTerm.toLowerCase())) || [];

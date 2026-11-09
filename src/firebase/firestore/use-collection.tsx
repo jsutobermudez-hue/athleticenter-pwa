@@ -22,8 +22,9 @@ export interface UseCollectionResult<T> {
 }
 
 /**
- * HOOK DE COLECCIÓN v2.4.0
- * Saneado: Implementa fallback automático a getDocs en caso de error de canal.
+ * HOOK DE COLECCIÓN v2.6.0
+ * Saneado: Implementa fallback automático a getDocs en caso de error de canal
+ * o latencia prolongada (>2.5s) en el stream WebChannel, más desbloqueo garantizado.
  */
 export function useCollection<T = any>(
     memoizedTargetRefOrQuery: ((CollectionReference<DocumentData> | Query<DocumentData>) & {__memo?: boolean})  | null | undefined,
@@ -43,32 +44,57 @@ export function useCollection<T = any>(
       return;
     }
 
+    let isMounted = true;
+    let hasResolved = false;
+
     setIsLoading(true);
     setError(null);
+
+    const applySnapshot = (snapshot: QuerySnapshot<DocumentData>) => {
+      if (!isMounted) return;
+      hasResolved = true;
+      const results: ResultItemType[] = [];
+      for (const doc of snapshot.docs) {
+        results.push({ ...(doc.data() as T), id: doc.id });
+      }
+      setData(results);
+      setError(null);
+      setIsLoading(false);
+    };
+
+    // Fail-safe 1: Si el stream onSnapshot tarda más de 2.2s, lanza getDocs en paralelo
+    const slowStreamTimer = setTimeout(async () => {
+      if (hasResolved || !isMounted) return;
+      try {
+        const snapshot = await getDocs(memoizedTargetRefOrQuery);
+        if (!hasResolved && isMounted) {
+          applySnapshot(snapshot);
+        }
+      } catch {
+        // Ignorado aquí; el handler de error principal o el hardTimeout liberará isLoading
+      }
+    }, 2200);
+
+    // Fail-safe 2: Desbloqueo garantizado de UI a los 3.5s para evitar pantallas colgadas
+    const hardUnlockTimer = setTimeout(() => {
+      if (!hasResolved && isMounted) {
+        setIsLoading(false);
+      }
+    }, 3500);
 
     const unsubscribe = onSnapshot(
       memoizedTargetRefOrQuery,
       (snapshot: QuerySnapshot<DocumentData>) => {
-        const results: ResultItemType[] = [];
-        for (const doc of snapshot.docs) {
-          results.push({ ...(doc.data() as T), id: doc.id });
-        }
-        setData(results);
-        setError(null);
-        setIsLoading(false);
+        applySnapshot(snapshot);
       },
       async (err: FirestoreError) => {
         console.warn(`[useCollection] onSnapshot failed (${err.code}). Trying fallback getDocs...`, err);
         try {
           const snapshot = await getDocs(memoizedTargetRefOrQuery);
-          const results: ResultItemType[] = [];
-          for (const doc of snapshot.docs) {
-            results.push({ ...(doc.data() as T), id: doc.id });
-          }
-          setData(results);
-          setError(null);
-          setIsLoading(false);
+          applySnapshot(snapshot);
         } catch (fallbackErr: any) {
+          if (!isMounted) return;
+          hasResolved = true;
           console.error("[useCollection] Fallback getDocs also failed:", fallbackErr);
           if (err.code === 'permission-denied') {
               let path = "unknown/path";
@@ -94,7 +120,12 @@ export function useCollection<T = any>(
       }
     );
 
-    return () => unsubscribe();
+    return () => {
+      isMounted = false;
+      clearTimeout(slowStreamTimer);
+      clearTimeout(hardUnlockTimer);
+      unsubscribe();
+    };
   }, [memoizedTargetRefOrQuery]);
 
   if(memoizedTargetRefOrQuery && !memoizedTargetRefOrQuery.__memo) {

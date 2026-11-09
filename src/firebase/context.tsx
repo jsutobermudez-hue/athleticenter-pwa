@@ -4,14 +4,14 @@ import React, { createContext, useContext, useMemo, useState, useEffect } from '
 import type { FirebaseApp } from 'firebase/app';
 import type { Auth, User as FirebaseAuthUser } from 'firebase/auth';
 import type { Firestore } from 'firebase/firestore';
-import { doc, onSnapshot, type Unsubscribe } from 'firebase/firestore';
+import { doc, onSnapshot, getDoc, type Unsubscribe } from 'firebase/firestore';
 import type { FirebaseStorage } from 'firebase/storage';
 import type { User as AppUser, Customer } from '../lib/definitions';
 import { FirebaseErrorListener } from '../components/FirebaseErrorListener';
 
 /**
- * CONTEXTO MAESTRO v314.0.0
- * Sincronizado: Reforzada la lógica de vinculación B2B para perfiles compartidos.
+ * CONTEXTO MAESTRO v315.0.0
+ * Sincronizado: Fallback automático a getDoc en perfil de usuario y vinculación B2B.
  */
 export interface FirebaseContextState {
   firebaseApp: FirebaseApp | null;
@@ -98,27 +98,49 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
     let unsubscribeProfile: Unsubscribe | null = null;
     let unsubscribeCustomer: Unsubscribe | null = null;
     let safetyTimeout: NodeJS.Timeout;
+    let slowProfileTimeout: NodeJS.Timeout;
+    let isMounted = true;
+    let profileResolved = false;
 
     if (user && firestore) {
-      // FAIL-SAFE: Desbloqueo forzado a los 4 segundos si el servidor no responde
-      safetyTimeout = setTimeout(() => {
-          setIsUserLoading(false);
-      }, 4000);
-
       const userRef = doc(firestore, 'users', user.uid);
+
+      // FAIL-SAFE 1: Si onSnapshot tarda >1.8s, intenta getDoc directo
+      slowProfileTimeout = setTimeout(async () => {
+        if (profileResolved || !isMounted) return;
+        try {
+          const snap = await getDoc(userRef);
+          if (!profileResolved && isMounted && snap.exists()) {
+            profileResolved = true;
+            const profileData = { id: snap.id, ...snap.data() } as AppUser;
+            setProfile(profileData);
+            if (profileData.role !== 'cliente') {
+              setCustomerProfile(null);
+              setIsUserLoading(false);
+            }
+          }
+        } catch {}
+      }, 1800);
+
+      // FAIL-SAFE 2: Desbloqueo forzado a los 4 segundos si el servidor no responde
+      safetyTimeout = setTimeout(() => {
+          if (isMounted) setIsUserLoading(false);
+      }, 4000);
       
       unsubscribeProfile = onSnapshot(userRef, (docSnap) => {
+        if (!isMounted) return;
+        profileResolved = true;
         if (docSnap.exists()) {
           const profileData = { id: docSnap.id, ...docSnap.data() } as AppUser;
           setProfile(profileData);
           
           if (profileData.role === 'cliente') {
-              // PRIORIDAD: associatedCustomerId (B2B Compartido) -> UID (Legacy)
               const targetCustomerId = profileData.associatedCustomerId || user.uid;
               const custRef = doc(firestore, 'customers', targetCustomerId);
               
               if (unsubscribeCustomer) unsubscribeCustomer();
               unsubscribeCustomer = onSnapshot(custRef, (custSnap) => {
+                  if (!isMounted) return;
                   if (custSnap.exists()) {
                       setCustomerProfile({ id: custSnap.id, ...custSnap.data() } as Customer);
                   } else {
@@ -126,9 +148,9 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
                   }
                   clearTimeout(safetyTimeout);
                   setIsUserLoading(false);
-              }, (err) => {
+              }, () => {
                   clearTimeout(safetyTimeout);
-                  setIsUserLoading(false);
+                  if (isMounted) setIsUserLoading(false);
               });
           } else {
               setCustomerProfile(null);
@@ -140,16 +162,18 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
           clearTimeout(safetyTimeout);
           setIsUserLoading(false);
         }
-      }, (err) => {
+      }, () => {
           clearTimeout(safetyTimeout);
-          setIsUserLoading(false);
+          if (isMounted) setIsUserLoading(false);
       });
     }
 
     return () => {
+        isMounted = false;
         if (unsubscribeProfile) unsubscribeProfile();
         if (unsubscribeCustomer) unsubscribeCustomer();
         if (safetyTimeout) clearTimeout(safetyTimeout);
+        if (slowProfileTimeout) clearTimeout(slowProfileTimeout);
     };
   }, [user, firestore]);
 

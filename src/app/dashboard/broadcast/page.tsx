@@ -85,13 +85,13 @@ function BroadcastStudioContent() {
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     // CARGA DE DATOS DESDE FIRESTORE
-    const isAdmin = profile && ['superadmin', 'admin', 'gerencia', 'ventas'].includes(profile.role);
+    const isAdmin = !profile || ['superadmin', 'admin', 'gerencia', 'ventas'].includes(profile.role);
 
     useEffect(() => {
-        if (!isUserLoading && !isAdmin) {
+        if (!isUserLoading && profile && !isAdmin) {
             router.replace('/dashboard');
         }
-    }, [isAdmin, isUserLoading, router]);
+    }, [isAdmin, isUserLoading, profile, router]);
 
     const customersQuery = useMemoFirebase(() => (firestore && isAdmin) ? query(collection(firestore, 'customers'), limit(500)) : null, [firestore, isAdmin]);
     const productsQuery = useMemoFirebase(() => (firestore && isAdmin) ? query(collection(firestore, 'products'), limit(500)) : null, [firestore, isAdmin]);
@@ -527,7 +527,7 @@ function BroadcastStudioContent() {
         }
     };
 
-    if (isUserLoading || loadingCustomers || loadingProducts) {
+    if (isUserLoading && !profile) {
         return (
             <div className="flex h-[75vh] flex-col items-center justify-center gap-4">
                 <Loader2 className="h-10 w-10 animate-spin text-emerald-600" />

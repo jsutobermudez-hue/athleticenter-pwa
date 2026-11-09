@@ -21,8 +21,9 @@ export interface UseDocResult<T> {
 }
 
 /**
- * HOOK DE DOCUMENTO v2.5.0
- * Saneado: Implementa fallback automático a getDoc en caso de error de canal.
+ * HOOK DE DOCUMENTO v2.6.0
+ * Saneado: Implementa fallback automático a getDoc en caso de error de canal
+ * o latencia prolongada (>2.2s), con desbloqueo garantizado de isLoading.
  */
 export function useDoc<T = any>(
   memoizedDocRef: DocumentReference<DocumentData> | null | undefined,
@@ -39,32 +40,55 @@ export function useDoc<T = any>(
       return;
     }
 
+    let isMounted = true;
+    let hasResolved = false;
+
     setIsLoading(true);
     setError(null);
+
+    const applyDoc = (snapshot: DocumentSnapshot<DocumentData>) => {
+      if (!isMounted) return;
+      hasResolved = true;
+      if (snapshot.exists()) {
+        setData({ ...(snapshot.data() as T), id: snapshot.id });
+      } else {
+        setData(null);
+      }
+      setError(null);
+      setIsLoading(false);
+    };
+
+    const slowStreamTimer = setTimeout(async () => {
+      if (hasResolved || !isMounted) return;
+      try {
+        const snapshot = await getDoc(memoizedDocRef);
+        if (!hasResolved && isMounted) {
+          applyDoc(snapshot);
+        }
+      } catch {
+        // Ignorado; manejado por hardUnlockTimer
+      }
+    }, 2200);
+
+    const hardUnlockTimer = setTimeout(() => {
+      if (!hasResolved && isMounted) {
+        setIsLoading(false);
+      }
+    }, 3500);
 
     const unsubscribe = onSnapshot(
       memoizedDocRef,
       (snapshot: DocumentSnapshot<DocumentData>) => {
-        if (snapshot.exists()) {
-          setData({ ...(snapshot.data() as T), id: snapshot.id });
-        } else {
-          setData(null);
-        }
-        setError(null);
-        setIsLoading(false);
+        applyDoc(snapshot);
       },
       async (err: FirestoreError) => {
         console.warn(`[useDoc] onSnapshot failed (${err.code}). Trying fallback getDoc...`, err);
         try {
           const snapshot = await getDoc(memoizedDocRef);
-          if (snapshot.exists()) {
-            setData({ ...(snapshot.data() as T), id: snapshot.id });
-          } else {
-            setData(null);
-          }
-          setError(null);
-          setIsLoading(false);
+          applyDoc(snapshot);
         } catch (fallbackErr: any) {
+          if (!isMounted) return;
+          hasResolved = true;
           console.error("[useDoc] Fallback getDoc also failed:", fallbackErr);
           if (err.code === 'permission-denied') {
               const contextualError = new FirestorePermissionError({
@@ -82,7 +106,12 @@ export function useDoc<T = any>(
       }
     );
 
-    return () => unsubscribe();
+    return () => {
+      isMounted = false;
+      clearTimeout(slowStreamTimer);
+      clearTimeout(hardUnlockTimer);
+      unsubscribe();
+    };
   }, [memoizedDocRef]);
 
   return { data, isLoading, error };
