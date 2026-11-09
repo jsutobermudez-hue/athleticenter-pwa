@@ -128,7 +128,7 @@ async function startWhatsApp() {
   });
 }
 
-async function sendOne({ number, text, imageUrl, videoUrl, media }) {
+async function sendOne({ number, text, imageUrl, videoUrl, documentUrl, fileName, media }) {
   if (!isConnected || !sock) throw new Error('WhatsApp no está conectado en São Paulo');
   const clean = String(number).replace(/\D/g, '');
   if (clean.length < 11) throw new Error('Número inválido');
@@ -143,6 +143,36 @@ async function sendOne({ number, text, imageUrl, videoUrl, media }) {
     });
     return r?.key?.id;
   }
+
+  // 1. Envío de Documento PDF
+  if (documentUrl) {
+    let buf = null;
+    if (typeof documentUrl === 'string' && fs.existsSync(documentUrl)) {
+      try { buf = fs.readFileSync(documentUrl); } catch (e) { logErr('[Send] Error leyendo documento PDF de disco:', e.message); }
+    } else if (typeof documentUrl === 'string' && (documentUrl.startsWith('data:application/pdf') || documentUrl.startsWith('data:'))) {
+      buf = Buffer.from(documentUrl.split(';base64,').pop(), 'base64');
+    } else if (typeof documentUrl === 'string' && (documentUrl.startsWith('https://') || documentUrl.startsWith('http://'))) {
+      const dr = await fetch(documentUrl, { signal: AbortSignal.timeout(45000) });
+      if (dr.ok) buf = Buffer.from(await dr.arrayBuffer());
+    }
+    if (buf && buf.length < 50 * 1024 * 1024) {
+      const docName = fileName || 'Catalogo_Athleticenter.pdf';
+      log(`[Send] 📄 Transmitiendo documento PDF (${(buf.length / (1024 * 1024)).toFixed(2)} MB: ${docName}) a ...${String(number).slice(-4)}`);
+      const r = await sock.sendMessage(jid, {
+        document: buf,
+        mimetype: 'application/pdf',
+        fileName: docName,
+        caption: text || '',
+      });
+      return r?.key?.id;
+    } else if (buf) {
+      logErr(`[Send] ⚠️ Documento PDF excede 50 MB, enviando solo texto`);
+    } else {
+      logErr(`[Send] ⚠️ Buffer de PDF no disponible para ...${String(number).slice(-4)}, enviando solo texto`);
+    }
+  }
+
+  // 2. Envío de Video MP4
   if (videoUrl) {
     let buf = null;
     if (typeof videoUrl === 'string' && fs.existsSync(videoUrl)) {
@@ -167,6 +197,8 @@ async function sendOne({ number, text, imageUrl, videoUrl, media }) {
       logErr(`[Send] ⚠️ Buffer de video no disponible para ...${String(number).slice(-4)}, enviando solo texto`);
     }
   }
+
+  // 3. Envío de Imagen
   if (imageUrl) {
     let buf = null;
     if (typeof imageUrl === 'string' && fs.existsSync(imageUrl)) {
@@ -187,6 +219,8 @@ async function sendOne({ number, text, imageUrl, videoUrl, media }) {
       logErr(`[Send] ⚠️ Buffer de imagen no disponible para ...${String(number).slice(-4)}, enviando solo texto`);
     }
   }
+
+  // Fallback a texto
   const r = await sock.sendMessage(jid, { text: text || '' });
   return r?.key?.id;
 }
@@ -210,7 +244,7 @@ function requireKey(req, res, next) {
 
 // ---------------------------------------------------------------- Cola persistente
 const QUEUE_FILE = path.join(__dirname, 'queue.json');
-let queue = [];      // [{ id, campaignId, number, text, imageUrl, videoUrl, attempts }]
+let queue = [];      // [{ id, campaignId, number, text, imageUrl, videoUrl, documentUrl, fileName, attempts }]
 let campaigns = {};  // campaignId -> { sent, failed, total, label, mediaFile }
 try {
   const saved = JSON.parse(fs.readFileSync(QUEUE_FILE, 'utf8'));
@@ -307,10 +341,12 @@ app.get('/api/status', (req, res) => {
 });
 
 app.post('/api/send', requireKey, async (req, res) => {
-  const { number, text, imageUrl, videoUrl, media } = req.body || {};
-  if (!number || (!text && !imageUrl && !videoUrl && !media)) return res.status(400).json({ success: false, error: 'Faltan parámetros obligatorios' });
+  const { number, text, imageUrl, videoUrl, documentUrl, fileName, media } = req.body || {};
+  if (!number || (!text && !imageUrl && !videoUrl && !documentUrl && !media)) {
+    return res.status(400).json({ success: false, error: 'Faltan parámetros obligatorios' });
+  }
   try {
-    const id = await sendOne({ number, text, imageUrl, videoUrl, media });
+    const id = await sendOne({ number, text, imageUrl, videoUrl, documentUrl, fileName, media });
     log(`[Send] ✅ Enviado a ...${String(number).slice(-4)}`);
     res.json({ success: true, messageId: id || 'SENT_OK', provider: 'baileys-saopaulo' });
   } catch (e) {
@@ -320,13 +356,18 @@ app.post('/api/send', requireKey, async (req, res) => {
 });
 
 app.post('/api/queue', requireKey, (req, res) => {
-  const { campaignId, items, label, commonMediaUrl, commonMediaType } = req.body || {};
+  const { campaignId, items, label, commonMediaUrl, commonMediaType, commonMediaFileName } = req.body || {};
   if (!Array.isArray(items) || !items.length) return res.status(400).json({ success: false, error: 'Lista vacía' });
   if (items.length > 1000) return res.status(400).json({ success: false, error: 'Máximo 1000 mensajes por lote' });
   const cid = String(campaignId || `adhoc-${Date.now()}`);
 
-  // Gestionar archivo multimedia común para evitar duplicidad en memoria y disco
+  // Gestionar archivo multimedia o documento PDF común para evitar duplicidad en memoria y disco
   let commonFilePath = null;
+  let resolvedFileName = commonMediaFileName || (label ? `${label.replace(/[^a-zA-Z0-9_-]/g, '_')}.pdf` : 'Catalogo_Athleticenter.pdf');
+  if (!resolvedFileName.toLowerCase().endsWith('.pdf') && (commonMediaType === 'pdf' || commonMediaUrl?.includes('application/pdf'))) {
+    resolvedFileName += '.pdf';
+  }
+
   if (commonMediaUrl && typeof commonMediaUrl === 'string') {
     const mediaDir = path.join(__dirname, 'media_cache');
     try {
@@ -336,7 +377,8 @@ app.post('/api/queue', requireKey, (req, res) => {
         const header = parts[0] || '';
         const b64 = parts[1] || '';
         let ext = 'bin';
-        if (header.includes('video/') || commonMediaType === 'video') ext = 'mp4';
+        if (header.includes('pdf') || commonMediaType === 'pdf') ext = 'pdf';
+        else if (header.includes('video/') || commonMediaType === 'video') ext = 'mp4';
         else if (header.includes('image/png')) ext = 'png';
         else if (header.includes('image/webp')) ext = 'webp';
         else if (header.includes('image/')) ext = 'jpg';
@@ -353,7 +395,7 @@ app.post('/api/queue', requireKey, (req, res) => {
     }
   }
 
-  const valid = items.filter(i => i && i.number && (i.text || i.imageUrl || i.videoUrl || i.media || commonFilePath));
+  const valid = items.filter(i => i && i.number && (i.text || i.imageUrl || i.videoUrl || i.documentUrl || i.media || commonFilePath));
   campaigns[cid] = campaigns[cid] || { sent: 0, failed: 0, total: 0, errors: [], label: label || '', mediaFile: commonFilePath };
   campaigns[cid].total += valid.length;
   if (commonFilePath) campaigns[cid].mediaFile = commonFilePath;
@@ -361,8 +403,11 @@ app.post('/api/queue', requireKey, (req, res) => {
   for (const i of valid) {
     let itemVideo = i.videoUrl;
     let itemImage = i.imageUrl;
+    let itemDoc = i.documentUrl;
     if (commonFilePath) {
-      if (commonMediaType === 'video' || commonFilePath.endsWith('.mp4')) {
+      if (commonMediaType === 'pdf' || commonFilePath.endsWith('.pdf')) {
+        itemDoc = commonFilePath;
+      } else if (commonMediaType === 'video' || commonFilePath.endsWith('.mp4')) {
         itemVideo = commonFilePath;
       } else if (commonMediaType === 'image' || commonFilePath.endsWith('.jpg') || commonFilePath.endsWith('.png') || commonFilePath.endsWith('.webp')) {
         itemImage = commonFilePath;
@@ -375,13 +420,15 @@ app.post('/api/queue', requireKey, (req, res) => {
       text: i.text || '',
       imageUrl: itemImage || undefined,
       videoUrl: itemVideo || undefined,
+      documentUrl: itemDoc || undefined,
+      fileName: resolvedFileName,
       media: i.media || undefined,
       attempts: 0
     });
   }
 
   persist();
-  log(`[Cola] ➕ ${valid.length} mensajes encolados (campaña ${cid}${label ? ' · ' + label : ''}${commonFilePath ? ' [MULTIMEDIA ADJUNTO]' : ''}). Total en cola: ${queue.length}`);
+  log(`[Cola] ➕ ${valid.length} mensajes encolados (campaña ${cid}${label ? ' · ' + label : ''}${commonFilePath ? ' [MULTIMEDIA: ' + path.extname(commonFilePath) + ']' : ''}). Total en cola: ${queue.length}`);
   processQueue();
   res.json({ success: true, campaignId: cid, queued: valid.length, totalQueued: queue.length, businessHours: inBusinessHours() });
 });

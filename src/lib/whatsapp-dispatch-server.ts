@@ -62,7 +62,7 @@ export async function dispatchViaGateways(input: GatewayPayload): Promise<Gatewa
 
   const payload: GatewayPayload = { ...input, number };
   const key = process.env.WHATSAPP_GATEWAY_KEY || '';
-  const spUrl = process.env.WHATSAPP_GATEWAY_SP_URL || 'http://35.199.85.127:3001';
+  const spUrl = process.env.WHATSAPP_GATEWAY_SP_URL || 'http://35.213.77.171:3001';
   const errors: string[] = [];
 
   if (!key) {
@@ -124,7 +124,7 @@ export async function enqueueWhatsAppBatch(
   } = {}
 ): Promise<{ success: boolean; queued?: number; totalQueued?: number; businessHours?: boolean; error?: string }> {
   const key = process.env.WHATSAPP_GATEWAY_KEY || '';
-  const spUrl = process.env.WHATSAPP_GATEWAY_SP_URL || 'http://35.199.85.127:3001';
+  const spUrl = process.env.WHATSAPP_GATEWAY_SP_URL || 'http://35.213.77.171:3001';
   if (!key) return { success: false, error: 'WHATSAPP_GATEWAY_KEY no configurada' };
 
   const clean = items
