@@ -57,8 +57,45 @@ function normalizeText(text: string): string {
         .normalize('NFD')
         .replace(/[\u0300-\u036f]/g, '')
         .replace(/[^a-z0-9\s]/g, ' ')
+        .replace(/\b(valones|valon|pelotas|pelota)\b/g, 'balon')
+        .replace(/\b(voleiball|voleivol|volleyball|voley|veleibol|volei)\b/g, 'voleibol')
+        .replace(/\b(basquet|basket|basketball)\b/g, 'baloncesto')
+        .replace(/\b(soccer|futsal)\b/g, 'futbol')
+        .replace(/\b(bicis|bicicleta|bicicletas)\b/g, 'bici')
+        .replace(/\b(montanera|montaneras|montana|mtb)\b/g, 'montanera spartan')
+        .replace(/\b(?:rin|numero|nro|modelo|talla)\s*(12|16|20|24)\b/g, 'rin $1 $1 inch')
         .replace(/\s+/g, ' ')
         .trim();
+}
+
+function enrichProductDisplayName(rawName: string, rawSku: string, rawCategory: string): string {
+    const skuUpper = String(rawSku || '').trim().toUpperCase();
+    const nameUpper = String(rawName || '').trim().toUpperCase();
+    const catUpper = String(rawCategory || '').trim().toUpperCase();
+
+    if (catUpper === 'BICICLETAS' || skuUpper.startsWith('MB-') || skuUpper.startsWith('KB-')) {
+        let colorLabel = '';
+        if (skuUpper.endsWith('SB') || nameUpper.includes('SKY BLUE')) colorLabel = 'Color Azul Cielo (Sky Blue)';
+        else if (skuUpper.endsWith('B') || nameUpper.includes('BLUE')) colorLabel = 'Color Azul (Blue)';
+        else if (skuUpper.endsWith('R') || nameUpper.includes('RED')) colorLabel = 'Color Rojo (Red)';
+        else if (skuUpper.endsWith('W') || nameUpper.includes('WHITE')) colorLabel = 'Color Blanco (White)';
+        else if (skuUpper.endsWith('Y') || nameUpper.includes('YELLOW')) colorLabel = 'Color Amarillo (Yellow)';
+        else if (skuUpper.endsWith('P') || nameUpper.includes('PINK')) colorLabel = 'Color Rosado (Pink)';
+
+        if (skuUpper.startsWith('MB-001') || (skuUpper.startsWith('MB-') && nameUpper.includes('20'))) {
+            return `BICICLETA MONTAÑERA SPARTAN RIN 20" (20 INCH)${colorLabel ? ` — ${colorLabel}` : ''}`;
+        }
+        if (skuUpper.startsWith('MB-002') || (skuUpper.startsWith('MB-') && nameUpper.includes('24'))) {
+            return `BICICLETA MONTAÑERA SPARTAN RIN 24" (24 INCH)${colorLabel ? ` — ${colorLabel}` : ''}`;
+        }
+        if (skuUpper.startsWith('KB-') && nameUpper.includes('16')) {
+            return `BICICLETA INFANTIL PASEO RIN 16" (16 INCH)${colorLabel ? ` — ${colorLabel}` : ''}`;
+        }
+        if (skuUpper.startsWith('KB-') && nameUpper.includes('12')) {
+            return `BICICLETA INFANTIL PASEO RIN 12" (12 INCH)${colorLabel ? ` — ${colorLabel}` : ''}`;
+        }
+    }
+    return rawName.trim();
 }
 
 function stemSpanishToken(word: string): string {
@@ -273,10 +310,13 @@ async function fetchLightweightCatalog(firestore: any, divisasDiscountPct: numbe
                 const rawCat = (f.category?.stringValue || 'DEPORTES').trim().toUpperCase();
                 const rawDisc = (f.discipline?.stringValue || rawCat).trim().toUpperCase();
 
+                const rawSku = (f.sku?.stringValue || docId || '').trim();
+                const rawName = (f.name?.stringValue || '').trim();
+
                 items.push({
                     docId,
-                    sku: (f.sku?.stringValue || '').trim(),
-                    name: (f.name?.stringValue || '').trim(),
+                    sku: rawSku,
+                    name: enrichProductDisplayName(rawName, rawSku, rawCat),
                     brand: rawBrand,
                     category: rawCat === 'BASKETBALL' ? 'BALONES' : rawCat === 'VOLEIBOL' ? 'BALONES' : rawCat,
                     discipline: rawDisc === 'BASKET' ? 'BALONCESTO' : rawDisc === 'VELEIBOL' ? 'VOLEIBOL' : rawDisc,
@@ -300,13 +340,15 @@ async function fetchLightweightCatalog(firestore: any, divisasDiscountPct: numbe
             const stock = Number(prod.stockLevel || 0);
             const priceDivisas = Math.round(rawPrice * (1 - divisasDiscountPct / 100) * 100) / 100;
             const priceProntoPago = Math.round(priceDivisas * (1 - prontoPagoDiscountPct / 100) * 100) / 100;
+            const rawSku = (prod.sku || d.id || '').trim();
+            const rawCat = (prod.category || 'DEPORTES').trim().toUpperCase();
 
             items.push({
                 docId: d.id,
-                sku: (prod.sku || '').trim(),
-                name: (prod.name || '').trim(),
+                sku: rawSku,
+                name: enrichProductDisplayName(prod.name || '', rawSku, rawCat),
                 brand: (prod.brand || 'GENERAL').trim().toUpperCase(),
-                category: (prod.category || 'DEPORTES').trim().toUpperCase(),
+                category: rawCat,
                 discipline: (prod.discipline || prod.category || 'GENERAL').trim().toUpperCase(),
                 stock,
                 priceLista: rawPrice,
@@ -473,7 +515,17 @@ export async function processArmInboundMessage({ phone, messageText }: ArmInboun
                 score += 12;
             }
             if ((activeNormText.includes('bici') || activeNormText.includes('rin')) && p.category === 'BICICLETAS') {
-                score += 12;
+                score += 10;
+            }
+            for (const sizeNum of ['12', '16', '20', '24']) {
+                if (new RegExp(`\\b${sizeNum}\\b`).test(activeNormText) && new RegExp(`\\b${sizeNum}\\b`).test(normName)) {
+                    score += 25;
+                }
+            }
+            for (const discWord of ['voleibol', 'futbol', 'baloncesto', 'beisbol', 'montanera', 'infantil']) {
+                if (activeNormText.includes(discWord) && (normCat.includes(discWord) || normName.includes(discWord))) {
+                    score += 15;
+                }
             }
             for (const t of activeTokens) {
                 if (t.length < 2) continue;
@@ -509,6 +561,7 @@ export async function processArmInboundMessage({ phone, messageText }: ArmInboun
     let pdfFileName: string | undefined = undefined;
     let productImageUrl: string | undefined = undefined;
     const extraPhotos: Array<{ imageUrl: string; caption: string }> = [];
+    const attachedPhotoLabels: string[] = [];
 
     if (wantsCatalogPdf && inStockProducts.length > 0) {
         try {
@@ -543,8 +596,8 @@ export async function processArmInboundMessage({ phone, messageText }: ArmInboun
         }
     } else if (wantsProductPhoto && directMatches.length > 0) {
         try {
-            const wantsMultiplePhotos = /\b(fotos|imagenes)\b/i.test(normCurrent) && directMatches.length > 1;
-            const maxPhotosToFetch = wantsMultiplePhotos ? Math.min(directMatches.length, 3) : 1;
+            const wantsMultiplePhotos = /\b(fotos|imagenes|colores|modelos|todos|todas)\b/i.test(normCurrent) && directMatches.length > 1;
+            const maxPhotosToFetch = wantsMultiplePhotos ? Math.min(directMatches.length, 4) : 1;
 
             for (let i = 0; i < maxPhotosToFetch; i++) {
                 const targetProd = directMatches[i];
@@ -554,6 +607,8 @@ export async function processArmInboundMessage({ phone, messageText }: ArmInboun
                 const pData = pDoc.data() as Product & { imageUrls?: string[] };
                 const imgSource = pData.imageUrl || (Array.isArray(pData.imageUrls) && pData.imageUrls[0]) || '';
                 if (!imgSource) continue;
+
+                attachedPhotoLabels.push(`[${targetProd.brand}] ${targetProd.name} (SKU: ${targetProd.sku})`);
 
                 if (!productImageUrl) {
                     productImageUrl = imgSource;
@@ -642,9 +697,9 @@ En Athleticenter somos distribuidores mayoristas multimarca y contamos con stock
    - *MIKASA:* Voleibol profesional (V200W, V320W, MVA300, MVA330, W200W CEV, W200W VNL).
    - *SPALDING:* Baloncesto (Spalding NBA).
    - *WILSON:* Baloncesto (Wilson NBA).
-2. 🚲 *BICICLETAS:*
-   - *SPARTAN:* Bicicletas Montañeras Rin 20" ($188 Lista / $141.00 Divisas / $126.90 Pronto Pago) y Rin 24" ($205 Lista / $153.75 Divisas / $138.38 Pronto Pago) en Azul, Rojo, Blanco y Amarillo.
-   - *LÍNEA INFANTIL:* Bicicletas Rin 12" ($86 Lista / $64.50 Divisas) y Rin 16" ($98 Lista / $73.50 Divisas) en Azul, Rojo, Pink y Sky Blue.
+2. 🚲 *BICICLETAS (4 Tamaños de Rin claramente diferenciados):*
+   - *LÍNEA INFANTIL PASEO (Modelos más pequeños con rueditas):* Rin 12" (SKUs KB-006/KB-008: $86 Lista / $64.50 Divisas) y Rin 16" (SKUs KB-005/KB-007: $98 Lista / $73.50 Divisas) en Azul, Rojo, Rosado (Pink) y Azul Cielo (Sky Blue).
+   - *LÍNEA MONTAÑERA SPARTAN:* Rin 20" (SKUs MB-001B Azul, MB-001R Rojo, MB-001W Blanco, MB-001Y Amarillo: $188 Lista / $141.00 Divisas / $126.90 Pronto Pago) y Rin 24" (SKUs MB-002B Azul, MB-002R Rojo, MB-002W Blanco, MB-002Y Amarillo: $205 Lista / $153.75 Divisas / $138.38 Pronto Pago).
 3. ⚾🏓🏊‍♂️🎽 *OTRAS CATEGORÍAS DEPORTIVAS:*
    - *Béisbol:* Guantines de Béisbol *SPARTAN* ($22 Lista / $16.50 Divisas) y *BRUCE BOLT*.
    - *Tenis de Mesa (Ping Pong):* Caja de pelotas *DHS* 3 Estrellas D40+ ($17 Lista / $12.75 Divisas).
@@ -653,8 +708,9 @@ En Athleticenter somos distribuidores mayoristas multimarca y contamos con stock
 
 REGLAS OBLIGATORIAS DE RESPUESTA:
 1. ${pdfBase64 ? '¡IMPORTANTE! En este mismo mensaje el sistema está adjuntando automáticamente el archivo PDF oficial "Catalogo_Mayorista_Athleticenter.pdf". Confírmale al cliente que aquí mismo le estás adjuntando el Catálogo Mayorista Oficial en PDF con todas nuestras marcas y los 3 niveles de precio (Lista, -25% Divisas y -10% Pronto Pago), y preséntale un breve resumen ejecutivo de nuestras líneas principales.' : ''}
-2. ${productImageUrl ? '¡IMPORTANTE! En este mismo mensaje el sistema está adjuntando la fotografía real del producto solicitado. Indícale que adjuntas la imagen junto con los precios y colores/modelos disponibles.' : ''}
-3. RESPONDE CON PRECISIÓN Y VARIEDAD MULTIMARCA:
+2. ${attachedPhotoLabels.length > 0 ? `¡IMPORTANTE! En este mismo mensaje el sistema está adjuntando automáticamente ${attachedPhotoLabels.length} fotografía(s) real(es) de: ${attachedPhotoLabels.join('; ')}. Indícale exactamente qué modelos y colores le estás adjuntando junto con su stock y precios.` : 'No digas "Aquí te adjunto la fotografía" si el sistema no indicó que se adjuntaron fotos.'}
+3. RESPONDE CON PRECISIÓN Y VARIEDAD MULTIMARCA (Y NUNCA CONTRADIGAS AL CLIENTE):
+   - Si el cliente pide la *Montañera Rin 20* (o *modelo 20*), recuerda que existen 2 modelos más pequeños infantiles (Rin 12" y Rin 16") y que la *Montañera SPARTAN Rin 20" (MB-001)* viene en 4 colores: Azul (MB-001B), Rojo (MB-001R), Blanco (MB-001W) y Amarillo (MB-001Y).
    - Si el cliente pregunta por *balones*, menciona nuestras **7 marcas líderes (*MOLTEN, ADIDAS, NIKE, SPARTAN, MIKASA, SPALDING y WILSON*)** y detállale los modelos solicitados con su stock y precios exactos.
    - Si pregunta por varios productos o marcas (ej. *"balón de fútbol Adidas y Nike"*), detalla TODOS los modelos disponibles tanto de *ADIDAS* como de *NIKE* (nunca dejes una marca sin listar).
 4. CERO SALUDOS REPETITIVOS:
@@ -674,7 +730,7 @@ MENSAJE ACTUAL DEL CLIENTE (+${cleanPhone}${customerCompany ? ` - ${customerComp
 "${messageText}"
 
 ${pdfBase64 ? 'NOTA DEL SISTEMA: El archivo PDF del Catálogo Oficial se enviará adjunto a este mensaje.' : ''}
-${productImageUrl ? 'NOTA DEL SISTEMA: La imagen del producto se enviará adjunta a este mensaje.' : ''}
+${attachedPhotoLabels.length > 0 ? `NOTA DEL SISTEMA: Se están enviando adjuntas ${attachedPhotoLabels.length} fotografía(s) real(es) correspondientes a: ${attachedPhotoLabels.join(' | ')}.` : ''}
 
 DIRECTORIO COMPLETO DEL INVENTARIO EN STOCK EN TIEMPO REAL (${inStockProducts.length} productos activos en ${allActiveBrands.size} marcas):
 ${fullInventoryDirectoryLines.join('\n')}
