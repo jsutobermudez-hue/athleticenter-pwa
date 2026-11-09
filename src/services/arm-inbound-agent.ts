@@ -312,6 +312,26 @@ ${leadQualified ? 'NOTA: El cliente proporcionó datos de su comercio o ubicaci�
         }
     }
 
+    // ─────────────────────────────────────────────────────────────
+    // 7. Bitácora en vivo del Agente ARM (whatsapp_inbound_logs)
+    // ─────────────────────────────────────────────────────────────
+    try {
+        await addDoc(collection(firestore, 'whatsapp_inbound_logs'), {
+            phone: cleanPhone,
+            customerName,
+            customerCompany,
+            message: messageText,
+            reply: replyText,
+            intent: isHotIntent ? 'HOT_PURCHASE_INTENT' : hasProducts ? 'CATALOG_AND_PRICING' : 'GENERAL_INQUIRY',
+            isHotLead: handoffTriggered,
+            leadQualified,
+            matchedProductsCount: topMatches.length,
+            processedAt: serverTimestamp()
+        });
+    } catch (logErr: any) {
+        console.warn('[ARM Agent] Error guardando whatsapp_inbound_logs:', logErr?.message || logErr);
+    }
+
     return {
         success: true,
         replyText,

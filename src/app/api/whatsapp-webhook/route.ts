@@ -87,12 +87,12 @@ export async function POST(req: Request) {
           `¡Muchas gracias por su confianza! ⚽`;
 
         await sendBackgroundWhatsAppMessage({ phone: cleanPhone, message: reply });
-        return NextResponse.json({ success: true, action: 'quote_confirmed', quoteId: matchedQuote.id });
+        return NextResponse.json({ success: true, action: 'quote_confirmed', quoteId: matchedQuote.id, replyText: reply });
       } else {
         const reply = `*ATHLETICENTER*\n\n` +
           `¡Muchas gracias por su respuesta! 🙌 Hemos recibido su confirmación. El equipo de Athleticenter se comunicará con usted en breve para asistirle.`;
         await sendBackgroundWhatsAppMessage({ phone: cleanPhone, message: reply });
-        return NextResponse.json({ success: true, action: 'quote_confirmed_general' });
+        return NextResponse.json({ success: true, action: 'quote_confirmed_general', replyText: reply });
       }
     }
 
@@ -219,7 +219,7 @@ export async function POST(req: Request) {
       }
 
       await sendBackgroundWhatsAppMessage({ phone: cleanPhone, message: replyText });
-      return NextResponse.json({ success: true, action: 'reply_order_status' });
+      return NextResponse.json({ success: true, action: 'reply_order_status', replyText });
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -243,7 +243,7 @@ export async function POST(req: Request) {
         `Atentamente,\n*El equipo de Athleticenter*`;
 
       await sendBackgroundWhatsAppMessage({ phone: cleanPhone, message: replyText });
-      return NextResponse.json({ success: true, action: 'reply_bcv_rate' });
+      return NextResponse.json({ success: true, action: 'reply_bcv_rate', replyText });
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -259,6 +259,7 @@ export async function POST(req: Request) {
       return NextResponse.json({
         success: true,
         action: 'arm_agent_processed',
+        replyText: armResult.replyText,
         leadQualified: armResult.leadQualified,
         handoffTriggered: armResult.handoffTriggered,
         matchedProductsCount: armResult.matchedProductsCount
