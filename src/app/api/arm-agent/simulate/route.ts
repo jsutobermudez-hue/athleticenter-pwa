@@ -30,12 +30,19 @@ export async function POST(req: Request) {
         phone,
         message: armResult.replyText,
         orderId: 'ARM-TEST',
+        pdfBase64: armResult.pdfBase64,
+        fileName: armResult.pdfFileName,
+        imageUrl: armResult.imageUrl,
       });
       whatsappDispatched = gw.success;
     }
 
+    const { pdfBase64: _omitPdf, imageUrl: _omitImg, ...safeResult } = armResult;
+
     return NextResponse.json({
-      ...armResult,
+      ...safeResult,
+      hasPdfAttached: Boolean(armResult.pdfBase64),
+      hasPhotoAttached: Boolean(armResult.imageUrl),
       intent: armResult.handoffTriggered ? 'HOT_LEAD_HANDOFF' : 'ARM_SALES_AGENT',
       isHotLead: Boolean(armResult.handoffTriggered),
       whatsappDispatched,

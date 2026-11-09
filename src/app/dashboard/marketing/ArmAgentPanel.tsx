@@ -2,8 +2,8 @@
 
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useCollection, useFirestore, useMemoFirebase } from '@/firebase';
-import { collection, query, orderBy, limit, addDoc, serverTimestamp } from 'firebase/firestore';
+import { useCollection, useDoc, useFirestore, useMemoFirebase } from '@/firebase';
+import { collection, query, orderBy, limit, addDoc, doc, setDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
 import type { Customer } from '@/lib/definitions';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -30,7 +30,11 @@ import {
     UserPlus,
     ClipboardList,
     Megaphone,
-    Boxes
+    Boxes,
+    FileText,
+    Upload,
+    Trash2,
+    Image as ImageIcon
 } from 'lucide-react';
 
 interface ArmAgentPanelProps {
@@ -43,11 +47,91 @@ export function ArmAgentPanel({ customers = [] }: ArmAgentPanelProps) {
     const { toast } = useToast();
 
     const [simPhone, setSimPhone] = useState('04122683183');
-    const [simMessage, setSimMessage] = useState('Hola, somos Tienda El Golazo en Valencia, ¿tienen catálogo disponible y precios de balones?');
+    const [simMessage, setSimMessage] = useState('Sí, envíame el catálogo completo en PDF y precios de balones Adidas y Nike');
     const [simSendWhatsapp, setSimSendWhatsapp] = useState(false);
     const [isSimulating, setIsSimulating] = useState(false);
     const [simResult, setSimResult] = useState<any | null>(null);
     const [creatingCustomerPhone, setCreatingCustomerPhone] = useState<string | null>(null);
+    const [isUploadingPdf, setIsUploadingPdf] = useState(false);
+
+    const armCatalogRef = useMemoFirebase(
+        () => (firestore ? doc(firestore, 'system', 'armCatalog') : null),
+        [firestore]
+    );
+    const { data: customCatalog } = useDoc<any>(armCatalogRef);
+
+    const handleUploadCatalogPdf = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file || !firestore) return;
+        if (file.type !== 'application/pdf') {
+            toast({
+                variant: 'destructive',
+                title: 'Archivo no válido',
+                description: 'Por favor selecciona un archivo en formato PDF (.pdf).',
+            });
+            return;
+        }
+        if (file.size > 900 * 1024) {
+            toast({
+                variant: 'destructive',
+                title: 'PDF demasiado pesado para Firestore directo',
+                description: 'El PDF personalizado debe pesar menos de 900 KB, o usa el Catálogo PDF Automático que genera los 141 productos al instante.',
+            });
+            return;
+        }
+
+        setIsUploadingPdf(true);
+        try {
+            const base64 = await new Promise<string>((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => {
+                    const res = String(reader.result || '');
+                    const clean = res.includes(',') ? res.split(',')[1] : res;
+                    resolve(clean);
+                };
+                reader.onerror = reject;
+                reader.readAsDataURL(file);
+            });
+
+            await setDoc(doc(firestore, 'system', 'armCatalog'), {
+                fileName: file.name.replace(/\s+/g, '_'),
+                pdfBase64: base64,
+                sizeBytes: file.size,
+                updatedAt: serverTimestamp(),
+            });
+
+            toast({
+                title: '📄 Catálogo PDF Oficial cargado',
+                description: `El Agente ARM ahora enviará "${file.name}" automáticamente cuando un cliente pida el catálogo.`,
+            });
+        } catch (err: any) {
+            toast({
+                variant: 'destructive',
+                title: 'Error al subir el PDF',
+                description: err?.message || 'No se pudo guardar el catálogo PDF.',
+            });
+        } finally {
+            setIsUploadingPdf(false);
+            e.target.value = '';
+        }
+    };
+
+    const handleRemoveCustomCatalog = async () => {
+        if (!firestore) return;
+        try {
+            await deleteDoc(doc(firestore, 'system', 'armCatalog'));
+            toast({
+                title: 'Catálogo PDF Dinámico Activado',
+                description: 'El Agente ARM volverá a generar el PDF en vivo desde tu inventario actualizado (141 productos).',
+            });
+        } catch (err: any) {
+            toast({
+                variant: 'destructive',
+                title: 'Error',
+                description: err?.message || 'No se pudo restaurar el catálogo automático.',
+            });
+        }
+    };
 
     const hotLeadsQuery = useMemoFirebase(
         () => (firestore ? query(collection(firestore, 'crm_hot_leads'), orderBy('createdAt', 'desc'), limit(20)) : null),
@@ -251,6 +335,61 @@ export function ArmAgentPanel({ customers = [] }: ArmAgentPanelProps) {
                             </p>
                         </div>
                     </div>
+
+                    {/* Barra de Gestión de Catálogo PDF & Fotos Automáticas */}
+                    <div className="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/25 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                        <div className="flex items-start sm:items-center gap-3">
+                            <div className="h-10 w-10 rounded-xl bg-emerald-500/20 flex items-center justify-center text-emerald-400 shrink-0">
+                                <FileText className="h-5 w-5" />
+                            </div>
+                            <div>
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <span className="text-xs font-black uppercase tracking-wide text-white">
+                                        Envío Automático de Catálogo PDF y Fotos por WhatsApp
+                                    </span>
+                                    <Badge className="bg-emerald-500 text-slate-950 border-none text-[8px] font-black uppercase">
+                                        {customCatalog?.pdfBase64 ? 'PDF Personalizado Activo' : 'PDF Dinámico en Vivo (141 Productos / 14 Marcas)'}
+                                    </Badge>
+                                </div>
+                                <p className="text-[11px] text-slate-300 mt-0.5">
+                                    {customCatalog?.pdfBase64
+                                        ? `Archivo cargado: ${customCatalog.fileName || 'Catalogo_Mayorista.pdf'}. Se adjunta automáticamente cuando un cliente pide el catálogo.`
+                                        : 'Cuando el cliente pide el catálogo o lista de precios, el bot genera y adjunta al instante el PDF con tus 141 productos y las 3 columnas de precios (Lista, -25% Divisas y -10% Pronto Pago).'}
+                                </p>
+                            </div>
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-2 shrink-0">
+                            <label className="cursor-pointer inline-flex items-center gap-1.5 h-9 px-3.5 rounded-xl bg-white/10 hover:bg-white/20 text-white font-black uppercase text-[9px] tracking-wider transition-colors">
+                                {isUploadingPdf ? (
+                                    <>
+                                        <Loader2 className="h-3.5 w-3.5 animate-spin" /> Subiendo...
+                                    </>
+                                ) : (
+                                    <>
+                                        <Upload className="h-3.5 w-3.5 text-emerald-400" /> Subir PDF Propio (Opcional)
+                                    </>
+                                )}
+                                <input
+                                    type="file"
+                                    accept="application/pdf"
+                                    className="hidden"
+                                    onChange={handleUploadCatalogPdf}
+                                    disabled={isUploadingPdf}
+                                />
+                            </label>
+                            {customCatalog?.pdfBase64 && (
+                                <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={handleRemoveCustomCatalog}
+                                    className="h-9 px-3 rounded-xl border-rose-500/40 bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 font-black uppercase text-[9px] tracking-wider flex items-center gap-1"
+                                >
+                                    <Trash2 className="h-3 w-3" /> Usar PDF Automático
+                                </Button>
+                            )}
+                        </div>
+                    </div>
                 </CardContent>
             </Card>
 
@@ -271,8 +410,9 @@ export function ArmAgentPanel({ customers = [] }: ArmAgentPanelProps) {
 
                     <div className="flex flex-wrap gap-2">
                         {[
-                            'Hola, somos Tienda El Golazo en Valencia, ¿tienen catálogo disponible?',
-                            '¿Qué precio tienen los balones y cuánto queda pagando en divisas?',
+                            'Sí, envíame el catálogo completo en PDF por favor',
+                            '¿Tienen balón de fútbol Adidas y Nike y qué otras marcas tienen?',
+                            'Envíame fotos y precios de las bicicletas por favor',
                             'Quiero comprar 20 unidades de contado hoy mismo, pásame cuenta para pagar'
                         ].map((preset, idx) => (
                             <button
@@ -376,8 +516,20 @@ export function ArmAgentPanel({ customers = [] }: ArmAgentPanelProps) {
                                 <div className="ml-auto max-w-[85%] rounded-2xl rounded-tr-none bg-[#005c4b] p-3.5 text-xs text-white">
                                     {simMessage}
                                 </div>
-                                <div className="mr-auto max-w-[90%] rounded-2xl rounded-tl-none bg-[#202c33] p-4 text-xs text-slate-100 whitespace-pre-wrap leading-relaxed border border-white/5">
-                                    {simResult.replyText}
+                                <div className="mr-auto max-w-[90%] rounded-2xl rounded-tl-none bg-[#202c33] p-4 text-xs text-slate-100 whitespace-pre-wrap leading-relaxed border border-white/5 space-y-3">
+                                    {simResult.hasPdfAttached && (
+                                        <div className="p-2.5 rounded-xl bg-emerald-500/15 border border-emerald-500/30 flex items-center gap-2.5 text-emerald-300 font-bold text-[11px]">
+                                            <FileText className="h-4 w-4 shrink-0 text-emerald-400" />
+                                            <span>📎 Documento PDF adjunto: {simResult.pdfFileName || 'Catalogo_Mayorista_Athleticenter.pdf'}</span>
+                                        </div>
+                                    )}
+                                    {simResult.hasPhotoAttached && (
+                                        <div className="p-2.5 rounded-xl bg-sky-500/15 border border-sky-500/30 flex items-center gap-2.5 text-sky-300 font-bold text-[11px]">
+                                            <ImageIcon className="h-4 w-4 shrink-0 text-sky-400" />
+                                            <span>📸 Fotografía real del producto adjunta desde el inventario</span>
+                                        </div>
+                                    )}
+                                    <div>{simResult.replyText}</div>
                                 </div>
                             </div>
                         ) : (

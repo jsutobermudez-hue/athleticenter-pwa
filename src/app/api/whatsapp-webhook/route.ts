@@ -1,25 +1,16 @@
 import { NextResponse } from 'next/server';
 import { timingSafeEqual } from 'crypto';
 import { initializeFirebaseServer, ensureServerAuth } from '@/firebase/server-init';
-import { collection, query, where, getDocs, limit, orderBy, doc, getDoc, updateDoc, addDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, query, getDocs, limit, orderBy, doc, getDoc, updateDoc, addDoc, serverTimestamp } from 'firebase/firestore';
 import { sendBackgroundWhatsAppMessage, formatVenezuelaPhoneE164 } from '@/lib/whatsapp-gateway';
 import { processArmInboundMessage } from '@/services/arm-inbound-agent';
 
 /**
- * WEBHOOK MULTI-GATEWAY DE WHATSAPP (ATHLETICENTER)
- * Procesa mensajes entrantes desde:
- *  - Servidor Local (whatsapp-web.js en puerto 3001)
- *  - UltraMsg / Twilio / Gateway en la nube
- * 
- * Intents soportados:
- *  1. Confirmación de cotizaciones ("SÍ", "CONFIRMO", "ME INTERESA")
- *  2. Encuesta de objeciones Gemini Closer (1, 2, 3, 4)
- *  3. Estatus de pedidos ("ESTADO", "PEDIDO", "GUIA")
- *  4. Tasa BCV del día ("TASA", "BCV")
- *  5. Menú de ayuda general ("HOLA", "ASESOR", "AYUDA")
+ * WEBHOOK MULTI-GATEWAY DE WHATSAPP (ATHLETICENTER v3.0)
+ * Prioriza el Agente Comercial Autónomo ARM (con envío automático de Catálogo PDF y Fotos)
+ * evitando falsos positivos en confirmaciones de cotización o números en frases naturales.
  */
 export async function POST(req: Request) {
-  // Seguridad: solo el gateway de WhatsApp (São Paulo) puede notificar mensajes entrantes.
   const secret = process.env.WHATSAPP_WEBHOOK_SECRET || '';
   const provided = req.headers.get('x-webhook-secret') || '';
   if (!secret || secret.length < 24 || provided.length !== secret.length || !timingSafeEqual(Buffer.from(provided), Buffer.from(secret))) {
@@ -50,20 +41,24 @@ export async function POST(req: Request) {
     const { firestore } = initializeFirebaseServer();
 
     // ─────────────────────────────────────────────────────────────
-    // INTENT 1: CONFIRMACIÓN DE COTIZACIÓN ("SÍ", "CONFIRMO", ETC.)
+    // INTENT 1: CONFIRMACIÓN ESTRICTA DE COTIZACIÓN ABIERTA
+    // Solo si es una confirmación corta y NO menciona catálogo, productos, precios o marcas,
+    // y únicamente si el cliente posee una cotización activa en estado 'Enviada'.
     // ─────────────────────────────────────────────────────────────
-    const isAffirmative = /^(S[IÍ]|CONFIRMO|CONFIRMAR|ACEPTO|ACEPTAR|DALE|ME INTERESA|PROCEDER|APROBADO|APROBAR)(\b|\s)/i.test(upperText)
-      || upperText === 'SÍ' || upperText === 'SI';
+    const mentionsCatalogOrProduct = /(CATALOGO|CATÁLOGO|PRECIO|BALON|BICI|MARCA|MODELO|ENVIAME|ENVÍAME|PASAME|PÁSAME|MANDAME|MÁNDAME|TIENEN|TIENES|CUANTO|FOTO|PDF|LISTA|OFERTA|ADIDAS|NIKE|MOLTEN|SPARTAN|MIKASA|SPALDING|WILSON)/i.test(upperText);
+    const isStrictQuoteConfirm =
+      !mentionsCatalogOrProduct &&
+      messageText.length <= 28 &&
+      /^(CONFIRMO|CONFIRMAR COTIZACION|ACEPTO COTIZACION|APROBADO|APROBAR COTIZACION)$/i.test(upperText);
 
-    if (isAffirmative) {
-      // Buscar la cotización más reciente vinculada a este cliente
+    if (isStrictQuoteConfirm) {
       const quotesRef = collection(firestore, 'quotes');
       const snap = await getDocs(query(quotesRef, orderBy('createdAt', 'desc'), limit(50)));
-      
+
       const matchedQuote = snap.docs.find(d => {
         const qData = d.data();
         const p = String(qData.customerPhone || '').replace(/[^\d]/g, '');
-        return p.endsWith(last10);
+        return p.endsWith(last10) && qData.status === 'Enviada';
       });
 
       if (matchedQuote) {
@@ -75,7 +70,7 @@ export async function POST(req: Request) {
             closerCustomerInterested: true,
             closerCustomerResponse: messageText,
             closerCustomerRespondedAt: serverTimestamp(),
-            status: qData.status === 'Enviada' ? 'Aceptada' : qData.status
+            status: 'Aceptada'
           });
         } catch (updateErr) {
           console.error('[WhatsApp Webhook] Error actualizando cotización:', updateErr);
@@ -88,38 +83,24 @@ export async function POST(req: Request) {
 
         await sendBackgroundWhatsAppMessage({ phone: cleanPhone, message: reply });
         return NextResponse.json({ success: true, action: 'quote_confirmed', quoteId: matchedQuote.id, replyText: reply });
-      } else {
-        const reply = `*ATHLETICENTER*\n\n` +
-          `¡Muchas gracias por su respuesta! 🙌 Hemos recibido su confirmación. El equipo de Athleticenter se comunicará con usted en breve para asistirle.`;
-        await sendBackgroundWhatsAppMessage({ phone: cleanPhone, message: reply });
-        return NextResponse.json({ success: true, action: 'quote_confirmed_general', replyText: reply });
       }
     }
 
     // ─────────────────────────────────────────────────────────────
-    // INTENT 2: RESPUESTA A CATÁLOGO (1-6) O ENCUESTA CLOSER (1-4)
+    // INTENT 2: RESPUESTA NUMÉRICA ESTRICTA A CATÁLOGO BI-SEMANAL O ENCUESTA CLOSER (SOLO "1" AL "6")
     // ─────────────────────────────────────────────────────────────
-    const catalogRegex = /(?:QUIERO|APARTAME|ME INTERESA|DAME|APARTAR|SEPARA|COMPRAR|OPCION|NUMERO|#)?\s*(?:EL|LA)?\s*([1-6])(?:\b|\.|\s|$)/i;
-    const match = upperText.match(catalogRegex);
-    const hasBuyKeyword = /(QUIERO|APARTAME|ME INTERESA|DAME|APARTAR|SEPARA|COMPRAR)/i.test(upperText);
+    const strictOptionMatch = upperText.match(/^(?:OPCION|OPCIÓN)?\s*([1-6])$/i);
+    if (strictOptionMatch) {
+      const optionNum = parseInt(strictOptionMatch[1], 10);
 
-    const optionChar = match ? match[1] : '';
-
-    if (optionChar) {
-      const optionNum = parseInt(optionChar, 10);
-
-      // 1. Revisar si hay un catálogo activo publicado en el sistema
       let activeCatalogSnap = null;
       try {
         activeCatalogSnap = await getDoc(doc(firestore, 'system', 'activeCatalog'));
-      } catch (catErr) {
-        console.warn('[WhatsApp Webhook] No se pudo leer activeCatalog:', catErr);
-      }
+      } catch {}
 
       const activeSlots: any[] = activeCatalogSnap?.exists() ? (activeCatalogSnap.data()?.slots || []) : [];
       const matchedSlot = activeSlots.find((s: any) => s.slot === optionNum);
 
-      // Buscar si el cliente tenía una cotización en etapa de encuesta Closer
       const quotesRef = collection(firestore, 'quotes');
       const quotesSnap = await getDocs(query(quotesRef, orderBy('createdAt', 'desc'), limit(30)));
       const matchedCloserQuote = quotesSnap.docs.find(d => {
@@ -128,8 +109,7 @@ export async function POST(req: Request) {
         return p.endsWith(last10) && qData.closerFeedbackSent === true;
       });
 
-      // Si el cliente tenía encuesta de Closer pendiente y escribió solo "1", "2", "3" o "4" sin palabras de compra:
-      if (matchedCloserQuote && !hasBuyKeyword && optionNum <= 4) {
+      if (matchedCloserQuote && optionNum <= 4) {
         const objectionLabels: Record<string, string> = {
           '1': 'Precio / Presupuesto',
           '2': 'Tiempo de entrega',
@@ -144,19 +124,16 @@ export async function POST(req: Request) {
             closerObjectionCode: String(optionNum),
             closerFeedbackReceivedAt: serverTimestamp()
           });
-        } catch (updateErr) {
-          console.error('[WhatsApp Webhook] Error registrando objeción:', updateErr);
-        }
+        } catch {}
 
         const reply = `*ATHLETICENTER*\n\n` +
           `Muchas gracias por su respuesta. Tomamos muy en cuenta su retroalimentación (*${label}*) para seguir brindándole el mejor servicio y las mejores condiciones comerciales.\n\n` +
           `El equipo de Athleticenter queda a su entera disposición. 🙌`;
 
         await sendBackgroundWhatsAppMessage({ phone: cleanPhone, message: reply });
-        return NextResponse.json({ success: true, action: 'objection_recorded', option: optionNum, label });
+        return NextResponse.json({ success: true, action: 'objection_recorded', option: optionNum, label, replyText: reply });
       }
 
-      // De lo contrario, si hay un producto en el catálogo en ese slot: ¡Es una solicitud de producto!
       if (matchedSlot) {
         try {
           await addDoc(collection(firestore, 'catalog_leads'), {
@@ -169,9 +146,7 @@ export async function POST(req: Request) {
             rawMessage: messageText,
             createdAt: serverTimestamp()
           });
-        } catch (leadErr) {
-          console.error('[WhatsApp Webhook] Error guardando catalog_lead:', leadErr);
-        }
+        } catch {}
 
         const reply = `*ATHLETICENTER*\n\n` +
           `¡Excelente elección! 🙌 Hemos registrado su solicitud para apartar:\n\n` +
@@ -181,65 +156,58 @@ export async function POST(req: Request) {
           `¡Muchas gracias por su confianza! ⚽`;
 
         await sendBackgroundWhatsAppMessage({ phone: cleanPhone, message: reply });
-        return NextResponse.json({ success: true, action: 'catalog_product_requested', slot: matchedSlot.slot, product: matchedSlot.name });
+        return NextResponse.json({ success: true, action: 'catalog_product_requested', slot: matchedSlot.slot, product: matchedSlot.name, replyText: reply });
       }
     }
 
     // ─────────────────────────────────────────────────────────────
-    // INTENT 3: RASTREO Y ESTADO DE PEDIDO ("ESTADO" o "PEDIDO")
+    // INTENT 3: RASTREO EXPLÍCITO DE PEDIDO
     // ─────────────────────────────────────────────────────────────
-    if (upperText.includes('ESTADO') || upperText.includes('PEDIDO') || upperText.includes('GUIA') || upperText.includes('TRACKING') || upperText.includes('ESTATUS')) {
+    if (/(ESTADO DE MI PEDIDO|ESTATUS DE MI PEDIDO|RASTREAR MI PEDIDO|NUMERO DE GUIA|MI GUIA DE ENVIO)/i.test(upperText)) {
       const ordersRef = collection(firestore, 'orders');
       const snap = await getDocs(query(ordersRef, orderBy('createdAt', 'desc'), limit(50)));
-      
+
       const matchedOrder = snap.docs.find(d => {
         const oData = d.data();
         const p = String(oData.customerPhone || '').replace(/[^\d]/g, '');
         return p.endsWith(last10);
       });
 
-      let replyText = '';
       if (matchedOrder) {
         const oData = matchedOrder.data();
         const code = oData.orderNumber || matchedOrder.id.substring(0, 8).toUpperCase();
         const total = Number(oData.totalAmount || 0).toFixed(2);
         const status = oData.status || 'En Proceso';
 
-        replyText = `*ATHLETICENTER*\n\n` +
+        const replyText = `*ATHLETICENTER*\n\n` +
           `Estimado(a) *${oData.customerName || 'Cliente'}*:\n\n` +
           `Le informamos el estatus de su pedido *#${code}*:\n` +
           `• *Estado:* ${status}\n` +
           `• *Total USD:* $${total}\n` +
           (oData.trackingNumber ? `• *Guía de Envío:* ${oData.trackingNumber} (${oData.carrier || 'MRW'})\n` : '') +
           `\nPara conciliar abonos o coordinar entregas, el equipo de Athleticenter está a su disposición.`;
-      } else {
-        replyText = `*ATHLETICENTER*\n\n` +
-          `Hola. No encontramos pedidos recientes asociados al número +${cleanPhone}.\n\n` +
-          `Por favor indíquenos su nombre, RIF o número de pedido para que el equipo de Athleticenter lo verifique de inmediato.`;
-      }
 
-      await sendBackgroundWhatsAppMessage({ phone: cleanPhone, message: replyText });
-      return NextResponse.json({ success: true, action: 'reply_order_status', replyText });
+        await sendBackgroundWhatsAppMessage({ phone: cleanPhone, message: replyText });
+        return NextResponse.json({ success: true, action: 'reply_order_status', replyText });
+      }
     }
 
     // ─────────────────────────────────────────────────────────────
-    // INTENT 4: TASA BCV DEL DÍA ("TASA" o "BCV")
+    // INTENT 4: TASA BCV DEL DÍA (CONSULTA DIRECTA DE TASA)
     // ─────────────────────────────────────────────────────────────
-    if (upperText.includes('TASA') || upperText.includes('BCV') || upperText.includes('DOLAR')) {
+    if (/^(TASA|BCV|TASA BCV|CUAL ES LA TASA|A COMO ESTA EL DOLAR|TASA DEL DIA)\??$/i.test(upperText)) {
       let bcvRate = 65.50;
       try {
         const settingsSnap = await getDoc(doc(firestore, 'system', 'financials'));
         if (settingsSnap.exists() && settingsSnap.data().bcvRate) {
           bcvRate = Number(settingsSnap.data().bcvRate);
         }
-      } catch (rateErr) {
-        console.warn('[WhatsApp Webhook] No se pudo leer tasa BCV de firestore:', rateErr);
-      }
+      } catch {}
 
       const replyText = `*ATHLETICENTER*\n\n` +
         `💵 *Tasa Oficial BCV del día:*\n` +
         `*Bs. ${bcvRate.toFixed(2)} / USD*\n\n` +
-        `Todos nuestros productos y facturas se calculan con base en la tasa oficial vigente.\n\n` +
+        `Todos nuestros productos y facturas se calculan con base en la tasa oficial vigente, o con *25% de descuento pagando en divisas* + *10% adicional por pronto pago*.\n\n` +
         `Atentamente,\n*El equipo de Athleticenter*`;
 
       await sendBackgroundWhatsAppMessage({ phone: cleanPhone, message: replyText });
@@ -247,19 +215,26 @@ export async function POST(req: Request) {
     }
 
     // ─────────────────────────────────────────────────────────────
-    // INTENT 5: AGENTE AGÉNTICO COMERCIAL (ARM INBOUND CON GEMINI)
+    // INTENT 5: AGENTE AGÉNTICO COMERCIAL (ARM INBOUND v3.0 CON PDF Y FOTOS)
     // ─────────────────────────────────────────────────────────────
-    // Cualquier consulta natural, saludo, solicitud de productos, precios o catálogo
-    // es atendida por el Asesor Comercial Agéntico 24/7 (ARM).
-    console.log(`[WhatsApp Webhook] 🤖 Activando Agente ARM para +${cleanPhone}: "${messageText}"`);
+    console.log(`[WhatsApp Webhook] 🤖 Activando Agente ARM v3.0 para +${cleanPhone}: "${messageText}"`);
     const armResult = await processArmInboundMessage({ phone: cleanPhone, messageText });
 
     if (armResult.replyText) {
-      await sendBackgroundWhatsAppMessage({ phone: cleanPhone, message: armResult.replyText });
+      await sendBackgroundWhatsAppMessage({
+        phone: cleanPhone,
+        message: armResult.replyText,
+        pdfBase64: armResult.pdfBase64,
+        fileName: armResult.pdfFileName || 'Catalogo_Mayorista_Athleticenter.pdf',
+        imageUrl: armResult.imageUrl
+      });
+
       return NextResponse.json({
         success: true,
         action: 'arm_agent_processed',
         replyText: armResult.replyText,
+        pdfSent: Boolean(armResult.pdfBase64),
+        imageSent: Boolean(armResult.imageUrl),
         leadQualified: armResult.leadQualified,
         handoffTriggered: armResult.handoffTriggered,
         matchedProductsCount: armResult.matchedProductsCount

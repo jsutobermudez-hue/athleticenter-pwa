@@ -1,4 +1,5 @@
 import { ai } from '@/ai/genkit';
+import { jsPDF } from 'jspdf';
 import { initializeFirebaseServer, ensureServerAuth } from '@/firebase/server-init';
 import {
     collection,
@@ -23,6 +24,9 @@ export interface ArmInboundInput {
 export interface ArmInboundResult {
     success: boolean;
     replyText: string;
+    pdfBase64?: string;
+    pdfFileName?: string;
+    imageUrl?: string;
     leadQualified?: boolean;
     handoffTriggered?: boolean;
     matchedProductsCount?: number;
@@ -30,6 +34,7 @@ export interface ArmInboundResult {
 }
 
 interface ProductMatch {
+    docId: string;
     name: string;
     sku: string;
     brand: string;
@@ -62,6 +67,157 @@ function stemSpanishToken(word: string): string {
     if (word.endsWith('es') && word.length > 5) return word.slice(0, -2);
     if (word.endsWith('s') && !word.endsWith('ss')) return word.slice(0, -1);
     return word;
+}
+
+/**
+ * Genera al vuelo un Catálogo Mayorista Oficial en PDF (Base64) sincronizado con el stock real
+ * y las 3 columnas de la Política Comercial de Cascada (Lista, -25% Divisas, -10% Pronto Pago).
+ */
+export function generateLiveCatalogPdfBase64(
+    products: ProductMatch[],
+    bcvRate: number,
+    divisasDiscountPct: number,
+    prontoPagoDiscountPct: number
+): string {
+    const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    const pageWidth = 210;
+    const margin = 12;
+    let y = 14;
+
+    const drawHeader = (pageNum: number) => {
+        // Banda corporativa superior oscura
+        pdf.setFillColor(15, 23, 42);
+        pdf.rect(0, 0, pageWidth, 32, 'F');
+
+        pdf.setFont('helvetica', 'bold');
+        pdf.setFontSize(15);
+        pdf.setTextColor(255, 255, 255);
+        pdf.text('ATHLETICENTER C.A.', margin, 13);
+
+        pdf.setFontSize(8.5);
+        pdf.setTextColor(52, 211, 153);
+        pdf.text('RIF: J-507140202  |  DISTRIBUIDOR MAYORISTA OFICIAL MULTIMARCA', margin, 19);
+
+        pdf.setFont('helvetica', 'normal');
+        pdf.setFontSize(7.5);
+        pdf.setTextColor(203, 213, 225);
+        pdf.text(
+            `Política Comercial: -${divisasDiscountPct}% Pago en Divisas  |  -${prontoPagoDiscountPct}% Adicional Pronto Pago  |  Tasa BCV Ref: Bs. ${bcvRate.toFixed(2)}/USD`,
+            margin,
+            26
+        );
+
+        pdf.setFont('helvetica', 'bold');
+        pdf.setFontSize(10);
+        pdf.setTextColor(255, 255, 255);
+        pdf.text('CATÁLOGO Y LISTA DE PRECIOS', pageWidth - margin, 13, { align: 'right' });
+
+        pdf.setFont('helvetica', 'normal');
+        pdf.setFontSize(7.5);
+        pdf.setTextColor(148, 163, 184);
+        pdf.text(`Actualizado: ${new Date().toLocaleDateString('es-VE')}  |  Pág. ${pageNum}`, pageWidth - margin, 20, { align: 'right' });
+    };
+
+    const drawTableCols = (topY: number) => {
+        pdf.setFillColor(30, 41, 59);
+        pdf.rect(margin, topY, pageWidth - margin * 2, 7, 'F');
+        pdf.setFont('helvetica', 'bold');
+        pdf.setFontSize(7);
+        pdf.setTextColor(255, 255, 255);
+        pdf.text('SKU', margin + 2, topY + 4.8);
+        pdf.text('MARCA', margin + 28, topY + 4.8);
+        pdf.text('PRODUCTO / MODELO', margin + 52, topY + 4.8);
+        pdf.text('STOCK', margin + 123, topY + 4.8, { align: 'right' });
+        pdf.text('LISTA (BCV)', margin + 144, topY + 4.8, { align: 'right' });
+        pdf.text(`DIVISAS (-${divisasDiscountPct}%)`, margin + 165, topY + 4.8, { align: 'right' });
+        pdf.text(`P. PAGO (-${prontoPagoDiscountPct}%)`, pageWidth - margin - 2, topY + 4.8, { align: 'right' });
+        return topY + 7;
+    };
+
+    let pageNum = 1;
+    drawHeader(pageNum);
+    y = 38;
+
+    const grouped = new Map<string, ProductMatch[]>();
+    for (const p of products) {
+        const key = `${p.category} — ${p.discipline}`;
+        if (!grouped.has(key)) grouped.set(key, []);
+        grouped.get(key)!.push(p);
+    }
+
+    for (const [sectionTitle, items] of grouped.entries()) {
+        if (y > 262) {
+            pdf.addPage();
+            pageNum++;
+            drawHeader(pageNum);
+            y = 38;
+        }
+
+        // Encabezado de sección
+        pdf.setFillColor(236, 253, 245);
+        pdf.rect(margin, y, pageWidth - margin * 2, 7, 'F');
+        pdf.setFont('helvetica', 'bold');
+        pdf.setFontSize(8.5);
+        pdf.setTextColor(6, 95, 70);
+        pdf.text(`${sectionTitle} (${items.length} MODELOS DISPONIBLES)`, margin + 3, y + 4.8);
+        y += 7.5;
+
+        y = drawTableCols(y);
+
+        items.forEach((item, idx) => {
+            if (y > 276) {
+                pdf.addPage();
+                pageNum++;
+                drawHeader(pageNum);
+                y = 38;
+                y = drawTableCols(y);
+            }
+
+            if (idx % 2 === 0) {
+                pdf.setFillColor(248, 250, 252);
+                pdf.rect(margin, y, pageWidth - margin * 2, 6.2, 'F');
+            }
+
+            pdf.setFont('helvetica', 'normal');
+            pdf.setFontSize(6.8);
+            pdf.setTextColor(71, 85, 105);
+            pdf.text((item.sku || '').slice(0, 14), margin + 2, y + 4.3);
+
+            pdf.setFont('helvetica', 'bold');
+            pdf.setTextColor(15, 23, 42);
+            pdf.text((item.brand || '').slice(0, 12), margin + 28, y + 4.3);
+
+            pdf.setFont('helvetica', 'normal');
+            pdf.text((item.name || '').slice(0, 38), margin + 52, y + 4.3);
+
+            pdf.text(`${item.stock} un.`, margin + 123, y + 4.3, { align: 'right' });
+            pdf.text(money(item.priceLista), margin + 144, y + 4.3, { align: 'right' });
+
+            pdf.setFont('helvetica', 'bold');
+            pdf.setTextColor(5, 150, 105);
+            pdf.text(money(item.priceDivisas), margin + 165, y + 4.3, { align: 'right' });
+
+            pdf.setTextColor(37, 99, 235);
+            pdf.text(money(item.priceProntoPago), pageWidth - margin - 2, y + 4.3, { align: 'right' });
+
+            y += 6.2;
+        });
+
+        y += 4;
+    }
+
+    // Pie de página corporativo
+    pdf.setFont('helvetica', 'italic');
+    pdf.setFontSize(7.5);
+    pdf.setTextColor(100, 116, 139);
+    pdf.text(
+        'Athleticenter C.A. — Pedidos y Cotizaciones por este WhatsApp Corporativo (+58 414-6719204). Despachos a nivel nacional.',
+        pageWidth / 2,
+        290,
+        { align: 'center' }
+    );
+
+    return Buffer.from(pdf.output('arraybuffer')).toString('base64');
 }
 
 /**
@@ -103,6 +259,8 @@ async function fetchLightweightCatalog(firestore: any, divisasDiscountPct: numbe
         if (res.ok) {
             const rows = await res.json();
             for (const row of rows) {
+                const docName: string = row?.document?.name || '';
+                const docId = docName.split('/').pop() || '';
                 const f = row?.document?.fields;
                 if (!f) continue;
                 const rawPrice = Number(f.price?.doubleValue ?? f.price?.integerValue ?? 0);
@@ -115,6 +273,7 @@ async function fetchLightweightCatalog(firestore: any, divisasDiscountPct: numbe
                 const rawDisc = (f.discipline?.stringValue || rawCat).trim().toUpperCase();
 
                 items.push({
+                    docId,
                     sku: (f.sku?.stringValue || '').trim(),
                     name: (f.name?.stringValue || '').trim(),
                     brand: rawBrand,
@@ -132,7 +291,6 @@ async function fetchLightweightCatalog(firestore: any, divisasDiscountPct: numbe
         console.warn('[ARM Agent] Fallback de runQuery a getDocs:', e?.message || e);
     }
 
-    // Fallback SDK tradicional
     try {
         const prodSnap = await getDocs(query(collection(firestore, 'products'), limit(300)));
         for (const d of prodSnap.docs) {
@@ -143,6 +301,7 @@ async function fetchLightweightCatalog(firestore: any, divisasDiscountPct: numbe
             const priceProntoPago = Math.round(priceDivisas * (1 - prontoPagoDiscountPct / 100) * 100) / 100;
 
             items.push({
+                docId: d.id,
                 sku: (prod.sku || '').trim(),
                 name: (prod.name || '').trim(),
                 brand: (prod.brand || 'GENERAL').trim().toUpperCase(),
@@ -161,18 +320,6 @@ async function fetchLightweightCatalog(firestore: any, divisasDiscountPct: numbe
     return items;
 }
 
-/**
- * MOTOR AGÉNTICO COMERCIAL (ARM - INBOUND v3.0 — VISIÓN TOTAL DEL INVENTARIO 14 MARCAS)
- * Conoce los 141+ productos y todas las marcas de Athleticenter:
- *  - Balones: MOLTEN, ADIDAS, NIKE, SPARTAN, MIKASA, SPALDING, WILSON, PUMA
- *    (Baloncesto, Fútbol Campo, Fútbol Sala, Fútbol 7, Voleibol)
- *  - Bicicletas: SPARTAN (Rin 20" y Rin 24") y Línea Infantil (Rin 12" y Rin 16")
- *  - Béisbol: SPARTAN (Guantines) y BRUCE BOLT
- *  - Tenis de Mesa (Ping Pong): DHS (Pelotas 3 Estrellas D40+)
- *  - Arbitraje / Accesorios: FOX 40 (Silbatos de dedo y cuerda)
- *  - Acuáticos / Snorkel: ECOLOGY (Sets playeros y equipos de snorkel)
- *  - Indumentaria: MESSI KIDS (Chaquetas, Hoodies, Franelillas, Gorras)
- */
 export async function processArmInboundMessage({ phone, messageText }: ArmInboundInput): Promise<ArmInboundResult> {
     const cleanPhone = formatVenezuelaPhoneE164(phone);
     const last10 = cleanPhone.slice(-10);
@@ -257,27 +404,21 @@ export async function processArmInboundMessage({ phone, messageText }: ArmInboun
     }
 
     // ─────────────────────────────────────────────────────────────
-    // 4. Cargar TODO el Catálogo (141 productos, 14 marcas) sin imágenes Base64
+    // 4. Cargar TODO el Catálogo (141 productos, 14 marcas)
     // ─────────────────────────────────────────────────────────────
     const allCatalog = await fetchLightweightCatalog(firestore, divisasDiscountPct, prontoPagoDiscountPct);
     const inStockProducts = allCatalog.filter(p => p.stock > 0);
 
-    // Agrupar productos en stock por Categoría/Disciplina y por Marca para que Gemini tenga visión 100% completa
     const groupedBySection = new Map<string, ProductMatch[]>();
-    const brandsByCategory = new Map<string, Set<string>>();
     const allActiveBrands = new Set<string>();
 
     for (const p of inStockProducts) {
         const sectionKey = `${p.category} — ${p.discipline}`;
         if (!groupedBySection.has(sectionKey)) groupedBySection.set(sectionKey, []);
         groupedBySection.get(sectionKey)!.push(p);
-
-        if (!brandsByCategory.has(p.category)) brandsByCategory.set(p.category, new Set());
-        brandsByCategory.get(p.category)!.add(p.brand);
         allActiveBrands.add(p.brand);
     }
 
-    // Construir el Directorio Maestro del Inventario Activo (compacto y 100% exhaustivo)
     const fullInventoryDirectoryLines: string[] = [];
     for (const [section, items] of groupedBySection.entries()) {
         fullInventoryDirectoryLines.push(`\n### SECCIÓN: ${section} (${items.length} productos disponibles)`);
@@ -288,16 +429,87 @@ export async function processArmInboundMessage({ phone, messageText }: ArmInboun
         }
     }
 
-    // Contar coincidencias directas para telemetría
-    const normMsg = normalizeText(`${messageText} ${recentHistory[recentHistory.length - 1]?.message || ''}`);
-    const queryTokens = normMsg.split(' ').filter(w => w.length >= 3).map(stemSpanishToken);
+    const normCurrent = normalizeText(messageText);
+    const normContext = normalizeText(`${messageText} ${recentHistory[recentHistory.length - 1]?.message || ''}`);
+    const queryTokens = normContext.split(' ').filter(w => w.length >= 3).map(stemSpanishToken);
+
     const directMatches = inStockProducts.filter(p => {
         const s = normalizeText(`${p.name} ${p.brand} ${p.category} ${p.discipline} ${p.sku}`);
+        if (normContext.includes('bici') && p.category === 'BICICLETAS') return true;
         return queryTokens.some(t => s.includes(t));
     });
 
     // ─────────────────────────────────────────────────────────────
-    // 5. Evaluar Intención Caliente y Disparar Hand-off a Asesor
+    // 5. Detectar si el cliente solicita el CATÁLOGO EN PDF o FOTOS
+    // ─────────────────────────────────────────────────────────────
+    const lastBotAskedForCatalog = Boolean(
+        recentHistory.length > 0 &&
+        /catalogo.*pdf|enviemos el catalogo/i.test(normalizeText(recentHistory[recentHistory.length - 1].reply))
+    );
+    const isShortYesForCatalog = lastBotAskedForCatalog && /^(si|claro|dale|por favor|ok|envialo|mandalo|pasalo)\b/i.test(normCurrent);
+
+    const wantsCatalogPdf =
+        isShortYesForCatalog ||
+        /(catalogo|lista de precio|lista completa|precios y ofertas|enviame el catalogo|pasame el catalogo|mandame el catalogo|catalogo en pdf|pdf)/i.test(normCurrent);
+
+    const wantsProductPhoto =
+        !wantsCatalogPdf &&
+        /(foto|fotos|imagen|imagenes|ver como es|mostra|muestrame)/i.test(normCurrent);
+
+    let pdfBase64: string | undefined = undefined;
+    let pdfFileName: string | undefined = undefined;
+    let productImageUrl: string | undefined = undefined;
+
+    if (wantsCatalogPdf && inStockProducts.length > 0) {
+        try {
+            // Verificar primero si el administrador subió un PDF personalizado en Firestore (system/armCatalog)
+            let customPdfLoaded = false;
+            try {
+                const customCatSnap = await getDoc(doc(firestore, 'system', 'armCatalog'));
+                if (customCatSnap.exists()) {
+                    const cData = customCatSnap.data();
+                    if (cData?.pdfBase64 && typeof cData.pdfBase64 === 'string' && cData.pdfBase64.length > 100) {
+                        const rawB64 = cData.pdfBase64.includes(';base64,')
+                            ? cData.pdfBase64.split(';base64,').pop()!
+                            : cData.pdfBase64;
+                        pdfBase64 = rawB64;
+                        pdfFileName = cData.fileName || 'Catalogo_Oficial_Athleticenter.pdf';
+                        customPdfLoaded = true;
+                    }
+                }
+            } catch {}
+
+            if (!customPdfLoaded) {
+                pdfBase64 = generateLiveCatalogPdfBase64(
+                    inStockProducts,
+                    bcvRate,
+                    divisasDiscountPct,
+                    prontoPagoDiscountPct
+                );
+                pdfFileName = 'Catalogo_Mayorista_Athleticenter.pdf';
+            }
+        } catch (pdfErr: any) {
+            console.warn('[ARM Agent] Error generando PDF de catálogo:', pdfErr?.message || pdfErr);
+        }
+    } else if (wantsProductPhoto && directMatches.length > 0) {
+        try {
+            const targetProd = directMatches[0];
+            if (targetProd.docId) {
+                const pDoc = await getDoc(doc(firestore, 'products', targetProd.docId));
+                if (pDoc.exists()) {
+                    const pData = pDoc.data() as Product;
+                    if (pData.imageUrl) {
+                        productImageUrl = pData.imageUrl;
+                    }
+                }
+            }
+        } catch (imgErr: any) {
+            console.warn('[ARM Agent] Error obteniendo foto de producto:', imgErr?.message || imgErr);
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // 6. Evaluar Intención Caliente y Disparar Hand-off a Asesor
     // ─────────────────────────────────────────────────────────────
     const isHotIntent = /(PASAME LA CUENTA|QUIERO COMPRAR|APARTAME|APARTAR|HACER PEDIDO|FACTURA|DATOS DE PAGO|PAGO MOVIL|TRANSFERIR|QUIERO HABLAR CON|PASAME CON UN ASESOR|ASESOR HUMANO|COMPRAR YA|COTIZAME FORMAL)/i.test(textUpper);
     let handoffTriggered = false;
@@ -330,7 +542,7 @@ export async function processArmInboundMessage({ phone, messageText }: ArmInboun
     }
 
     // ─────────────────────────────────────────────────────────────
-    // 6. Enriquecimiento del CRM (Lead Qualification)
+    // 7. Enriquecimiento del CRM (Lead Qualification)
     // ─────────────────────────────────────────────────────────────
     let leadQualified = false;
     const locationMatch = messageText.match(/(?:en|de|desde|ubicados en)\s+([A-ZÁÉÍÓÚÑa-záéíóúñ]{4,20})/i);
@@ -351,7 +563,7 @@ export async function processArmInboundMessage({ phone, messageText }: ArmInboun
     }
 
     // ─────────────────────────────────────────────────────────────
-    // 7. Generación con Gemini 2.5 Flash con Visión Total de las 14 Marcas
+    // 8. Generación con Gemini 2.5 Flash con Visión Total de las 14 Marcas
     // ─────────────────────────────────────────────────────────────
     const conversationHistoryText = isOngoingConversation
         ? recentHistory.map((h, i) => `Turno ${i + 1}:\nCliente: "${h.message}"\nAgente ARM: "${h.reply}"`).join('\n---\n')
@@ -369,29 +581,28 @@ En Athleticenter somos distribuidores mayoristas multimarca y contamos con stock
    - *MIKASA:* Voleibol profesional (V200W, V320W, MVA300, MVA330, W200W CEV, W200W VNL).
    - *SPALDING:* Baloncesto (Spalding NBA).
    - *WILSON:* Baloncesto (Wilson NBA).
-   - *PUMA:* Fútbol Sala (Puma Cumbre Copa América - por reposición).
 2. 🚲 *BICICLETAS:*
-   - *SPARTAN:* Bicicletas Montañeras Rin 20" ($188 Lista / $141 Divisas) y Rin 24" ($205 Lista / $153.75 Divisas) en colores Azul, Rojo, Blanco y Amarillo.
+   - *SPARTAN:* Bicicletas Montañeras Rin 20" ($188 Lista / $141.00 Divisas / $126.90 Pronto Pago) y Rin 24" ($205 Lista / $153.75 Divisas / $138.38 Pronto Pago) en Azul, Rojo, Blanco y Amarillo.
    - *LÍNEA INFANTIL:* Bicicletas Rin 12" ($86 Lista / $64.50 Divisas) y Rin 16" ($98 Lista / $73.50 Divisas) en Azul, Rojo, Pink y Sky Blue.
 3. ⚾🏓🏊‍♂️🎽 *OTRAS CATEGORÍAS DEPORTIVAS:*
-   - *Béisbol:* Guantines de Béisbol *SPARTAN* ($22 Lista / $16.50 Divisas) y línea *BRUCE BOLT*.
+   - *Béisbol:* Guantines de Béisbol *SPARTAN* ($22 Lista / $16.50 Divisas) y *BRUCE BOLT*.
    - *Tenis de Mesa (Ping Pong):* Caja de pelotas *DHS* 3 Estrellas D40+ ($17 Lista / $12.75 Divisas).
    - *Arbitraje:* Silbatos profesionales *FOX 40* de dedo y de cuerda ($5 Lista / $3.75 Divisas).
-   - *Acuáticos / Playa:* Sets Playeros y Equipos de Snorkel *ECOLOGY* ($12 Lista / $9 Divisas).
-   - *Indumentaria:* Colección *MESSI KIDS* (Chaquetas, Hoodies, Franelillas y Gorras).
+   - *Acuáticos / Playa:* Sets Playeros y Equipos de Snorkel *ECOLOGY* ($12 Lista / $9.00 Divisas).
 
 REGLAS OBLIGATORIAS DE RESPUESTA:
-1. RESPONDE CON PRECISIÓN Y VARIEDAD MULTIMARCA:
-   - Si el cliente pregunta por *balones* en general, menciona SIEMPRE que trabajamos con **7 marcas líderes (*MOLTEN, ADIDAS, NIKE, SPARTAN, MIKASA, SPALDING y WILSON*)** en Baloncesto, Fútbol Campo, Fútbol Sala y Voleibol, y muéstrale ejemplos representativos de varias marcas con sus precios o pregúntale qué disciplina busca para detallarle todos los modelos de esa disciplina.
-   - Si pregunta por una disciplina específica (ej. Voleibol, Fútbol Campo, Fútbol Sala, Baloncesto, Bicicletas, Ping Pong, Béisbol), detállale TODOS los modelos y marcas disponibles en esa disciplina con su stock y precios.
-   - Si pregunta *"¿Qué otras marcas tienen?"* o *"¿Qué marcas manejan?"*, preséntale el abanico completo de nuestras marcas en Balones, Bicicletas y Accesorios.
-2. CERO SALUDOS REPETITIVOS:
-   - ${isOngoingConversation ? 'YA ESTÁS CONVERSANDO CON ESTE CLIENTE. ESTÁ PROHIBIDO empezar con "¡Hola! 👋", "¡Gracias por contactarnos!" o "¡Qué bueno que nos escribes!". Responde directamente a su pregunta como en una charla fluida.' : 'Inicia con un saludo cordial y ejecutivo de bienvenida a Athleticenter.'}
-3. POLÍTICA COMERCIAL OFICIAL DE CASCADA (Obligatoria al presentar precios):
+1. ${pdfBase64 ? '¡IMPORTANTE! En este mismo mensaje el sistema está adjuntando automáticamente el archivo PDF oficial "Catalogo_Mayorista_Athleticenter.pdf". Confírmale al cliente que aquí mismo le estás adjuntando el Catálogo Mayorista Oficial en PDF con todas nuestras marcas y los 3 niveles de precio (Lista, -25% Divisas y -10% Pronto Pago), y preséntale un breve resumen ejecutivo de nuestras líneas principales.' : ''}
+2. ${productImageUrl ? '¡IMPORTANTE! En este mismo mensaje el sistema está adjuntando la fotografía real del producto solicitado. Indícale que adjuntas la imagen junto con los precios y colores/modelos disponibles.' : ''}
+3. RESPONDE CON PRECISIÓN Y VARIEDAD MULTIMARCA:
+   - Si el cliente pregunta por *balones*, menciona nuestras **7 marcas líderes (*MOLTEN, ADIDAS, NIKE, SPARTAN, MIKASA, SPALDING y WILSON*)** y detállale los modelos solicitados con su stock y precios exactos.
+   - Si pregunta por varios productos o marcas (ej. *"balón de fútbol Adidas y Nike"*), detalla TODOS los modelos disponibles tanto de *ADIDAS* como de *NIKE* (nunca dejes una marca sin listar).
+4. CERO SALUDOS REPETITIVOS:
+   - ${isOngoingConversation ? 'YA ESTÁS CONVERSANDO CON ESTE CLIENTE. ESTÁ PROHIBIDO empezar con "¡Hola! 👋" o "¡Gracias por contactarnos!". Ve directo al grano.' : 'Inicia con un saludo cordial y ejecutivo de bienvenida a Athleticenter.'}
+5. POLÍTICA COMERCIAL OFICIAL DE CASCADA (Obligatoria al presentar precios):
    - Precio Lista (Pagadero en Bs a tasa oficial BCV: Bs. ${bcvRate.toFixed(2)}/USD)
    - *${divisasDiscountPct}% de Descuento* pagando en Divisas
    - *${prontoPagoDiscountPct}% de Descuento adicional* por Pronto Pago
-4. NUNCA CORTES LA RESPUESTA A LA MITAD. Cierra siempre con una pregunta comercial que facilite el pedido y la firma oficial:
+6. NUNCA CORTES LA RESPUESTA A LA MITAD. Cierra con una pregunta comercial orientada al cierre y firma siempre:
 Atentamente,
 *El equipo de Athleticenter*`;
 
@@ -400,6 +611,9 @@ ${conversationHistoryText}
 
 MENSAJE ACTUAL DEL CLIENTE (+${cleanPhone}${customerCompany ? ` - ${customerCompany}` : ''}):
 "${messageText}"
+
+${pdfBase64 ? 'NOTA DEL SISTEMA: El archivo PDF del Catálogo Oficial se enviará adjunto a este mensaje.' : ''}
+${productImageUrl ? 'NOTA DEL SISTEMA: La imagen del producto se enviará adjunta a este mensaje.' : ''}
 
 DIRECTORIO COMPLETO DEL INVENTARIO EN STOCK EN TIEMPO REAL (${inStockProducts.length} productos activos en ${allActiveBrands.size} marcas):
 ${fullInventoryDirectoryLines.join('\n')}
@@ -424,9 +638,9 @@ Redacta ahora la respuesta completa de WhatsApp para el cliente:`;
         console.warn('[ARM Agent] Gemini no disponible, generando respuesta determinística:', aiErr?.message || aiErr);
     }
 
-    // Respaldo determinístico multimarca si la IA no responde o devuelve texto incompleto
     if (!replyText || replyText.length < 80) {
         replyText = `*ATHLETICENTER*\n\n` +
+            `${pdfBase64 ? '📄 *¡Aquí tienes nuestro Catálogo Mayorista Oficial en PDF adjunto a este mensaje!* 🙌\n\n' : ''}` +
             `Contamos con disponibilidad inmediata para despacho nacional en todo nuestro portafolio multimarca:\n\n` +
             `⚽🏀🏐 *Balones Deportivos (7 Marcas en Stock):*\n` +
             `• *ADIDAS:* Mundial 2026 Trionda, UCL Pro Final Múnich 25, Mundial de Clubes, Champions 25 Aniv., MLS Pro (Lista $29-$33 | Divisas -25%: *$21.75-$24.75* | Pronto Pago -10%: *$19.58-$22.28*)\n` +
@@ -438,14 +652,14 @@ Redacta ahora la respuesta completa de WhatsApp para el cliente:`;
             `🚲 *Bicicletas & Otras Disciplinas:*\n` +
             `• *Bicicletas SPARTAN:* Rin 20" (*$141.00* en divisas) y Rin 24" (*$153.75* en divisas) + Infantiles Rin 12" y 16"\n` +
             `• *Béisbol SPARTAN:* Guantines ($16.50 en divisas) | *Ping Pong DHS:* Pelotas 3★ ($12.75 en divisas) | *Silbatos FOX 40:* ($3.75 en divisas) | *Acuáticos ECOLOGY*\n\n` +
-            `¿Qué disciplina o marca te gustaría que te detalláramos con unidades exactas para armar tu cotización?\n\n` +
+            `¿Qué modelos y cantidades te gustaría incluir en tu cotización?\n\n` +
             `Atentamente,\n*El equipo de Athleticenter*`;
     } else if (!replyText.includes('El equipo de Athleticenter')) {
         replyText = `${replyText.trim()}\n\nAtentamente,\n*El equipo de Athleticenter*`;
     }
 
     // ─────────────────────────────────────────────────────────────
-    // 8. Bitácora en vivo del Agente ARM (whatsapp_inbound_logs)
+    // 9. Bitácora en vivo del Agente ARM (whatsapp_inbound_logs)
     // ─────────────────────────────────────────────────────────────
     try {
         await addDoc(collection(firestore, 'whatsapp_inbound_logs'), {
@@ -454,7 +668,7 @@ Redacta ahora la respuesta completa de WhatsApp para el cliente:`;
             customerCompany,
             message: messageText,
             reply: replyText,
-            intent: isHotIntent ? 'HOT_PURCHASE_INTENT' : directMatches.length > 0 ? 'CATALOG_AND_PRICING' : 'GENERAL_INQUIRY',
+            intent: isHotIntent ? 'HOT_PURCHASE_INTENT' : pdfBase64 ? 'CATALOG_PDF_SENT' : directMatches.length > 0 ? 'CATALOG_AND_PRICING' : 'GENERAL_INQUIRY',
             isHotLead: handoffTriggered,
             leadQualified,
             matchedProductsCount: directMatches.length || inStockProducts.length,
@@ -467,6 +681,9 @@ Redacta ahora la respuesta completa de WhatsApp para el cliente:`;
     return {
         success: true,
         replyText,
+        pdfBase64,
+        pdfFileName,
+        imageUrl: productImageUrl,
         leadQualified,
         handoffTriggered,
         matchedProductsCount: directMatches.length || inStockProducts.length
