@@ -57,22 +57,46 @@ function normalizeText(text: string): string {
         .normalize('NFD')
         .replace(/[\u0300-\u036f]/g, '')
         .replace(/[^a-z0-9\s]/g, ' ')
-        .replace(/\b(valones|valon|pelotas|pelota)\b/g, 'balon')
+        .replace(/\b(valones|valon|pelotas|pelota|bolas|bola)\b/g, 'balon')
         .replace(/\b(voleiball|voleivol|volleyball|voley|veleibol|volei)\b/g, 'voleibol')
         .replace(/\b(basquet|basket|basketball)\b/g, 'baloncesto')
-        .replace(/\b(soccer|futsal)\b/g, 'futbol')
+        .replace(/\b(futsal|futbolito)\b/g, 'futbol sala')
+        .replace(/\b(soccer)\b/g, 'futbol')
         .replace(/\b(bicis|bicicleta|bicicletas)\b/g, 'bici')
         .replace(/\b(montanera|montaneras|montana|mtb)\b/g, 'montanera spartan')
         .replace(/\b(?:rin|numero|nro|modelo|talla)\s*(12|16|20|24)\b/g, 'rin $1 $1 inch')
+        .replace(/\b(ping pong|pin pong|pimpon|tenis de mesa)\b/g, 'pin pong tenis de mesa dhs')
+        .replace(/\b(guantin|guantines|guante|guantes|bateo)\b/g, 'guantines beisbol')
+        .replace(/\b(snorkel|buceo|careta|playero|playa|acuatico|acuaticos)\b/g, 'snorkel playero ecology')
+        .replace(/\b(pito|pitos|silbato|silbatos|arbitro|arbitraje)\b/g, 'silbato fox 40')
+        .replace(/\b(camisa|camisas|camiseta|camisetas|tshirt|franela|franelas)\b/g, 'franela indumentaria')
+        .replace(/\b(sueter|sudadera|hoodie|hoodies)\b/g, 'hoodie indumentaria')
+        .replace(/\b(pantalon|mono|monos|jogger)\b/g, 'mono indumentaria')
+        .replace(/\b(short|shorts|bermuda)\b/g, 'short indumentaria')
+        .replace(/\b(gorra|gorras|cachucha)\b/g, 'gorra indumentaria')
+        .replace(/\b(chaqueta|chaquetas)\b/g, 'chaqueta indumentaria')
+        .replace(/\b(franelilla|franelillas|chemise)\b/g, 'franelilla indumentaria')
+        // Equivalencia bilingüe de colores para todo el catálogo
+        .replace(/\b(blue)\b/g, 'azul blue')
+        .replace(/\b(red)\b/g, 'rojo red')
+        .replace(/\b(white|blanca)\b/g, 'blanco white')
+        .replace(/\b(yellow|amarilla)\b/g, 'amarillo yellow')
+        .replace(/\b(black|negra)\b/g, 'negro black')
+        .replace(/\b(pink|rosada|rosa)\b/g, 'rosado pink')
+        .replace(/\b(green)\b/g, 'verde green')
+        .replace(/\b(grey|gray)\b/g, 'gris grey')
+        .replace(/\b(navy)\b/g, 'azul marino navy')
         .replace(/\s+/g, ' ')
         .trim();
 }
 
-function enrichProductDisplayName(rawName: string, rawSku: string, rawCategory: string): string {
+function enrichProductDisplayName(rawName: string, rawSku: string, rawCategory: string, rawDiscipline?: string): string {
     const skuUpper = String(rawSku || '').trim().toUpperCase();
     const nameUpper = String(rawName || '').trim().toUpperCase();
     const catUpper = String(rawCategory || '').trim().toUpperCase();
+    const discUpper = String(rawDiscipline || '').trim().toUpperCase();
 
+    // 1. Bicicletas (Montañeras Rin 20"/24" vs Infantiles Paseo Rin 12"/16" + Colores)
     if (catUpper === 'BICICLETAS' || skuUpper.startsWith('MB-') || skuUpper.startsWith('KB-')) {
         let colorLabel = '';
         if (skuUpper.endsWith('SB') || nameUpper.includes('SKY BLUE')) colorLabel = 'Color Azul Cielo (Sky Blue)';
@@ -95,7 +119,43 @@ function enrichProductDisplayName(rawName: string, rawSku: string, rawCategory: 
             return `BICICLETA INFANTIL PASEO RIN 12" (12 INCH)${colorLabel ? ` — ${colorLabel}` : ''}`;
         }
     }
-    return rawName.trim();
+
+    let enriched = rawName.trim();
+
+    // 2. Balones Deportivos: diferenciar Fútbol Campo (FC-) vs Fútbol Sala / Futsal (FS-) y variantes con mismo nombre
+    if (skuUpper.startsWith('FC-') && !nameUpper.includes('CAMPO')) {
+        enriched = `${enriched} (Fútbol Campo)`;
+    } else if (skuUpper.startsWith('FS-') && !nameUpper.includes('FUTSAL') && !nameUpper.includes('SALA') && !discUpper.includes('7')) {
+        enriched = `${enriched} (Fútbol Sala / Futsal)`;
+    }
+
+    // Si el SKU termina en variante numérica (ej. PRE05 vs PRE06, MC01 vs MC02, CHA01 vs CH02, NBA01-N)
+    const variantMatch = skuUpper.match(/-(PRE0[1-9]|MC0[1-9]|CH0[1-9]|CHA0[1-9]|NBA01-N)$/);
+    if (variantMatch && !nameUpper.includes(variantMatch[1])) {
+        enriched = `${enriched} [Edición ${variantMatch[1]}]`;
+    }
+
+    // 3. Indumentaria y Ropa Deportiva (Messi Kids, etc.): traducir colores en inglés y códigos de variante
+    if (
+        catUpper === 'INDUMENTARIA' ||
+        /^(TS-|CS-|SH-|HD-|CH-|O-|G-VAS|G-VOLO)/.test(skuUpper)
+    ) {
+        enriched = enriched
+            .replace(/\bDEEP BLACK\b/gi, 'Negro (Deep Black)')
+            .replace(/\bDK GREY\b/gi, 'Gris Oscuro (Dk Grey)')
+            .replace(/\bLIGHT BLUE\b/gi, 'Azul Claro (Light Blue)')
+            .replace(/\bARGENTINA BLUE\b/gi, 'Azul Celeste Argentina')
+            .replace(/\bROYAL BLUE\b/gi, 'Azul Rey (Royal Blue)')
+            .replace(/\bDARK BLUE\b/gi, 'Azul Oscuro (Dark Blue)')
+            .replace(/\bNAVY\b/gi, 'Azul Marino (Navy)');
+
+        const codeSuffix = skuUpper.match(/(01|05|06|07|11|12|13|14|17|18|19)$/);
+        if (codeSuffix && (nameUpper === 'SHORT SAROL' || nameUpper === 'FRANELA LOGO TEE MESSI' || nameUpper === 'FRANELA NICO')) {
+            enriched = `${enriched} (Ref. Color ${codeSuffix[1]})`;
+        }
+    }
+
+    return enriched;
 }
 
 function stemSpanishToken(word: string): string {
@@ -282,6 +342,7 @@ async function fetchLightweightCatalog(firestore: any, divisasDiscountPct: numbe
                                 { fieldPath: 'brand' },
                                 { fieldPath: 'category' },
                                 { fieldPath: 'discipline' },
+                                { fieldPath: 'stock' },
                                 { fieldPath: 'stockLevel' },
                                 { fieldPath: 'price' },
                                 { fieldPath: 'features' }
@@ -302,7 +363,9 @@ async function fetchLightweightCatalog(firestore: any, divisasDiscountPct: numbe
                 const f = row?.document?.fields;
                 if (!f) continue;
                 const rawPrice = Number(f.price?.doubleValue ?? f.price?.integerValue ?? 0);
-                const stock = Number(f.stockLevel?.integerValue ?? f.stockLevel?.doubleValue ?? 0);
+                const stockField = Number(f.stock?.integerValue ?? f.stock?.doubleValue ?? 0);
+                const stockLevelField = Number(f.stockLevel?.integerValue ?? f.stockLevel?.doubleValue ?? 0);
+                const stock = Math.max(stockField, stockLevelField);
                 const priceDivisas = Math.round(rawPrice * (1 - divisasDiscountPct / 100) * 100) / 100;
                 const priceProntoPago = Math.round(priceDivisas * (1 - prontoPagoDiscountPct / 100) * 100) / 100;
 
@@ -316,7 +379,7 @@ async function fetchLightweightCatalog(firestore: any, divisasDiscountPct: numbe
                 items.push({
                     docId,
                     sku: rawSku,
-                    name: enrichProductDisplayName(rawName, rawSku, rawCat),
+                    name: enrichProductDisplayName(rawName, rawSku, rawCat, rawDisc),
                     brand: rawBrand,
                     category: rawCat === 'BASKETBALL' ? 'BALONES' : rawCat === 'VOLEIBOL' ? 'BALONES' : rawCat,
                     discipline: rawDisc === 'BASKET' ? 'BALONCESTO' : rawDisc === 'VELEIBOL' ? 'VOLEIBOL' : rawDisc,
@@ -335,21 +398,22 @@ async function fetchLightweightCatalog(firestore: any, divisasDiscountPct: numbe
     try {
         const prodSnap = await getDocs(query(collection(firestore, 'products'), limit(300)));
         for (const d of prodSnap.docs) {
-            const prod = d.data() as Product;
+            const prod = d.data() as Product & { stock?: number };
             const rawPrice = Number(prod.price || 0);
-            const stock = Number(prod.stockLevel || 0);
+            const stock = Math.max(Number(prod.stock || 0), Number(prod.stockLevel || 0));
             const priceDivisas = Math.round(rawPrice * (1 - divisasDiscountPct / 100) * 100) / 100;
             const priceProntoPago = Math.round(priceDivisas * (1 - prontoPagoDiscountPct / 100) * 100) / 100;
             const rawSku = (prod.sku || d.id || '').trim();
             const rawCat = (prod.category || 'DEPORTES').trim().toUpperCase();
+            const rawDisc = (prod.discipline || prod.category || 'GENERAL').trim().toUpperCase();
 
             items.push({
                 docId: d.id,
                 sku: rawSku,
-                name: enrichProductDisplayName(prod.name || '', rawSku, rawCat),
+                name: enrichProductDisplayName(prod.name || '', rawSku, rawCat, rawDisc),
                 brand: (prod.brand || 'GENERAL').trim().toUpperCase(),
                 category: rawCat,
-                discipline: (prod.discipline || prod.category || 'GENERAL').trim().toUpperCase(),
+                discipline: rawDisc,
                 stock,
                 priceLista: rawPrice,
                 priceDivisas,
@@ -522,9 +586,18 @@ export async function processArmInboundMessage({ phone, messageText }: ArmInboun
                     score += 25;
                 }
             }
-            for (const discWord of ['voleibol', 'futbol', 'baloncesto', 'beisbol', 'montanera', 'infantil']) {
+            for (const discWord of [
+                'voleibol', 'futbol', 'sala', 'campo', 'baloncesto', 'beisbol', 'montanera', 'infantil',
+                'franela', 'franelilla', 'short', 'hoodie', 'gorra', 'chaqueta', 'mono', 'indumentaria',
+                'snorkel', 'playero', 'silbato', 'guantines', 'pin pong', 'tenis de mesa'
+            ]) {
                 if (activeNormText.includes(discWord) && (normCat.includes(discWord) || normName.includes(discWord))) {
                     score += 15;
+                }
+            }
+            for (const colorWord of ['azul', 'rojo', 'blanco', 'amarillo', 'negro', 'rosado', 'verde', 'gris', 'marino', 'celeste', 'dorado']) {
+                if (activeNormText.includes(colorWord) && normName.includes(colorWord)) {
+                    score += 10;
                 }
             }
             for (const t of activeTokens) {
@@ -700,11 +773,17 @@ En Athleticenter somos distribuidores mayoristas multimarca y contamos con stock
 2. 🚲 *BICICLETAS (4 Tamaños de Rin claramente diferenciados):*
    - *LÍNEA INFANTIL PASEO (Modelos más pequeños con rueditas):* Rin 12" (SKUs KB-006/KB-008: $86 Lista / $64.50 Divisas) y Rin 16" (SKUs KB-005/KB-007: $98 Lista / $73.50 Divisas) en Azul, Rojo, Rosado (Pink) y Azul Cielo (Sky Blue).
    - *LÍNEA MONTAÑERA SPARTAN:* Rin 20" (SKUs MB-001B Azul, MB-001R Rojo, MB-001W Blanco, MB-001Y Amarillo: $188 Lista / $141.00 Divisas / $126.90 Pronto Pago) y Rin 24" (SKUs MB-002B Azul, MB-002R Rojo, MB-002W Blanco, MB-002Y Amarillo: $205 Lista / $153.75 Divisas / $138.38 Pronto Pago).
-3. ⚾🏓🏊‍♂️🎽 *OTRAS CATEGORÍAS DEPORTIVAS:*
-   - *Béisbol:* Guantines de Béisbol *SPARTAN* ($22 Lista / $16.50 Divisas) y *BRUCE BOLT*.
+3. 🎽 *INDUMENTARIA Y ROPA DEPORTIVA (MESSI KIDS — 47 Modelos en Stock):*
+   - *Franelas:* Denis, Goat, Leo, Logo Tee Messi, Milano, Neros, Nes, Nico ($11-$18 Lista / $8.25-$13.50 Divisas).
+   - *Franelillas:* Eve y Nisa ($9-$13 Lista / $6.75-$9.75 Divisas).
+   - *Shorts:* Cuti, Indiana, Morgan y Sarol ($18 Lista / $13.50 Divisas).
+   - *Hoodies y Chaquetas:* Hoodie Mavin ($18 Lista), Hoodie Serto ($16 Lista), Chaqueta Maton ($23 Lista) y Mono Rorro ($18 Lista).
+   - *Gorras:* Vasco y Volo ($9 Lista / $6.75 Divisas) + *Combo Messi Kids 24 Piezas* ($321 Lista / $240.75 Divisas).
+4. ⚾🏓🏊‍♂️ *OTRAS CATEGORÍAS DEPORTIVAS:*
+   - *Béisbol:* Guantines de Béisbol *SPARTAN* ($22 Lista / $16.50 Divisas) y Guantines de Bateo *BRUCE BOLT* Negro/Dorado con muñequera doble ($44 Lista / $33.00 Divisas).
    - *Tenis de Mesa (Ping Pong):* Caja de pelotas *DHS* 3 Estrellas D40+ ($17 Lista / $12.75 Divisas).
    - *Arbitraje:* Silbatos profesionales *FOX 40* de dedo y de cuerda ($5 Lista / $3.75 Divisas).
-   - *Acuáticos / Playa:* Sets Playeros y Equipos de Snorkel *ECOLOGY* ($12 Lista / $9.00 Divisas).
+   - *Acuáticos / Playa:* Equipos de Snorkel Delfín Verde y Marlin Azul ($19 Lista / $14.25 Divisas) y Sets Playeros Azul y Verde *ECOLOGY* ($12 Lista / $9.00 Divisas).
 
 REGLAS OBLIGATORIAS DE RESPUESTA:
 1. ${pdfBase64 ? '¡IMPORTANTE! En este mismo mensaje el sistema está adjuntando automáticamente el archivo PDF oficial "Catalogo_Mayorista_Athleticenter.pdf". Confírmale al cliente que aquí mismo le estás adjuntando el Catálogo Mayorista Oficial en PDF con todas nuestras marcas y los 3 niveles de precio (Lista, -25% Divisas y -10% Pronto Pago), y preséntale un breve resumen ejecutivo de nuestras líneas principales.' : ''}
