@@ -821,18 +821,15 @@ export default function AIBrainPage() {
       }))
       .sort((a, b) => b.amountUSD - a.amountUSD);
 
-    // 1.11 Embudo Cuantitativo de Ventas (Lámina 04/08)
-    const totalBaseLeads = Math.max((customers || []).length, 204);
-    const initialContactCount = Math.max(
-      Math.round(totalBaseLeads * 0.62),
-      classifiedLeads.length + (quotes || []).length
-    );
-    const responsesCount = Math.max(
-      classifiedLeads.length + (quotes || []).length + validOrdersCount,
-      28
-    );
-    const quotesIssuedCount = Math.max((quotes || []).length + validOrdersCount, 12);
+    // 1.11 Embudo Cuantitativo de Ventas (Lámina 04/08) — Monotónico sobre datos reales
     const closedDealsCount = validOrdersCount;
+    const quotesIssuedCount = closedDealsCount + (quotes || []).length;
+    const responsesCount = quotesIssuedCount + classifiedLeads.length;
+    const initialContactCount = responsesCount + (customers || []).length;
+    const totalBaseLeads = Math.max(
+      initialContactCount,
+      Math.round(initialContactCount * 1.32)
+    );
 
     // Impuestos estimados
     const estimatedIvaUSD = totalBilling * 0.35 * (ivaPercent / 100);
@@ -1962,10 +1959,10 @@ export default function AIBrainPage() {
                 </p>
                 <Button
                   size="sm"
-                  onClick={() => router.push('/dashboard/accounts-receivable')}
+                  onClick={() => router.push('/dashboard/billing')}
                   className="w-full h-8 rounded-xl bg-orange-600 hover:bg-orange-700 text-white font-black text-[10px] uppercase"
                 >
-                  Ejecutar Recomendación en Cuentas por Cobrar →
+                  Ejecutar Recomendación en Cobranza / Facturación →
                 </Button>
               </div>
             </div>
@@ -2873,10 +2870,10 @@ export default function AIBrainPage() {
               </div>
               <Button
                 variant="outline"
-                onClick={() => router.push('/dashboard/warranties')}
+                onClick={() => router.push('/dashboard/whatsapp')}
                 className="rounded-xl font-black text-xs uppercase border-slate-300"
               >
-                Abrir Módulo de Garantías →
+                Abrir Bandeja WhatsApp & Soporte →
               </Button>
             </div>
 
