@@ -49,7 +49,7 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
 
   // Sincronizar gastos desde la colección en tiempo real deduplicando estrictamente por ID
   useEffect(() => {
-    if (firestoreExpenses && firestoreExpenses.length > 0) {
+    if (firestoreExpenses) {
       const uniqueMap = new Map<string, ExpenseItem>();
       firestoreExpenses.forEach((exp, idx) => {
         const uniqueKey = exp.id || `idx-${idx}-${exp.concept}`;
@@ -58,18 +58,8 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
         }
       });
       setExpenses(Array.from(uniqueMap.values()));
-    } else if (firestoreExpenses && firestoreExpenses.length === 0 && firestore && canManage && !hasSeededRef.current) {
-      hasSeededRef.current = true;
-      // Cargar gastos por defecto iniciales una sola vez
-      DEFAULT_INITIAL_EXPENSES.forEach(async (exp) => {
-        try {
-          await addDoc(collection(firestore, 'expenses'), exp);
-        } catch (e) {
-          console.error("Error al sembrar gastos iniciales:", e);
-        }
-      });
     }
-  }, [firestoreExpenses, firestore, canManage]);
+  }, [firestoreExpenses]);
 
   useEffect(() => {
     if (globalSettings && globalSettings.targetProfitUSD !== undefined) {

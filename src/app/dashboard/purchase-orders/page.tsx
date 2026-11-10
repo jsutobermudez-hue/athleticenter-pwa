@@ -109,6 +109,21 @@ function PurchaseOrdersContent() {
     const [isProcessingInvoice, setIsProcessingInvoice] = useState(false);
     const [scannedInvoiceData, setScannedInvoiceData] = useState<any>(null);
 
+    // ESTADO CREAR NUEVA COMPRA / ORDEN DE COMPRA (LOCAL O IMPORTACIÓN)
+    const [isNewPoModalOpen, setIsNewPoModalOpen] = useState(false);
+    const [newPoType, setNewPoType] = useState<'Local' | 'Importación'>('Local');
+    const [newPoSupplierName, setNewPoSupplierName] = useState('');
+    const [newPoOriginCountry, setNewPoOriginCountry] = useState('Venezuela');
+    const [newPoTransportMode, setNewPoTransportMode] = useState<'Terrestre' | 'Marítimo' | 'Aéreo'>('Terrestre');
+    const [newPoDueDate, setNewPoDueDate] = useState(() => new Date(Date.now() + 15 * 86400000).toISOString().split('T')[0]);
+    const [newPoInitialStage, setNewPoInitialStage] = useState<PurchaseOrder['status']>('En Tránsito');
+    const [newPoSelectedProductId, setNewPoSelectedProductId] = useState('');
+    const [newPoItemQty, setNewPoItemQty] = useState('10');
+    const [newPoItemCost, setNewPoItemCost] = useState('10');
+    const [newPoFreightUSD, setNewPoFreightUSD] = useState('0');
+    const [newPoItems, setNewPoItems] = useState<{ productId: string; sku: string; name: string; quantity: number; unitCost: number }[]>([]);
+    const [isSavingNewPo, setIsSavingNewPo] = useState(false);
+
     // ESTADO REGISTRO DE PAGO / ABONO PARCIAL LIBRE
     const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
     const [paymentPoId, setPaymentPoId] = useState<string>('');
@@ -290,6 +305,153 @@ function PurchaseOrdersContent() {
       }
     };
 
+    const handleAddDraftPoItem = () => {
+      if (!newPoSelectedProductId) return;
+      const prod = catalogProducts?.find(p => p.id === newPoSelectedProductId);
+      if (!prod) return;
+      const qty = Math.max(1, parseInt(newPoItemQty) || 1);
+      const cost = Math.max(0.01, parseFloat(newPoItemCost) || prod.cost || 1);
+      setNewPoItems(prev => [
+        ...prev,
+        { productId: prod.id!, sku: prod.sku, name: prod.name, quantity: qty, unitCost: cost }
+      ]);
+      setNewPoSelectedProductId('');
+    };
+
+    const handleCreatePurchaseOrder = async (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!firestore || isSavingNewPo) return;
+      if (!newPoSupplierName.trim()) {
+        toast({ variant: 'destructive', title: 'Falta Proveedor', description: 'Indica el nombre del proveedor.' });
+        return;
+      }
+      setIsSavingNewPo(true);
+      try {
+        const fobTotal = newPoItems.reduce((s, i) => s + i.quantity * i.unitCost, 0);
+        const freight = Math.max(0, parseFloat(newPoFreightUSD) || 0);
+        const totalCost = fobTotal + freight;
+        const proration = fobTotal > 0 ? freight / fobTotal : 0;
+        const itemsWithLanded = newPoItems.map(i => ({
+          ...i,
+          landedUnitCost: Number((i.unitCost * (1 + proration)).toFixed(4))
+        }));
+
+        const docRef = await addDoc(collection(firestore, 'purchaseOrders'), {
+          supplierName: newPoSupplierName.trim(),
+          originCountry: newPoOriginCountry.trim() || (newPoType === 'Local' ? 'Venezuela' : 'China'),
+          transportMode: newPoTransportMode,
+          purchaseType: newPoType,
+          status: newPoInitialStage,
+          items: itemsWithLanded,
+          customsTariffsAmount: freight,
+          totalCost,
+          totalPaidUSD: 0,
+          pendingBalanceUSD: totalCost,
+          dueDate: newPoDueDate,
+          createdAt: serverTimestamp(),
+          createdBy: currentUser?.id || 'admin'
+        } as any);
+
+        toast({
+          title: '✅ Orden de Compra Registrada',
+          description: `Orden #${docRef.id.slice(0, 6).toUpperCase()} creada para ${newPoSupplierName} por $${totalCost.toFixed(2)} USD.`
+        });
+        setIsNewPoModalOpen(false);
+        setNewPoSupplierName('');
+        setNewPoItems([]);
+        setNewPoFreightUSD('0');
+      } catch (err: any) {
+        toast({ variant: 'destructive', title: 'Error al Crear Compra', description: err?.message });
+      } finally {
+        setIsSavingNewPo(false);
+      }
+    };
+
+    const handleCreatePoFromScannedInvoice = async () => {
+      if (!firestore || !scannedInvoiceData) return;
+      setIsSavingNewPo(true);
+      try {
+        const rawItems = Array.isArray(scannedInvoiceData.items) ? scannedInvoiceData.items : [];
+        const mappedItems = rawItems.map((it: any) => {
+          const match = catalogProducts?.find(p => p.sku === it.sku || p.name?.toLowerCase() === it.name?.toLowerCase());
+          const qty = Math.max(1, Number(it.quantity) || 1);
+          const unitCost = Math.max(0.01, Number(it.unitPriceFOB) || 1);
+          return {
+            productId: match?.id || it.sku || `NEW-${Date.now()}`,
+            sku: match?.sku || it.sku || 'SKU-IMPORT',
+            name: match?.name || it.name || 'Producto Importado',
+            quantity: qty,
+            unitCost,
+            landedUnitCost: Number((unitCost * 1.15).toFixed(4))
+          };
+        });
+        const fobSum = mappedItems.reduce((s: number, i: any) => s + i.quantity * i.unitCost, 0);
+        const extra = Number(scannedInvoiceData.shippingFreightUSD || 0) + Number(scannedInvoiceData.customsCostsUSD || 0);
+        const totalCost = fobSum + extra;
+
+        await addDoc(collection(firestore, 'purchaseOrders'), {
+          supplierName: scannedInvoiceData.supplierName || 'Proveedor Internacional',
+          originCountry: 'Internacional',
+          transportMode: 'Marítimo',
+          status: 'En Tránsito',
+          trackingNumber: scannedInvoiceData.invoiceNumber || '',
+          items: mappedItems,
+          customsTariffsAmount: extra,
+          totalCost,
+          totalPaidUSD: 0,
+          pendingBalanceUSD: totalCost,
+          dueDate: new Date(Date.now() + 15 * 86400000).toISOString().split('T')[0],
+          createdAt: serverTimestamp(),
+          createdBy: currentUser?.id || 'admin'
+        } as any);
+
+        toast({
+          title: '🚀 Factura Convertida en Orden de Compra',
+          description: `Se creó la orden de ${scannedInvoiceData.supplierName} por $${totalCost.toFixed(2)} USD.`
+        });
+        setScannedInvoiceData(null);
+        setActiveTab('kanban');
+      } catch (err: any) {
+        toast({ variant: 'destructive', title: 'Error', description: err?.message });
+      } finally {
+        setIsSavingNewPo(false);
+      }
+    };
+
+    const handleConvertQuoteToPO = async (supplierName: string, productName: string, unitPrice: number, qty: number, freightUSD: number = 0) => {
+      if (!firestore) return;
+      try {
+        const match = catalogProducts?.find(p => p.name.toLowerCase().includes(productName.toLowerCase().slice(0, 10)));
+        const fob = unitPrice * qty;
+        const totalCost = fob + freightUSD;
+        await addDoc(collection(firestore, 'purchaseOrders'), {
+          supplierName,
+          originCountry: 'China',
+          transportMode: 'Marítimo',
+          status: 'En Fabricación',
+          items: [{
+            productId: match?.id || catalogProducts?.[0]?.id || 'SKU-01',
+            sku: match?.sku || 'SKU-COT',
+            name: match?.name || productName,
+            quantity: qty,
+            unitCost: unitPrice,
+            landedUnitCost: Number(((totalCost) / Math.max(1, qty)).toFixed(4))
+          }],
+          customsTariffsAmount: freightUSD,
+          totalCost,
+          totalPaidUSD: 0,
+          pendingBalanceUSD: totalCost,
+          dueDate: new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0],
+          createdAt: serverTimestamp(),
+          createdBy: currentUser?.id || 'admin'
+        } as any);
+        toast({ title: '🏆 Orden Adjudicada en Pipeline', description: `${supplierName} agregada al Kanban por $${totalCost.toFixed(2)} USD.` });
+        setActiveTab('kanban');
+      } catch (err: any) {
+        toast({ variant: 'destructive', title: 'Error', description: err?.message });
+      }
+    };
+
     if (isUserLoading || isLoadingPO) {
       return <div className="flex h-screen items-center justify-center"><Loader2 className="animate-spin text-primary h-10 w-10" /></div>;
     }
@@ -317,7 +479,10 @@ function PurchaseOrdersContent() {
               Kanban Logístico, Ingesta Multimodal AI de Invoices, Radar de Cotizaciones y Matriz de Decisión.
             </p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-wrap">
+            <Button onClick={() => setIsNewPoModalOpen(true)} className="h-11 px-5 rounded-xl bg-primary hover:bg-primary/90 text-white font-black text-xs uppercase shadow-lg">
+              <Plus className="h-4 w-4 mr-2" /> + Nueva Compra / Orden (OC)
+            </Button>
             <Button variant="outline" onClick={() => setIsPaymentModalOpen(true)} className="h-11 px-5 rounded-xl border-slate-200 font-black text-xs uppercase shadow-sm">
               <DollarSign className="h-4 w-4 mr-2 text-emerald-600" /> Registrar Abono
             </Button>
@@ -394,18 +559,31 @@ function PurchaseOrdersContent() {
                               <Progress value={progressPct} className="h-1.5 bg-slate-100" />
                             </div>
 
-                            {/* SELECTOR DE AVANCE RÁPIDO DE ETAPA */}
-                            <div className="pt-2 border-t flex items-center justify-between">
-                              <span className="text-[8px] font-black uppercase text-slate-400">Avanzar a:</span>
-                              <Select value={po.status} onValueChange={(val: any) => handleUpdateStage(po.id!, val)}>
-                                <SelectTrigger className="h-7 text-[8px] font-bold uppercase rounded-xl border-slate-200 w-28"><SelectValue /></SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="Cotizando/Alibaba" className="text-[9px] font-bold">💬 Cotizando</SelectItem>
-                                  <SelectItem value="En Fabricación" className="text-[9px] font-bold">⚙️ Fabricación</SelectItem>
-                                  <SelectItem value="En Tránsito" className="text-[9px] font-bold">🚢 Zarpó</SelectItem>
-                                  <SelectItem value="Aduana" className="text-[9px] font-bold">🛃 Aduana</SelectItem>
-                                </SelectContent>
-                              </Select>
+                            {/* SELECTOR DE AVANCE RÁPIDO Y BOTÓN ABRIR EXPEDIENTE / RECIBIR */}
+                            <div className="pt-2 border-t flex flex-col gap-2">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[8px] font-black uppercase text-slate-400">Avanzar a:</span>
+                                <Select value={po.status} onValueChange={(val: any) => handleUpdateStage(po.id!, val)}>
+                                  <SelectTrigger className="h-7 text-[8px] font-bold uppercase rounded-xl border-slate-200 w-28"><SelectValue /></SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="Cotizando/Alibaba" className="text-[9px] font-bold">💬 Cotizando</SelectItem>
+                                    <SelectItem value="En Fabricación" className="text-[9px] font-bold">⚙️ Fabricación</SelectItem>
+                                    <SelectItem value="En Tránsito" className="text-[9px] font-bold">🚢 Zarpó</SelectItem>
+                                    <SelectItem value="Aduana" className="text-[9px] font-bold">🛃 Aduana</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => {
+                                  setSelectedPO(po);
+                                  setIsDetailOpen(true);
+                                }}
+                                className="w-full h-8 rounded-xl border-slate-200 bg-slate-50 hover:bg-slate-900 hover:text-white text-[9px] font-black uppercase transition-colors"
+                              >
+                                <Package className="h-3.5 w-3.5 mr-1.5" /> {po.status === 'Recibido' ? 'Ver Expediente WAC' : 'Gestionar / Recibir Stock'}
+                              </Button>
                             </div>
                           </Card>
                         );
@@ -496,7 +674,11 @@ function PurchaseOrdersContent() {
                         <td className="p-4 text-center font-mono text-[9px]">{r.quote.paymentTerms}</td>
 
                         <td className="p-4 pr-8 text-right">
-                          <Button size="sm" className="h-8 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-black text-[8px] uppercase">
+                          <Button
+                            size="sm"
+                            onClick={() => handleConvertQuoteToPO(r.quote.supplierName, r.quote.productName, r.quote.unitPriceFOB, r.quote.moq, r.totalFreight + r.totalCustoms)}
+                            className="h-8 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-black text-[8px] uppercase"
+                          >
                             🏆 Adjudicar Orden
                           </Button>
                         </td>
@@ -557,10 +739,11 @@ function PurchaseOrdersContent() {
 
                         <td className="p-4 pr-8 text-right">
                           <div className="flex justify-end gap-1">
-                            <Button size="sm" variant="outline" className="h-8 px-3 rounded-xl text-[8px] font-black uppercase border-slate-200">
-                              <Send className="h-3 w-3 mr-1" /> Contactar
-                            </Button>
-                            <Button size="sm" className="h-8 px-3 rounded-xl bg-slate-900 text-white text-[8px] font-black uppercase">
+                            <Button
+                              size="sm"
+                              onClick={() => handleConvertQuoteToPO(alt.quote.supplierName, alt.quote.productName, alt.quote.quotedUnitPriceUSD, alt.quote.moq, 0)}
+                              className="h-8 px-3 rounded-xl bg-slate-900 text-white text-[8px] font-black uppercase"
+                            >
                               <CheckCircle2 className="h-3 w-3 mr-1" /> Convertir a Orden
                             </Button>
                           </div>
@@ -610,9 +793,18 @@ function PurchaseOrdersContent() {
                       <h3 className="text-xl font-black uppercase tracking-tight mt-1">{scannedInvoiceData.supplierName || 'Proveedor Internacional'}</h3>
                       <p className="text-slate-400 text-xs font-mono">Invoice #: {scannedInvoiceData.invoiceNumber || 'N/A'} | Fecha: {scannedInvoiceData.invoiceDate || 'N/A'} | Incoterm: {scannedInvoiceData.incoterm || 'FOB'}</p>
                     </div>
-                    <div className="text-right font-mono">
-                      <p className="text-[10px] text-slate-400 uppercase font-black">Flete & Gastos Extra</p>
-                      <p className="text-lg font-black text-emerald-400">${((scannedInvoiceData.shippingFreightUSD || 0) + (scannedInvoiceData.customsCostsUSD || 0)).toFixed(2)} USD</p>
+                    <div className="text-right font-mono flex items-center gap-4">
+                      <div>
+                        <p className="text-[10px] text-slate-400 uppercase font-black">Flete & Gastos Extra</p>
+                        <p className="text-lg font-black text-emerald-400">${((scannedInvoiceData.shippingFreightUSD || 0) + (scannedInvoiceData.customsCostsUSD || 0)).toFixed(2)} USD</p>
+                      </div>
+                      <Button
+                        onClick={handleCreatePoFromScannedInvoice}
+                        disabled={isSavingNewPo}
+                        className="h-11 px-5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-black text-xs uppercase shadow-lg"
+                      >
+                        <CheckCircle2 className="h-4 w-4 mr-2" /> Confirmar y Crear Orden (OC)
+                      </Button>
                     </div>
                   </div>
 
@@ -731,6 +923,171 @@ function PurchaseOrdersContent() {
             </form>
           </DialogContent>
         </Dialog>
+
+        {/* MODAL CREAR NUEVA COMPRA / ORDEN DE COMPRA (LOCAL O IMPORTACIÓN) */}
+        <Dialog open={isNewPoModalOpen} onOpenChange={setIsNewPoModalOpen}>
+          <DialogContent className="sm:max-w-2xl rounded-[2.5rem] border-none shadow-2xl overflow-hidden p-8 max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="text-xl font-black uppercase tracking-tight text-slate-900 flex items-center gap-2">
+                <Package className="h-5 w-5 text-primary" /> Registrar Nueva Compra / Orden de Compra (OC)
+              </DialogTitle>
+              <DialogDescription className="text-slate-500 text-xs">
+                Registra compras nacionales o importaciones internacionales, programa su fecha de pago y recibe la mercancía en almacén con cálculo automático de costo promedio (WAC).
+              </DialogDescription>
+            </DialogHeader>
+
+            <form onSubmit={handleCreatePurchaseOrder} className="space-y-4 py-2">
+              <div className="grid grid-cols-2 gap-3 p-1 bg-slate-100 rounded-xl">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setNewPoType('Local');
+                    setNewPoOriginCountry('Venezuela');
+                    setNewPoTransportMode('Terrestre');
+                  }}
+                  className={cn(
+                    "py-2.5 px-3 rounded-lg text-[10px] font-black uppercase transition-all",
+                    newPoType === 'Local' ? "bg-slate-900 text-white shadow" : "text-slate-600"
+                  )}
+                >
+                  🏢 Compra Local / Nacional
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setNewPoType('Importación');
+                    setNewPoOriginCountry('China');
+                    setNewPoTransportMode('Marítimo');
+                  }}
+                  className={cn(
+                    "py-2.5 px-3 rounded-lg text-[10px] font-black uppercase transition-all",
+                    newPoType === 'Importación' ? "bg-primary text-white shadow" : "text-slate-600"
+                  )}
+                >
+                  🚢 Importación Internacional
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label className="text-[9px] font-black uppercase text-slate-500">Proveedor</Label>
+                  <Input
+                    value={newPoSupplierName}
+                    onChange={(e) => setNewPoSupplierName(e.target.value)}
+                    placeholder="Nombre del proveedor o fábrica..."
+                    list="suppliers-datalist"
+                    className="h-11 rounded-xl text-xs font-bold"
+                    required
+                  />
+                  <datalist id="suppliers-datalist">
+                    {suppliers?.map(s => (
+                      <option key={s.id} value={s.name} />
+                    ))}
+                  </datalist>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="space-y-1">
+                    <Label className="text-[9px] font-black uppercase text-slate-500">País Origen</Label>
+                    <Input value={newPoOriginCountry} onChange={(e) => setNewPoOriginCountry(e.target.value)} className="h-11 rounded-xl text-xs font-bold" />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-[9px] font-black uppercase text-slate-500">Vencimiento Pago</Label>
+                    <Input type="date" value={newPoDueDate} onChange={(e) => setNewPoDueDate(e.target.value)} className="h-11 rounded-xl text-xs font-bold" />
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label className="text-[9px] font-black uppercase text-slate-500">Etapa Inicial</Label>
+                  <Select value={newPoInitialStage} onValueChange={(v: any) => setNewPoInitialStage(v)}>
+                    <SelectTrigger className="h-11 rounded-xl text-xs font-bold"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Cotizando/Alibaba">💬 Cotizando</SelectItem>
+                      <SelectItem value="En Fabricación">⚙️ En Fabricación / Pedido</SelectItem>
+                      <SelectItem value="En Tránsito">🚚 En Tránsito / Despachado</SelectItem>
+                      <SelectItem value="Aduana">🛃 En Aduana / Puerto</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-[9px] font-black uppercase text-slate-500">Flete / Gastos Extra ($ USD)</Label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    value={newPoFreightUSD}
+                    onChange={(e) => setNewPoFreightUSD(e.target.value)}
+                    className="h-11 rounded-xl text-xs font-mono font-bold"
+                  />
+                </div>
+              </div>
+
+              {/* AGREGAR PRODUCTOS DEL CATÁLOGO A LA ORDEN */}
+              <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-3">
+                <Label className="text-[9px] font-black uppercase text-slate-700">Agregar Artículos a la Orden de Compra</Label>
+                <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-end">
+                  <div className="sm:col-span-6">
+                    <Select value={newPoSelectedProductId} onValueChange={(val) => {
+                      setNewPoSelectedProductId(val);
+                      const prod = catalogProducts?.find(p => p.id === val);
+                      if (prod?.cost) setNewPoItemCost(String(prod.cost));
+                    }}>
+                      <SelectTrigger className="h-10 rounded-xl text-xs font-bold bg-white"><SelectValue placeholder="Seleccionar producto del catálogo..." /></SelectTrigger>
+                      <SelectContent>
+                        {catalogProducts?.map(p => (
+                          <SelectItem key={p.id} value={p.id!} className="text-xs font-bold">
+                            [{p.sku}] {p.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="sm:col-span-2">
+                    <Input type="number" min={1} value={newPoItemQty} onChange={(e) => setNewPoItemQty(e.target.value)} placeholder="Cant." className="h-10 rounded-xl text-xs font-mono font-bold bg-white" />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <Input type="number" step="0.01" value={newPoItemCost} onChange={(e) => setNewPoItemCost(e.target.value)} placeholder="Costo $" className="h-10 rounded-xl text-xs font-mono font-bold bg-white" />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <Button type="button" onClick={handleAddDraftPoItem} className="w-full h-10 rounded-xl bg-slate-900 text-white font-black text-[10px] uppercase">
+                      + Añadir
+                    </Button>
+                  </div>
+                </div>
+
+                {newPoItems.length > 0 && (
+                  <div className="space-y-1.5 pt-2 max-h-40 overflow-y-auto">
+                    {newPoItems.map((it, idx) => (
+                      <div key={idx} className="flex items-center justify-between text-xs font-bold bg-white px-3 py-2 rounded-xl border">
+                        <span className="truncate max-w-[240px]">[{it.sku}] {it.name}</span>
+                        <div className="flex items-center gap-3 font-mono">
+                          <span>{it.quantity} x ${it.unitCost.toFixed(2)} = <b>${(it.quantity * it.unitCost).toFixed(2)}</b></span>
+                          <button type="button" onClick={() => setNewPoItems(prev => prev.filter((_, i) => i !== idx))} className="text-rose-500 hover:text-rose-700">
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <DialogFooter className="pt-2">
+                <Button type="submit" disabled={isSavingNewPo} className="w-full h-12 rounded-xl bg-primary hover:bg-primary/90 text-white font-black text-xs uppercase shadow-lg">
+                  {isSavingNewPo ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <CheckCircle2 className="h-4 w-4 mr-2" />}
+                  Crear Orden de Compra (${(newPoItems.reduce((s, i) => s + i.quantity * i.unitCost, 0) + (parseFloat(newPoFreightUSD) || 0)).toFixed(2)} USD)
+                </Button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        </Dialog>
+
+        {/* FICHA DETALLADA DE ORDEN DE COMPRA Y RECEPCIÓN ATÓMICA DE ALMACÉN (WAC) */}
+        <PurchaseOrderDetailSheet
+          order={selectedPO}
+          isOpen={isDetailOpen}
+          onOpenChange={setIsDetailOpen}
+        />
       </div>
     );
 }

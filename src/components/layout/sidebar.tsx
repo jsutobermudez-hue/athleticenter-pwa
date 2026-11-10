@@ -43,7 +43,8 @@ import {
   Sparkles,
   Percent,
   Activity,
-  Megaphone
+  Megaphone,
+  Brain
 } from 'lucide-react';
 import { DynamicAppLogo } from '../icons/dynamic-app-logo';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
@@ -65,6 +66,7 @@ type MenuItem = {
 // --- GRUPO 1: MANDO Y COMUNICACIÓN ---
 const mandoItems: MenuItem[] = [
   { href: '/dashboard', label: 'Panel Principal', icon: LayoutDashboard, roles: ['superadmin', 'gerencia', 'admin', 'ventas', 'deposito', 'cliente'] },
+  { href: '/dashboard/ai-brain', label: 'El Cerebro IA', icon: Brain, roles: ['superadmin', 'gerencia', 'admin'] },
   { href: '/dashboard/notifications', label: 'Notificaciones', icon: Bell, roles: ['superadmin', 'gerencia', 'admin', 'ventas', 'deposito', 'cliente'] },
   { href: '/dashboard/ai-analyst', label: 'Analista IA', icon: Sparkles, roles: ['superadmin', 'gerencia', 'admin', 'ventas'] },
 ];
@@ -80,8 +82,8 @@ const comercialItems: MenuItem[] = [
 // --- GRUPO 3: CADENA DE SUMINISTRO Y LOGÍSTICA ---
 const logisticaItems: MenuItem[] = [
   { href: '/dashboard/dispatch', label: 'Centro de Despacho', icon: Truck, roles: ['superadmin', 'gerencia', 'admin', 'deposito', 'cliente'] },
-  { href: '/dashboard/purchase-orders', label: 'Importaciones (PO)', icon: Globe, roles: ['superadmin', 'gerencia'] },
-  { href: '/dashboard/suppliers', label: 'Proveedores', icon: Contact, roles: ['superadmin', 'gerencia'] },
+  { href: '/dashboard/purchase-orders', label: 'Compras e Import. (OC)', icon: Globe, roles: ['superadmin', 'gerencia', 'admin', 'deposito'] },
+  { href: '/dashboard/suppliers', label: 'Proveedores', icon: Contact, roles: ['superadmin', 'gerencia', 'admin'] },
   { href: '/dashboard/carriers', label: 'Transportistas', icon: Ship, roles: ['superadmin', 'gerencia', 'admin', 'deposito'] },
 ];
 

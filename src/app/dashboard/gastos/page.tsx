@@ -13,6 +13,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import {
@@ -33,7 +34,11 @@ import {
   CheckCircle2,
   AlertCircle,
   TrendingDown,
-  PieChart
+  PieChart,
+  Edit,
+  Wallet,
+  RefreshCw,
+  Brain
 } from 'lucide-react';
 
 export const dynamic = 'force-dynamic';
@@ -50,6 +55,7 @@ export default function GastosPage() {
     expenses,
     isLoading: isLoadingFinance,
     addExpense,
+    updateExpense,
     deleteExpense
   } = useFinance();
 
@@ -62,9 +68,27 @@ export default function GastosPage() {
   const [newCategory, setNewCategory] = useState<ExpenseItem['category']>('Gastos Operativos');
   const [newAmountUSD, setNewAmountUSD] = useState<string>('');
   const [newExpenseDate, setNewExpenseDate] = useState<string>(() => new Date().toISOString().split('T')[0]);
-  const [newPaymentStatus, setNewPaymentStatus] = useState<'PAID' | 'PENDING'>('PAID');
+  const [newDueDay, setNewDueDay] = useState<string>('15');
+  const [newPaymentStatus, setNewPaymentStatus] = useState<'PAID' | 'PENDING'>('PENDING');
+  const [newWalletMethod, setNewWalletMethod] = useState<string>('Efectivo USD');
+  const [newPaymentReference, setNewPaymentReference] = useState<string>('');
   const [newIsFixed, setNewIsFixed] = useState(true);
   const [isSubmittingExpense, setIsSubmittingExpense] = useState(false);
+
+  // ESTADOS PARA EDITAR Y MARCAR COMO PAGADO UN GASTO EXISTENTE
+  const [editingExpense, setEditingExpense] = useState<ExpenseItem | null>(null);
+  const [editConcept, setEditConcept] = useState('');
+  const [editCategory, setEditCategory] = useState<ExpenseItem['category']>('Gastos Operativos');
+  const [editAmountUSD, setEditAmountUSD] = useState('');
+  const [editIsFixed, setEditIsFixed] = useState(true);
+  const [editDueDay, setEditDueDay] = useState('15');
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
+
+  const [payingExpense, setPayingExpense] = useState<ExpenseItem | null>(null);
+  const [payWalletMethod, setPayWalletMethod] = useState<string>('Efectivo USD');
+  const [payReference, setPayReference] = useState<string>('');
+  const [payDate, setPayDate] = useState<string>(() => new Date().toISOString().split('T')[0]);
+  const [isSavingPay, setIsSavingPay] = useState(false);
 
   // FILTROS DE LISTA
   const [activeTab, setActiveTab] = useState<'all' | 'fixed' | 'variable' | 'pending'>('all');
@@ -84,6 +108,7 @@ export default function GastosPage() {
     setIsSubmittingExpense(true);
     try {
       const amountBS = amount * bcvRate;
+      const todayIso = new Date().toISOString().split('T')[0];
       await addExpense({
         concept: newConcept.trim(),
         category: newCategory,
@@ -92,16 +117,109 @@ export default function GastosPage() {
         bcvRate,
         isFixed: newIsFixed,
         periodicity: newIsFixed ? 'mensual' : 'unico',
-        date: newExpenseDate || new Date().toISOString().split('T')[0],
-        paymentStatus: newPaymentStatus
+        date: newExpenseDate || todayIso,
+        dueDay: Math.min(31, Math.max(1, parseInt(newDueDay) || 15)),
+        paymentStatus: newPaymentStatus,
+        ...(newPaymentStatus === 'PAID' ? {
+          walletMethod: newWalletMethod,
+          paymentReference: newPaymentReference.trim() || 'PAGO-DIRECTO',
+          paidAt: newExpenseDate || todayIso
+        } : {})
       });
       setNewConcept('');
       setNewAmountUSD('');
+      setNewPaymentReference('');
       toast({ title: 'Gasto Registrado con Éxito', description: `Se añadió "${newConcept}" por $${amount.toFixed(2)} USD.` });
     } catch (err: any) {
       toast({ variant: 'destructive', title: 'Error al Guardar', description: err?.message || 'No se pudo guardar el gasto.' });
     } finally {
       setIsSubmittingExpense(false);
+    }
+  };
+
+  const openEditDialog = (exp: ExpenseItem) => {
+    setEditingExpense(exp);
+    setEditConcept(exp.concept || '');
+    setEditCategory(exp.category || 'Gastos Operativos');
+    setEditAmountUSD(String(exp.amountUSD || 0));
+    setEditIsFixed(Boolean(exp.isFixed));
+    setEditDueDay(String(exp.dueDay || 15));
+  };
+
+  const handleSaveEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingExpense?.id || isSavingEdit) return;
+    const amt = parseFloat(editAmountUSD);
+    if (!editConcept.trim() || isNaN(amt) || amt <= 0) {
+      toast({ variant: 'destructive', title: 'Datos Inválidos', description: 'Verifica el concepto y monto.' });
+      return;
+    }
+    setIsSavingEdit(true);
+    try {
+      await updateExpense(editingExpense.id, {
+        concept: editConcept.trim(),
+        category: editCategory,
+        amountUSD: amt,
+        amountBS: amt * bcvRate,
+        bcvRate,
+        isFixed: editIsFixed,
+        periodicity: editIsFixed ? 'mensual' : 'unico',
+        dueDay: Math.min(31, Math.max(1, parseInt(editDueDay) || 15))
+      });
+      toast({ title: 'Gasto Actualizado', description: `Se actualizó "${editConcept.trim()}" a $${amt.toFixed(2)} USD.` });
+      setEditingExpense(null);
+    } catch (err: any) {
+      toast({ variant: 'destructive', title: 'Error al Actualizar', description: err?.message });
+    } finally {
+      setIsSavingEdit(false);
+    }
+  };
+
+  const openPayDialog = (exp: ExpenseItem) => {
+    setPayingExpense(exp);
+    setPayWalletMethod(exp.walletMethod || 'Efectivo USD');
+    setPayReference(exp.paymentReference || '');
+    setPayDate(new Date().toISOString().split('T')[0]);
+  };
+
+  const handleConfirmPayment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!payingExpense?.id || isSavingPay) return;
+    setIsSavingPay(true);
+    try {
+      await updateExpense(payingExpense.id, {
+        paymentStatus: 'PAID',
+        walletMethod: payWalletMethod,
+        paymentReference: payReference.trim() || `REF-${Date.now().toString().slice(-6)}`,
+        paidAt: payDate,
+        date: payDate,
+        bcvRate,
+        amountBS: Number(payingExpense.amountUSD || 0) * bcvRate
+      });
+      toast({
+        title: '✅ Gasto Pagado y Conciliado',
+        description: `Se registró la salida de $${Number(payingExpense.amountUSD || 0).toFixed(2)} USD desde ${payWalletMethod}.`
+      });
+      setPayingExpense(null);
+    } catch (err: any) {
+      toast({ variant: 'destructive', title: 'Error al Registrar Pago', description: err?.message });
+    } finally {
+      setIsSavingPay(false);
+    }
+  };
+
+  const handleResetMonthlyCycle = async () => {
+    const fixedPaid = expenses.filter(e => e.isFixed && e.paymentStatus === 'PAID' && e.id);
+    if (fixedPaid.length === 0) {
+      toast({ title: 'Ciclo al Día', description: 'Todos los gastos fijos ya están en estado Pendiente para el mes en curso.' });
+      return;
+    }
+    if (!confirm(`¿Iniciar nuevo mes contable? Se marcarán ${fixedPaid.length} gastos fijos como PENDIENTES para el nuevo ciclo mensual.`)) return;
+    try {
+      await Promise.all(fixedPaid.map(e => updateExpense(e.id!, { paymentStatus: 'PENDING' })));
+      toast({ title: '🔄 Nuevo Ciclo Mensual Iniciado', description: `${fixedPaid.length} gastos fijos listos por pagar este mes.` });
+    } catch (err: any) {
+      toast({ variant: 'destructive', title: 'Error', description: err?.message });
     }
   };
 
@@ -234,6 +352,14 @@ export default function GastosPage() {
           <Button
             variant="outline"
             size="sm"
+            onClick={handleResetMonthlyCycle}
+            className="h-10 px-4 rounded-xl border-slate-200 font-black text-[9px] uppercase tracking-wider text-slate-800 hover:bg-slate-50"
+          >
+            <RefreshCw className="h-3.5 w-3.5 mr-1.5 text-amber-600" /> Nuevo Ciclo Mensual
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
             onClick={() => router.push('/dashboard/break-even')}
             className="h-10 px-4 rounded-xl border-slate-200 font-black text-[9px] uppercase tracking-wider text-slate-800 hover:bg-slate-50"
           >
@@ -246,6 +372,13 @@ export default function GastosPage() {
             className="h-10 px-4 rounded-xl border-slate-200 font-black text-[9px] uppercase tracking-wider text-slate-800 hover:bg-slate-50"
           >
             <Landmark className="h-4 w-4 mr-1.5 text-emerald-600" /> Tesorería
+          </Button>
+          <Button
+            size="sm"
+            onClick={() => router.push('/dashboard/ai-brain')}
+            className="h-10 px-4 rounded-xl bg-slate-900 text-white font-black text-[9px] uppercase tracking-wider shadow-md hover:bg-slate-800"
+          >
+            <Brain className="h-4 w-4 mr-1.5 text-amber-400" /> El Cerebro IA
           </Button>
         </div>
       </header>
@@ -468,17 +601,31 @@ export default function GastosPage() {
                 </div>
               </div>
 
-              {/* FECHA Y ESTADO */}
+              {/* FECHA, DÍA DE CORTE Y ESTADO */}
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
-                  <Label className="text-[9px] font-black uppercase text-slate-500">Fecha del Gasto</Label>
-                  <Input
-                    type="date"
-                    value={newExpenseDate}
-                    onChange={(e) => setNewExpenseDate(e.target.value)}
-                    className="h-11 font-bold text-xs rounded-xl"
-                    required
-                  />
+                  <Label className="text-[9px] font-black uppercase text-slate-500">
+                    {newIsFixed ? 'Día de Pago del Mes (1-31)' : 'Fecha del Gasto'}
+                  </Label>
+                  {newIsFixed ? (
+                    <Input
+                      type="number"
+                      min={1}
+                      max={31}
+                      value={newDueDay}
+                      onChange={(e) => setNewDueDay(e.target.value)}
+                      className="h-11 font-bold text-xs rounded-xl font-mono"
+                      required
+                    />
+                  ) : (
+                    <Input
+                      type="date"
+                      value={newExpenseDate}
+                      onChange={(e) => setNewExpenseDate(e.target.value)}
+                      className="h-11 font-bold text-xs rounded-xl"
+                      required
+                    />
+                  )}
                 </div>
 
                 <div className="space-y-1.5">
@@ -486,12 +633,39 @@ export default function GastosPage() {
                   <Select value={newPaymentStatus} onValueChange={(v: any) => setNewPaymentStatus(v)}>
                     <SelectTrigger className="h-11 text-xs font-bold rounded-xl"><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="PAID">Pagado</SelectItem>
                       <SelectItem value="PENDING">Pendiente por Pagar</SelectItem>
+                      <SelectItem value="PAID">Ya Pagado</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
               </div>
+
+              {newPaymentStatus === 'PAID' && (
+                <div className="grid grid-cols-2 gap-3 p-3 rounded-xl bg-emerald-50/60 border border-emerald-200/60">
+                  <div className="space-y-1">
+                    <Label className="text-[8px] font-black uppercase text-emerald-800">Billetera de Salida</Label>
+                    <Select value={newWalletMethod} onValueChange={setNewWalletMethod}>
+                      <SelectTrigger className="h-9 text-[10px] font-bold rounded-lg bg-white"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Efectivo USD">💵 Efectivo USD</SelectItem>
+                        <SelectItem value="Zelle">⚡ Zelle USD</SelectItem>
+                        <SelectItem value="Binance">🟡 Binance USDT</SelectItem>
+                        <SelectItem value="Bancos Bs BCV">🏦 Bancos Bs (BCV)</SelectItem>
+                        <SelectItem value="Custodia Panamá">🌎 Custodia Panamá</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-[8px] font-black uppercase text-emerald-800">Ref / Comprobante</Label>
+                    <Input
+                      value={newPaymentReference}
+                      onChange={(e) => setNewPaymentReference(e.target.value)}
+                      placeholder="Ej. #948120"
+                      className="h-9 text-[10px] font-mono font-bold rounded-lg bg-white"
+                    />
+                  </div>
+                </div>
+              )}
 
               <Button 
                 type="submit" 
@@ -653,7 +827,12 @@ export default function GastosPage() {
                           </span>
                         </td>
                         <td className="p-3 text-slate-500 font-mono text-[10px]">
-                          {e.date || '—'}
+                          {e.isFixed ? `Día ${e.dueDay || 15} c/mes` : (e.date || '—')}
+                          {e.walletMethod && e.paymentStatus === 'PAID' && (
+                            <span className="block text-[8px] text-emerald-600 font-bold">
+                              {e.walletMethod} {e.paymentReference ? `(${e.paymentReference})` : ''}
+                            </span>
+                          )}
                         </td>
                         <td className="p-3 text-center">
                           <Badge 
@@ -669,17 +848,38 @@ export default function GastosPage() {
                           ${Number(e.amountUSD || 0).toFixed(2)}
                         </td>
                         <td className="p-3 pr-6 sm:pr-8 text-right">
-                          {e.id && (
-                            <Button 
-                              size="sm" 
-                              variant="ghost" 
-                              onClick={() => handleDelete(e.id!, e.concept)} 
-                              className="h-7 w-7 p-0 text-rose-500 hover:bg-rose-50 hover:text-rose-700 rounded-lg"
-                              title="Eliminar gasto"
+                          <div className="flex items-center justify-end gap-1">
+                            {e.paymentStatus !== 'PAID' && (
+                              <Button
+                                size="sm"
+                                onClick={() => openPayDialog(e)}
+                                className="h-7 px-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-black text-[8px] uppercase"
+                                title="Registrar pago de este gasto"
+                              >
+                                <CheckCircle2 className="h-3 w-3 mr-1" /> Pagar
+                              </Button>
+                            )}
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => openEditDialog(e)}
+                              className="h-7 w-7 p-0 text-slate-600 hover:bg-slate-100 rounded-lg"
+                              title="Editar gasto"
                             >
-                              <Trash2 className="h-3.5 w-3.5" />
+                              <Edit className="h-3.5 w-3.5" />
                             </Button>
-                          )}
+                            {e.id && (
+                              <Button 
+                                size="sm" 
+                                variant="ghost" 
+                                onClick={() => handleDelete(e.id!, e.concept)} 
+                                className="h-7 w-7 p-0 text-rose-500 hover:bg-rose-50 hover:text-rose-700 rounded-lg"
+                                title="Eliminar gasto"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     ))
@@ -714,6 +914,113 @@ export default function GastosPage() {
           </div>
         </div>
       </div>
+
+      {/* MODAL EDITAR GASTO */}
+      <Dialog open={Boolean(editingExpense)} onOpenChange={(open) => !open && setEditingExpense(null)}>
+        <DialogContent className="sm:max-w-md rounded-[2rem] border-none shadow-2xl p-7">
+          <DialogHeader>
+            <DialogTitle className="text-lg font-black uppercase tracking-tight text-slate-900 flex items-center gap-2">
+              <Edit className="h-5 w-5 text-primary" /> Editar Rubro de Gasto
+            </DialogTitle>
+            <DialogDescription className="text-xs text-slate-500">
+              Ajusta el monto en USD, categoría o día estimado de pago mensual.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleSaveEdit} className="space-y-4 pt-2">
+            <div className="space-y-1.5">
+              <Label className="text-[9px] font-black uppercase text-slate-500">Concepto</Label>
+              <Input value={editConcept} onChange={(e) => setEditConcept(e.target.value)} className="h-11 rounded-xl font-bold text-xs" required />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label className="text-[9px] font-black uppercase text-slate-500">Categoría</Label>
+                <Select value={editCategory} onValueChange={(v: any) => setEditCategory(v)}>
+                  <SelectTrigger className="h-11 rounded-xl text-xs font-bold"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Gastos Operativos">Gastos Operativos</SelectItem>
+                    <SelectItem value="Nómina">Nómina</SelectItem>
+                    <SelectItem value="Alquiler">Alquiler</SelectItem>
+                    <SelectItem value="Servicios">Servicios</SelectItem>
+                    <SelectItem value="Marketing">Marketing</SelectItem>
+                    <SelectItem value="Logística/Fletes">Logística / Fletes</SelectItem>
+                    <SelectItem value="Impuestos">Impuestos</SelectItem>
+                    <SelectItem value="Otros">Otros</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-[9px] font-black uppercase text-slate-500">Monto ($ USD)</Label>
+                <Input type="number" step="0.01" value={editAmountUSD} onChange={(e) => setEditAmountUSD(e.target.value)} className="h-11 rounded-xl font-black font-mono text-xs" required />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label className="text-[9px] font-black uppercase text-slate-500">Clasificación</Label>
+                <Select value={editIsFixed ? 'fixed' : 'variable'} onValueChange={(v) => setEditIsFixed(v === 'fixed')}>
+                  <SelectTrigger className="h-11 rounded-xl text-xs font-bold"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="fixed">Gasto Fijo Mensual</SelectItem>
+                    <SelectItem value="variable">Gasto Variable / Único</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-[9px] font-black uppercase text-slate-500">Día de Pago (1-31)</Label>
+                <Input type="number" min={1} max={31} value={editDueDay} onChange={(e) => setEditDueDay(e.target.value)} className="h-11 rounded-xl font-bold font-mono text-xs" />
+              </div>
+            </div>
+            <DialogFooter className="pt-2">
+              <Button type="submit" disabled={isSavingEdit} className="w-full h-12 rounded-xl bg-slate-900 text-white font-black text-xs uppercase">
+                {isSavingEdit ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null} Guardar Cambios
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* MODAL PAGAR / CONCILIAR GASTO */}
+      <Dialog open={Boolean(payingExpense)} onOpenChange={(open) => !open && setPayingExpense(null)}>
+        <DialogContent className="sm:max-w-md rounded-[2rem] border-none shadow-2xl p-7">
+          <DialogHeader>
+            <DialogTitle className="text-lg font-black uppercase tracking-tight text-slate-900 flex items-center gap-2">
+              <Wallet className="h-5 w-5 text-emerald-600" /> Registrar Pago de Gasto
+            </DialogTitle>
+            <DialogDescription className="text-xs text-slate-500">
+              {payingExpense?.concept} — Monto: <b className="text-slate-900">${Number(payingExpense?.amountUSD || 0).toFixed(2)} USD</b>
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleConfirmPayment} className="space-y-4 pt-2">
+            <div className="space-y-1.5">
+              <Label className="text-[9px] font-black uppercase text-slate-500">Billetera / Cuenta de Salida</Label>
+              <Select value={payWalletMethod} onValueChange={setPayWalletMethod}>
+                <SelectTrigger className="h-11 rounded-xl text-xs font-bold"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Efectivo USD">💵 Caja Efectivo USD</SelectItem>
+                  <SelectItem value="Zelle">⚡ Zelle USD</SelectItem>
+                  <SelectItem value="Binance">🟡 Binance USDT</SelectItem>
+                  <SelectItem value="Bancos Bs BCV">🏦 Bancos Nacionales (Bs BCV)</SelectItem>
+                  <SelectItem value="Custodia Panamá">🌎 Custodia / Panamá USD</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label className="text-[9px] font-black uppercase text-slate-500">Fecha de Pago</Label>
+                <Input type="date" value={payDate} onChange={(e) => setPayDate(e.target.value)} className="h-11 rounded-xl font-bold text-xs" required />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-[9px] font-black uppercase text-slate-500">Referencia / Recibo</Label>
+                <Input value={payReference} onChange={(e) => setPayReference(e.target.value)} placeholder="Ej. #849201" className="h-11 rounded-xl font-mono font-bold text-xs" />
+              </div>
+            </div>
+            <DialogFooter className="pt-2">
+              <Button type="submit" disabled={isSavingPay} className="w-full h-12 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs uppercase shadow-lg">
+                {isSavingPay ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <CheckCircle2 className="h-4 w-4 mr-2" />} Confirmar Salida y Marcar Pagado
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -37,7 +37,11 @@ import {
     Percent,
     Building2,
     DollarSign,
-    Save
+    Save,
+    Brain,
+    ArrowDownRight,
+    Banknote,
+    Globe
 } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Label } from '@/components/ui/label';
@@ -146,6 +150,51 @@ export default function TreasuryPage() {
   const expensesQuery = useMemoFirebase(() => firestore && canManage ? query(collection(firestore, 'expenses'), limit(200)) : null, [firestore, canManage]);
   const { data: allExpenses } = useCollection<any>(expensesQuery);
 
+  const poQuery = useMemoFirebase(() => firestore && canManage ? query(collection(firestore, 'purchaseOrders'), limit(200)) : null, [firestore, canManage]);
+  const { data: allPurchaseOrders } = useCollection<any>(poQuery);
+
+  const commQuery = useMemoFirebase(() => firestore && canManage ? query(collection(firestore, 'commissions'), limit(300)) : null, [firestore, canManage]);
+  const { data: allCommissions } = useCollection<any>(commQuery);
+
+  const walletsRef = useMemoFirebase(() => firestore && canManage ? doc(firestore, 'system', 'treasuryWallets') : null, [firestore, canManage]);
+  const { data: walletConfig } = useDoc<any>(walletsRef);
+
+  const [isWalletModalOpen, setIsWalletModalOpen] = useState(false);
+  const [walletInitials, setWalletInitials] = useState({
+    cashUSD: 0,
+    zelleUSD: 0,
+    binanceUSDT: 0,
+    bcvBsUSD: 0,
+    panamaUSD: 0,
+  });
+
+  useEffect(() => {
+    if (walletConfig) {
+      setWalletInitials({
+        cashUSD: Number(walletConfig.cashUSD || 0),
+        zelleUSD: Number(walletConfig.zelleUSD || 0),
+        binanceUSDT: Number(walletConfig.binanceUSDT || 0),
+        bcvBsUSD: Number(walletConfig.bcvBsUSD || 0),
+        panamaUSD: Number(walletConfig.panamaUSD || 0),
+      });
+    }
+  }, [walletConfig]);
+
+  const handleSaveWallets = async () => {
+    if (!firestore || !currentUser) return;
+    try {
+      await setDoc(doc(firestore, 'system', 'treasuryWallets'), {
+        ...walletInitials,
+        updatedAt: serverTimestamp(),
+        updatedBy: currentUser.id,
+      }, { merge: true });
+      setIsWalletModalOpen(false);
+      toast({ title: 'Saldos Iniciales de Billeteras Guardados', description: 'Las 5 billeteras internas reflejan ahora el flujo neto real.' });
+    } catch (e) {
+      toast({ variant: 'destructive', title: 'Error al guardar billeteras' });
+    }
+  };
+
   const { control, handleSubmit, reset, setValue, watch, formState: { isSubmitting } } = useForm<FinancialFormValues>({
     resolver: zodResolver(financialSchema),
     defaultValues: {
@@ -227,8 +276,90 @@ export default function TreasuryPage() {
         replacementCostTotal += stock * c;
     });
 
-    return { totalBilling, totalCashVerified, liquidityGap, efficiency, replacementCostTotal };
-  }, [products, allOrders]);
+    // Flujo de Caja Neto Real (Entradas menos Salidas Reales)
+    let paidExpensesUSD = 0;
+    const walletOutflows = { cashUSD: 0, zelleUSD: 0, binanceUSDT: 0, bcvBsUSD: 0, panamaUSD: 0 };
+    if (allExpenses) {
+      allExpenses.forEach((exp: any) => {
+        if (exp.paymentStatus === 'PAID' || exp.isPaidThisMonth) {
+          const amt = Number(exp.amountUSD || 0);
+          paidExpensesUSD += amt;
+          const m = String(exp.walletMethod || exp.paymentMethod || '').toLowerCase();
+          if (m.includes('zelle')) walletOutflows.zelleUSD += amt;
+          else if (m.includes('binance') || m.includes('usdt')) walletOutflows.binanceUSDT += amt;
+          else if (m.includes('bcv') || m.includes('bs') || m.includes('pago móvil') || m.includes('transferencia')) walletOutflows.bcvBsUSD += amt;
+          else if (m.includes('panama') || m.includes('panamá')) walletOutflows.panamaUSD += amt;
+          else walletOutflows.cashUSD += amt;
+        }
+      });
+    }
+
+    let paidSuppliersUSD = 0;
+    if (allPurchaseOrders) {
+      allPurchaseOrders.forEach((po: any) => {
+        if (po.paymentStatus === 'Pagado') {
+          const amt = Number(po.totalAmount || 0);
+          paidSuppliersUSD += amt;
+          if (po.purchaseType === 'Importación') walletOutflows.panamaUSD += amt;
+          else walletOutflows.cashUSD += amt;
+        } else if (po.amountPaid) {
+          const amt = Number(po.amountPaid || 0);
+          paidSuppliersUSD += amt;
+          walletOutflows.cashUSD += amt;
+        }
+      });
+    }
+
+    let paidCommissionsUSD = 0;
+    if (allCommissions) {
+      allCommissions.forEach((c: any) => {
+        if (c.status === 'Pagada' || c.status === 'Liquidado') {
+          const amt = Number(c.commissionAmount || c.amount || 0);
+          paidCommissionsUSD += amt;
+          walletOutflows.cashUSD += amt;
+        }
+      });
+    }
+
+    const walletInflows = { cashUSD: 0, zelleUSD: 0, binanceUSDT: 0, bcvBsUSD: 0, panamaUSD: 0 };
+    allOrders.forEach((o: any) => {
+      if (o.status === 'Cancelado') return;
+      const paid = Number(o.totalCashReceived ?? o.amountPaid ?? 0);
+      if (paid <= 0) return;
+      const m = String(o.paymentMethod || '').toLowerCase();
+      if (m.includes('zelle')) walletInflows.zelleUSD += paid;
+      else if (m.includes('binance') || m.includes('usdt')) walletInflows.binanceUSDT += paid;
+      else if (m.includes('bs') || m.includes('bcv') || m.includes('transferencia') || m.includes('móvil')) walletInflows.bcvBsUSD += paid;
+      else if (m.includes('panama') || m.includes('panamá')) walletInflows.panamaUSD += paid;
+      else walletInflows.cashUSD += paid;
+    });
+
+    const wallets = {
+      cashUSD: walletInitials.cashUSD + walletInflows.cashUSD - walletOutflows.cashUSD,
+      zelleUSD: walletInitials.zelleUSD + walletInflows.zelleUSD - walletOutflows.zelleUSD,
+      binanceUSDT: walletInitials.binanceUSDT + walletInflows.binanceUSDT - walletOutflows.binanceUSDT,
+      bcvBsUSD: walletInitials.bcvBsUSD + walletInflows.bcvBsUSD - walletOutflows.bcvBsUSD,
+      panamaUSD: walletInitials.panamaUSD + walletInflows.panamaUSD - walletOutflows.panamaUSD,
+    };
+
+    const totalInitialWallets = walletInitials.cashUSD + walletInitials.zelleUSD + walletInitials.binanceUSDT + walletInitials.bcvBsUSD + walletInitials.panamaUSD;
+    const totalOutflows = paidExpensesUSD + paidSuppliersUSD + paidCommissionsUSD;
+    const netLiquidityReal = totalInitialWallets + totalCashVerified - totalOutflows;
+
+    return {
+      totalBilling,
+      totalCashVerified,
+      liquidityGap,
+      efficiency,
+      replacementCostTotal,
+      paidExpensesUSD,
+      paidSuppliersUSD,
+      paidCommissionsUSD,
+      totalOutflows,
+      netLiquidityReal,
+      wallets,
+    };
+  }, [products, allOrders, allExpenses, allPurchaseOrders, allCommissions, walletInitials]);
 
   const profitabilityMatrix = useMemo(() => {
     if (!allOrders) return { grossRevenue: 0, cogs: 0, commissions: 0, expenses: 0, netMarginUSD: 0, netMarginPct: 0 };
@@ -397,16 +528,35 @@ export default function TreasuryPage() {
 
   return (
     <div className="w-full max-w-[1600px] mx-auto flex flex-col gap-8 pb-32 px-4 sm:px-6 animate-in fade-in-50 duration-500">
-      <header className="space-y-1">
-        <h1 className="terminal-header">Tesorería Central</h1>
-        <p className="tech-label opacity-60">POLÍTICA MONETARIA, COMISIONES Y PROTECCIÓN DE CAPITAL OPERATIVO.</p>
+      <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="space-y-1">
+          <h1 className="terminal-header">Tesorería Central & Billeteras</h1>
+          <p className="tech-label opacity-60">POLÍTICA MONETARIA, 5 BILLETERAS INTERNAS, FLUJO DE CAJA NETO Y PROTECCIÓN DE CAPITAL.</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => setIsWalletModalOpen(true)}
+            className="h-11 px-4 rounded-xl border-slate-200 font-black uppercase text-[10px] tracking-widest gap-2"
+          >
+            <Wallet className="h-4 w-4 text-emerald-600" /> Ajustar Saldos Base Billeteras
+          </Button>
+          <Button
+            type="button"
+            onClick={() => router.push('/dashboard/ai-brain')}
+            className="h-11 px-5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-black uppercase text-[10px] tracking-widest gap-2 shadow-lg"
+          >
+            <Brain className="h-4 w-4 text-primary" /> Abrir Cerebro de Finanzas IA
+          </Button>
+        </div>
       </header>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
           <MetricCard 
-              title="Liquidez Real" 
-              value={`$${metrics?.totalCashVerified?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}`} 
-              subValue="Efectivo en Banco (CASH) • Ver Pagos" 
+              title="Liquidez Neta Real" 
+              value={`$${metrics?.netLiquidityReal?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}`} 
+              subValue={`Cobrado $${metrics?.totalCashVerified?.toFixed(0) || 0} - Salidas $${metrics?.totalOutflows?.toFixed(0) || 0}`} 
               icon={TrendingUp} 
               colorClass="bg-emerald-50 text-emerald-500" 
               onClick={() => setIsCashAuditOpen(true)}
@@ -443,6 +593,102 @@ export default function TreasuryPage() {
               }}
           />
       </div>
+
+      {/* PANEL DE LAS 5 BILLETERAS INTERNAS Y FLUJO DE CAJA NETO REAL */}
+      <Card className="border border-slate-200/80 shadow-lg rounded-[2rem] bg-white p-6 sm:p-8 space-y-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-4">
+          <div>
+            <h3 className="text-sm sm:text-base font-black uppercase tracking-tight text-slate-900 flex items-center gap-2">
+              <Wallet className="h-5 w-5 text-emerald-600" /> Las 5 Billeteras Internas & Flujo de Caja Real (Sin Conexión Bancaria Externa)
+            </h3>
+            <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-0.5">
+              Alimentadas en tiempo real por: Cobros Verificados (+), Gastos Pagados (-), Abonos a Proveedores OC (-) y Comisiones Liquidadas (-)
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Badge className="bg-emerald-50 text-emerald-700 border border-emerald-200 font-black text-[10px] uppercase px-3 py-1">
+              Entradas: +${metrics?.totalCashVerified?.toLocaleString('en-US', { minimumFractionDigits: 2 }) || '0.00'}
+            </Badge>
+            <Badge className="bg-rose-50 text-rose-700 border border-rose-200 font-black text-[10px] uppercase px-3 py-1">
+              Salidas: -${metrics?.totalOutflows?.toLocaleString('en-US', { minimumFractionDigits: 2 }) || '0.00'}
+            </Badge>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+          <div className="p-4 rounded-2xl bg-emerald-50/60 border border-emerald-200/70 space-y-1.5">
+            <div className="flex items-center justify-between">
+              <span className="text-[9px] font-black uppercase text-emerald-800 tracking-wider">💵 Caja Efectivo USD</span>
+              <Banknote className="h-4 w-4 text-emerald-600" />
+            </div>
+            <p className="text-xl font-black text-slate-900 font-mono">
+              ${(metrics?.wallets?.cashUSD || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </p>
+            <p className="text-[9px] font-bold text-slate-500 uppercase">Billetes físicos en bóveda</p>
+          </div>
+
+          <div className="p-4 rounded-2xl bg-purple-50/60 border border-purple-200/70 space-y-1.5">
+            <div className="flex items-center justify-between">
+              <span className="text-[9px] font-black uppercase text-purple-800 tracking-wider">⚡ Zelle USD</span>
+              <Zap className="h-4 w-4 text-purple-600" />
+            </div>
+            <p className="text-xl font-black text-slate-900 font-mono">
+              ${(metrics?.wallets?.zelleUSD || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </p>
+            <p className="text-[9px] font-bold text-slate-500 uppercase">Transferencias divisas EE.UU.</p>
+          </div>
+
+          <div className="p-4 rounded-2xl bg-amber-50/60 border border-amber-200/70 space-y-1.5">
+            <div className="flex items-center justify-between">
+              <span className="text-[9px] font-black uppercase text-amber-800 tracking-wider">🟡 Binance USDT</span>
+              <Activity className="h-4 w-4 text-amber-600" />
+            </div>
+            <p className="text-xl font-black text-slate-900 font-mono">
+              ${(metrics?.wallets?.binanceUSDT || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </p>
+            <p className="text-[9px] font-bold text-slate-500 uppercase">Cripto / Billetera Digital</p>
+          </div>
+
+          <div className="p-4 rounded-2xl bg-blue-50/60 border border-blue-200/70 space-y-1.5">
+            <div className="flex items-center justify-between">
+              <span className="text-[9px] font-black uppercase text-blue-800 tracking-wider">🏦 Bancos Bs (BCV)</span>
+              <Landmark className="h-4 w-4 text-blue-600" />
+            </div>
+            <p className="text-xl font-black text-slate-900 font-mono">
+              ${(metrics?.wallets?.bcvBsUSD || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </p>
+            <p className="text-[9px] font-bold text-slate-500 uppercase">
+              ≈ {((metrics?.wallets?.bcvBsUSD || 0) * Number(formValues.bcvRate || settings?.bcvRate || 65.5)).toLocaleString('es-VE', { maximumFractionDigits: 0 })} Bs
+            </p>
+          </div>
+
+          <div className="p-4 rounded-2xl bg-slate-100 border border-slate-200 space-y-1.5">
+            <div className="flex items-center justify-between">
+              <span className="text-[9px] font-black uppercase text-slate-800 tracking-wider">🌎 Custodia Panamá</span>
+              <Globe className="h-4 w-4 text-slate-700" />
+            </div>
+            <p className="text-xl font-black text-slate-900 font-mono">
+              ${(metrics?.wallets?.panamaUSD || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </p>
+            <p className="text-[9px] font-bold text-slate-500 uppercase">Reserva Importaciones / China</p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-slate-100 text-xs">
+          <div className="flex items-center justify-between p-3 rounded-xl bg-slate-50">
+            <span className="font-bold text-slate-500 uppercase text-[10px]">Gastos Mes Pagados:</span>
+            <span className="font-black text-rose-600 font-mono">-${(metrics?.paidExpensesUSD || 0).toFixed(2)}</span>
+          </div>
+          <div className="flex items-center justify-between p-3 rounded-xl bg-slate-50">
+            <span className="font-bold text-slate-500 uppercase text-[10px]">Pagos a Proveedores (OC):</span>
+            <span className="font-black text-rose-600 font-mono">-${(metrics?.paidSuppliersUSD || 0).toFixed(2)}</span>
+          </div>
+          <div className="flex items-center justify-between p-3 rounded-xl bg-slate-50">
+            <span className="font-bold text-slate-500 uppercase text-[10px]">Comisiones Liquidadas:</span>
+            <span className="font-black text-rose-600 font-mono">-${(metrics?.paidCommissionsUSD || 0).toFixed(2)}</span>
+          </div>
+        </div>
+      </Card>
 
       {/* MATRIZ DE RENTABILIDAD Y MARGEN NETO REAL DE LA EMPRESA */}
       <Card className="border-none shadow-xl rounded-[2.5rem] bg-gradient-to-br from-slate-900 via-slate-800 to-slate-950 text-white p-6 sm:p-8 space-y-6">
@@ -668,6 +914,46 @@ export default function TreasuryPage() {
             </Card>
         </div>
       </div>
+
+      {/* MODAL DE AJUSTE DE SALDOS INICIALES DE LAS 5 BILLETERAS */}
+      <Dialog open={isWalletModalOpen} onOpenChange={setIsWalletModalOpen}>
+        <DialogContent className="rounded-[2rem] border-none shadow-2xl max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-lg font-black uppercase tracking-tight flex items-center gap-2">
+              <Wallet className="h-5 w-5 text-emerald-600" /> Saldos Iniciales de Billeteras
+            </DialogTitle>
+            <DialogDescription className="text-xs font-bold text-slate-500">
+              Define el saldo base inicial de cada billetera. A partir de este monto, el sistema suma automáticamente los cobros verificados y resta gastos, compras y comisiones pagadas.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div>
+              <Label className="text-[10px] font-black uppercase text-slate-500">💵 Caja Efectivo USD ($)</Label>
+              <Input type="number" step="0.01" value={walletInitials.cashUSD} onChange={(e) => setWalletInitials({ ...walletInitials, cashUSD: Number(e.target.value) })} className="h-10 font-black" />
+            </div>
+            <div>
+              <Label className="text-[10px] font-black uppercase text-slate-500">⚡ Zelle USD ($)</Label>
+              <Input type="number" step="0.01" value={walletInitials.zelleUSD} onChange={(e) => setWalletInitials({ ...walletInitials, zelleUSD: Number(e.target.value) })} className="h-10 font-black" />
+            </div>
+            <div>
+              <Label className="text-[10px] font-black uppercase text-slate-500">🟡 Binance USDT ($)</Label>
+              <Input type="number" step="0.01" value={walletInitials.binanceUSDT} onChange={(e) => setWalletInitials({ ...walletInitials, binanceUSDT: Number(e.target.value) })} className="h-10 font-black" />
+            </div>
+            <div>
+              <Label className="text-[10px] font-black uppercase text-slate-500">🏦 Bancos Nacionales Bs (Equivalente USD a BCV)</Label>
+              <Input type="number" step="0.01" value={walletInitials.bcvBsUSD} onChange={(e) => setWalletInitials({ ...walletInitials, bcvBsUSD: Number(e.target.value) })} className="h-10 font-black" />
+            </div>
+            <div>
+              <Label className="text-[10px] font-black uppercase text-slate-500">🌎 Custodia Panamá / Importaciones ($)</Label>
+              <Input type="number" step="0.01" value={walletInitials.panamaUSD} onChange={(e) => setWalletInitials({ ...walletInitials, panamaUSD: Number(e.target.value) })} className="h-10 font-black" />
+            </div>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setIsWalletModalOpen(false)} className="rounded-xl font-black text-xs uppercase">Cancelar</Button>
+            <Button onClick={handleSaveWallets} className="rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs uppercase">Guardar Saldos</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* MODAL DE ARQUEO Y REGISTRO DE PAGOS (LIQUIDEZ REAL) */}
       <CashAuditModal 

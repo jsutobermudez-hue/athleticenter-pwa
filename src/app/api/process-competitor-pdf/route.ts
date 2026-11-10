@@ -101,10 +101,10 @@ export async function POST(req: NextRequest) {
       };
     }
 
-    // Intentar llamadas a Gemini 2.5 Flash / 1.5 Flash
+    // Intentar llamadas a Gemini 2.5 Flash / 2.0 Flash
     const modelsToTry = [
-      'gemini-1.5-flash',
-      'gemini-1.5-flash'
+      'gemini-2.5-flash',
+      'gemini-2.0-flash'
     ];
 
     let rawResponseText = '';

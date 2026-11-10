@@ -11,7 +11,11 @@ export interface ExpenseItem {
   isFixed: boolean;
   periodicity?: 'mensual' | 'anual' | 'semanal' | 'diario' | 'unico';
   date?: string; // YYYY-MM-DD
+  dueDay?: number; // 1 - 31 (Día estimado de pago mensual)
   paymentStatus?: 'PAID' | 'PENDING';
+  walletMethod?: 'Efectivo USD' | 'Zelle' | 'Binance' | 'Bancos Bs BCV' | 'Custodia Panamá' | string;
+  paymentReference?: string;
+  paidAt?: string;
   notes?: string;
 }
 
