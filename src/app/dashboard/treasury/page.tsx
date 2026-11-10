@@ -674,7 +674,7 @@ export default function TreasuryPage() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-slate-100 text-xs">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-2 border-t border-slate-100 text-xs">
           <div className="flex items-center justify-between p-3 rounded-xl bg-slate-50">
             <span className="font-bold text-slate-500 uppercase text-[10px]">Gastos Mes Pagados:</span>
             <span className="font-black text-rose-600 font-mono">-${(metrics?.paidExpensesUSD || 0).toFixed(2)}</span>
@@ -686,6 +686,12 @@ export default function TreasuryPage() {
           <div className="flex items-center justify-between p-3 rounded-xl bg-slate-50">
             <span className="font-bold text-slate-500 uppercase text-[10px]">Comisiones Liquidadas:</span>
             <span className="font-black text-rose-600 font-mono">-${(metrics?.paidCommissionsUSD || 0).toFixed(2)}</span>
+          </div>
+          <div className="flex items-center justify-between p-3 rounded-xl bg-orange-50 border border-orange-200">
+            <span className="font-black text-orange-800 uppercase text-[10px]">⏱️ Runway Caja Real:</span>
+            <span className="font-black text-orange-700 font-mono">
+              {((metrics?.netLiquidityReal || 0) / Math.max(1, profitabilityMatrix.expenses || 2160)).toFixed(1)} Meses
+            </span>
           </div>
         </div>
       </Card>
