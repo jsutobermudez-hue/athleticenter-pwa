@@ -3,7 +3,7 @@ import * as XLSX from 'xlsx';
 import { authorizeRequest, MANAGER_ROLES } from '@/lib/server-auth';
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 60; // 60 segundos de tiempo de ejecución para archivos grandes
+export const maxDuration = 300; // Hasta 5 minutos para catálogos PDF gigantes (hasta 250 MB)
 
 const SYSTEM_PROMPT = `
 Eres un Auditor Financiero Senior experto en Inteligencia de Precios B2B para Athleticenter PRO, una empresa mayorista de equipamiento y artículos deportivos en todas las disciplinas (Fútbol, Béisbol, Baloncesto, Voleibol, Tenis, Natación, Boxeo, Fitness, Artes Marciales, Pádel, Atletismo, Ciclismo, etc.).
@@ -30,11 +30,60 @@ REGLAS DE EXTRACCIÓN ESTRICTAS:
 ]
 `;
 
+async function uploadToGeminiFileApi(buffer: Buffer, mimeType: string, displayName: string, apiKey: string): Promise<{ uri: string; name: string }> {
+  const uploadRes = await fetch(
+    `https://generativelanguage.googleapis.com/upload/v1beta/files?key=${apiKey}`,
+    {
+      method: 'POST',
+      headers: {
+        'X-Goog-Upload-Protocol': 'raw',
+        'X-Goog-Upload-Header-Content-Length': String(buffer.byteLength),
+        'X-Goog-Upload-Header-Content-Type': mimeType,
+        'Content-Type': mimeType,
+        'X-Goog-Upload-File-Name': encodeURIComponent(displayName),
+      },
+      body: new Uint8Array(buffer),
+    }
+  );
+
+  if (!uploadRes.ok) {
+    const errTxt = await uploadRes.text();
+    throw new Error(`Error subiendo PDF pesado a Gemini File API (${uploadRes.status}): ${errTxt}`);
+  }
+
+  const data = await uploadRes.json();
+  const fileObj = data?.file || data;
+  if (!fileObj?.uri) {
+    throw new Error('Gemini File API no devolvió URI de archivo.');
+  }
+
+  // Esperar si el archivo está en estado PROCESSING
+  let state = fileObj.state;
+  const resourceName = fileObj.name;
+  let retries = 0;
+  while (state === 'PROCESSING' && resourceName && retries < 25) {
+    await new Promise((r) => setTimeout(r, 2000));
+    retries++;
+    const checkRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/${resourceName}?key=${apiKey}`);
+    if (checkRes.ok) {
+      const checkData = await checkRes.json();
+      state = checkData?.state || 'ACTIVE';
+    } else {
+      break;
+    }
+  }
+
+  return { uri: fileObj.uri, name: resourceName || '' };
+}
+
 export async function POST(req: NextRequest) {
-    const auth = await authorizeRequest(req, MANAGER_ROLES);
-    if (!auth.ok) return NextResponse.json({ success: false, error: auth.error }, { status: auth.status });
+  const auth = await authorizeRequest(req, MANAGER_ROLES);
+  if (!auth.ok) return NextResponse.json({ success: false, error: auth.error }, { status: auth.status });
+
+  let geminiTempFileName = '';
+  const apiKey = process.env.GOOGLE_GENAI_API_KEY || process.env.GEMINI_API_KEY || '';
+
   try {
-    const apiKey = process.env.GOOGLE_GENAI_API_KEY || process.env.GEMINI_API_KEY;
     if (!apiKey) {
       return NextResponse.json(
         { success: false, error: 'La API Key de Gemini (GOOGLE_GENAI_API_KEY / GEMINI_API_KEY) no está configurada en las variables de entorno.' },
@@ -42,66 +91,98 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const formData = await req.formData();
-    const file = formData.get('file') as File | null;
+    let rawFileName = '';
+    let mimeType = '';
+    let fileBuffer: Buffer | null = null;
 
-    if (!file) {
-      return NextResponse.json(
-        { success: false, error: 'No se adjuntó ningún archivo en la solicitud.' },
-        { status: 400 }
-      );
+    const contentTypeHeader = req.headers.get('content-type') || '';
+
+    if (contentTypeHeader.includes('application/json')) {
+      const body = await req.json();
+      const fileUrl = String(body?.fileUrl || '');
+      rawFileName = String(body?.fileName || 'catalogo_competencia.pdf');
+      mimeType = String(body?.mimeType || '');
+
+      if (!fileUrl || !fileUrl.startsWith('https://firebasestorage.googleapis.com/')) {
+        return NextResponse.json(
+          { success: false, error: 'URL de archivo en Cloud Storage no válida.' },
+          { status: 400 }
+        );
+      }
+
+      const dlRes = await fetch(fileUrl, { signal: AbortSignal.timeout(120000) });
+      if (!dlRes.ok) {
+        throw new Error(`No se pudo descargar el catálogo desde Cloud Storage (${dlRes.status}).`);
+      }
+      fileBuffer = Buffer.from(await dlRes.arrayBuffer());
+      if (!mimeType) mimeType = dlRes.headers.get('content-type') || '';
+    } else {
+      const formData = await req.formData();
+      const file = formData.get('file') as File | null;
+      if (!file) {
+        return NextResponse.json(
+          { success: false, error: 'No se adjuntó ningún archivo en la solicitud.' },
+          { status: 400 }
+        );
+      }
+      rawFileName = file.name;
+      mimeType = file.type || '';
+      fileBuffer = Buffer.from(await file.arrayBuffer());
     }
 
-    const fileName = file.name.toLowerCase();
-    const mimeType = file.type || '';
-
+    const fileName = rawFileName.toLowerCase();
     let promptPart: any = null;
 
     // 1. SI ES UN ARCHIVO DE EXCEL O CSV (.xlsx, .xls, .csv)
     if (fileName.endsWith('.xlsx') || fileName.endsWith('.xls') || fileName.endsWith('.csv') || mimeType.includes('spreadsheet') || mimeType.includes('csv')) {
-      const arrayBuffer = await file.arrayBuffer();
-      const workbook = XLSX.read(arrayBuffer, { type: 'buffer' });
+      const workbook = XLSX.read(fileBuffer, { type: 'buffer' });
       let textContent = '';
       workbook.SheetNames.forEach(sheetName => {
         const sheet = workbook.Sheets[sheetName];
         textContent += `--- HOJA EXCEL: ${sheetName} ---\n` + XLSX.utils.sheet_to_csv(sheet) + '\n\n';
       });
       promptPart = {
-        text: `A continuación se presenta el contenido extraído de la hoja de cálculo de la competencia (${file.name}):\n\n${textContent}`
+        text: `A continuación se presenta el contenido extraído de la hoja de cálculo de la competencia (${rawFileName}):\n\n${textContent}`
       };
     }
-    // 2. SI ES UN ARCHIVO PDF
+    // 2. SI ES UN ARCHIVO PDF (SOPORTE NATIVO HASTA 250 MB VÍA GEMINI FILE API)
     else if (fileName.endsWith('.pdf') || mimeType === 'application/pdf') {
-      const arrayBuffer = await file.arrayBuffer();
-      const base64Data = Buffer.from(arrayBuffer).toString('base64');
-      promptPart = {
-        inlineData: {
-          mimeType: 'application/pdf',
-          data: base64Data
-        }
-      };
+      if (fileBuffer.byteLength > 14 * 1024 * 1024) {
+        const uploaded = await uploadToGeminiFileApi(fileBuffer, 'application/pdf', rawFileName, apiKey);
+        geminiTempFileName = uploaded.name;
+        promptPart = {
+          fileData: {
+            mimeType: 'application/pdf',
+            fileUri: uploaded.uri
+          }
+        };
+      } else {
+        promptPart = {
+          inlineData: {
+            mimeType: 'application/pdf',
+            data: fileBuffer.toString('base64')
+          }
+        };
+      }
     }
     // 3. SI ES UNA IMAGEN (.png, .jpg, .jpeg, .webp)
     else if (fileName.endsWith('.png') || fileName.endsWith('.jpg') || fileName.endsWith('.jpeg') || fileName.endsWith('.webp') || mimeType.startsWith('image/')) {
-      const arrayBuffer = await file.arrayBuffer();
-      const base64Data = Buffer.from(arrayBuffer).toString('base64');
       const imgMime = mimeType || (fileName.endsWith('.png') ? 'image/png' : fileName.endsWith('.webp') ? 'image/webp' : 'image/jpeg');
       promptPart = {
         inlineData: {
           mimeType: imgMime,
-          data: base64Data
+          data: fileBuffer.toString('base64')
         }
       };
     }
     // 4. OTROS ARCHIVOS DE TEXTO PLANO / DOCUMENTOS (.txt, .tsv, etc.)
     else {
-      const textContent = await file.text();
+      const textContent = fileBuffer.toString('utf8');
       promptPart = {
-        text: `A continuación se presenta el texto del documento de la competencia (${file.name}):\n\n${textContent}`
+        text: `A continuación se presenta el texto del documento de la competencia (${rawFileName}):\n\n${textContent}`
       };
     }
 
-    // Intentar llamadas a Gemini 2.5 Flash / 2.0 Flash
     const modelsToTry = [
       'gemini-2.5-flash',
       'gemini-2.0-flash'
@@ -129,9 +210,10 @@ export async function POST(req: NextRequest) {
               ],
               generationConfig: {
                 temperature: 0.1,
-                maxOutputTokens: 8192
+                maxOutputTokens: 32768
               }
-            })
+            }),
+            signal: AbortSignal.timeout(240000)
           }
         );
 
@@ -153,7 +235,6 @@ export async function POST(req: NextRequest) {
       throw new Error(`No se pudo procesar el archivo con Gemini. Detalle: ${typeof lastError === 'string' ? lastError : lastError?.message || 'Error de conexión'}`);
     }
 
-    // Saneamiento estricto de JSON
     let cleanedText = rawResponseText
       .replace(/```json/gi, '')
       .replace(/```/g, '')
@@ -168,7 +249,7 @@ export async function POST(req: NextRequest) {
     let parsedItems: any[] = [];
     try {
       parsedItems = JSON.parse(cleanedText);
-    } catch (parseErr: any) {
+    } catch {
       console.error("[Pricing Intelligence API] Error al parsear JSON de Gemini:", cleanedText);
       return NextResponse.json(
         {
@@ -187,7 +268,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Normalizar elementos extraídos
     const sanitizedItems = parsedItems.map(i => ({
       item: String(i.item || 'Producto Sin Nombre').trim(),
       price: Math.max(0, parseFloat(i.price) || 0),
@@ -197,7 +277,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      fileName: file.name,
+      fileName: rawFileName,
       extractedCount: sanitizedItems.length,
       items: sanitizedItems
     });
@@ -208,5 +288,9 @@ export async function POST(req: NextRequest) {
       { success: false, error: error.message || 'Error interno al procesar el archivo de la competencia.' },
       { status: 500 }
     );
+  } finally {
+    if (geminiTempFileName && apiKey) {
+      fetch(`https://generativelanguage.googleapis.com/v1beta/${geminiTempFileName}?key=${apiKey}`, { method: 'DELETE' }).catch(() => {});
+    }
   }
 }

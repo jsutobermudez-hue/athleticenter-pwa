@@ -9,7 +9,7 @@ const nextConfig: NextConfig = {
   images: { unoptimized: true },
   experimental: {
     serverActions: {
-      bodySizeLimit: '2mb',
+      bodySizeLimit: '100mb',
     },
   },
   poweredByHeader: false,

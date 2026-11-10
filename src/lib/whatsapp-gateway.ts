@@ -8,6 +8,7 @@ export interface WhatsAppGatewaySendParams {
   phone: string;
   message: string;
   imageUrl?: string;
+  documentUrl?: string;
   pdfBase64?: string;
   fileName?: string;
   orderId?: string;
@@ -43,6 +44,7 @@ export async function sendBackgroundWhatsAppMessage({
   phone,
   message,
   imageUrl,
+  documentUrl,
   pdfBase64,
   fileName = 'Recibo_Oficial_Athleticenter.pdf',
   orderId
@@ -59,6 +61,8 @@ export async function sendBackgroundWhatsAppMessage({
     number: cleanPhone,
     text: message,
     imageUrl,
+    documentUrl,
+    fileName,
     media: pdfBase64 ? {
       base64: pdfBase64,
       filename: fileName,

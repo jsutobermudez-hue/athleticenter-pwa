@@ -2,7 +2,8 @@
 
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useCollection, useDoc, useFirestore, useMemoFirebase } from '@/firebase';
+import { useCollection, useDoc, useFirestore, useMemoFirebase, useStorage } from '@/firebase';
+import { uploadLargeFileToStorage } from '@/lib/large-file-upload';
 import { collection, query, orderBy, limit, addDoc, doc, setDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
 import type { Customer } from '@/lib/definitions';
 import { Card, CardContent } from '@/components/ui/card';
@@ -43,6 +44,7 @@ interface ArmAgentPanelProps {
 
 export function ArmAgentPanel({ customers = [] }: ArmAgentPanelProps) {
     const firestore = useFirestore();
+    const storage = useStorage();
     const router = useRouter();
     const { toast } = useToast();
 
@@ -53,65 +55,72 @@ export function ArmAgentPanel({ customers = [] }: ArmAgentPanelProps) {
     const [simResult, setSimResult] = useState<any | null>(null);
     const [creatingCustomerPhone, setCreatingCustomerPhone] = useState<string | null>(null);
     const [isUploadingPdf, setIsUploadingPdf] = useState(false);
+    const [uploadProgress, setUploadProgress] = useState(0);
 
     const armCatalogRef = useMemoFirebase(
         () => (firestore ? doc(firestore, 'system', 'armCatalog') : null),
         [firestore]
     );
     const { data: customCatalog } = useDoc<any>(armCatalogRef);
+    const hasCustomCatalog = Boolean(customCatalog?.pdfUrl || customCatalog?.pdfBase64);
 
     const handleUploadCatalogPdf = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
-        if (!file || !firestore) return;
-        if (file.type !== 'application/pdf') {
+        if (!file || !firestore || !storage) return;
+        const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+        if (!isPdf) {
             toast({
                 variant: 'destructive',
                 title: 'Archivo no válido',
-                description: 'Por favor selecciona un archivo en formato PDF (.pdf).',
+                description: 'Por favor selecciona un catálogo en formato PDF (.pdf).',
             });
             return;
         }
-        if (file.size > 900 * 1024) {
+        const MAX_CATALOG_BYTES = 250 * 1024 * 1024; // 250 MB máximo en Cloud Storage
+        if (file.size > MAX_CATALOG_BYTES) {
             toast({
                 variant: 'destructive',
-                title: 'PDF demasiado pesado para Firestore directo',
-                description: 'El PDF personalizado debe pesar menos de 900 KB, o usa el Catálogo PDF Automático que genera los 141 productos al instante.',
+                title: 'Archivo excede 250 MB',
+                description: 'El límite máximo por catálogo PDF de alta resolución es de 250 MB.',
             });
             return;
         }
 
         setIsUploadingPdf(true);
+        setUploadProgress(0);
         try {
-            const base64 = await new Promise<string>((resolve, reject) => {
-                const reader = new FileReader();
-                reader.onload = () => {
-                    const res = String(reader.result || '');
-                    const clean = res.includes(',') ? res.split(',')[1] : res;
-                    resolve(clean);
-                };
-                reader.onerror = reject;
-                reader.readAsDataURL(file);
+            const uploaded = await uploadLargeFileToStorage({
+                storage,
+                folder: 'catalogs',
+                file,
+                onProgress: (pct) => setUploadProgress(pct),
             });
 
             await setDoc(doc(firestore, 'system', 'armCatalog'), {
-                fileName: file.name.replace(/\s+/g, '_'),
-                pdfBase64: base64,
+                fileName: uploaded.fileName,
+                pdfUrl: uploaded.downloadUrl,
+                storagePath: uploaded.storagePath,
+                pdfBase64: null,
                 sizeBytes: file.size,
                 updatedAt: serverTimestamp(),
             });
 
+            const sizeMb = (file.size / (1024 * 1024)).toFixed(2);
             toast({
-                title: '📄 Catálogo PDF Oficial cargado',
-                description: `El Agente ARM ahora enviará "${file.name}" automáticamente cuando un cliente pida el catálogo.`,
+                title: `📄 Catálogo PDF Oficial cargado (${sizeMb} MB)`,
+                description: file.size <= 100 * 1024 * 1024
+                    ? `El Agente ARM enviará "${file.name}" como documento adjunto directo por WhatsApp.`
+                    : `Catálogo >100 MB almacenado en alta velocidad: el Agente ARM enviará enlace directo de descarga instantánea.`,
             });
         } catch (err: any) {
             toast({
                 variant: 'destructive',
-                title: 'Error al subir el PDF',
-                description: err?.message || 'No se pudo guardar el catálogo PDF.',
+                title: 'Error al subir el catálogo PDF',
+                description: err?.message || 'No se pudo guardar el catálogo PDF en Cloud Storage.',
             });
         } finally {
             setIsUploadingPdf(false);
+            setUploadProgress(0);
             e.target.value = '';
         }
     };
@@ -348,13 +357,13 @@ export function ArmAgentPanel({ customers = [] }: ArmAgentPanelProps) {
                                         Envío Automático de Catálogo PDF y Fotos por WhatsApp
                                     </span>
                                     <Badge className="bg-emerald-500 text-slate-950 border-none text-[8px] font-black uppercase">
-                                        {customCatalog?.pdfBase64 ? 'PDF Personalizado Activo' : 'PDF Dinámico en Vivo (141 Productos / 14 Marcas)'}
+                                        {hasCustomCatalog ? 'PDF Personalizado Activo (Hasta 250 MB)' : 'PDF Dinámico en Vivo (141 Productos / 14 Marcas)'}
                                     </Badge>
                                 </div>
                                 <p className="text-[11px] text-slate-300 mt-0.5">
-                                    {customCatalog?.pdfBase64
-                                        ? `Archivo cargado: ${customCatalog.fileName || 'Catalogo_Mayorista.pdf'}. Se adjunta automáticamente cuando un cliente pide el catálogo.`
-                                        : 'Cuando el cliente pide el catálogo o lista de precios, el bot genera y adjunta al instante el PDF con tus 141 productos y las 3 columnas de precios (Lista, -25% Divisas y -10% Pronto Pago).'}
+                                    {hasCustomCatalog
+                                        ? `Archivo cargado: ${customCatalog?.fileName || 'Catalogo_Mayorista.pdf'}${customCatalog?.sizeBytes ? ` (${(customCatalog.sizeBytes / (1024 * 1024)).toFixed(1)} MB)` : ''}. Se adjunta automáticamente cuando un cliente pide el catálogo.`
+                                        : 'Sube tu catálogo PDF completo de alta resolución (hasta 250 MB; adjunto nativo directo hasta 100 MB por WhatsApp) o usa el PDF dinámico automático.'}
                                 </p>
                             </div>
                         </div>
@@ -363,22 +372,22 @@ export function ArmAgentPanel({ customers = [] }: ArmAgentPanelProps) {
                             <label className="cursor-pointer inline-flex items-center gap-1.5 h-9 px-3.5 rounded-xl bg-white/10 hover:bg-white/20 text-white font-black uppercase text-[9px] tracking-wider transition-colors">
                                 {isUploadingPdf ? (
                                     <>
-                                        <Loader2 className="h-3.5 w-3.5 animate-spin" /> Subiendo...
+                                        <Loader2 className="h-3.5 w-3.5 animate-spin" /> Subiendo {uploadProgress}%...
                                     </>
                                 ) : (
                                     <>
-                                        <Upload className="h-3.5 w-3.5 text-emerald-400" /> Subir PDF Propio (Opcional)
+                                        <Upload className="h-3.5 w-3.5 text-emerald-400" /> Subir Catálogo PDF (Hasta 250 MB)
                                     </>
                                 )}
                                 <input
                                     type="file"
-                                    accept="application/pdf"
+                                    accept="application/pdf,.pdf"
                                     className="hidden"
                                     onChange={handleUploadCatalogPdf}
                                     disabled={isUploadingPdf}
                                 />
                             </label>
-                            {customCatalog?.pdfBase64 && (
+                            {hasCustomCatalog && (
                                 <Button
                                     size="sm"
                                     variant="outline"

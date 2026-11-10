@@ -30,6 +30,7 @@ export async function POST(req: Request) {
         phone,
         message: armResult.replyText,
         orderId: 'ARM-TEST',
+        documentUrl: armResult.pdfUrl,
         pdfBase64: armResult.pdfBase64,
         fileName: armResult.pdfFileName,
         imageUrl: armResult.imageUrl,
@@ -52,7 +53,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json({
       ...safeResult,
-      hasPdfAttached: Boolean(armResult.pdfBase64),
+      hasPdfAttached: Boolean(armResult.pdfBase64 || armResult.pdfUrl),
       hasPhotoAttached: Boolean(armResult.imageUrl),
       photosCount: (armResult.imageUrl ? 1 : 0) + (armResult.extraPhotos?.length || 0),
       intent: armResult.handoffTriggered ? 'HOT_LEAD_HANDOFF' : 'ARM_SALES_AGENT',

@@ -224,6 +224,7 @@ export async function POST(req: Request) {
       await sendBackgroundWhatsAppMessage({
         phone: cleanPhone,
         message: armResult.replyText,
+        documentUrl: armResult.pdfUrl,
         pdfBase64: armResult.pdfBase64,
         fileName: armResult.pdfFileName || 'Catalogo_Mayorista_Athleticenter.pdf',
         imageUrl: armResult.imageUrl
@@ -243,7 +244,7 @@ export async function POST(req: Request) {
         success: true,
         action: 'arm_agent_processed',
         replyText: armResult.replyText,
-        pdfSent: Boolean(armResult.pdfBase64),
+        pdfSent: Boolean(armResult.pdfBase64 || armResult.pdfUrl),
         imageSent: Boolean(armResult.imageUrl),
         extraPhotosSent: armResult.extraPhotos?.length || 0,
         leadQualified: armResult.leadQualified,

@@ -2,7 +2,8 @@
 
 import React, { useState, useMemo, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { useCollection, useFirestore, useMemoFirebase, useUser, useDoc } from '@/firebase';
+import { useCollection, useFirestore, useMemoFirebase, useUser, useDoc, useStorage } from '@/firebase';
+import { uploadLargeFileToStorage } from '@/lib/large-file-upload';
 import { collection, query, limit, doc, addDoc, serverTimestamp } from 'firebase/firestore';
 import type { Product, FinancialSettings } from '@/lib/definitions';
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
@@ -47,6 +48,7 @@ export const dynamic = 'force-dynamic';
 export default function PricingIntelligencePage() {
   const router = useRouter();
   const firestore = useFirestore();
+  const storage = useStorage();
   const { toast } = useToast();
   const { profile: currentUser, isUserLoading } = useUser();
 
@@ -121,24 +123,62 @@ export default function PricingIntelligencePage() {
     }
   };
 
-  // PROCESAR ARCHIVO CON GEMINI Y EMPAREJAR
+  // PROCESAR ARCHIVO CON GEMINI Y EMPAREJAR (SOPORTA CATÁLOGOS PDF GIGANTES HASTA 250 MB VÍA CLOUD STORAGE + GEMINI FILE API)
   const handleProcessPDF = async () => {
     if (!selectedFile) return;
+    if (selectedFile.size > 250 * 1024 * 1024) {
+      toast({
+        variant: 'destructive',
+        title: 'Archivo excede 250 MB',
+        description: 'El límite máximo por catálogo PDF de competencia es de 250 MB.'
+      });
+      return;
+    }
+
     setIsProcessing(true);
-    setAnalysisStep('Subiendo archivo y conectando con Gemini AI...');
-    setAnalysisProgress(20);
+    setAnalysisStep('Preparando carga de alta capacidad...');
+    setAnalysisProgress(10);
 
     try {
-      const formData = new FormData();
-      formData.append('file', selectedFile);
+      let response: Response;
 
-      setAnalysisStep('Gemini 2.5 Flash analizando tabla y lista de precios...');
-      setAnalysisProgress(50);
+      if (storage && selectedFile.size > 8 * 1024 * 1024) {
+        const sizeMb = (selectedFile.size / (1024 * 1024)).toFixed(1);
+        setAnalysisStep(`Subiendo catálogo pesado (${sizeMb} MB) a la nube... 0%`);
+        const uploaded = await uploadLargeFileToStorage({
+          storage,
+          folder: 'competitor-catalogs',
+          file: selectedFile,
+          onProgress: (pct) => {
+            setAnalysisProgress(10 + Math.round(pct * 0.4));
+            setAnalysisStep(`Subiendo catálogo pesado (${sizeMb} MB) a la nube... ${pct}%`);
+          }
+        });
 
-      const response = await authFetch('/api/process-competitor-pdf', {
-        method: 'POST',
-        body: formData
-      });
+        setAnalysisStep('Gemini 2.5 Flash procesando catálogo completo de gran tamaño...');
+        setAnalysisProgress(60);
+
+        response = await authFetch('/api/process-competitor-pdf', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            fileUrl: uploaded.downloadUrl,
+            fileName: selectedFile.name,
+            mimeType: selectedFile.type || (selectedFile.name.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'application/octet-stream')
+          })
+        });
+      } else {
+        const formData = new FormData();
+        formData.append('file', selectedFile);
+
+        setAnalysisStep('Gemini 2.5 Flash analizando tabla y lista de precios...');
+        setAnalysisProgress(50);
+
+        response = await authFetch('/api/process-competitor-pdf', {
+          method: 'POST',
+          body: formData
+        });
+      }
 
       const resData = await response.json();
 

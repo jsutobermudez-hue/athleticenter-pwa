@@ -25,6 +25,8 @@ export interface ArmInboundResult {
     success: boolean;
     replyText: string;
     pdfBase64?: string;
+    pdfUrl?: string;
+    pdfSizeBytes?: number;
     pdfFileName?: string;
     imageUrl?: string;
     extraPhotos?: Array<{ imageUrl: string; caption: string }>;
@@ -631,6 +633,8 @@ export async function processArmInboundMessage({ phone, messageText }: ArmInboun
         /(foto|fotos|imagen|imagenes|ver como es|mostra|muestrame)/i.test(normCurrent);
 
     let pdfBase64: string | undefined = undefined;
+    let pdfUrl: string | undefined = undefined;
+    let pdfSizeBytes: number | undefined = undefined;
     let pdfFileName: string | undefined = undefined;
     let productImageUrl: string | undefined = undefined;
     const extraPhotos: Array<{ imageUrl: string; caption: string }> = [];
@@ -638,13 +642,18 @@ export async function processArmInboundMessage({ phone, messageText }: ArmInboun
 
     if (wantsCatalogPdf && inStockProducts.length > 0) {
         try {
-            // Verificar primero si el administrador subió un PDF personalizado en Firestore (system/armCatalog)
+            // Verificar primero si el administrador subió un PDF personalizado en Cloud Storage / Firestore (system/armCatalog)
             let customPdfLoaded = false;
             try {
                 const customCatSnap = await getDoc(doc(firestore, 'system', 'armCatalog'));
                 if (customCatSnap.exists()) {
                     const cData = customCatSnap.data();
-                    if (cData?.pdfBase64 && typeof cData.pdfBase64 === 'string' && cData.pdfBase64.length > 100) {
+                    if (cData?.pdfUrl && typeof cData.pdfUrl === 'string' && cData.pdfUrl.startsWith('https://')) {
+                        pdfUrl = cData.pdfUrl;
+                        pdfSizeBytes = Number(cData.sizeBytes || 0);
+                        pdfFileName = cData.fileName || 'Catalogo_Oficial_Athleticenter.pdf';
+                        customPdfLoaded = true;
+                    } else if (cData?.pdfBase64 && typeof cData.pdfBase64 === 'string' && cData.pdfBase64.length > 100) {
                         const rawB64 = cData.pdfBase64.includes(';base64,')
                             ? cData.pdfBase64.split(';base64,').pop()!
                             : cData.pdfBase64;
@@ -786,7 +795,7 @@ En Athleticenter somos distribuidores mayoristas multimarca y contamos con stock
    - *Acuáticos / Playa:* Equipos de Snorkel Delfín Verde y Marlin Azul ($19 Lista / $14.25 Divisas) y Sets Playeros Azul y Verde *ECOLOGY* ($12 Lista / $9.00 Divisas).
 
 REGLAS OBLIGATORIAS DE RESPUESTA:
-1. ${pdfBase64 ? '¡IMPORTANTE! En este mismo mensaje el sistema está adjuntando automáticamente el archivo PDF oficial "Catalogo_Mayorista_Athleticenter.pdf". Confírmale al cliente que aquí mismo le estás adjuntando el Catálogo Mayorista Oficial en PDF con todas nuestras marcas y los 3 niveles de precio (Lista, -25% Divisas y -10% Pronto Pago), y preséntale un breve resumen ejecutivo de nuestras líneas principales.' : ''}
+1. ${(pdfBase64 || pdfUrl) ? '¡IMPORTANTE! En este mismo mensaje el sistema está adjuntando automáticamente el archivo PDF oficial del Catálogo Mayorista de Athleticenter. Confírmale al cliente que aquí mismo le estás adjuntando el Catálogo Mayorista Oficial en PDF con todas nuestras marcas y los 3 niveles de precio (Lista, -25% Divisas y -10% Pronto Pago), y preséntale un breve resumen ejecutivo de nuestras líneas principales.' : ''}
 2. ${attachedPhotoLabels.length > 0 ? `¡IMPORTANTE! En este mismo mensaje el sistema está adjuntando automáticamente ${attachedPhotoLabels.length} fotografía(s) real(es) de: ${attachedPhotoLabels.join('; ')}. Indícale exactamente qué modelos y colores le estás adjuntando junto con su stock y precios.` : 'No digas "Aquí te adjunto la fotografía" si el sistema no indicó que se adjuntaron fotos.'}
 3. RESPONDE CON PRECISIÓN Y VARIEDAD MULTIMARCA (Y NUNCA CONTRADIGAS AL CLIENTE):
    - Si el cliente pide la *Montañera Rin 20* (o *modelo 20*), recuerda que existen 2 modelos más pequeños infantiles (Rin 12" y Rin 16") y que la *Montañera SPARTAN Rin 20" (MB-001)* viene en 4 colores: Azul (MB-001B), Rojo (MB-001R), Blanco (MB-001W) y Amarillo (MB-001Y).
@@ -808,7 +817,7 @@ ${conversationHistoryText}
 MENSAJE ACTUAL DEL CLIENTE (+${cleanPhone}${customerCompany ? ` - ${customerCompany}` : ''}):
 "${messageText}"
 
-${pdfBase64 ? 'NOTA DEL SISTEMA: El archivo PDF del Catálogo Oficial se enviará adjunto a este mensaje.' : ''}
+${(pdfBase64 || pdfUrl) ? 'NOTA DEL SISTEMA: El archivo PDF del Catálogo Oficial se enviará adjunto a este mensaje.' : ''}
 ${attachedPhotoLabels.length > 0 ? `NOTA DEL SISTEMA: Se están enviando adjuntas ${attachedPhotoLabels.length} fotografía(s) real(es) correspondientes a: ${attachedPhotoLabels.join(' | ')}.` : ''}
 
 DIRECTORIO COMPLETO DEL INVENTARIO EN STOCK EN TIEMPO REAL (${inStockProducts.length} productos activos en ${allActiveBrands.size} marcas):
@@ -836,7 +845,7 @@ Redacta ahora la respuesta completa de WhatsApp para el cliente:`;
 
     if (!replyText || replyText.length < 80) {
         replyText = `*ATHLETICENTER*\n\n` +
-            `${pdfBase64 ? '📄 *¡Aquí tienes nuestro Catálogo Mayorista Oficial en PDF adjunto a este mensaje!* 🙌\n\n' : ''}` +
+            `${(pdfBase64 || pdfUrl) ? '📄 *¡Aquí tienes nuestro Catálogo Mayorista Oficial en PDF adjunto a este mensaje!* 🙌\n\n' : ''}` +
             `Contamos con disponibilidad inmediata para despacho nacional en todo nuestro portafolio multimarca:\n\n` +
             `⚽🏀🏐 *Balones Deportivos (7 Marcas en Stock):*\n` +
             `• *ADIDAS:* Mundial 2026 Trionda, UCL Pro Final Múnich 25, Mundial de Clubes, Champions 25 Aniv., MLS Pro (Lista $29-$33 | Divisas -25%: *$21.75-$24.75* | Pronto Pago -10%: *$19.58-$22.28*)\n` +
@@ -854,6 +863,11 @@ Redacta ahora la respuesta completa de WhatsApp para el cliente:`;
         replyText = `${replyText.trim()}\n\nAtentamente,\n*El equipo de Athleticenter*`;
     }
 
+    // Si el catálogo supera los 100 MB (límite nativo de WhatsApp), incluir enlace de descarga directa de alta velocidad
+    if (pdfUrl && pdfSizeBytes && pdfSizeBytes > 100 * 1024 * 1024 && !replyText.includes(pdfUrl)) {
+        replyText = `${replyText}\n\n📥 *Descarga directa del Catálogo Completo HD (${(pdfSizeBytes / (1024 * 1024)).toFixed(1)} MB):*\n${pdfUrl}`;
+    }
+
     // ─────────────────────────────────────────────────────────────
     // 9. Bitácora en vivo del Agente ARM (whatsapp_inbound_logs)
     // ─────────────────────────────────────────────────────────────
@@ -864,7 +878,7 @@ Redacta ahora la respuesta completa de WhatsApp para el cliente:`;
             customerCompany,
             message: messageText,
             reply: replyText,
-            intent: isHotIntent ? 'HOT_PURCHASE_INTENT' : pdfBase64 ? 'CATALOG_PDF_SENT' : directMatches.length > 0 ? 'CATALOG_AND_PRICING' : 'GENERAL_INQUIRY',
+            intent: isHotIntent ? 'HOT_PURCHASE_INTENT' : (pdfBase64 || pdfUrl) ? 'CATALOG_PDF_SENT' : directMatches.length > 0 ? 'CATALOG_AND_PRICING' : 'GENERAL_INQUIRY',
             isHotLead: handoffTriggered,
             leadQualified,
             matchedProductsCount: directMatches.length || inStockProducts.length,
@@ -878,6 +892,8 @@ Redacta ahora la respuesta completa de WhatsApp para el cliente:`;
         success: true,
         replyText,
         pdfBase64,
+        pdfUrl,
+        pdfSizeBytes,
         pdfFileName,
         imageUrl: productImageUrl,
         extraPhotos: extraPhotos.length > 0 ? extraPhotos : undefined,

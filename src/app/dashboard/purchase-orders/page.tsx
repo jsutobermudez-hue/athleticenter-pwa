@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useMemo, useEffect, Suspense } from 'react';
-import { useCollection, useFirestore, useMemoFirebase, useUser } from '@/firebase';
+import { useCollection, useFirestore, useMemoFirebase, useStorage, useUser } from '@/firebase';
 import { collection, query, limit, serverTimestamp, addDoc, Timestamp, orderBy, updateDoc, doc } from 'firebase/firestore';
 import type { PurchaseOrder, Supplier, SupplierPayment, Product } from '@/lib/definitions';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -42,6 +42,7 @@ import {
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
 import { authFetch } from '@/lib/auth-fetch';
+import { uploadLargeFileToStorage } from '@/lib/large-file-upload';
 import { cn } from '@/lib/utils';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -72,6 +73,7 @@ function parseSafeDate(val: any): Date | null {
 function PurchaseOrdersContent() {
     const router = useRouter();
     const firestore = useFirestore();
+    const storage = useStorage();
     const { toast } = useToast();
     const { user, profile: currentUser, isUserLoading } = useUser();
     const userRole = (user as any)?.role || currentUser?.role || 'invitado';
@@ -107,6 +109,7 @@ function PurchaseOrdersContent() {
 
     // ESTADO ESCÁNER AI DE INVOICES
     const [isProcessingInvoice, setIsProcessingInvoice] = useState(false);
+    const [invoiceUploadProgress, setInvoiceUploadProgress] = useState<number | null>(null);
     const [scannedInvoiceData, setScannedInvoiceData] = useState<any>(null);
 
     // ESTADO CREAR NUEVA COMPRA / ORDEN DE COMPRA (LOCAL O IMPORTACIÓN)
@@ -236,20 +239,51 @@ function PurchaseOrdersContent() {
       }
     };
 
-    // PROCESAMIENTO MULTIMODAL DE INVOICES AI
+    // PROCESAMIENTO MULTIMODAL DE INVOICES / CATÁLOGOS PDF PROVEEDOR (HASTA 250 MB)
     const handleFileUploadInvoice = async (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
       if (!file) return;
 
+      if (file.size > 250 * 1024 * 1024) {
+        toast({
+          variant: 'destructive',
+          title: 'Archivo supera 250 MB',
+          description: 'El límite máximo por catálogo/proforma PDF es de 250 MB.',
+        });
+        return;
+      }
+
       setIsProcessingInvoice(true);
-      const formData = new FormData();
-      formData.append('file', file);
+      setInvoiceUploadProgress(null);
 
       try {
-        const res = await authFetch('/api/process-import-invoice', {
-          method: 'POST',
-          body: formData
-        });
+        let res: Response;
+        if (file.size > 8 * 1024 * 1024 && storage && (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf'))) {
+          setInvoiceUploadProgress(0);
+          const uploaded = await uploadLargeFileToStorage({
+            storage,
+            folder: 'catalogs',
+            file,
+            onProgress: (pct: number) => setInvoiceUploadProgress(pct),
+          });
+          setInvoiceUploadProgress(null);
+          res = await authFetch('/api/process-import-invoice', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              fileUrl: uploaded.downloadUrl,
+              fileName: file.name,
+              mimeType: 'application/pdf',
+            }),
+          });
+        } else {
+          const formData = new FormData();
+          formData.append('file', file);
+          res = await authFetch('/api/process-import-invoice', {
+            method: 'POST',
+            body: formData
+          });
+        }
         const data = await res.json();
         if (data.success) {
           setScannedInvoiceData(data.data);
@@ -261,6 +295,7 @@ function PurchaseOrdersContent() {
         toast({ variant: 'destructive', title: 'Error', description: err.message || 'Error analizando Invoice.' });
       } finally {
         setIsProcessingInvoice(false);
+        setInvoiceUploadProgress(null);
       }
     };
 
@@ -772,14 +807,16 @@ function PurchaseOrdersContent() {
                 {isProcessingInvoice ? (
                   <div className="flex flex-col items-center gap-3">
                     <Loader2 className="h-12 w-12 text-primary animate-spin" />
-                    <h3 className="text-base font-black uppercase tracking-tight text-slate-900">Analizando Invoice con Gemini 2.5 Flash...</h3>
+                    <h3 className="text-base font-black uppercase tracking-tight text-slate-900">
+                      {invoiceUploadProgress !== null ? `Subiendo PDF (${invoiceUploadProgress}%)...` : 'Analizando Invoice con Gemini 2.5 Flash...'}
+                    </h3>
                     <p className="text-slate-400 text-xs">Extrayendo Proveedor, Incoterm, Fletes y Matriz de Productos.</p>
                   </div>
                 ) : (
                   <div className="flex flex-col items-center gap-3">
                     <div className="p-4 rounded-2xl bg-emerald-50 text-emerald-600 shadow-sm"><UploadCloud className="h-10 w-10" /></div>
-                    <h3 className="text-base font-black uppercase tracking-tight text-slate-900">Cargar Invoice de Importación (Cualquier Formato)</h3>
-                    <p className="text-slate-400 text-xs max-w-md">Arrastra tu factura comercial o lista de empaque en <b>Excel (.xlsx), PDF, Imagen o CSV</b> para emparejamiento automático con el inventario.</p>
+                    <h3 className="text-base font-black uppercase tracking-tight text-slate-900">Cargar Invoice o Catálogo de Proveedor (Hasta 250 MB)</h3>
+                    <p className="text-slate-400 text-xs max-w-md">Arrastra tu factura comercial, proforma o catálogo en <b>Excel (.xlsx), PDF (hasta 250 MB), Imagen o CSV</b> para emparejamiento automático con el inventario.</p>
                   </div>
                 )}
               </div>

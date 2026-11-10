@@ -1,20 +1,18 @@
 /**
- * ATHLETICENTER — GATEWAY DE WHATSAPP 24/7 (SÃO PAULO) v3
+ * ATHLETICENTER — GATEWAY DE WHATSAPP 24/7 (SÃO PAULO / TOKIO) v3.3
  *
  * - Envío inmediato:      POST /api/send     (Bearer WHATSAPP_GATEWAY_KEY)
  * - Cola anti-bloqueo:    POST /api/queue    (difusiones y catálogo; pausas 8-14 s, enfriamiento 60 s cada 20,
  *                                             solo horario comercial lun-sáb 8:00-19:00 hora Venezuela)
  * - Estado:               GET  /api/status   (público, sin datos sensibles)
  * - Webhook entrante  ->  APP_URL/api/whatsapp-webhook   (cabecera x-webhook-secret)
+ *   ·Soporta JIDs clásicos (@s.whatsapp.net) y nuevos Linked IDs de privacidad (@lid) de WhatsApp Multi-Device
+ *   ·Desempaqueta mensajes temporales (ephemeralMessage), viewOnce y respuestas a botones/listas
  * - Tareas programadas -> APP_URL/api/cron/*             (Bearer CRON_SECRET)
- *     · Cobranza automática:  lun-sáb 09:00
- *     · Gemini Closer:        lun-sáb 10:30
- *     · Catálogo bi-semanal:  lunes 10:00 y jueves 14:30
- *
- * Configuración en .env (mismo directorio): WHATSAPP_GATEWAY_KEY, WHATSAPP_WEBHOOK_SECRET, CRON_SECRET, APP_URL, PHONE_NUMBER
  */
 require('dotenv').config({ path: require('path').join(__dirname, '.env') });
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, delay } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion, Browsers, delay } = require('@whiskeysockets/baileys');
+const QRCode = require('qrcode');
 const pino = require('pino');
 const express = require('express');
 const fs = require('fs');
@@ -35,19 +33,69 @@ if (API_KEY.length < 24) {
 
 const app = express();
 app.disable('x-powered-by');
-app.use(express.json({ limit: '60mb' }));
+app.use(express.json({ limit: '150mb' }));
 
 const log = (...a) => console.log(new Date().toISOString(), ...a);
 const logErr = (...a) => console.error(new Date().toISOString(), ...a);
 
-// ---------------------------------------------------------------- WhatsApp
+// ---------------------------------------------------------------- WhatsApp & LID Mapping
 let sock = null;
 let isConnected = false;
 let currentPairingCode = null;
+let currentQrDataUrl = null;
 let codeRequested = false;
 let lastConnectedAt = null;
 
+// Mapa en memoria para resolver números/LIDs al JID exacto de respuesta (@s.whatsapp.net o @lid)
+const jidMap = new Map();
+const recentOutbox = new Map();
+
+function registerJidMapping(rawPhoneOrId, remoteJid) {
+  if (!remoteJid) return;
+  const digits = String(rawPhoneOrId || '').replace(/\D/g, '');
+  if (digits.length >= 8) {
+    jidMap.set(digits, remoteJid);
+    jidMap.set(digits.slice(-10), remoteJid);
+    if (!digits.startsWith('58')) {
+      jidMap.set('58' + digits, remoteJid);
+      jidMap.set('58' + digits.slice(-10), remoteJid);
+    }
+  }
+}
+
+function unwrapMessageContent(m) {
+  if (!m) return null;
+  if (m.ephemeralMessage?.message) return unwrapMessageContent(m.ephemeralMessage.message);
+  if (m.viewOnceMessage?.message) return unwrapMessageContent(m.viewOnceMessage.message);
+  if (m.viewOnceMessageV2?.message) return unwrapMessageContent(m.viewOnceMessageV2.message);
+  if (m.viewOnceMessageV2Extension?.message) return unwrapMessageContent(m.viewOnceMessageV2Extension.message);
+  if (m.documentWithCaptionMessage?.message) return unwrapMessageContent(m.documentWithCaptionMessage.message);
+  if (m.editedMessage?.message?.protocolMessage?.editedMessage) {
+    return unwrapMessageContent(m.editedMessage.message.protocolMessage.editedMessage);
+  }
+  if (m.editedMessage?.message) return unwrapMessageContent(m.editedMessage.message);
+  return m;
+}
+
+function extractMessageText(rawMsg) {
+  const m = unwrapMessageContent(rawMsg);
+  if (!m) return '';
+  return (
+    m.conversation ||
+    m.extendedTextMessage?.text ||
+    m.imageMessage?.caption ||
+    m.videoMessage?.caption ||
+    m.documentMessage?.caption ||
+    m.buttonsResponseMessage?.selectedDisplayText ||
+    m.listResponseMessage?.title ||
+    m.templateButtonReplyMessage?.selectedDisplayText ||
+    m.interactiveResponseMessage?.body?.text ||
+    ''
+  ).trim();
+}
+
 const authDir = path.join(__dirname, 'auth_info_baileys');
+const qrFilePath = path.join(__dirname, 'qr.png');
 fs.mkdirSync(authDir, { recursive: true });
 
 async function startWhatsApp() {
@@ -56,11 +104,21 @@ async function startWhatsApp() {
   fs.mkdirSync(authDir, { recursive: true });
   const { state, saveCreds } = await useMultiFileAuthState(authDir);
 
+  let version = undefined;
+  try {
+    const vInfo = await fetchLatestBaileysVersion();
+    version = vInfo.version;
+    log('[WA] Versión WhatsApp Web:', version.join('.'));
+  } catch (e) {
+    logErr('[WA] No se pudo obtener versión remota, usando local:', e.message);
+  }
+
   sock = makeWASocket({
+    version,
     auth: state,
     printQRInTerminal: false,
     logger: pino({ level: 'silent' }),
-    browser: ['Ubuntu', 'Chrome', '20.0.04'],
+    browser: Browsers && Browsers.ubuntu ? Browsers.ubuntu('Chrome') : ['Ubuntu', 'Chrome', '128.0.6613.120'],
     connectTimeoutMs: 60000,
     defaultQueryTimeoutMs: 60000,
     keepAliveIntervalMs: 25000,
@@ -68,7 +126,17 @@ async function startWhatsApp() {
 
   sock.ev.on('creds.update', saveCreds);
 
-  sock.ev.on('connection.update', async ({ connection, lastDisconnect }) => {
+  sock.ev.on('connection.update', async ({ connection, lastDisconnect, qr }) => {
+    if (qr) {
+      try {
+        await QRCode.toFile(qrFilePath, qr, { width: 420, margin: 2 });
+        currentQrDataUrl = await QRCode.toDataURL(qr, { width: 420, margin: 2 });
+        log('📷 NUEVO CÓDIGO QR GENERADO Y LISTO EN /qr y qr.png');
+      } catch (err) {
+        logErr('[WA] Error generando imagen QR:', err.message);
+      }
+    }
+
     if (connection === 'close') {
       isConnected = false;
       currentPairingCode = null;
@@ -83,44 +151,87 @@ async function startWhatsApp() {
     } else if (connection === 'open') {
       isConnected = true;
       currentPairingCode = null;
+      currentQrDataUrl = null;
       codeRequested = false;
       lastConnectedAt = new Date().toISOString();
-      log('✅ WHATSAPP CONECTADO Y OPERATIVO (São Paulo 24/7)');
+      try { if (fs.existsSync(qrFilePath)) fs.unlinkSync(qrFilePath); } catch {}
+      log('✅ WHATSAPP CONECTADO Y OPERATIVO (24/7)');
       processQueue();
-    }
-
-    if (sock && !sock.authState.creds.registered && !isConnected && !codeRequested) {
-      codeRequested = true;
-      await delay(1500);
-      try {
-        currentPairingCode = await sock.requestPairingCode(PHONE_NUMBER);
-        log('🔥 CÓDIGO DE VINCULACIÓN: ' + currentPairingCode);
-      } catch (err) {
-        logErr('[WA] Error solicitando código:', err.message);
-        setTimeout(() => { codeRequested = false; }, 30000);
-      }
     }
   });
 
-  // Mensajes entrantes -> webhook firmado de la app
+  // Mensajes entrantes -> webhook firmado de la app (Soporta @s.whatsapp.net y @lid)
   sock.ev.on('messages.upsert', async ({ messages, type }) => {
-    if (type !== 'notify') return;
+    if (type !== 'notify' && type !== 'append') return;
     for (const msg of messages) {
       try {
-        if (msg.key.fromMe) continue;
-        const jid = msg.key.remoteJid || '';
-        if (!jid.endsWith('@s.whatsapp.net')) continue;
-        const from = jid.replace('@s.whatsapp.net', '');
-        const body = msg.message?.conversation || msg.message?.extendedTextMessage?.text || msg.message?.imageMessage?.caption || '';
+        if (!msg || !msg.message) continue;
+        const remoteJid = msg.key?.remoteJid || '';
+        if (!remoteJid || remoteJid === 'status@broadcast' || remoteJid.endsWith('@g.us') || remoteJid.endsWith('@newsletter') || remoteJid.endsWith('@broadcast')) {
+          continue;
+        }
+
+        const body = extractMessageText(msg.message);
         if (!body) continue;
-        log(`[WA] 📥 Entrante de ...${from.slice(-4)} (${body.length} car.)`);
+
+        // Evitar bucle con respuestas firmadas por Athleticenter
+        if (body.includes('*ATHLETICENTER*') || body.includes('El equipo de Athleticenter')) {
+          continue;
+        }
+
+        // Ignorar mensajes salientes propios
+        if (msg.key?.fromMe) {
+          continue;
+        }
+
+        if (type !== 'notify') continue;
+
+        const altCandidates = [
+          msg.key?.senderPn,
+          msg.key?.remoteJidAlt,
+          msg.key?.participantAlt,
+          msg.key?.participant,
+          msg.participant,
+          remoteJid
+        ].filter(Boolean);
+
+        const phoneJid = altCandidates.find(j => String(j).endsWith('@s.whatsapp.net')) || remoteJid;
+        const from = String(phoneJid).split('@')[0].replace(/:\d+$/, '');
+
+        registerJidMapping(from, remoteJid);
+        registerJidMapping(remoteJid.split('@')[0], remoteJid);
+
+        log(`[WA] 📥 Entrante de ${from} (jid=${remoteJid}, pushName=${msg.pushName || 'N/A'}): "${body.slice(0, 80)}"`);
+
+        const beforeWebhookTs = Date.now();
         const res = await fetch(`${APP_URL}/api/whatsapp-webhook`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'x-webhook-secret': WEBHOOK_SECRET },
-          body: JSON.stringify({ from, body, timestamp: msg.messageTimestamp }),
-          signal: AbortSignal.timeout(20000),
+          body: JSON.stringify({
+            from,
+            remoteJid,
+            pushName: msg.pushName || '',
+            body,
+            timestamp: msg.messageTimestamp
+          }),
+          signal: AbortSignal.timeout(25000),
         });
-        if (!res.ok) logErr(`[Webhook] La app respondió ${res.status}`);
+
+        const resText = await res.text();
+        if (!res.ok) {
+          logErr(`[Webhook] ❌ La app respondió ${res.status}: ${resText.slice(0, 200)}`);
+        } else {
+          log(`[Webhook] ✅ Procesado (${res.status}): ${resText.slice(0, 200)}`);
+          try {
+            const data = JSON.parse(resText);
+            const lastSent = recentOutbox.get(remoteJid) || 0;
+            if (data?.replyText && lastSent < beforeWebhookTs) {
+              log(`[Webhook] 📤 Enviando replyText directo a ${remoteJid}`);
+              await sock.sendMessage(remoteJid, { text: data.replyText });
+              recentOutbox.set(remoteJid, Date.now());
+            }
+          } catch {}
+        }
       } catch (e) {
         logErr('[Webhook] Error notificando a la app:', e.message);
       }
@@ -130,9 +241,16 @@ async function startWhatsApp() {
 
 async function sendOne({ number, text, imageUrl, videoUrl, documentUrl, fileName, media }) {
   if (!isConnected || !sock) throw new Error('WhatsApp no está conectado en São Paulo');
-  const clean = String(number).replace(/\D/g, '');
-  if (clean.length < 11) throw new Error('Número inválido');
-  const jid = clean + '@s.whatsapp.net';
+  const raw = String(number || '').trim();
+  let jid = '';
+  if (raw.endsWith('@s.whatsapp.net') || raw.endsWith('@lid')) {
+    jid = raw;
+  } else {
+    const clean = raw.replace(/\D/g, '');
+    if (clean.length < 10) throw new Error('Número inválido');
+    jid = jidMap.get(clean) || jidMap.get(clean.slice(-10)) || (clean + '@s.whatsapp.net');
+  }
+  recentOutbox.set(jid, Date.now());
 
   if (media && media.base64) {
     const r = await sock.sendMessage(jid, {
@@ -144,18 +262,30 @@ async function sendOne({ number, text, imageUrl, videoUrl, documentUrl, fileName
     return r?.key?.id;
   }
 
-  // 1. Envío de Documento PDF
+  // 1. Envío de Documento PDF (hasta 100 MB adjunto nativo — límite oficial máximo de WhatsApp)
+  const MAX_WA_PDF_BYTES = 100 * 1024 * 1024;
   if (documentUrl) {
     let buf = null;
+    let remoteDownloadLink = null;
     if (typeof documentUrl === 'string' && fs.existsSync(documentUrl)) {
       try { buf = fs.readFileSync(documentUrl); } catch (e) { logErr('[Send] Error leyendo documento PDF de disco:', e.message); }
     } else if (typeof documentUrl === 'string' && (documentUrl.startsWith('data:application/pdf') || documentUrl.startsWith('data:'))) {
       buf = Buffer.from(documentUrl.split(';base64,').pop(), 'base64');
     } else if (typeof documentUrl === 'string' && (documentUrl.startsWith('https://') || documentUrl.startsWith('http://'))) {
-      const dr = await fetch(documentUrl, { signal: AbortSignal.timeout(45000) });
-      if (dr.ok) buf = Buffer.from(await dr.arrayBuffer());
+      remoteDownloadLink = documentUrl;
+      try {
+        const dr = await fetch(documentUrl, { signal: AbortSignal.timeout(120000) });
+        const lenHeader = Number(dr.headers.get('content-length') || 0);
+        if (dr.ok && (!lenHeader || lenHeader <= MAX_WA_PDF_BYTES)) {
+          buf = Buffer.from(await dr.arrayBuffer());
+        } else if (lenHeader > MAX_WA_PDF_BYTES) {
+          log(`[Send] 📎 PDF supera 100 MB (${(lenHeader / (1024 * 1024)).toFixed(1)} MB), se enviará enlace directo Cloud.`);
+        }
+      } catch (e) {
+        logErr('[Send] Error descargando PDF remoto:', e.message);
+      }
     }
-    if (buf && buf.length < 50 * 1024 * 1024) {
+    if (buf && buf.length <= MAX_WA_PDF_BYTES) {
       const docName = fileName || 'Catalogo_Athleticenter.pdf';
       log(`[Send] 📄 Transmitiendo documento PDF (${(buf.length / (1024 * 1024)).toFixed(2)} MB: ${docName}) a ...${String(number).slice(-4)}`);
       const r = await sock.sendMessage(jid, {
@@ -165,8 +295,15 @@ async function sendOne({ number, text, imageUrl, videoUrl, documentUrl, fileName
         caption: text || '',
       });
       return r?.key?.id;
+    } else if (remoteDownloadLink) {
+      log(`[Send] 🔗 PDF > 100 MB o remoto pesado: enviando enlace directo de alta velocidad a ...${String(number).slice(-4)}`);
+      const enrichedText = (text || '').includes(remoteDownloadLink)
+        ? (text || remoteDownloadLink)
+        : `${text || '📄 Catálogo Oficial Athleticenter'}\n\n📥 *Descarga directa del catálogo completo:*\n${remoteDownloadLink}`;
+      const r = await sock.sendMessage(jid, { text: enrichedText });
+      return r?.key?.id;
     } else if (buf) {
-      logErr(`[Send] ⚠️ Documento PDF excede 50 MB, enviando solo texto`);
+      logErr(`[Send] ⚠️ Documento PDF excede 100 MB (${(buf.length / (1024 * 1024)).toFixed(2)} MB), enviando solo texto`);
     } else {
       logErr(`[Send] ⚠️ Buffer de PDF no disponible para ...${String(number).slice(-4)}, enviando solo texto`);
     }
@@ -235,7 +372,6 @@ function requireKey(req, res, next) {
     const b = Buffer.from(key);
     return a.length === b.length && crypto.timingSafeEqual(a, b);
   };
-  // LEGACY_GATEWAY_KEY: solo durante la transición de versiones de la app; eliminar del .env al terminar.
   if (!matches(API_KEY) && !matches(process.env.LEGACY_GATEWAY_KEY || '')) {
     return res.status(401).json({ success: false, error: 'No autorizado' });
   }
@@ -244,8 +380,8 @@ function requireKey(req, res, next) {
 
 // ---------------------------------------------------------------- Cola persistente
 const QUEUE_FILE = path.join(__dirname, 'queue.json');
-let queue = [];      // [{ id, campaignId, number, text, imageUrl, videoUrl, documentUrl, fileName, attempts }]
-let campaigns = {};  // campaignId -> { sent, failed, total, label, mediaFile }
+let queue = [];
+let campaigns = {};
 try {
   const saved = JSON.parse(fs.readFileSync(QUEUE_FILE, 'utf8'));
   queue = saved.queue || [];
@@ -254,10 +390,10 @@ try {
 } catch {}
 const persist = () => { try { fs.writeFileSync(QUEUE_FILE, JSON.stringify({ queue, campaigns })); } catch (e) { logErr('[Cola] No se pudo guardar:', e.message); } };
 
-function vzlaNow() { return new Date(Date.now() - 4 * 3600 * 1000); } // Venezuela UTC-4 (sin horario de verano)
+function vzlaNow() { return new Date(Date.now() - 4 * 3600 * 1000); }
 function inBusinessHours() {
   const d = vzlaNow();
-  const day = d.getUTCDay();   // 0 = domingo
+  const day = d.getUTCDay();
   const h = d.getUTCHours();
   return day !== 0 && h >= 8 && h < 19;
 }
@@ -326,18 +462,38 @@ async function processQueue() {
     processing = false;
   }
 }
-setInterval(processQueue, 60 * 1000); // reanuda al volver el horario comercial o la conexión
+setInterval(processQueue, 60 * 1000);
 
 // ---------------------------------------------------------------- API
 app.get('/api/status', (req, res) => {
   res.json({
     status: isConnected ? 'connected' : 'waiting_auth',
     pairingCode: isConnected ? null : currentPairingCode,
+    hasQr: !isConnected && !!currentQrDataUrl,
     lastConnectedAt,
     queued: queue.length,
     businessHours: inBusinessHours(),
     server: 'Sao Paulo 24/7',
   });
+});
+
+app.get('/qr.png', (req, res) => {
+  if (fs.existsSync(qrFilePath)) {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.sendFile(qrFilePath);
+  } else {
+    res.status(404).send('QR no disponible');
+  }
+});
+
+app.get('/qr', (req, res) => {
+  if (isConnected) {
+    return res.send('<html><body style="font-family:sans-serif;text-align:center;padding:50px;background:#0f172a;color:#22c55e;"><h1>✅ WHATSAPP CONECTADO Y OPERATIVO (24/7)</h1><p style="color:#fff;">El Agente ARM de Athleticenter ya está recibiendo y respondiendo mensajes.</p></body></html>');
+  }
+  if (currentQrDataUrl) {
+    return res.send(`<html><head><meta http-equiv="refresh" content="8"><title>Vincular WhatsApp Athleticenter</title></head><body style="font-family:sans-serif;text-align:center;padding:30px;background:#0f172a;color:#fff;"><h2>📷 Escanea con WhatsApp &gt; Dispositivos vinculados</h2><div style="background:#fff;display:inline-block;padding:16px;border-radius:16px;box-shadow:0 10px 30px rgba(0,0,0,0.5);"><img src="${currentQrDataUrl}" style="width:360px;height:360px;" /></div><p style="color:#94a3b8;margin-top:16px;">Se actualiza automáticamente cada 8 segundos...</p></body></html>`);
+  }
+  res.send('<html><head><meta http-equiv="refresh" content="3"></head><body style="font-family:sans-serif;text-align:center;padding:50px;background:#0f172a;color:#fff;"><h2>⏳ Generando código QR... (Recargando en 3s)</h2></body></html>');
 });
 
 app.post('/api/send', requireKey, async (req, res) => {
@@ -355,13 +511,12 @@ app.post('/api/send', requireKey, async (req, res) => {
   }
 });
 
-app.post('/api/queue', requireKey, (req, res) => {
+app.post('/api/queue', requireKey, async (req, res) => {
   const { campaignId, items, label, commonMediaUrl, commonMediaType, commonMediaFileName } = req.body || {};
   if (!Array.isArray(items) || !items.length) return res.status(400).json({ success: false, error: 'Lista vacía' });
   if (items.length > 1000) return res.status(400).json({ success: false, error: 'Máximo 1000 mensajes por lote' });
   const cid = String(campaignId || `adhoc-${Date.now()}`);
 
-  // Gestionar archivo multimedia o documento PDF común para evitar duplicidad en memoria y disco
   let commonFilePath = null;
   let resolvedFileName = commonMediaFileName || (label ? `${label.replace(/[^a-zA-Z0-9_-]/g, '_')}.pdf` : 'Catalogo_Athleticenter.pdf');
   if (!resolvedFileName.toLowerCase().endsWith('.pdf') && (commonMediaType === 'pdf' || commonMediaUrl?.includes('application/pdf'))) {
@@ -388,7 +543,30 @@ app.post('/api/queue', requireKey, (req, res) => {
         const sizeMb = (Buffer.byteLength(b64, 'base64') / (1024 * 1024)).toFixed(2);
         log(`[Cola] 💾 Multimedia común guardada en disco (${sizeMb} MB): ${commonFilePath}`);
       } else if (commonMediaUrl.startsWith('http://') || commonMediaUrl.startsWith('https://')) {
-        commonFilePath = commonMediaUrl;
+        try {
+          const headOrGet = await fetch(commonMediaUrl, { signal: AbortSignal.timeout(120000) });
+          const lenHeader = Number(headOrGet.headers.get('content-length') || 0);
+          const cType = headOrGet.headers.get('content-type') || '';
+          const maxCacheBytes = commonMediaType === 'pdf' || cType.includes('pdf') ? 100 * 1024 * 1024 : 50 * 1024 * 1024;
+          if (headOrGet.ok && (!lenHeader || lenHeader <= maxCacheBytes)) {
+            const buf = Buffer.from(await headOrGet.arrayBuffer());
+            if (buf.length <= maxCacheBytes) {
+              let ext = 'pdf';
+              if (commonMediaType === 'video' || cType.includes('video/')) ext = 'mp4';
+              else if (commonMediaType === 'image' || cType.includes('image/')) ext = cType.includes('png') ? 'png' : cType.includes('webp') ? 'webp' : 'jpg';
+              commonFilePath = path.join(mediaDir, `${cid}.${ext}`);
+              fs.writeFileSync(commonFilePath, buf);
+              log(`[Cola] ⚡ Multimedia Cloud cacheada en SSD local (${(buf.length / (1024 * 1024)).toFixed(2)} MB): ${commonFilePath}`);
+            } else {
+              commonFilePath = commonMediaUrl;
+            }
+          } else {
+            commonFilePath = commonMediaUrl;
+          }
+        } catch (dlErr) {
+          logErr('[Cola] ⚠️ No se pudo pre-cachear URL remota, se usará URL directa:', dlErr.message);
+          commonFilePath = commonMediaUrl;
+        }
       }
     } catch (err) {
       logErr('[Cola] ❌ Error almacenando multimedia común:', err.message);
@@ -477,5 +655,5 @@ setInterval(() => {
 // ---------------------------------------------------------------- Arranque
 startWhatsApp();
 app.listen(PORT, '0.0.0.0', () => {
-  log(`🚀 Gateway São Paulo v3 en puerto ${PORT} · App: ${APP_URL} · Cron: ${CRON_SECRET ? 'activo' : 'DESACTIVADO (falta CRON_SECRET)'}`);
+  log(`🚀 Gateway São Paulo v3.3 (100MB PDF Ready) en puerto ${PORT} · App: ${APP_URL} · Cron: ${CRON_SECRET ? 'activo' : 'DESACTIVADO (falta CRON_SECRET)'}`);
 });

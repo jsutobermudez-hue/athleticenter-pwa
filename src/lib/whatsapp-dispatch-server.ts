@@ -69,9 +69,10 @@ export async function dispatchViaGateways(input: GatewayPayload): Promise<Gatewa
     console.error('[WhatsApp Dispatch] WHATSAPP_GATEWAY_KEY no configurada: no se puede usar el gateway.');
     errors.push('Gateway sin clave configurada');
   } else {
-    // TIER 1: servidor 24/7 de São Paulo
+    // TIER 1: servidor 24/7 WhatsApp Gateway
     try {
-      const r = await postTo(spUrl, key, payload, 35000);
+      const sendTimeout = input.documentUrl || input.videoUrl ? 150000 : 35000;
+      const r = await postTo(spUrl, key, payload, sendTimeout);
       if (r.success) return { ...r, provider: r.provider || 'saopaulo' };
       errors.push(`São Paulo: ${r.error}`);
     } catch (e: any) {
@@ -144,7 +145,7 @@ export async function enqueueWhatsAppBatch(
         commonMediaType: opts.commonMediaType,
         commonMediaFileName: opts.commonMediaFileName,
       }),
-      signal: AbortSignal.timeout(35000),
+      signal: AbortSignal.timeout(opts.commonMediaUrl ? 120000 : 35000),
     });
     const data = await res.json().catch(() => ({} as any));
     if (!res.ok || !data?.success) return { success: false, error: data?.error || `HTTP ${res.status}` };

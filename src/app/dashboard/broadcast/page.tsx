@@ -3,7 +3,8 @@
 import React, { useState, useMemo, useRef, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { useUser, useCollection, useFirestore, useMemoFirebase } from '@/firebase';
+import { useUser, useCollection, useFirestore, useMemoFirebase, useStorage } from '@/firebase';
+import { uploadLargeFileToStorage } from '@/lib/large-file-upload';
 import { collection, query, limit, orderBy, Timestamp } from 'firebase/firestore';
 import type { Customer, Product, Order } from '@/lib/definitions';
 import { Button } from '@/components/ui/button';
@@ -57,6 +58,7 @@ function BroadcastStudioContent() {
     const router = useRouter();
     const searchParams = useSearchParams();
     const firestore = useFirestore();
+    const storage = useStorage();
     const { toast } = useToast();
 
     // ESTADOS PRINCIPALES DEL MENSAJE
@@ -67,6 +69,8 @@ function BroadcastStudioContent() {
     const [mediaType, setMediaType] = useState<'none' | 'image' | 'video' | 'pdf'>('none');
     const [mediaFileName, setMediaFileName] = useState('');
     const [mediaFileSize, setMediaFileSize] = useState('');
+    const [isUploadingMedia, setIsUploadingMedia] = useState(false);
+    const [mediaUploadProgress, setMediaUploadProgress] = useState(0);
     const [selectedProductSku, setSelectedProductSku] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [activeTab, setActiveTab] = useState('content');
@@ -334,8 +338,8 @@ function BroadcastStudioContent() {
         }
     };
 
-    // CARGA DE ARCHIVO LOCAL (PDF, VIDEO O IMAGEN)
-    const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    // CARGA DE ARCHIVO LOCAL DE GRAN CAPACIDAD HASTA 250 MB (PDF, VIDEO O IMAGEN VÍA CLOUD STORAGE)
+    const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
 
@@ -352,29 +356,55 @@ function BroadcastStudioContent() {
             return;
         }
 
-        const maxSize = 25 * 1024 * 1024; // 25 MB máximo para entrega ágil
+        const maxSize = 250 * 1024 * 1024; // 250 MB máximo en Cloud Storage
         if (file.size > maxSize) {
             toast({
                 variant: 'destructive',
-                title: 'Archivo demasiado grande',
-                description: `El tamaño máximo permitido es de 25 MB para garantizar entrega fluida por WhatsApp.`
+                title: 'Archivo excede 250 MB',
+                description: 'El tamaño máximo soportado por catálogo PDF o video HD es de 250 MB.'
             });
             return;
         }
 
-        const reader = new FileReader();
-        reader.onload = () => {
-            const result = reader.result as string;
-            setMediaUrl(result);
+        if (!storage) {
+            toast({
+                variant: 'destructive',
+                title: 'Almacenamiento no disponible',
+                description: 'Espera un segundo mientras se sincroniza la sesión e intenta nuevamente.'
+            });
+            return;
+        }
+
+        setIsUploadingMedia(true);
+        setMediaUploadProgress(0);
+        try {
+            const uploaded = await uploadLargeFileToStorage({
+                storage,
+                folder: 'broadcast-media',
+                file,
+                onProgress: (pct) => setMediaUploadProgress(pct),
+            });
+
+            const sizeMb = (file.size / (1024 * 1024)).toFixed(2);
+            setMediaUrl(uploaded.downloadUrl);
             setMediaType(isPdf ? 'pdf' : isVideo ? 'video' : 'image');
             setMediaFileName(file.name);
-            setMediaFileSize((file.size / (1024 * 1024)).toFixed(2) + ' MB');
+            setMediaFileSize(`${sizeMb} MB`);
             toast({
-                title: isPdf ? '📄 Catálogo PDF cargado con éxito' : isVideo ? '🎥 Video cargado con éxito' : '🖼️ Imagen cargada con éxito',
-                description: `${file.name} (${(file.size / (1024 * 1024)).toFixed(2)} MB)`
+                title: isPdf ? '📄 Catálogo PDF de Alta Capacidad listo' : isVideo ? '🎥 Video cargado con éxito' : '🖼️ Imagen cargada con éxito',
+                description: `${file.name} (${sizeMb} MB) sincronizado en la nube listo para difusión.`
             });
-        };
-        reader.readAsDataURL(file);
+        } catch (err: any) {
+            toast({
+                variant: 'destructive',
+                title: 'Error subiendo archivo',
+                description: err?.message || 'No se pudo subir el catálogo a Cloud Storage.'
+            });
+        } finally {
+            setIsUploadingMedia(false);
+            setMediaUploadProgress(0);
+            e.target.value = '';
+        }
     };
 
     // INSERCIÓN DE VARIABLES EN EL TEXTO
@@ -817,10 +847,19 @@ function BroadcastStudioContent() {
                                             <Button
                                                 type="button"
                                                 variant="outline"
+                                                disabled={isUploadingMedia}
                                                 onClick={() => fileInputRef.current?.click()}
                                                 className="h-11 px-5 text-xs font-black uppercase rounded-xl border-dashed border-2 border-slate-300 hover:border-emerald-500 hover:bg-emerald-50/50 flex items-center gap-2"
                                             >
-                                                <Upload className="h-4 w-4 text-emerald-600" /> Subir Catálogo PDF, Video o Foto
+                                                {isUploadingMedia ? (
+                                                    <>
+                                                        <Loader2 className="h-4 w-4 animate-spin text-emerald-600" /> Subiendo {mediaUploadProgress}%...
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <Upload className="h-4 w-4 text-emerald-600" /> Subir Catálogo PDF (Hasta 250 MB), Video o Foto
+                                                    </>
+                                                )}
                                             </Button>
                                             <span className="text-xs text-slate-400 font-medium">
                                                 {mediaUrl ? 'Archivo listo para transmisión' : 'Ningún archivo adjunto'}
