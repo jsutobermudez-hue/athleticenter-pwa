@@ -168,6 +168,7 @@ export function PurchaseOrderDetailSheet({ order, isOpen, onOpenChange }: Purcha
     setIsActionPending(true);
     try {
         const orderRef = doc(firestore, 'purchaseOrders', order.id!);
+        const currentPaid = Number((order as any).totalPaidUSD || 0);
         await updateDoc(orderRef, {
             trackingNumber,
             blNumber,
@@ -179,6 +180,7 @@ export function PurchaseOrderDetailSheet({ order, isOpen, onOpenChange }: Purcha
             otherCustomsExpenses: Number(otherCustomsExpenses),
             items: safeItemsWithLanded,
             totalCost: calculatedTotalLandedInvestment,
+            pendingBalanceUSD: Math.max(0, calculatedTotalLandedInvestment - currentPaid),
             updatedAt: serverTimestamp(),
             updatedBy: currentUser.id
         } as any);
@@ -211,10 +213,12 @@ export function PurchaseOrderDetailSheet({ order, isOpen, onOpenChange }: Purcha
         const updatedItems = [...safeItems, newItem];
         const updatedTotalFob = updatedItems.reduce((sum, i) => sum + (i.quantity * i.unitCost), 0);
         const updatedTotalLanded = updatedTotalFob + customsTariffsAmount + portFeesAmount + customsAgentFeesAmount + otherCustomsExpenses;
+        const currentPaid = Number((order as any).totalPaidUSD || 0);
 
         await updateDoc(orderRef, {
             items: updatedItems,
             totalCost: updatedTotalLanded,
+            pendingBalanceUSD: Math.max(0, updatedTotalLanded - currentPaid),
             updatedAt: serverTimestamp(),
             updatedBy: currentUser.id
         } as any);
@@ -239,10 +243,12 @@ export function PurchaseOrderDetailSheet({ order, isOpen, onOpenChange }: Purcha
         updatedItems.splice(index, 1);
         const updatedTotalFob = updatedItems.reduce((sum, i) => sum + (i.quantity * i.unitCost), 0);
         const updatedTotalLanded = updatedTotalFob + customsTariffsAmount + portFeesAmount + customsAgentFeesAmount + otherCustomsExpenses;
+        const currentPaid = Number((order as any).totalPaidUSD || 0);
 
         await updateDoc(orderRef, {
             items: updatedItems,
             totalCost: updatedTotalLanded,
+            pendingBalanceUSD: Math.max(0, updatedTotalLanded - currentPaid),
             updatedAt: serverTimestamp()
         } as any);
     } catch (e) {} finally { setIsActionPending(false); }
@@ -351,11 +357,19 @@ export function PurchaseOrderDetailSheet({ order, isOpen, onOpenChange }: Purcha
                 });
             }
 
+            const currentPaid = Number((poSnap.data() as any)?.totalPaidUSD ?? (order as any).totalPaidUSD ?? 0);
             transaction.update(poRef, {
                 status: 'Recibido',
                 stockReceived: true,
                 receivedBy: currentUser.id,
                 receptionDate: serverTimestamp(),
+                customsTariffsAmount: Number(customsTariffsAmount),
+                portFeesAmount: Number(portFeesAmount),
+                customsAgentFeesAmount: Number(customsAgentFeesAmount),
+                otherCustomsExpenses: Number(otherCustomsExpenses),
+                items: safeItemsWithLanded,
+                totalCost: calculatedTotalLandedInvestment,
+                pendingBalanceUSD: Math.max(0, calculatedTotalLandedInvestment - currentPaid),
                 updatedAt: serverTimestamp()
             });
         });
@@ -462,7 +476,7 @@ export function PurchaseOrderDetailSheet({ order, isOpen, onOpenChange }: Purcha
                     </div>
                     <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100 space-y-1 text-center">
                         <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">TRANSPORTE</p>
-                        <p className="text-11px font-black uppercase text-slate-700">{order.transportMode === 'Marítimo' ? '🚢 MARÍTIMO' : '✈️ AÉREO'}</p>
+                        <p className="text-11px font-black uppercase text-slate-700">{order.transportMode === 'Marítimo' ? '🚢 MARÍTIMO' : order.transportMode === 'Terrestre' ? '🚚 TERRESTRE' : '✈️ AÉREO'}</p>
                     </div>
                     <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100 space-y-1 text-center">
                         <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">FACTOR PRORRATEO</p>
@@ -528,7 +542,7 @@ export function PurchaseOrderDetailSheet({ order, isOpen, onOpenChange }: Purcha
                     </div>
                 </div>
 
-                {order.status === 'Pendiente' && (
+                {order.status !== 'Recibido' && order.status !== 'Cancelado' && (
                     <div className="p-6 rounded-[2rem] bg-slate-50 border-2 border-dashed border-slate-200 space-y-6">
                         <div className="flex items-center gap-2 text-primary">
                             <PlusCircle className="h-4 w-4" />
@@ -587,7 +601,7 @@ export function PurchaseOrderDetailSheet({ order, isOpen, onOpenChange }: Purcha
                                             <p className="text-[8px] font-black text-emerald-600 uppercase">Landed Prorrateado</p>
                                             <p className="font-black text-lg text-emerald-700 tracking-tighter">${item.landedUnitCost?.toFixed(2)}</p>
                                         </div>
-                                        {order.status === 'Pendiente' && (
+                                        {order.status !== 'Recibido' && order.status !== 'Cancelado' && (
                                             <Button variant="ghost" size="icon" onClick={() => handleRemoveItem(idx)} className="h-10 w-10 rounded-xl text-rose-500 opacity-0 group-hover:opacity-100">
                                                 <Trash2 className="h-4 w-4" />
                                             </Button>

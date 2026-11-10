@@ -131,7 +131,7 @@ function BroadcastStudioContent() {
     const availableSalespeople = useMemo(() => {
         const set = new Set<string>();
         customers.forEach(c => {
-            const sp = (c as any).salesperson || (c as any).vendedor || (c as any).salespersonName;
+            const sp = (c as any).assignedSalespersonName || (c as any).salesperson || (c as any).vendedor || (c as any).salespersonName;
             if (sp) set.add(String(sp).trim());
         });
         return Array.from(set).sort();
@@ -166,7 +166,7 @@ function BroadcastStudioContent() {
             case 'debtors':
                 return customers.filter(c => {
                     if (!hasPhone(c)) return false;
-                    const balance = Number((c as any).balanceUSD || (c as any).currentBalanceUSD || (c as any).saldoPendienteUSD || 0);
+                    const balance = Number((c as any).creditUsed || (c as any).balanceUSD || (c as any).currentBalanceUSD || (c as any).saldoPendienteUSD || 0);
                     return balance > 0;
                 });
 
@@ -174,7 +174,7 @@ function BroadcastStudioContent() {
                 return customers.filter(c => {
                     if (!hasPhone(c)) return false;
                     const daysOverdue = Number((c as any).daysOverdue || (c as any).diasMora || 0);
-                    const balance = Number((c as any).balanceUSD || (c as any).currentBalanceUSD || (c as any).saldoPendienteUSD || 0);
+                    const balance = Number((c as any).creditUsed || (c as any).balanceUSD || (c as any).currentBalanceUSD || (c as any).saldoPendienteUSD || 0);
                     return balance > 0 && daysOverdue > 15;
                 });
 
@@ -212,7 +212,7 @@ function BroadcastStudioContent() {
                 return customers.filter(c => {
                     if (!hasPhone(c)) return false;
                     if (selectedSalesperson === 'all') return true;
-                    const sp = (c as any).salesperson || (c as any).vendedor || (c as any).salespersonName;
+                    const sp = (c as any).assignedSalespersonName || (c as any).salesperson || (c as any).vendedor || (c as any).salespersonName;
                     return String(sp).trim().toLowerCase() === selectedSalesperson.toLowerCase();
                 });
 

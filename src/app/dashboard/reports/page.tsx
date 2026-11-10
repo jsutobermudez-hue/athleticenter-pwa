@@ -414,6 +414,7 @@ export default function ReportsPage() {
         <div className="flex flex-wrap items-center gap-1.5">
           {[
             { id: 'todos', label: '🌐 Todos' },
+            { id: 'Clientes', label: '👥 Clientes' },
             { id: 'Financieros', label: '💳 Financieros' },
             { id: 'Inventario', label: '📦 Inventario' },
             { id: 'Vendedores', label: '👔 Vendedores' },
@@ -544,7 +545,7 @@ export default function ReportsPage() {
         onOpenChange={setIsClient360Open}
         customers={customers || []}
         orders={orders || []}
-        bcvRate={globalSettings?.bcvRate || 36.5}
+        bcvRate={globalSettings?.bcvRate || 65.50}
         initialCustomerId={selectedClientForReport}
       />
 

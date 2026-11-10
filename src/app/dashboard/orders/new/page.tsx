@@ -114,23 +114,37 @@ function NewOrderForm() {
     }, [isClient, currentUser]);
 
     useEffect(() => {
+        const customerParam = searchParams.get('customer') || searchParams.get('customerId');
+        if (customerParam && !isClient) {
+            setSelectedCustomerId(customerParam);
+        }
+    }, [searchParams, isClient]);
+
+    useEffect(() => {
         const reorderId = searchParams.get('reorderId');
         if (reorderId && firestore) {
-            getDoc(doc(firestore, 'orders', reorderId)).then(snap => {
+            getDoc(doc(firestore, 'orders', reorderId)).then(async snap => {
                 if (snap.exists()) {
                     const pastOrder = snap.data() as any;
-                    const items = pastOrder.items || pastOrder.orderItems || [];
+                    let items = pastOrder.items || pastOrder.orderItems || [];
+                    if (!Array.isArray(items) || items.length === 0) {
+                        try {
+                            const itemsSnap = await getDocs(collection(firestore, 'orders', reorderId, 'orderItems'));
+                            items = itemsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+                        } catch (e) {}
+                    }
                     if (pastOrder && Array.isArray(items) && items.length > 0) {
                         setOrderItems(items.map((it: any) => {
-                            const pName = it.name || it.product?.name || 'Producto';
-                            const pPrice = it.unitPrice || it.price || 0;
-                            const pSku = it.sku || it.product?.sku || 'N/A';
-                            const pImg = it.imageUrl || it.product?.imageUrl || '';
+                            const catProd = inventory?.find(p => p.id === (it.productId || it.id));
+                            const pName = it.name || it.product?.name || catProd?.name || 'Producto';
+                            const pPrice = it.unitPrice || it.price || catProd?.price || 0;
+                            const pSku = it.sku || it.product?.sku || catProd?.sku || 'N/A';
+                            const pImg = it.imageUrl || it.product?.imageUrl || catProd?.imageUrl || '';
                             const pId = it.productId || it.id || 'prod-reorder';
                             const pQty = it.quantity || 1;
 
                             return {
-                                product: {
+                                product: (catProd || {
                                     id: pId,
                                     sku: pSku,
                                     name: pName,
@@ -139,7 +153,7 @@ function NewOrderForm() {
                                     stockLevel: 100,
                                     discipline: it.discipline || 'ELITE',
                                     category: it.category || 'General'
-                                } as Product,
+                                }) as Product,
                                 productId: pId,
                                 quantity: pQty,
                                 unitPrice: pPrice,
@@ -157,7 +171,7 @@ function NewOrderForm() {
                 }
             });
         }
-    }, [searchParams, firestore, isClient, toast]);
+    }, [searchParams, firestore, isClient, toast, inventory]);
 
     useEffect(() => {
         if (firestore && selectedCustomerId && globalSettings) {

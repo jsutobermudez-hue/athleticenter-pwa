@@ -416,7 +416,8 @@ export default function TreasuryPage() {
 
     allOrders.forEach(order => {
       if (order.status === 'Cancelado') return;
-      const balance = (order.totalAmount || 0) - (order.amountPaid || 0);
+      const paid = Math.max(Number((order as any).totalCashReceived || 0), Number(order.amountPaid || 0));
+      const balance = (order.totalAmount || 0) - paid;
       if (balance <= 0.05) return;
 
       const orderTime = order.orderDate?.seconds 

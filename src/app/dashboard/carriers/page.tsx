@@ -74,7 +74,7 @@ function CarrierCard({
 }) {
   const isDelayed = (carrier.avgDeliveryHours || 0) > 72;
 
-  const phoneVal = (carrier as any).contactPhone || (carrier as any).phone || '';
+  const phoneVal = carrier.contacts?.[0]?.phone || (carrier as any).contactPhone || (carrier as any).phone || '';
 
   const handleWhatsAppAgency = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -86,7 +86,8 @@ function CarrierCard({
 
   const handleOpenTrackingPortal = (e: React.MouseEvent) => {
     e.stopPropagation();
-    const trackingUrl = (carrier as any).trackingUrl || (carrier as any).website || `https://www.google.com/search?q=${encodeURIComponent(carrier.name + ' rastreo de guia')}`;
+    const rawTemplate = carrier.trackingUrlTemplate ? carrier.trackingUrlTemplate.replace('{trackingNumber}', '') : '';
+    const trackingUrl = rawTemplate || (carrier as any).trackingUrl || (carrier as any).website || `https://www.google.com/search?q=${encodeURIComponent(carrier.name + ' rastreo de guia')}`;
     window.open(trackingUrl, '_blank');
   };
 

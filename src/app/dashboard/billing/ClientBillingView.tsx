@@ -194,7 +194,7 @@ export function ClientBillingView() {
     const baseStatuses: OrderStatus[] = ['Entregado', 'En Verificación', 'Pagado'];
     return allOrders
         .filter(o => baseStatuses.includes(o.status))
-        .map(getInvoiceFromOrder)
+        .map(o => getInvoiceFromOrder(o))
         .filter(Boolean) as Invoice[];
   }, [allOrders]);
   

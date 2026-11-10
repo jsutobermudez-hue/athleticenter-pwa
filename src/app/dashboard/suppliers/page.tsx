@@ -161,6 +161,7 @@ function SupplierForm({ initialData, onSubmit, isSubmitting }: { initialData?: P
                                     <SelectContent>
                                         <SelectItem value="Marítimo" className="font-bold text-[10px] uppercase">🚢 MARÍTIMO</SelectItem>
                                         <SelectItem value="Aéreo" className="font-bold text-[10px] uppercase">✈️ AÉREO</SelectItem>
+                                        <SelectItem value="Terrestre" className="font-bold text-[10px] uppercase">🚚 TERRESTRE (NACIONAL)</SelectItem>
                                     </SelectContent>
                                 </Select>
                             </div>
@@ -199,7 +200,7 @@ export default function SuppliersPage() {
     const [editingSupplier, setEditingSupplier] = useState<Supplier | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
 
-    const canAccess = Boolean(profile && ['superadmin', 'gerencia'].includes(profile.role));
+    const canAccess = Boolean(profile && ['superadmin', 'admin', 'gerente', 'gerencia', 'deposito', 'almacen'].includes(profile.role));
 
     useEffect(() => {
         if (!isUserLoading && profile && !canAccess) {

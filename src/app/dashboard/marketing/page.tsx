@@ -148,9 +148,9 @@ function MarketingContent() {
             const customerOrders = allOrders.filter(o => o.customerId === customer.id && o.status !== 'Cancelado');
             const activity = Array.from({ length: 12 }, (_, i) => {
                 const monthDate = subMonths(now, 11 - i);
-                return customerOrders.some(o => isSameMonth((o.orderDate as Timestamp).toDate(), monthDate));
+                return customerOrders.some(o => { const raw: any = o.orderDate || o.createdAt; const d = raw ? (typeof raw.toDate === 'function' ? raw.toDate() : new Date(raw)) : null; return d && !isNaN(d.getTime()) ? isSameMonth(d, monthDate) : false; });
             });
-            const lastOrderDate = customer.lastOrderDate ? (customer.lastOrderDate as Timestamp).toDate() : null;
+            const lastOrderDate = customer.lastOrderDate ? (typeof (customer.lastOrderDate as any).toDate === 'function' ? (customer.lastOrderDate as Timestamp).toDate() : new Date(customer.lastOrderDate as any)) : null;
             const daysSinceLast = lastOrderDate ? differenceInDays(now, lastOrderDate) : Infinity;
             let health: 'healthy' | 'warning' | 'critical' = 'healthy';
             if (daysSinceLast === Infinity || daysSinceLast > 45) health = 'critical';
@@ -168,7 +168,7 @@ function MarketingContent() {
         results.stats.vipsCount = results.pareto.length;
 
         results.leakage = allQuotes.filter(q => q.status === 'Enviada' || q.status === 'Aceptada').map(q => {
-            const days = differenceInDays(now, q.quoteDate ? q.quoteDate.toDate() : new Date());
+            const days = differenceInDays(now, q.quoteDate ? (typeof (q.quoteDate as any).toDate === 'function' ? q.quoteDate.toDate() : new Date(q.quoteDate as any)) : new Date());
             if (days >= 3) results.stats.totalValueAtRisk += (q.totalAmount || 0);
             return { ...q, daysOpen: days };
         }).sort((a, b) => (b.totalAmount || 0) - (a.totalAmount || 0));

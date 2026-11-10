@@ -355,6 +355,64 @@ function AuditPageContent() {
             </Table>
           </div>
         </TabsContent>
+
+        <TabsContent value="notifications" className="mt-0">
+          <div className="w-full rounded-[2.2rem] border border-slate-200 bg-white overflow-hidden shadow-xl">
+            <Table>
+              <TableHeader className="bg-slate-900 text-white">
+                <TableRow className="hover:bg-transparent border-none">
+                  <TableHead className="text-white pl-8 py-4 text-[10px] font-black uppercase tracking-wider">Fecha y Hora</TableHead>
+                  <TableHead className="text-white text-[10px] font-black uppercase tracking-wider">Categoría</TableHead>
+                  <TableHead className="text-white text-[10px] font-black uppercase tracking-wider">Alerta / Mensaje</TableHead>
+                  <TableHead className="text-white text-right pr-8 text-[10px] font-black uppercase tracking-wider">Estado</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {isLoading ? Array.from({ length: 4 }).map((_, i) => (
+                  <TableRow key={i}><TableCell colSpan={4} className="py-6 pl-8"><Skeleton className="h-8 w-full" /></TableCell></TableRow>
+                )) : filteredLogs.notifications.length > 0 ? (
+                  filteredLogs.notifications.map((notif: any) => {
+                    let nDateStr = '...';
+                    if (notif.createdAt) {
+                      const d = typeof notif.createdAt.toDate === 'function' ? notif.createdAt.toDate() : new Date(notif.createdAt);
+                      if (!isNaN(d.getTime())) nDateStr = format(d, "dd/MM HH:mm");
+                    }
+                    return (
+                      <TableRow key={notif.id} className="hover:bg-slate-50 transition-all border-b last:border-none">
+                        <TableCell className="py-4 pl-8 text-[10px] font-mono font-bold text-slate-400">
+                          {nDateStr}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline" className="text-[9px] font-black uppercase tracking-wider border-slate-200 text-slate-700 bg-slate-50">
+                            {notif.category || 'SISTEMA'}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex flex-col">
+                            <span className="font-black text-xs text-slate-900">{notif.title}</span>
+                            <span className="text-[10px] font-medium text-slate-500">{notif.message}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-right pr-8">
+                          <Badge className={cn("text-[9px] font-black uppercase px-2.5 py-0.5", notif.isRead ? "bg-slate-200 text-slate-600" : "bg-primary text-white")}>
+                            {notif.isRead ? 'LEÍDA' : 'ACTIVA'}
+                          </Badge>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })
+                ) : (
+                  <TableRow>
+                    <TableCell colSpan={4} className="h-60 text-center flex flex-col items-center justify-center gap-3 opacity-40">
+                      <ShieldCheck className="h-10 w-10 text-slate-400" />
+                      <p className="text-xs font-black uppercase tracking-widest text-slate-500">Sin alertas ni notificaciones activas para este filtro.</p>
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        </TabsContent>
       </Tabs>
 
       {/* SHEET DE DETALLE DE AUDITORÍA */}

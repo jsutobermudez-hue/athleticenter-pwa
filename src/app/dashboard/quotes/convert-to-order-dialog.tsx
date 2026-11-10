@@ -105,6 +105,7 @@ export function ConvertToOrderDialog({ quote }: ConvertToOrderDialogProps) {
             // 1. CREACIÓN DEL PEDIDO (CONSERVANDO IDENTIDAD Y RIF DEL CLIENTE)
             const targetCompanyId = quote.customerId || currentUser.associatedCustomerId || currentUser.id;
 
+            const quoteData = quoteSnap.data() as any;
             const newOrderData = {
                 id: finalOrderId,
                 sourceQuoteId: quote.id,
@@ -119,6 +120,12 @@ export function ConvertToOrderDialog({ quote }: ConvertToOrderDialogProps) {
                 createdAt: serverTimestamp(),
                 totalAmount: quote.totalAmount,
                 amountPaid: 0,
+                isNetPrice: Boolean(quoteData.isNetPrice ?? (quote as any).isNetPrice),
+                bcvDiscountSnapshot: quoteData.bcvDiscountSnapshot ?? (quote as any).bcvDiscountSnapshot ?? 25,
+                earlyPayment7dSnapshot: quoteData.earlyPayment7dSnapshot ?? (quote as any).earlyPayment7dSnapshot ?? 10,
+                earlyPayment15dSnapshot: quoteData.earlyPayment15dSnapshot ?? (quote as any).earlyPayment15dSnapshot ?? 0,
+                bcvRateSnapshot: quoteData.bcvRateSnapshot ?? (quote as any).bcvRateSnapshot ?? 65.50,
+                paymentMethod: quoteData.paymentMethod || (quote as any).paymentMethod || 'Efectivo USD',
                 status: 'Pendiente',
                 updatedAt: serverTimestamp()
             };

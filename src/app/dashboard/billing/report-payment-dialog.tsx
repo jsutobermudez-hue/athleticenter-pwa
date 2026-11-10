@@ -287,6 +287,9 @@ export function ReportPaymentDialog({ invoice, mode = 'partial' }: { invoice: In
       if (earlyPaymentType === '7days' && (is7DaysEligible || isDiscountOverridden)) {
         earlyDiscountPct = early7Factor;
         if (discountType === 'none') discountType = '7days';
+      } else if (earlyPaymentType === '15days' && (is15DaysEligible || isDiscountOverridden)) {
+        earlyDiscountPct = early15Factor;
+        if (discountType === 'none') discountType = '15days';
       }
     }
 

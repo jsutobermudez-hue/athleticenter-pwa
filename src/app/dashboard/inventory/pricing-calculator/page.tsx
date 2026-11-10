@@ -227,6 +227,13 @@ function PricingCalculatorContent() {
     }
   };
 
+  React.useEffect(() => {
+    const urlSku = searchParams?.get('sku');
+    if (urlSku && firestore && canAccessAndManage) {
+      loadProductData(urlSku);
+    }
+  }, [searchParams, firestore, canAccessAndManage]);
+
   const onSave = async (data: ImportCalcValues) => {
     if (!firestore || !currentUser || !results) return;
     try {
@@ -263,7 +270,9 @@ function PricingCalculatorContent() {
                 features: data.features,
                 colors: colorsArray,
                 imageUrl: data.imageUrl,
+                stock: finalStock,
                 stockLevel: finalStock, 
+                cost: results.landedCost,
                 hasSizes: data.hasSizes, 
                 sizes: data.hasSizes ? sizesMap : null,
                 minStockThreshold: data.minStockThreshold,

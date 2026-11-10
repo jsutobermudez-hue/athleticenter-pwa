@@ -372,7 +372,7 @@ export interface Supplier extends Auditable {
   country: string;
   city: string;
   address: string;
-  preferredTransport: 'Marítimo' | 'Aéreo';
+  preferredTransport: 'Marítimo' | 'Aéreo' | 'Terrestre';
   leadTimeDays: number;
   paymentTerms: string;
   bankInfo: string;
@@ -395,7 +395,7 @@ export interface PurchaseOrder extends Auditable {
     supplierName: string;
     originCountry: string;
     originCity: string;
-    transportMode: 'Marítimo' | 'Aéreo';
+    transportMode: 'Marítimo' | 'Aéreo' | 'Terrestre';
     status: 'Cotizando/Alibaba' | 'En Fabricación' | 'En Tránsito' | 'Aduana' | 'Recibido' | 'Cancelado' | 'Pendiente';
     items: PurchaseOrderItem[];
     totalCost: number;
