@@ -71,8 +71,7 @@ function NewOrderForm() {
     const customersQuery = useMemoFirebase(() => {
         if (isUserLoading || !firestore || !currentUser) return null;
         const customersRef = collection(firestore, 'customers');
-        if (isSalesperson) return query(customersRef, where('assignedSalespersonId', '==', currentUser.id), limit(100));
-        if (isAdmin || currentUser?.role === 'deposito') return query(customersRef, limit(100));
+        if (isSalesperson || isAdmin || currentUser?.role === 'deposito') return query(customersRef, limit(300));
         return null;
     }, [firestore, currentUser, isSalesperson, isAdmin, isUserLoading, isClient]);
 
