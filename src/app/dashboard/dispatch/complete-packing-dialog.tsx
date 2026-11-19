@@ -12,13 +12,14 @@ import {
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
-import { Loader2, Box, Scale, PackageCheck, X, Camera, Printer } from 'lucide-react';
+import { Loader2, Box, Scale, PackageCheck, X, Printer } from 'lucide-react';
 import type { Order } from '@/lib/definitions';
 import { useToast } from '@/hooks/use-toast';
 import { useFirestore, useUser, errorEmitter, FirestorePermissionError } from '@/firebase';
 import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { createAppNotifications } from '@/lib/notifications';
 import { generatePackageLabelsPDF } from '@/lib/pdf-generator';
+import { ImageUploader } from '@/components/ui/image-uploader';
 
 type CompletePackingDialogProps = {
   order: Order;
@@ -36,12 +37,14 @@ export function CompletePackingDialog({ order, isOpen, onOpenChange }: CompleteP
   const [totalWeight, setTotalWeight] = useState(0);
 
   const [packingImageUrl, setPackingImageUrl] = useState('');
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
       setPackageCount(order.packageCount || 1);
       setTotalWeight(order.totalWeight || 0);
       setPackingImageUrl((order as any).packingImageUrl || '');
+      setIsUploadingImage(false);
     }
   }, [isOpen, order]);
 
@@ -98,7 +101,7 @@ export function CompletePackingDialog({ order, isOpen, onOpenChange }: CompleteP
 
   return (
     <Dialog open={isOpen} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-[95vw] sm:max-w-md p-0 overflow-hidden rounded-[1.8rem] sm:rounded-[2.5rem] border-none shadow-2xl flex flex-col h-[70vh] sm:h-auto sm:max-h-[90vh]">
+      <DialogContent className="max-w-[95vw] sm:max-w-lg p-0 overflow-hidden rounded-[1.8rem] sm:rounded-[2.5rem] border-none shadow-2xl flex flex-col max-h-[92vh] h-auto">
         <DialogHeader className="p-6 sm:p-8 bg-indigo-600 text-white shrink-0 relative">
           <div className="flex items-center gap-4">
             <div className="p-2.5 sm:p-3 rounded-xl sm:rounded-2xl bg-white/20 text-white shadow-xl shrink-0">
@@ -153,21 +156,17 @@ export function CompletePackingDialog({ order, isOpen, onOpenChange }: CompleteP
                         </div>
                     </div>
 
-                    <div className="space-y-1.5 pt-2">
-                        <Label className="text-[9px] font-black uppercase text-slate-500 px-1 flex items-center justify-between">
-                            <span>Foto Evidencia de Empaque (URL / Foto)</span>
+                    <div className="space-y-2 pt-2">
+                        <div className="flex justify-end px-1">
                             <span className="text-[8px] font-black text-indigo-600 uppercase">CBM Est: {estimatedCBM} m³</span>
-                        </Label>
-                        <div className="relative">
-                            <Camera className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-                            <Input 
-                                type="url" 
-                                placeholder="https://... (Foto del contenido empacado)" 
-                                value={packingImageUrl} 
-                                onChange={(e) => setPackingImageUrl(e.target.value)} 
-                                className="h-12 pl-10 text-xs font-bold rounded-xl bg-slate-50 border-none shadow-inner" 
-                            />
                         </div>
+                        <ImageUploader
+                            folderPath="dispatch-evidence"
+                            initialImageUrl={packingImageUrl}
+                            onImageUploaded={setPackingImageUrl}
+                            onUploadingChange={setIsUploadingImage}
+                            label="Foto Evidencia de Empaque"
+                        />
                     </div>
 
                     <div className="p-4 rounded-2xl bg-indigo-50 border border-indigo-100 flex items-start gap-3 mt-4">
@@ -178,9 +177,9 @@ export function CompletePackingDialog({ order, isOpen, onOpenChange }: CompleteP
                 </div>
             </div>
 
-            <DialogFooter className="p-6 sm:p-8 border-t border-slate-50 bg-slate-50 flex flex-col-reverse sm:flex-row items-center justify-between gap-4 shrink-0">
-                <div className="flex items-center gap-2 w-full sm:w-auto">
-                    <Button type="button" variant="ghost" className="font-black uppercase tracking-widest text-[9px] h-10 px-4" onClick={() => onOpenChange(false)}>Cancelar</Button>
+            <DialogFooter className="p-5 sm:p-6 border-t border-slate-100 bg-slate-50 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between shrink-0">
+                <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2 w-full sm:w-auto">
+                    <Button type="button" variant="ghost" className="font-black uppercase tracking-widest text-[9px] h-10 px-3" onClick={() => onOpenChange(false)}>Cancelar</Button>
                     <Button 
                         type="button" 
                         variant="outline"
@@ -192,13 +191,14 @@ export function CompletePackingDialog({ order, isOpen, onOpenChange }: CompleteP
                                 toast({ variant: 'destructive', title: 'Error al generar etiquetas' });
                             }
                         }}
-                        className="h-10 px-4 rounded-xl border-slate-200 bg-white font-black uppercase text-[9px] tracking-wider text-slate-700 hover:bg-slate-100 shadow-sm flex items-center gap-1.5"
+                        className="h-10 px-3 rounded-xl border-slate-200 bg-white font-black uppercase text-[9px] tracking-wider text-slate-700 hover:bg-slate-100 shadow-sm flex items-center gap-1.5"
                     >
                         <Printer className="h-3.5 w-3.5 text-indigo-600" /> ETIQUETAS PDF
                     </Button>
                 </div>
-                <Button type="submit" disabled={isPending} className="h-12 px-10 rounded-xl font-black uppercase tracking-[0.2em] shadow-xl bg-indigo-600 hover:bg-indigo-700 transition-all active:scale-95 text-[10px] w-full sm:w-auto">
-                    {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <PackageCheck className="mr-2 h-4 w-4" />} SELLAR Y COMPLETAR
+                <Button type="submit" disabled={isPending || isUploadingImage} className="h-11 px-6 rounded-xl font-black uppercase tracking-[0.15em] shadow-xl bg-indigo-600 hover:bg-indigo-700 transition-all active:scale-95 text-[10px] w-full sm:w-auto">
+                    {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : isUploadingImage ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <PackageCheck className="mr-2 h-4 w-4" />}
+                    {isUploadingImage ? 'SUBIENDO FOTO...' : 'SELLAR Y COMPLETAR'}
                 </Button>
             </DialogFooter>
         </form>
