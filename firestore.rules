@@ -34,8 +34,9 @@ service cloud.firestore {
     match /users/{userId} {
       allow read: if signedIn();
 
-      // Alta: gerencia/admin crean cuentas; un usuario solo puede auto-registrarse como cliente.
+      // Alta: gerencia/admin crean cuentas; vendedores pueden registrar clientes; un usuario solo puede auto-registrarse como cliente.
       allow create: if (isManager() && (request.resource.data.get('role', 'cliente') != 'superadmin' || isSuper()))
+                    || (role() == 'ventas' && request.resource.data.get('role', '') == 'cliente')
                     || (request.auth.uid == userId && request.resource.data.get('role', 'cliente') == 'cliente');
 
       // Edición: el propio usuario NO puede tocar rol ni vínculo de cliente ni comisiones.
