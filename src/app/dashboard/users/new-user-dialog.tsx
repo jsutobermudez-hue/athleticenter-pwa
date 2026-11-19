@@ -130,6 +130,7 @@ export function NewUserDialog({ buttonLabel = "Crear Usuario", defaultRole = 've
   const { toast } = useToast();
   const firestore = useFirestore();
   const { user: authUser, profile: currentUser } = useUser();
+  const isManager = ['superadmin', 'admin', 'gerencia'].includes(currentUser?.role || '');
 
   const usersQuery = useMemoFirebase(() => (firestore && authUser) ? query(collection(firestore, 'users'), limit(500)) : null, [firestore, authUser]);
   const { data: allUsers } = useCollection<User>(usersQuery);
@@ -191,6 +192,10 @@ export function NewUserDialog({ buttonLabel = "Crear Usuario", defaultRole = 've
             if (authErr?.code === 'auth/email-already-in-use' || authErr?.message?.includes('email-already-in-use')) {
                 const userSnap = await getDocs(query(collection(firestore, 'users'), where('email', '==', emailClean), limit(1)));
                 if (!userSnap.empty) {
+                    const existingUserData = userSnap.docs[0].data() as Partial<User>;
+                    if (existingUserData.role && existingUserData.role !== 'cliente') {
+                        throw new Error(`El correo ${emailClean} ya pertenece a una cuenta interna (${existingUserData.role}). Usa el correo propio del cliente.`);
+                    }
                     targetUid = userSnap.docs[0].id;
                 } else {
                     const custSnap = await getDocs(query(collection(firestore, 'customers'), where('email', '==', emailClean), limit(1)));
@@ -206,10 +211,11 @@ export function NewUserDialog({ buttonLabel = "Crear Usuario", defaultRole = 've
         }
 
         if (targetUid) {
-            const assignedSpId = data.assignedSalespersonId || authUser.uid;
+            const effectiveRole: User['role'] = isManager ? (data.role || 'cliente') : 'cliente';
+            const assignedSpId = isManager ? (data.assignedSalespersonId || authUser.uid) : authUser.uid;
             const sp = staffMembers.find(s => s.id === assignedSpId) || (currentUser ? { id: currentUser.id, name: currentUser.name } : null);
             
-            const finalCustomerId = data.role === 'cliente' 
+            const finalCustomerId = effectiveRole === 'cliente' 
                 ? (data.isLinkingToExisting ? data.associatedCustomerId : targetUid)
                 : null;
 
@@ -220,7 +226,7 @@ export function NewUserDialog({ buttonLabel = "Crear Usuario", defaultRole = 've
                 id: targetUid,
                 name: clientName, 
                 email: emailClean, 
-                role: data.role || 'cliente', 
+                role: effectiveRole, 
                 status: 'Activo', 
                 associatedCustomerId: finalCustomerId,
                 avatarUrl: data.avatarUrl || '', 
@@ -229,7 +235,7 @@ export function NewUserDialog({ buttonLabel = "Crear Usuario", defaultRole = 've
                 updatedAt: serverTimestamp()
             }, { merge: true });
 
-            if (data.role === 'cliente' && !data.isLinkingToExisting) {
+            if (effectiveRole === 'cliente' && !data.isLinkingToExisting) {
                 await setDoc(doc(firestore, 'customers', targetUid), { 
                     id: targetUid,
                     razonSocial: data.razonSocial || clientName, 
@@ -269,6 +275,8 @@ export function NewUserDialog({ buttonLabel = "Crear Usuario", defaultRole = 've
             msg = 'El formato del correo electrónico no es válido.';
         } else if (error?.code === 'auth/weak-password') {
             msg = 'La contraseña debe tener al menos 6 caracteres.';
+        } else if (error?.code === 'permission-denied' || msg.includes('Missing or insufficient permissions')) {
+            msg = 'No tienes permisos para crear o modificar esta cuenta. Verifica que el correo no pertenezca a otro usuario interno del sistema.';
         }
 
         toast({ 
@@ -316,12 +324,12 @@ export function NewUserDialog({ buttonLabel = "Crear Usuario", defaultRole = 've
                             <div className="space-y-2">
                                 <Label className="text-[10px] font-black uppercase text-slate-400 px-1">Rol Operativo</Label>
                                 <Controller name="role" control={control} render={({ field }) => (
-                                    <Select onValueChange={field.onChange} value={field.value}>
+                                    <Select disabled={!isManager} onValueChange={field.onChange} value={!isManager ? 'cliente' : field.value}>
                                         <SelectTrigger className="h-11 rounded-xl bg-slate-50 border-none shadow-inner font-bold">
                                             <SelectValue />
                                         </SelectTrigger>
                                         <SelectContent position="popper" className="z-[200]">
-                                            {roles.map(r => (
+                                            {(isManager ? roles : (['cliente'] as User['role'][])).map(r => (
                                                 <SelectItem key={r} value={r} className="text-[10px] font-bold uppercase">{r.toUpperCase()}</SelectItem>
                                             ))}
                                         </SelectContent>
@@ -416,7 +424,7 @@ export function NewUserDialog({ buttonLabel = "Crear Usuario", defaultRole = 've
                                     <div className="space-y-2">
                                         <Label className="text-[9px] font-black uppercase text-slate-400 px-1">Asesor Responsable (Personal Staff)</Label>
                                         <Controller name="assignedSalespersonId" control={control} render={({ field }) => (
-                                            <Select onValueChange={field.onChange} value={field.value}>
+                                            <Select disabled={!isManager} onValueChange={field.onChange} value={!isManager ? (authUser?.uid || '') : field.value}>
                                                 <SelectTrigger className="h-10 bg-white/10 border-none rounded-lg text-[10px] font-bold uppercase text-white">
                                                     <SelectValue placeholder="ELEGIR ASESOR..." />
                                                 </SelectTrigger>

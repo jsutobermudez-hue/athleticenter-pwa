@@ -64,7 +64,8 @@ interface EditUserDialogProps {
 export function EditUserDialog({ user, isOpen, onOpenChange, title, description }: EditUserDialogProps) {
   const { toast } = useToast();
   const firestore = useFirestore();
-  const { user: authUser } = useUser();
+  const { user: authUser, profile: currentUser } = useUser();
+  const isManager = ['superadmin', 'admin', 'gerencia'].includes(currentUser?.role || '');
 
   const customerRef = useMemoFirebase(() => (firestore && user.role === 'cliente') ? doc(firestore, 'customers', user.id) : null, [firestore, user.id, user.role]);
   const { data: customerDoc } = useDoc<Customer>(customerRef);
@@ -119,12 +120,13 @@ export function EditUserDialog({ user, isOpen, onOpenChange, title, description 
   const onSubmit = async (data: EditUserFormValues) => {
     if (!firestore || !authUser) return;
     try {
+      const safeRole = isManager ? data.role : user.role;
       await runTransaction(firestore, async (transaction) => {
         const userRef = doc(firestore, "users", user.id);
         transaction.update(userRef, {
           name: data.name,
           email: data.email,
-          role: data.role,
+          role: safeRole,
           status: data.status,
           avatarUrl: data.avatarUrl || '',
           phone: data.phone || '',
@@ -132,8 +134,10 @@ export function EditUserDialog({ user, isOpen, onOpenChange, title, description 
           updatedAt: serverTimestamp()
         });
 
-        if (data.role === 'cliente') {
-          const sp = salespeople.find(s => s.id === data.assignedSalespersonId);
+        if (safeRole === 'cliente') {
+          const safeCreditLimit = isManager ? (data.creditLimit || 0) : (customerDoc?.creditLimit || 0);
+          const safeSpId = isManager ? (data.assignedSalespersonId || '') : (customerDoc?.assignedSalespersonId || authUser.uid);
+          const sp = salespeople.find(s => s.id === safeSpId);
           const cRef = doc(firestore, 'customers', user.id);
           transaction.set(cRef, {
             razonSocial: data.razonSocial || '',
@@ -141,9 +145,9 @@ export function EditUserDialog({ user, isOpen, onOpenChange, title, description 
             address: data.address,
             email: data.email,
             phone: data.phone || '',
-            creditLimit: data.creditLimit || 0,
-            assignedSalespersonId: data.assignedSalespersonId || '',
-            assignedSalespersonName: sp?.name || 'Sin Asignar',
+            creditLimit: safeCreditLimit,
+            assignedSalespersonId: safeSpId,
+            assignedSalespersonName: sp?.name || customerDoc?.assignedSalespersonName || 'Sin Asignar',
             status: data.status,
             updatedAt: serverTimestamp(),
           }, { merge: true });
@@ -152,7 +156,7 @@ export function EditUserDialog({ user, isOpen, onOpenChange, title, description 
 
       // Auditoría y Notificaciones en Segundo Plano
       const changes: string[] = [];
-      if (user.role !== data.role) changes.push(`Rol: ${user.role} -> ${data.role}`);
+      if (user.role !== safeRole) changes.push(`Rol: ${user.role} -> ${safeRole}`);
       if (user.status !== data.status) changes.push(`Estado: ${user.status} -> ${data.status}`);
 
       if (changes.length > 0) {
@@ -209,7 +213,7 @@ export function EditUserDialog({ user, isOpen, onOpenChange, title, description 
                   <div className="space-y-2">
                     <Label className="text-[10px] font-black uppercase text-slate-400 px-1">Rol Operativo</Label>
                     <Controller name="role" control={control} render={({ field }) => (
-                      <Select onValueChange={field.onChange} value={field.value}><SelectTrigger className="h-11 rounded-xl bg-slate-50 border-none shadow-inner font-bold"><SelectValue /></SelectTrigger><SelectContent position="popper" className="z-[200]">{roles.map(r => <SelectItem key={r} value={r} className="text-[10px] font-bold uppercase">{r.toUpperCase()}</SelectItem>)}</SelectContent></Select>
+                      <Select disabled={!isManager} onValueChange={field.onChange} value={!isManager ? user.role : field.value}><SelectTrigger className="h-11 rounded-xl bg-slate-50 border-none shadow-inner font-bold"><SelectValue /></SelectTrigger><SelectContent position="popper" className="z-[200]">{roles.map(r => <SelectItem key={r} value={r} className="text-[10px] font-bold uppercase">{r.toUpperCase()}</SelectItem>)}</SelectContent></Select>
                     )} />
                     {errors.role?.message && <p className="text-[10px] text-rose-500 font-bold uppercase px-1">{errors.role.message.toString()}</p>}
                   </div>
@@ -238,7 +242,7 @@ export function EditUserDialog({ user, isOpen, onOpenChange, title, description 
                     <div className="space-y-2">
                         <Label className="text-[10px] font-black uppercase text-slate-400 px-1">Asesor Asignado (Personal Staff)</Label>
                         <Controller name="assignedSalespersonId" control={control} render={({ field }) => (
-                            <Select onValueChange={field.onChange} value={field.value}>
+                            <Select disabled={!isManager} onValueChange={field.onChange} value={field.value}>
                                 <SelectTrigger className="h-11 rounded-xl bg-slate-50 border-none shadow-inner font-bold"><SelectValue placeholder="Sin Asignar" /></SelectTrigger>
                                 <SelectContent position="popper" className="z-[200]">
                                     {salespeople.map(s => <SelectItem key={s.id} value={s.id} className="text-[10px] font-bold uppercase">{s.name.toUpperCase()}</SelectItem>)}

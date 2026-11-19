@@ -34,19 +34,27 @@ service cloud.firestore {
     match /users/{userId} {
       allow read: if signedIn();
 
-      // Alta: gerencia/admin crean cuentas; vendedores pueden registrar clientes; un usuario solo puede auto-registrarse como cliente.
+      // Alta: gerencia/admin crean cuentas; vendedores pueden registrar clientes (sin campos privilegiados); un usuario solo puede auto-registrarse como cliente.
       allow create: if (isManager() && (request.resource.data.get('role', 'cliente') != 'superadmin' || isSuper()))
-                    || (role() == 'ventas' && request.resource.data.get('role', '') == 'cliente')
-                    || (request.auth.uid == userId && request.resource.data.get('role', 'cliente') == 'cliente');
+                    || (role() == 'ventas'
+                        && request.resource.data.get('role', '') == 'cliente'
+                        && !request.resource.data.keys().hasAny(['commissionRate', 'salesGoal', 'isActive']))
+                    || (signedIn() && request.auth.uid == userId && request.resource.data.get('role', 'cliente') == 'cliente');
 
       // Edición: el propio usuario NO puede tocar rol ni vínculo de cliente ni comisiones.
       // Gerencia/admin editan a otros; solo superadmin asigna o modifica superadmins.
-      allow update: if (request.auth.uid == userId
+      // Vendedores pueden editar únicamente perfiles de clientes existentes sin cambiar rol ni campos privilegiados.
+      allow update: if (signedIn() && request.auth.uid == userId
                         && unchanged('role') && unchanged('associatedCustomerId')
                         && unchanged('commissionRate') && unchanged('isActive'))
                     || (isManager()
                         && (isSuper() || (resource.data.get('role', '') != 'superadmin'
-                                          && request.resource.data.get('role', '') != 'superadmin')));
+                                          && request.resource.data.get('role', '') != 'superadmin')))
+                    || (role() == 'ventas'
+                        && resource.data.get('role', '') == 'cliente'
+                        && request.resource.data.get('role', '') == 'cliente'
+                        && unchanged('role') && unchanged('commissionRate') && unchanged('isActive')
+                        && onlyChanges(['id', 'name', 'email', 'role', 'status', 'associatedCustomerId', 'avatarUrl', 'phone', 'address', 'updatedAt']));
 
       allow delete: if isSuper() || (isManager() && resource.data.get('role', '') != 'superadmin');
 
