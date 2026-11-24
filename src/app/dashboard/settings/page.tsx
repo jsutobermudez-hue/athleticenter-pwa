@@ -33,12 +33,13 @@ import {
     Fingerprint,
     Settings2,
     ArrowUpRight,
-    Calculator
+    Calculator,
+    Pencil
 } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import type { CompanyProfile as CompanyProfileType, FinancialSettings, User } from '@/lib/definitions';
+import type { CompanyProfile as CompanyProfileType, FinancialSettings, OrderControlSettings, User } from '@/lib/definitions';
 import { Input } from '@/components/ui/input';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Switch } from '@/components/ui/switch';
@@ -76,6 +77,7 @@ function SettingsContent() {
       <div className="grid gap-8 grid-cols-1 lg:grid-cols-2 items-start">
          <PerformanceWidget />
          <DeviceLinkingWidget />
+         {isAdmin && <OrderEditingControlWidget />}
          {isAdmin && <RoleBasedNotificationsControlWidget />}
          <AutomatedNotificationsControlWidget />
          {isAdmin && <WhatsAppGatewayWidget />}
@@ -94,6 +96,160 @@ function SettingsContent() {
       </div>
     </div>
   );
+}
+
+function OrderEditingControlWidget() {
+    const firestore = useFirestore();
+    const { profile } = useUser();
+    const { toast } = useToast();
+    const [isSaving, setIsSaving] = useState(false);
+
+    const controlsRef = useMemoFirebase(() => (firestore ? doc(firestore, 'system', 'orderControls') : null), [firestore]);
+    const { data: orderControls, isLoading } = useDoc<OrderControlSettings>(controlsRef);
+
+    const allowOrderEditing = Boolean(orderControls?.allowOrderEditing);
+    const allowSalespersonEditPending = Boolean(allowOrderEditing && orderControls?.allowSalespersonEditPending);
+
+    const formattedUpdatedAt = (() => {
+        const raw = orderControls?.updatedAt;
+        if (!raw) return null;
+        const d = typeof raw.toDate === 'function' ? raw.toDate() : new Date(raw);
+        if (isNaN(d.getTime())) return null;
+        return new Intl.DateTimeFormat('es-VE', { dateStyle: 'short', timeStyle: 'short' }).format(d);
+    })();
+
+    const handleToggle = async (nextGlobal: boolean, nextSalesperson: boolean) => {
+        if (!firestore || !profile || !controlsRef || isSaving) return;
+        const sanitizedSales = nextGlobal ? nextSalesperson : false;
+        setIsSaving(true);
+        try {
+            await setDoc(
+                controlsRef,
+                {
+                    allowOrderEditing: nextGlobal,
+                    allowSalespersonEditPending: sanitizedSales,
+                    updatedBy: profile.id,
+                    updatedByName: profile.name || profile.email || 'Administrador',
+                    updatedByRole: profile.role,
+                    updatedAt: serverTimestamp(),
+                },
+                { merge: true }
+            );
+
+            await logActivity(firestore, {
+                userId: profile.id,
+                userName: profile.name || profile.email || 'Administrador',
+                userRole: profile.role,
+                action: 'TOGGLE_ORDER_EDITING',
+                resource: 'system',
+                module: 'settings',
+                resourceId: 'orderControls',
+                severity: 'warning',
+                previousState: {
+                    allowOrderEditing,
+                    allowSalespersonEditPending,
+                },
+                newState: {
+                    allowOrderEditing: nextGlobal,
+                    allowSalespersonEditPending: sanitizedSales,
+                },
+                details: `${profile.name || profile.email} cambió el control de edición de pedidos: Global=${nextGlobal ? 'ACTIVO' : 'BLOQUEADO'}, Vendedores(Pendiente/Borrador)=${sanitizedSales ? 'ACTIVO' : 'BLOQUEADO'}.`,
+            });
+
+            toast({
+                title: nextGlobal ? 'Edición de Pedidos Habilitada' : 'Edición de Pedidos Deshabilitada',
+                description: nextGlobal
+                    ? 'Disponible en etapas comerciales y almacén previas a Despachado.'
+                    : 'El botón Editar Pedido quedó oculto en toda la plataforma.',
+            });
+        } catch (err: any) {
+            toast({
+                variant: 'destructive',
+                title: 'Error al guardar control',
+                description: err?.message || 'No se pudo actualizar la configuración.',
+            });
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    return (
+        <Card id="order-editing-control" className="terminal-card lg:col-span-2 border-indigo-200/80 shadow-lg">
+            <CardHeader className="py-6 px-8 border-b bg-indigo-50/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="space-y-1">
+                    <CardTitle className="text-xs font-black uppercase tracking-[0.25em] flex items-center gap-3 text-indigo-900">
+                        <Pencil className="h-4 w-4 text-indigo-600" /> Control de Edición de Pedidos
+                    </CardTitle>
+                    <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                        Habilita o bloquea la modificación de pedidos en etapas previas a Despachado con auditoría por usuario.
+                    </p>
+                </div>
+                <Badge
+                    className={cn(
+                        "text-[9px] font-black uppercase tracking-widest px-3 py-1 border-none shrink-0",
+                        allowOrderEditing ? "bg-emerald-600 text-white" : "bg-slate-200 text-slate-700"
+                    )}
+                >
+                    {allowOrderEditing ? 'Edición Activa' : 'Edición Bloqueada'}
+                </Badge>
+            </CardHeader>
+            <CardContent className="p-8 space-y-5">
+                {isLoading ? (
+                    <Skeleton className="h-24 w-full rounded-2xl" />
+                ) : (
+                    <>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div className="flex items-center justify-between gap-4 p-4 bg-slate-50 rounded-2xl border border-slate-200/80">
+                                <div className="space-y-0.5">
+                                    <Label className="text-xs font-black uppercase tracking-tight text-slate-900">
+                                        Habilitar Edición de Pedidos (Global)
+                                    </Label>
+                                    <p className="text-[10px] font-semibold text-slate-500">
+                                        Muestra el botón Editar Pedido encima de Anular antes de Despachado.
+                                    </p>
+                                </div>
+                                <Switch
+                                    checked={allowOrderEditing}
+                                    disabled={isSaving}
+                                    onCheckedChange={(checked) => handleToggle(checked, allowSalespersonEditPending)}
+                                />
+                            </div>
+
+                            <div
+                                className={cn(
+                                    "flex items-center justify-between gap-4 p-4 bg-slate-50 rounded-2xl border border-slate-200/80 transition-opacity",
+                                    !allowOrderEditing && "opacity-50"
+                                )}
+                            >
+                                <div className="space-y-0.5">
+                                    <Label className="text-xs font-black uppercase tracking-tight text-slate-900">
+                                        Permitir a Vendedores en Pendiente / Borrador
+                                    </Label>
+                                    <p className="text-[10px] font-semibold text-slate-500">
+                                        Solo sus propios pedidos y únicamente antes de aprobarse.
+                                    </p>
+                                </div>
+                                <Switch
+                                    checked={allowSalespersonEditPending}
+                                    disabled={isSaving || !allowOrderEditing}
+                                    onCheckedChange={(checked) => handleToggle(allowOrderEditing, checked)}
+                                />
+                            </div>
+                        </div>
+
+                        {orderControls?.updatedByName && (
+                            <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 rounded-xl bg-slate-100 text-[10px] font-bold text-slate-600 uppercase">
+                                <span>
+                                    Último ajuste por: <strong className="text-slate-900">{orderControls.updatedByName}</strong> ({orderControls.updatedByRole || 'Admin'})
+                                </span>
+                                {formattedUpdatedAt && <span className="font-mono">{formattedUpdatedAt}</span>}
+                            </div>
+                        )}
+                    </>
+                )}
+            </CardContent>
+        </Card>
+    );
 }
 
 function PerformanceWidget() {

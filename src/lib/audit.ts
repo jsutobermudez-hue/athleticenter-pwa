@@ -62,6 +62,11 @@ export const AUDIT_ACTION_TRANSLATIONS: Record<string, { title: string; category
         category: 'Pedidos',
         description: 'Se generó un expediente de pedido comercial.'
     },
+    'EDIT_ORDER': {
+        title: 'Edición de Pedido Comercial',
+        category: 'Pedidos',
+        description: 'Se modificaron productos, cantidades o montos de un pedido antes de su despacho.'
+    },
     'UPDATE_ORDER_STATUS': {
         title: 'Cambio de Estado Logístico de Pedido',
         category: 'Pedidos',
@@ -98,6 +103,11 @@ export const AUDIT_ACTION_TRANSLATIONS: Record<string, { title: string; category
         title: 'Ajuste de Configuración Global',
         category: 'Configuración',
         description: 'Se modificó un parámetro maestro del sistema.'
+    },
+    'TOGGLE_ORDER_EDITING': {
+        title: 'Cambio de Permiso de Edición de Pedidos',
+        category: 'Configuración',
+        description: 'Un administrador habilitó o deshabilitó la edición de pedidos en el sistema.'
     },
 
     // WhatsApp y Alertas

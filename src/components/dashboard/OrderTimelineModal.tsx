@@ -29,7 +29,8 @@ import {
   Sparkles,
   MapPin,
   Tag,
-  Check
+  Check,
+  Pencil
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import jsPDF from 'jspdf';
@@ -170,9 +171,17 @@ export function OrderTimelineModal({ order, isOpen, onOpenChange }: OrderTimelin
       });
     }
 
-    // Combinar con eventos de Firestore
+    // Combinar y ordenar cronológicamente los hitos de Firestore con los hitos base
     if (dbEvents && dbEvents.length > 0) {
-      return [...builtInEvents, ...dbEvents];
+      const toMillis = (raw: any): number => {
+        if (!raw) return 0;
+        if (typeof raw.toMillis === 'function') return raw.toMillis();
+        if (typeof raw.toDate === 'function') return raw.toDate().getTime();
+        if (typeof raw.seconds === 'number') return raw.seconds * 1000;
+        const d = new Date(raw);
+        return isNaN(d.getTime()) ? 0 : d.getTime();
+      };
+      return [...builtInEvents, ...dbEvents].sort((a, b) => toMillis(a.timestamp) - toMillis(b.timestamp));
     }
 
     return builtInEvents;
@@ -255,6 +264,7 @@ export function OrderTimelineModal({ order, isOpen, onOpenChange }: OrderTimelin
                 const isDelivered = evt.stage === 'Entregado';
                 const isDispatched = evt.stage === 'Despachado';
                 const isApproved = evt.stage === 'Aprobado';
+                const isEdited = evt.stage === 'Editado';
 
                 return (
                   <div key={evt.id || idx} className="relative group">
@@ -264,11 +274,13 @@ export function OrderTimelineModal({ order, isOpen, onOpenChange }: OrderTimelin
                       isDelivered ? "bg-emerald-600" :
                       isDispatched ? "bg-sky-600" :
                       isApproved ? "bg-indigo-600" :
+                      isEdited ? "bg-amber-600" :
                       "bg-slate-900"
                     )}>
                       {isDelivered ? <CheckCircle2 className="h-4 w-4" /> :
                        isDispatched ? <Truck className="h-4 w-4" /> :
                        isApproved ? <ShieldCheck className="h-4 w-4" /> :
+                       isEdited ? <Pencil className="h-4 w-4" /> :
                        <Package className="h-4 w-4" />}
                     </div>
 
@@ -292,6 +304,12 @@ export function OrderTimelineModal({ order, isOpen, onOpenChange }: OrderTimelin
                       <p className="text-xs font-bold text-slate-700 leading-relaxed uppercase tracking-tight">
                         {evt.description}
                       </p>
+
+                      {evt.metadata?.justification && (
+                        <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-200/80 text-[10px] font-bold text-amber-900">
+                          Motivo: &quot;{evt.metadata.justification}&quot;
+                        </div>
+                      )}
 
                       <div className="flex flex-wrap items-center justify-between gap-2 pt-1 text-[10px] font-bold text-slate-500 uppercase">
                         <div className="flex items-center gap-1.5 bg-slate-50 px-2.5 py-1 rounded-lg">

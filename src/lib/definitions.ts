@@ -27,7 +27,7 @@ export interface Auditable {
 
 export interface OrderHistoryEvent {
   id: string;
-  stage: 'Creado' | 'Aprobado' | 'Picking' | 'Embalado' | 'Despachado' | 'Entregado' | 'Cancelado' | 'Nota';
+  stage: 'Creado' | 'Aprobado' | 'Picking' | 'Embalado' | 'Despachado' | 'Entregado' | 'Cancelado' | 'Nota' | 'Editado';
   title: string;
   description: string;
   timestamp: any;
@@ -174,9 +174,24 @@ export interface Order extends Auditable {
   digitalSignatureUrl?: string;
   isHistorical?: boolean;
   historicalInvoiceNumber?: string;
+  lastEditedBy?: string;
+  lastEditedByName?: string;
+  lastEditedByRole?: string;
+  lastEditedAt?: Timestamp | any;
+  lastEditReason?: string;
+  editCount?: number;
 }
 
 export type OrderStatus = 'Borrador' | 'Pendiente' | 'Aprobado' | 'En Preparación' | 'Completado' | 'Despachado' | 'Entregado' | 'Cancelado' | 'En Verificación' | 'Pagado' | 'Rechazado';
+
+export interface OrderControlSettings {
+  allowOrderEditing: boolean;
+  allowSalespersonEditPending: boolean;
+  updatedBy?: string;
+  updatedByName?: string;
+  updatedByRole?: string;
+  updatedAt?: Timestamp | any;
+}
 
 export interface Invoice extends Auditable {
     id: string;

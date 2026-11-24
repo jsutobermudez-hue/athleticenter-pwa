@@ -23,7 +23,7 @@ import {
 } from '@/firebase';
 import { doc, updateDoc, serverTimestamp, query, collection, where, limit } from 'firebase/firestore';
 import { useRouter } from 'next/navigation';
-import type { User, Order, OrderItemClient, CompanyProfile, FinancialSettings, Customer, Payment } from '@/lib/definitions';
+import type { User, Order, OrderItemClient, CompanyProfile, FinancialSettings, Customer, Payment, OrderControlSettings } from '@/lib/definitions';
 import { formatVenezuelaPhoneE164 } from '@/lib/whatsapp-gateway';
 import {
   Loader2,
@@ -48,7 +48,8 @@ import {
   Send,
   AlertTriangle,
   Package,
-  Trash2
+  Trash2,
+  Pencil
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { generateOrderPDF, generatePickingListPDF, generatePackageLabelsPDF, generatePaymentReceiptPDF } from '@/lib/pdf-generator';
@@ -64,6 +65,7 @@ import { Separator } from '@/components/ui/separator';
 import { Progress } from '@/components/ui/progress';
 import { createAppNotifications } from '@/lib/notifications';
 import { OrderTimelineModal } from '@/components/dashboard/OrderTimelineModal';
+import { canUserEditOrder, EDITABLE_ORDER_STATUSES } from '@/lib/order-editing';
 
 interface OrderDetailsSheetProps {
     order: Order; 
@@ -150,6 +152,9 @@ export function OrderDetailsSheet({
 
   const settingsRef = useMemoFirebase(() => firestore ? doc(firestore, 'system', 'financials') : null, [firestore]);
   const { data: globalSettings } = useDoc<FinancialSettings>(settingsRef);
+
+  const orderControlsRef = useMemoFirebase(() => firestore ? doc(firestore, 'system', 'orderControls') : null, [firestore]);
+  const { data: orderControls } = useDoc<OrderControlSettings>(orderControlsRef);
 
   const customerRef = useMemoFirebase(() => (firestore && order) ? doc(firestore, 'customers', order.customerId) : null, [firestore, order?.customerId]);
   const { data: customerData } = useDoc<Customer>(customerRef);
@@ -414,6 +419,20 @@ export function OrderDetailsSheet({
   const canRequestCancellation = isClient && order.status !== 'Despachado' && order.status !== 'Pagado' && order.status !== 'Cancelado';
   
   const isCancellationPending = order.cancellationRequested === true && order.status !== 'Cancelado';
+  const editPermission = canUserEditOrder({ user: currentUser, order, controls: orderControls });
+  const canShowDisabledEditHint = Boolean(
+    isAdmin &&
+    !orderControls?.allowOrderEditing &&
+    EDITABLE_ORDER_STATUSES.includes(order.status) &&
+    !isCancellationPending
+  );
+  const formattedLastEditedAt = (() => {
+    const raw = order.lastEditedAt;
+    if (!raw) return null;
+    const d = typeof raw.toDate === 'function' ? raw.toDate() : new Date(raw);
+    if (isNaN(d.getTime())) return null;
+    return new Intl.DateTimeFormat('es-VE', { dateStyle: 'short', timeStyle: 'short' }).format(d);
+  })();
 
   return (
     <>
@@ -517,6 +536,30 @@ export function OrderDetailsSheet({
                                         </div>
                                         <Badge className="absolute top-2 left-2 bg-emerald-600 text-white border-none text-[8px] font-black uppercase px-2 h-5">RECEPCIÓN CLIENTE</Badge>
                                     </div>
+                                )}
+                            </div>
+                        </div>
+                    )}
+
+                    {(order.lastEditedByName || (order.editCount && order.editCount > 0)) && (
+                        <div className="p-4 rounded-2xl bg-amber-50/80 border border-amber-200 flex flex-wrap items-start justify-between gap-3">
+                            <div className="space-y-1 min-w-0 flex-1">
+                                <p className="text-[9px] font-black uppercase tracking-widest text-amber-800 flex items-center gap-1.5">
+                                    <Pencil className="h-3.5 w-3.5 text-amber-600" />
+                                    Última edición por {order.lastEditedByName || 'Administrador'} ({order.lastEditedByRole || 'Admin'})
+                                </p>
+                                {order.lastEditReason && (
+                                    <p className="text-[11px] font-bold text-slate-700 leading-snug">
+                                        Motivo: &quot;{order.lastEditReason}&quot;
+                                    </p>
+                                )}
+                            </div>
+                            <div className="text-right shrink-0 space-y-0.5">
+                                <Badge variant="outline" className="text-[8px] font-black uppercase border-amber-300 bg-white text-amber-800">
+                                    Editado {order.editCount || 1} {(order.editCount || 1) === 1 ? 'vez' : 'veces'}
+                                </Badge>
+                                {formattedLastEditedAt && (
+                                    <p className="text-[9px] font-mono font-bold text-amber-700">{formattedLastEditedAt}</p>
                                 )}
                             </div>
                         </div>
@@ -1141,9 +1184,35 @@ export function OrderDetailsSheet({
                     </div>
 
                     {/* ACCIONES ADMINISTRATIVAS Y CRÍTICAS */}
-                    {(canCancelDirectly || canRequestCancellation || (isAdmin && onDeleteOrder)) && (
+                    {(editPermission.allowed || canShowDisabledEditHint || canCancelDirectly || canRequestCancellation || (isAdmin && onDeleteOrder)) && (
                         <div className="p-4 rounded-2xl bg-rose-50/50 border border-rose-100 space-y-2">
-                            <p className="text-[9px] font-black uppercase tracking-[0.2em] text-rose-500">Gestión de Anulación</p>
+                            <p className="text-[9px] font-black uppercase tracking-[0.2em] text-rose-500">Edición y Anulación de Pedido</p>
+
+                            {editPermission.allowed && (
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    onClick={() => onActionTrigger('edit')}
+                                    className="w-full h-10 border-indigo-300 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 font-black uppercase text-[9px] tracking-widest rounded-xl shadow-sm"
+                                >
+                                    <Pencil className="mr-1.5 h-3.5 w-3.5 text-indigo-600" /> EDITAR PEDIDO
+                                </Button>
+                            )}
+
+                            {!editPermission.allowed && canShowDisabledEditHint && (
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    onClick={() => {
+                                        onOpenChange(false);
+                                        router.push('/dashboard/settings#order-editing-control');
+                                    }}
+                                    className="w-full h-9 border-amber-200 bg-amber-50/80 text-amber-800 hover:bg-amber-100 font-bold text-[9px] uppercase tracking-wider rounded-xl"
+                                >
+                                    <Pencil className="mr-1.5 h-3 w-3 text-amber-600" /> Edición deshabilitada · Habilitar en Configuración
+                                </Button>
+                            )}
+
                             {(canCancelDirectly || canRequestCancellation) && (
                                 <Button 
                                     variant="outline" 
