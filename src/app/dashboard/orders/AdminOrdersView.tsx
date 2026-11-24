@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { useCollection, useFirestore, useMemoFirebase, useUser } from '@/firebase';
-import { collection, query, orderBy, limit } from 'firebase/firestore';
+import { collection, query, orderBy, limit, where } from 'firebase/firestore';
 import type { Order, OrderStatus } from '@/lib/definitions';
 import { Skeleton } from '@/components/ui/skeleton';
 import { OrderCard } from './OrderCard';
@@ -112,7 +112,7 @@ export default function AdminOrdersView() {
     const [salespersonFilter, setSalespersonFilter] = useState('todos');
     const [sortBy, setSortBy] = useState<'orderDate' | 'totalAmount'>('orderDate');
     const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
-    const [openSections, setOpenSections] = useState<string[]>([]);
+    const [openSections, setOpenSections] = useState<string[]>(['comercial']);
     
     const [queryLimit, setQueryLimit] = useState(100);
     const [activeTab, setActiveTab] = useState<'todos' | 'comercial' | 'operativo' | 'logistica' | 'cobranzas' | 'archivo'>('todos');
@@ -122,15 +122,20 @@ export default function AdminOrdersView() {
     const [isExportingPDF, setIsExportingPDF] = useState(false);
     const [viewMode, setViewMode] = useState<'cards' | 'kanban' | 'table'>('cards');
 
+    const isSalesperson = currentUser?.role === 'ventas';
     const canListAll = useMemo(() => 
-        currentUser && ['superadmin', 'admin', 'gerencia', 'deposito'].includes(currentUser.role),
+        Boolean(currentUser && ['superadmin', 'admin', 'gerencia', 'deposito', 'warehouse'].includes(currentUser.role)),
     [currentUser]);
+    const canAccessBoard = canListAll || isSalesperson;
 
     const ordersQuery = useMemoFirebase(() => {
-        if (!firestore || !canListAll) return null;
+        if (!firestore || !canAccessBoard || !currentUser?.id) return null;
         const ordersRef = collection(firestore, 'orders');
+        if (isSalesperson) {
+            return query(ordersRef, where('salespersonId', '==', currentUser.id), limit(Math.max(queryLimit, 200)));
+        }
         return query(ordersRef, orderBy(sortBy, sortOrder), limit(queryLimit));
-    }, [firestore, canListAll, sortBy, sortOrder, queryLimit]);
+    }, [firestore, canAccessBoard, isSalesperson, currentUser?.id, sortBy, sortOrder, queryLimit]);
 
     const { data: allOrders, isLoading } = useCollection<Order>(ordersQuery);
 
@@ -255,6 +260,22 @@ export default function AdminOrdersView() {
             );
         }
 
+        // Ordenamiento consistente en memoria (soporta tanto vista global como vista filtrada por vendedor sin requerir índices compuestos)
+        filtered.sort((a, b) => {
+            let valA = 0;
+            let valB = 0;
+            if (sortBy === 'totalAmount') {
+                valA = Number(a.totalAmount || 0);
+                valB = Number(b.totalAmount || 0);
+            } else {
+                const rawA = a.orderDate || a.createdAt;
+                const rawB = b.orderDate || b.createdAt;
+                valA = rawA && typeof (rawA as any).toMillis === 'function' ? (rawA as any).toMillis() : new Date(rawA as any || 0).getTime() || 0;
+                valB = rawB && typeof (rawB as any).toMillis === 'function' ? (rawB as any).toMillis() : new Date(rawB as any || 0).getTime() || 0;
+            }
+            return sortOrder === 'asc' ? valA - valB : valB - valA;
+        });
+
         const res: Record<string, Order[]> = {
             solicitudes: [],
             revisiones: [],
@@ -273,7 +294,7 @@ export default function AdminOrdersView() {
                 res.revisiones.push(o);
             } else if (o.status === 'Borrador') {
                 res.borradores.push(o);
-            } else if (['Pendiente', 'En Verificación'].includes(o.status)) {
+            } else if (['Pendiente', 'En Verificación', 'Rechazado'].includes(o.status)) {
                 res.comercial.push(o);
             } else if (['Aprobado', 'En Preparación'].includes(o.status)) {
                 res.operativo.push(o);
@@ -287,7 +308,7 @@ export default function AdminOrdersView() {
         });
 
         return res;
-    }, [allOrders, statusFilter, salespersonFilter, dateFilter, searchTerm]);
+    }, [allOrders, statusFilter, salespersonFilter, dateFilter, startDate, endDate, searchTerm, sortBy, sortOrder]);
 
     const filteredOrders = useMemo(() => {
         if (!allOrders) return [];
@@ -437,10 +458,10 @@ export default function AdminOrdersView() {
         ? allSections 
         : allSections.filter(s => s.tab === activeTab || (activeTab === 'comercial' && ['solicitudes', 'borradores', 'comercial'].includes(s.key)) || (activeTab === 'operativo' && ['revisiones', 'operativo'].includes(s.key)));
 
-    if (!canListAll) {
+    if (!canAccessBoard) {
         return (
             <div className="p-12 text-center opacity-40 italic font-black uppercase tracking-widest text-[10px]">
-                Acceso restringido a Gerencia y Logística.
+                Acceso restringido a personal autorizado.
             </div>
         );
     }
@@ -611,7 +632,7 @@ export default function AdminOrdersView() {
                                 {isExportingPDF ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Printer className="h-3.5 w-3.5 text-emerald-400" />}
                                 <span>Imprimir PDF</span>
                             </Button>
-                            {salespersonFilter !== 'todos' && (
+                            {canListAll && salespersonFilter !== 'todos' && (
                                 <Button
                                     onClick={handleSendSalespersonPDFReport}
                                     className="h-8 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-[9px] font-black uppercase tracking-wider shadow-md flex items-center gap-1.5"
@@ -630,7 +651,7 @@ export default function AdminOrdersView() {
                         </div>
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 items-end">
+                    <div className={cn("grid grid-cols-1 sm:grid-cols-2 gap-3 items-end", canListAll && uniqueSalespeople.length > 0 ? "lg:grid-cols-5" : "lg:grid-cols-4")}>
                         <div className="space-y-1">
                             <Label className="text-[8px] font-black uppercase tracking-widest text-slate-400">Búsqueda Táctica</Label>
                             <div className="relative">
@@ -639,7 +660,7 @@ export default function AdminOrdersView() {
                             </div>
                         </div>
 
-                    {uniqueSalespeople.length > 0 && (
+                    {canListAll && uniqueSalespeople.length > 0 && (
                         <div className="space-y-1">
                             <Label className="text-[8px] font-black uppercase tracking-widest text-slate-400">Asesor Comercial</Label>
                             <Select value={salespersonFilter} onValueChange={setSalespersonFilter}>
