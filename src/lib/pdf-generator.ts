@@ -47,6 +47,121 @@ async function getBase64ImageFromUrl(url: string): Promise<string> {
     });
 }
 
+const thumbnailCache = new Map<string, string>();
+const MAX_THUMBNAIL_CACHE_ENTRIES = 300;
+
+function resolveItemImageUrl(itemOrProduct: any): string {
+    return (
+        itemOrProduct?.product?.imageUrl ||
+        (Array.isArray(itemOrProduct?.product?.imageUrls) ? itemOrProduct.product.imageUrls[0] : '') ||
+        itemOrProduct?.imageUrl ||
+        (Array.isArray(itemOrProduct?.imageUrls) ? itemOrProduct.imageUrls[0] : '') ||
+        ''
+    );
+}
+
+/**
+ * Convierte cualquier imagen (Base64 o URL HTTPS) en miniatura cuadrada a color JPEG
+ * liviana (120x120 px sobre blanco) con caché en memoria y tolerancia total a fallos.
+ */
+async function loadColorThumbnailDataUrl(url: string): Promise<string | null> {
+    if (!url || typeof window === 'undefined') return null;
+    const cached = thumbnailCache.get(url);
+    if (cached) return cached;
+
+    return new Promise((resolve) => {
+        let settled = false;
+        const finish = (val: string | null) => {
+            if (!settled) {
+                settled = true;
+                resolve(val);
+            }
+        };
+        const timer = setTimeout(() => finish(null), 4000);
+        const img = new Image();
+        if (!url.startsWith('data:')) {
+            img.setAttribute('crossOrigin', 'anonymous');
+        }
+        img.onload = () => {
+            clearTimeout(timer);
+            try {
+                const size = 120;
+                const canvas = document.createElement('canvas');
+                canvas.width = size;
+                canvas.height = size;
+                const ctx = canvas.getContext('2d');
+                if (!ctx) {
+                    finish(null);
+                    return;
+                }
+                ctx.fillStyle = '#ffffff';
+                ctx.fillRect(0, 0, size, size);
+                const w = img.naturalWidth || img.width || size;
+                const h = img.naturalHeight || img.height || size;
+                const scale = Math.min((size - 8) / w, (size - 8) / h);
+                const dw = w * scale;
+                const dh = h * scale;
+                const dx = (size - dw) / 2;
+                const dy = (size - dh) / 2;
+                ctx.drawImage(img, dx, dy, dw, dh);
+                const jpegUrl = canvas.toDataURL('image/jpeg', 0.82);
+                if (thumbnailCache.size >= MAX_THUMBNAIL_CACHE_ENTRIES) {
+                    const firstKey = thumbnailCache.keys().next().value;
+                    if (firstKey) thumbnailCache.delete(firstKey);
+                }
+                thumbnailCache.set(url, jpegUrl);
+                finish(jpegUrl);
+            } catch {
+                finish(null);
+            }
+        };
+        img.onerror = () => {
+            clearTimeout(timer);
+            finish(null);
+        };
+        img.src = url;
+    });
+}
+
+async function preloadThumbnailMap(urls: string[]): Promise<Map<string, string>> {
+    const uniqueUrls = Array.from(new Set(urls.filter(Boolean)));
+    const map = new Map<string, string>();
+    const batchSize = 12;
+    for (let i = 0; i < uniqueUrls.length; i += batchSize) {
+        const chunk = uniqueUrls.slice(i, i + batchSize);
+        const results = await Promise.all(
+            chunk.map(async (u) => ({ url: u, dataUrl: await loadColorThumbnailDataUrl(u) }))
+        );
+        for (const r of results) {
+            if (r.dataUrl) map.set(r.url, r.dataUrl);
+        }
+    }
+    return map;
+}
+
+function drawThumbnailInCell(doc: jsPDF, data: any, thumb: string | undefined, imgSize: number = 15) {
+    if (!thumb) return;
+    const x = data.cell.x + (data.cell.width - imgSize) / 2;
+    const y = data.cell.y + (data.cell.height - imgSize) / 2;
+    doc.setDrawColor(226, 232, 240);
+    doc.setFillColor(255, 255, 255);
+    doc.rect(x, y, imgSize, imgSize, 'FD');
+    doc.addImage(thumb, 'JPEG', x + 0.5, y + 0.5, imgSize - 1, imgSize - 1);
+}
+
+function addPageNumbersFooter(doc: jsPDF) {
+    const totalPages = (doc as any).internal.getNumberOfPages();
+    const pageW = doc.internal.pageSize.getWidth();
+    const pageH = doc.internal.pageSize.getHeight();
+    for (let i = 1; i <= totalPages; i++) {
+        doc.setPage(i);
+        doc.setFontSize(7);
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(148, 163, 184);
+        doc.text(`Página ${i} de ${totalPages}`, pageW - 14, pageH - 6, { align: 'right' });
+    }
+}
+
 async function addFiscalHeader(doc: jsPDF, company: Partial<CompanyProfile> | undefined, title: string, refId: string, date: Date) {
   const primaryColor = [15, 23, 42]; 
   const accentColor = [37, 99, 235]; 
@@ -177,6 +292,8 @@ export async function generateOrderPDF({
         ? (order as any).earlyPayment15dSnapshot 
         : (globalSettings?.earlyPayment15Days !== undefined ? globalSettings.earlyPayment15Days : 5));
 
+  const thumbMap = await preloadThumbnailMap(orderItems.map(resolveItemImageUrl));
+
   // Para NOTA DE ENTREGA DE DESPACHO:
   // Se presenta el PRECIO DE LISTA BASE EN $ A BCV SIN DESCUENTOS.
   // Para NOTA FINAL PAGADA O FACTURA: SÍ SALEN LOS DESCUENTOS APLICADOS.
@@ -193,11 +310,14 @@ export async function generateOrderPDF({
 
     let desc = item.product?.name || 'PRODUCTO / EQUIPO';
     if (item.size) desc += ` [TALLA: ${item.size}]`;
-    if (item.product?.category) desc += `\nCat: ${item.product.category}`;
+    const metaParts: string[] = [];
+    if (item.product?.category) metaParts.push(item.product.category);
+    if (sku) metaParts.push(`Ref: ${sku}`);
+    if (metaParts.length > 0) desc += `\n${metaParts.join(' · ')}`;
 
     return [
       (index + 1).toString(),
-      sku.toUpperCase(),
+      '', // Foto a color dibujada en didDrawCell
       desc.toUpperCase(),
       item.quantity.toString(),
       `$ ${finalUnitPrice.toFixed(2)}`,
@@ -209,23 +329,38 @@ export async function generateOrderPDF({
   const totalColHeader = isDispatchDelivery ? "TOTAL LISTA ($ USD)" : "TOTAL ($ USD)";
 
   (doc as any).autoTable({
-    head: [["ITEM", "SKU / REF", "DESCRIPCIÓN / PRODUCTO Y TALLA", "CANT", priceColHeader, totalColHeader]],
+    head: [["#", "FOTO", "PRODUCTO / REF", "CANT", priceColHeader, totalColHeader]],
     body: tableRows,
     startY: 80,
     theme: 'grid',
     headStyles: { fillColor: [15, 23, 42], fontSize: 7, fontStyle: 'bold', halign: 'center' },
+    bodyStyles: { minCellHeight: 18, valign: 'middle' },
     columnStyles: {
-      0: { cellWidth: 12, halign: 'center', fontSize: 7 },
-      1: { cellWidth: 28, fontSize: 7, fontStyle: 'bold' },
-      2: { cellWidth: 82, fontSize: 7 },
-      3: { cellWidth: 15, halign: 'center', fontSize: 7, fontStyle: 'bold' },
-      4: { cellWidth: 22, halign: 'right', fontSize: 7 },
-      5: { cellWidth: 23, halign: 'right', fontSize: 7, fontStyle: 'bold' }
+      0: { cellWidth: 9, halign: 'center', fontSize: 7 },
+      1: { cellWidth: 20, halign: 'center' },
+      2: { cellWidth: 85, fontSize: 7 },
+      3: { cellWidth: 16, halign: 'center', fontSize: 7.5, fontStyle: 'bold' },
+      4: { cellWidth: 26, halign: 'right', fontSize: 7 },
+      5: { cellWidth: 26, halign: 'right', fontSize: 7, fontStyle: 'bold' }
     },
-    styles: { overflow: 'linebreak', cellPadding: 2.5 }
+    styles: { overflow: 'linebreak', cellPadding: 2 },
+    didDrawCell: (data: any) => {
+      if (data.section === 'body' && data.column.index === 1) {
+        const item = orderItems[data.row.index];
+        if (!item) return;
+        drawThumbnailInCell(doc, data, thumbMap.get(resolveItemImageUrl(item)), 15);
+      }
+    },
+    margin: { top: 14, right: 14, bottom: 16, left: 14 }
   });
 
   let finalY = (doc as any).lastAutoTable.finalY + 6;
+  const pageHeightLimit = doc.internal.pageSize.getHeight() - 14;
+  const requiredBottomHeight = isDispatchDelivery ? 92 : 66;
+  if (finalY + requiredBottomHeight > pageHeightLimit) {
+    doc.addPage();
+    finalY = 20;
+  }
 
   const totalSubtotalUSD = orderItems.reduce((acc, i) => {
     let p = i.unitPrice;
@@ -322,6 +457,8 @@ export async function generateOrderPDF({
     doc.text("C.I. / RIF: ______________  Fecha: ____/____/_____", 112, signatureY + 17);
     doc.text("Firma y Sello Cliente: ________________________", 112, signatureY + 23);
   }
+
+  addPageNumbersFooter(doc);
 
   if (autoSave) {
     const filePrefix = isFactura ? 'Factura' : 'Nota_Entrega';
@@ -436,6 +573,8 @@ export async function generateQuotePDF({
         ? (quote as any).bcvDiscountSnapshot 
         : (globalSettings?.defaultBcvDiscount !== undefined ? globalSettings.defaultBcvDiscount : 25));
 
+  const thumbMap = await preloadThumbnailMap((quoteItems || []).map(resolveItemImageUrl));
+
   const tableRows = quoteItems.map((item: any) => {
     const itemUnitPrice = roundCurrency(item.unitPrice || item.product?.price || 0);
     const catalogPrice = item.product?.price && item.product.price > 0 ? item.product.price : itemUnitPrice;
@@ -451,10 +590,14 @@ export async function generateQuotePDF({
 
     totalBcvUSD += rowBcvTotal;
     totalCashUSD += rowCashTotal;
+
+    const sku = item.product?.sku || 'N/A';
+    const nameStr = (item.product?.name || 'EQUIPO').toUpperCase() + (item.size ? ` (${item.size})` : '');
+    const productCellText = `${nameStr}\nRef: ${sku.toUpperCase()}`;
     
     return [
-      item.product?.sku || 'N/A', 
-      (item.product?.name || 'EQUIPO').toUpperCase() + (item.size ? ` (${item.size})` : ''), 
+      '', // Foto a color dibujada en didDrawCell
+      productCellText, 
       item.quantity, 
       `$ ${bcvPrice.toFixed(2)}`, 
       `$ ${cashPrice.toFixed(2)}`, 
@@ -463,18 +606,29 @@ export async function generateQuotePDF({
   });
 
   (doc as any).autoTable({ 
-    head: [["SKU", "DESCRIPCIÓN DEL EQUIPO", "CANT", "P. BCV", "P. CASH", "TOTAL BCV"]], 
+    head: [["FOTO", "PRODUCTO / REF", "CANT", "P. BCV", "P. CASH", "TOTAL BCV"]], 
     body: tableRows, 
     startY: 80, 
     theme: 'grid', 
-    styles: { fontSize: 7 },
+    styles: { fontSize: 7, cellPadding: 2, overflow: 'linebreak' },
     headStyles: { fillColor: [37, 99, 235], halign: 'center', fontSize: 7, fontStyle: 'bold' },
+    bodyStyles: { minCellHeight: 18, valign: 'middle' },
     columnStyles: { 
-        2: { halign: 'center' },
-        3: { halign: 'right' },
-        4: { halign: 'right' },
-        5: { halign: 'right', fontStyle: 'bold' }
-    }
+        0: { cellWidth: 20, halign: 'center' },
+        1: { cellWidth: 84 },
+        2: { cellWidth: 14, halign: 'center', fontStyle: 'bold' },
+        3: { cellWidth: 21, halign: 'right' },
+        4: { cellWidth: 21, halign: 'right' },
+        5: { cellWidth: 22, halign: 'right', fontStyle: 'bold' }
+    },
+    didDrawCell: (data: any) => {
+      if (data.section === 'body' && data.column.index === 0) {
+        const item = quoteItems?.[data.row.index];
+        if (!item) return;
+        drawThumbnailInCell(doc, data, thumbMap.get(resolveItemImageUrl(item)), 15);
+      }
+    },
+    margin: { top: 14, right: 14, bottom: 16, left: 14 }
   });
 
   let finalY = (doc as any).lastAutoTable.finalY + 10;
@@ -506,6 +660,8 @@ export async function generateQuotePDF({
   doc.setFontSize(6); doc.setTextColor(150); doc.setFont("helvetica", "normal");
   doc.text(`* VÁLIDO HASTA: ${validUntilStr}. ESTE DOCUMENTO REPRESENTA LA BASE IMPONIBLE. EL IVA (16%) SE CALCULA AL MOMENTO DEL PAGO FISCAL.`, 14, finalY + 38);
 
+  addPageNumbersFooter(doc);
+
   if (autoSave !== false) {
     doc.save(`Cotizacion_${quoteId.substring(0,8)}.pdf`);
   }
@@ -517,28 +673,90 @@ export async function generatePickingListPDF({ orderId, customerName, orderItems
   const doc = new jsPDF();
   const date = new Date();
   await addFiscalHeader(doc, companyProfile, 'ORDEN DE PICKING', orderId, date);
-  const tableRows = orderItems.map((item: any) => [
+  if (customerName) {
+    doc.setFontSize(8.5); doc.setFont("helvetica", "bold"); doc.setTextColor(30, 41, 59);
+    doc.text(`CLIENTE / DESTINO: ${String(customerName).toUpperCase()}`, 14, 46);
+  }
+  const safeItems = Array.isArray(orderItems) ? orderItems : [];
+  const thumbMap = await preloadThumbnailMap(safeItems.map(resolveItemImageUrl));
+
+  const tableRows = safeItems.map((item: any) => [
+    '', // Foto dibujada en didDrawCell
     item.product?.warehouseLocation || 'Z-ZZZ', 
     item.product?.sku || 'N/A', 
-    item.product?.name.toUpperCase() + (item.size ? ` (${item.size})` : ''), 
+    (item.product?.name || 'EQUIPO').toUpperCase() + (item.size ? ` (${item.size})` : ''), 
     item.quantity, 
     "[  ]"
   ]);
   (doc as any).autoTable({ 
-    head: [["UBICACIÓN", "SKU", "EQUIPO", "CANT", "CHECK"]], 
+    head: [["FOTO", "UBICACIÓN", "SKU", "EQUIPO / TALLA", "CANT", "CHECK"]], 
     body: tableRows, 
     startY: 50, 
     theme: 'grid', 
-    headStyles: { fillColor: [30, 41, 59] } 
+    styles: { fontSize: 7.5, cellPadding: 2, overflow: 'linebreak' },
+    headStyles: { fillColor: [30, 41, 59], halign: 'center', fontSize: 7 },
+    bodyStyles: { minCellHeight: 18, valign: 'middle' },
+    columnStyles: {
+      0: { cellWidth: 20, halign: 'center' },
+      1: { cellWidth: 24, halign: 'center', fontStyle: 'bold' },
+      2: { cellWidth: 28, fontStyle: 'bold' },
+      3: { cellWidth: 78 },
+      4: { cellWidth: 16, halign: 'center', fontStyle: 'bold' },
+      5: { cellWidth: 16, halign: 'center' }
+    },
+    didDrawCell: (data: any) => {
+      if (data.section === 'body' && data.column.index === 0) {
+        const item = safeItems[data.row.index];
+        if (!item) return;
+        drawThumbnailInCell(doc, data, thumbMap.get(resolveItemImageUrl(item)), 15);
+      }
+    },
+    margin: { top: 14, right: 14, bottom: 16, left: 14 }
   });
+  addPageNumbersFooter(doc);
   doc.save(`Picking_${orderId.substring(0,8)}.pdf`);
 }
 
 export async function generateInventoryReportPDF(products: Product[], companyProfile?: Partial<CompanyProfile>, title: string = 'INVENTARIO MAESTRO') {
   const doc = new jsPDF();
   await addFiscalHeader(doc, companyProfile, title, 'INV-' + Date.now().toString().slice(-6), new Date());
-  const tableRows = products.map(p => [p.sku, p.name.toUpperCase(), p.warehouseLocation || '---', p.stockLevel, `$ ${p.price.toFixed(2)}`]);
-  (doc as any).autoTable({ head: [["SKU", "DESCRIPCIÓN", "UBICACIÓN", "STOCK", "PVP BASE"]], body: tableRows, startY: 50, theme: 'grid', headStyles: { fillColor: [30, 41, 59] } });
+  const safeProducts = Array.isArray(products) ? products : [];
+  const thumbMap = await preloadThumbnailMap(safeProducts.map(resolveItemImageUrl));
+
+  const tableRows = safeProducts.map(p => [
+    '', // Foto dibujada en didDrawCell
+    p.sku || 'S/SKU',
+    (p.name || 'PRODUCTO').toUpperCase(),
+    p.warehouseLocation || '---',
+    Number(p.stockLevel ?? (p as any).stock ?? 0),
+    `$ ${Number(p.price || 0).toFixed(2)}`
+  ]);
+  (doc as any).autoTable({
+    head: [["FOTO", "SKU", "DESCRIPCIÓN", "UBICACIÓN", "STOCK", "PVP BASE"]],
+    body: tableRows,
+    startY: 50,
+    theme: 'grid',
+    styles: { fontSize: 7.5, cellPadding: 2, overflow: 'linebreak' },
+    headStyles: { fillColor: [30, 41, 59], halign: 'center', fontSize: 7 },
+    bodyStyles: { minCellHeight: 18, valign: 'middle' },
+    columnStyles: {
+      0: { cellWidth: 20, halign: 'center' },
+      1: { cellWidth: 26, fontStyle: 'bold' },
+      2: { cellWidth: 78 },
+      3: { cellWidth: 22, halign: 'center' },
+      4: { cellWidth: 16, halign: 'center', fontStyle: 'bold' },
+      5: { cellWidth: 20, halign: 'right', fontStyle: 'bold' }
+    },
+    didDrawCell: (data: any) => {
+      if (data.section === 'body' && data.column.index === 0) {
+        const p = safeProducts[data.row.index];
+        if (!p) return;
+        drawThumbnailInCell(doc, data, thumbMap.get(resolveItemImageUrl(p)), 15);
+      }
+    },
+    margin: { top: 14, right: 14, bottom: 16, left: 14 }
+  });
+  addPageNumbersFooter(doc);
   doc.save(`${title.replace(/\s+/g, '_')}.pdf`);
 }
 
@@ -1006,78 +1224,6 @@ export async function generatePaymentReceiptPDF({
 }
 
 /**
- * Convierte cualquier imagen (Base64 o URL HTTPS) en miniatura cuadrada a color JPEG
- * con fondo blanco para incrustarla de forma segura y liviana dentro del PDF.
- */
-async function loadColorThumbnailDataUrl(url: string): Promise<string | null> {
-    if (!url || typeof window === 'undefined') return null;
-    return new Promise((resolve) => {
-        let settled = false;
-        const finish = (val: string | null) => {
-            if (!settled) {
-                settled = true;
-                resolve(val);
-            }
-        };
-        const timer = setTimeout(() => finish(null), 4000);
-        const img = new Image();
-        if (!url.startsWith('data:')) {
-            img.setAttribute('crossOrigin', 'anonymous');
-        }
-        img.onload = () => {
-            clearTimeout(timer);
-            try {
-                const size = 140;
-                const canvas = document.createElement('canvas');
-                canvas.width = size;
-                canvas.height = size;
-                const ctx = canvas.getContext('2d');
-                if (!ctx) {
-                    finish(null);
-                    return;
-                }
-                ctx.fillStyle = '#ffffff';
-                ctx.fillRect(0, 0, size, size);
-                const w = img.naturalWidth || img.width || size;
-                const h = img.naturalHeight || img.height || size;
-                const scale = Math.min((size - 8) / w, (size - 8) / h);
-                const dw = w * scale;
-                const dh = h * scale;
-                const dx = (size - dw) / 2;
-                const dy = (size - dh) / 2;
-                ctx.drawImage(img, dx, dy, dw, dh);
-                finish(canvas.toDataURL('image/jpeg', 0.85));
-            } catch {
-                finish(null);
-            }
-        };
-        img.onerror = () => {
-            clearTimeout(timer);
-            finish(null);
-        };
-        img.src = url;
-    });
-}
-
-async function preloadColorThumbnails(items: RestockItemAnalysis[]): Promise<Map<string, string>> {
-    const thumbMap = new Map<string, string>();
-    const batchSize = 12;
-    for (let i = 0; i < items.length; i += batchSize) {
-        const chunk = items.slice(i, i + batchSize);
-        const results = await Promise.all(
-            chunk.map(async (it) => ({
-                id: it.id,
-                dataUrl: it.imageUrl ? await loadColorThumbnailDataUrl(it.imageUrl) : null,
-            }))
-        );
-        for (const r of results) {
-            if (r.dataUrl) thumbMap.set(r.id, r.dataUrl);
-        }
-    }
-    return thumbMap;
-}
-
-/**
  * REPORTE VISUAL DE EXISTENCIAS Y REPOSICIÓN CON FOTOS A COLOR (CARTA VERTICAL)
  * Modos:
  *  - 'gerencial': Foto a color | Producto | Unidades existentes | Unidades vendidas | Sugerido a reponer | Sugerencia
@@ -1105,7 +1251,7 @@ export async function generateRestockPriorityPDF(
         ? itemsToPrint.filter((it) => resolveQty(it) > 0)
         : itemsToPrint;
 
-    const thumbMap = await preloadColorThumbnails(printableItems);
+    const thumbMap = await preloadThumbnailMap(printableItems.map((it) => it.imageUrl));
 
     const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'letter' });
     const pageW = doc.internal.pageSize.getWidth();
@@ -1219,16 +1365,7 @@ export async function generateRestockPriorityPDF(
                 if (data.section === 'body' && data.column.index === 1) {
                     const rowItem = printableItems[data.row.index];
                     if (!rowItem) return;
-                    const thumb = thumbMap.get(rowItem.id);
-                    const imgSize = 20;
-                    const x = data.cell.x + (data.cell.width - imgSize) / 2;
-                    const y = data.cell.y + (data.cell.height - imgSize) / 2;
-                    if (thumb) {
-                        doc.setDrawColor(226, 232, 240);
-                        doc.setFillColor(255, 255, 255);
-                        doc.rect(x, y, imgSize, imgSize, 'FD');
-                        doc.addImage(thumb, 'JPEG', x + 0.5, y + 0.5, imgSize - 1, imgSize - 1);
-                    }
+                    drawThumbnailInCell(doc, data, thumbMap.get(rowItem.imageUrl), 20);
                 }
             },
             margin: { top: 14, right: 14, bottom: 18, left: 14 },
@@ -1305,16 +1442,7 @@ export async function generateRestockPriorityPDF(
                 if (data.section === 'body' && data.column.index === 0) {
                     const rowItem = printableItems[data.row.index];
                     if (!rowItem) return;
-                    const thumb = thumbMap.get(rowItem.id);
-                    const imgSize = 18;
-                    const x = data.cell.x + (data.cell.width - imgSize) / 2;
-                    const y = data.cell.y + (data.cell.height - imgSize) / 2;
-                    if (thumb) {
-                        doc.setDrawColor(226, 232, 240);
-                        doc.setFillColor(255, 255, 255);
-                        doc.rect(x, y, imgSize, imgSize, 'FD');
-                        doc.addImage(thumb, 'JPEG', x + 0.5, y + 0.5, imgSize - 1, imgSize - 1);
-                    }
+                    drawThumbnailInCell(doc, data, thumbMap.get(rowItem.imageUrl), 18);
                 }
             },
             margin: { top: 14, right: 14, bottom: 18, left: 14 },
