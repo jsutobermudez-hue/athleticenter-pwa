@@ -7,6 +7,7 @@ import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { calculatePricingTier } from './pricing';
 import { roundCurrency } from './billing';
+import { type RestockSummary, type RestockItemAnalysis, getPriorityLabel, getRotationLabel } from './restock-engine';
 
 type GenerateOrderPdfParams = {
   customerName: string;
@@ -1002,4 +1003,165 @@ export async function generatePaymentReceiptPDF({
 
     const dataUri = doc.output('datauristring');
     return dataUri.includes(',') ? dataUri.split(',')[1] : dataUri;
+}
+
+/**
+ * PLAN MAESTRO DE REPOSICIÓN Y PRIORIDAD DE STOCK (FORMATO APAISADO CARTA)
+ * Imprime existencias, faltantes bajo umbral (<20), unidades vendidas y prioridad P1 -> P4.
+ */
+export async function generateRestockPriorityPDF(
+    summary: RestockSummary,
+    itemsToPrint: RestockItemAnalysis[],
+    companyProfile?: Partial<CompanyProfile>,
+    subtitle: string = `UMBRAL CRÍTICO < ${summary.threshold} UNIDADES`
+) {
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'letter' });
+    const pageW = doc.internal.pageSize.getWidth();
+    const pageH = doc.internal.pageSize.getHeight();
+
+    // Encabezado corporativo
+    doc.setFillColor(15, 23, 42);
+    doc.rect(0, 0, pageW, 30, 'F');
+
+    if (companyProfile?.logoUrl) {
+        try {
+            const base64Logo = await getBase64ImageFromUrl(companyProfile.logoUrl);
+            doc.addImage(base64Logo, 'PNG', 12, 5, 20, 20, undefined, 'FAST');
+        } catch (_) {}
+    }
+
+    const textStartX = companyProfile?.logoUrl ? 36 : 14;
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(11);
+    doc.setTextColor(96, 165, 250);
+    doc.text((companyProfile?.companyName || 'ATHLETICENTER C.A.').toUpperCase(), textStartX, 12);
+
+    doc.setFontSize(7.5);
+    doc.setTextColor(203, 213, 225);
+    doc.text(`RIF: ${companyProfile?.companyRif || 'J-507140202'}  ·  GENERADO: ${format(new Date(), "dd/MM/yyyy HH:mm")}`, textStartX, 18);
+    doc.text(`ALCANCE: ${itemsToPrint.length} SKUs EVALUADOS DE ${summary.totalProducts} EN CATÁLOGO`, textStartX, 23);
+
+    doc.setFontSize(13);
+    doc.setTextColor(255, 255, 255);
+    doc.text('PLAN MAESTRO DE REPOSICIÓN Y PRIORIDAD', pageW - 14, 13, { align: 'right' });
+    doc.setFontSize(8.5);
+    doc.setTextColor(251, 191, 36);
+    doc.text(subtitle.toUpperCase(), pageW - 14, 21, { align: 'right' });
+
+    // Banda de 5 KPIs ejecutivos
+    const filteredSuggestedUnits = itemsToPrint.reduce((s, it) => s + it.suggestedRestockQty, 0);
+    const filteredInvestment = itemsToPrint.reduce((s, it) => s + it.estimatedInvestmentUSD, 0);
+    const kpis = [
+        { label: 'PRIORIDAD P1 (URGENTE)', value: `${summary.p1UrgentCount} SKUs`, color: [225, 29, 72] },
+        { label: 'AGOTADOS (0 UDS)', value: `${summary.outOfStockCount} SKUs`, color: [190, 18, 60] },
+        { label: `BAJO STOCK (<${summary.threshold})`, value: `${summary.criticalCount} SKUs`, color: [217, 119, 6] },
+        { label: 'UNIDADES A REPONER', value: `${filteredSuggestedUnits.toLocaleString()} UDS`, color: [37, 99, 235] },
+        { label: 'INVERSIÓN EST. COMPRA', value: `$${filteredInvestment.toLocaleString('en-US', { minimumFractionDigits: 2 })}`, color: [5, 150, 105] },
+    ];
+
+    const boxGap = 3;
+    const totalBoxArea = pageW - 28;
+    const boxW = (totalBoxArea - boxGap * (kpis.length - 1)) / kpis.length;
+    kpis.forEach((k, idx) => {
+        const bx = 14 + idx * (boxW + boxGap);
+        doc.setFillColor(248, 250, 252);
+        doc.setDrawColor(226, 232, 240);
+        doc.roundedRect(bx, 34, boxW, 14, 2, 2, 'FD');
+        doc.setFontSize(6.5);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(100, 116, 139);
+        doc.text(k.label, bx + 3, 39);
+        doc.setFontSize(10.5);
+        doc.setTextColor(k.color[0], k.color[1], k.color[2]);
+        doc.text(k.value, bx + 3, 45.5);
+    });
+
+    const tableRows = itemsToPrint.map((it) => [
+        getPriorityLabel(it.priority),
+        it.sku,
+        `${it.name.toUpperCase()}\n${it.category.toUpperCase()}${it.lowSizes.length > 0 ? ` · Tallas bajas: ${it.lowSizes.join(', ')}` : ''}`,
+        `${it.stock}`,
+        it.inTransit > 0 ? `+${it.inTransit}` : '0',
+        `${it.totalSold}`,
+        getRotationLabel(it.rotationTier),
+        it.shortageToThreshold > 0 ? `${it.shortageToThreshold}` : '0',
+        it.suggestedRestockQty > 0 ? `${it.suggestedRestockQty}` : '0',
+        `$${it.estimatedInvestmentUSD.toLocaleString('en-US', { minimumFractionDigits: 2 })}${it.hasRealCost ? '' : ' *'}`,
+    ]);
+
+    (doc as any).autoTable({
+        head: [[
+            'PRIORIDAD',
+            'SKU',
+            'PRODUCTO / CATEGORÍA',
+            'STOCK',
+            'TRÁNS.',
+            'VENDIDOS',
+            'ROTACIÓN',
+            `FALTAN (<${summary.threshold})`,
+            'SUGERIDO',
+            'COSTO EST.'
+        ]],
+        body: tableRows,
+        startY: 52,
+        theme: 'grid',
+        styles: { fontSize: 7.2, cellPadding: 2, valign: 'middle', textColor: [30, 41, 59] },
+        headStyles: { fillColor: [15, 23, 42], textColor: 255, fontStyle: 'bold', fontSize: 7, halign: 'center' },
+        columnStyles: {
+            0: { cellWidth: 26, fontStyle: 'bold', halign: 'center' },
+            1: { cellWidth: 27, fontStyle: 'bold' },
+            2: { cellWidth: 74 },
+            3: { cellWidth: 16, halign: 'center', fontStyle: 'bold' },
+            4: { cellWidth: 16, halign: 'center' },
+            5: { cellWidth: 19, halign: 'center', fontStyle: 'bold' },
+            6: { cellWidth: 23, halign: 'center' },
+            7: { cellWidth: 21, halign: 'center' },
+            8: { cellWidth: 20, halign: 'center', fontStyle: 'bold' },
+            9: { cellWidth: 24, halign: 'right', fontStyle: 'bold' },
+        },
+        didParseCell: (data: any) => {
+            if (data.section !== 'body') return;
+            const rowItem = itemsToPrint[data.row.index];
+            if (!rowItem) return;
+
+            if (data.column.index === 0) {
+                if (rowItem.priority === 'P1_URGENTE') {
+                    data.cell.styles.fillColor = [254, 226, 226];
+                    data.cell.styles.textColor = [185, 28, 28];
+                } else if (rowItem.priority === 'P2_ALTA') {
+                    data.cell.styles.fillColor = [255, 237, 213];
+                    data.cell.styles.textColor = [194, 65, 12];
+                } else if (rowItem.priority === 'P3_MEDIA') {
+                    data.cell.styles.fillColor = [254, 249, 195];
+                    data.cell.styles.textColor = [161, 98, 7];
+                } else {
+                    data.cell.styles.fillColor = [220, 252, 231];
+                    data.cell.styles.textColor = [21, 128, 61];
+                }
+            }
+            if (data.column.index === 3 && rowItem.stock <= 0) {
+                data.cell.styles.textColor = [190, 18, 60];
+            }
+            if (data.column.index === 8 && rowItem.suggestedRestockQty > 0) {
+                data.cell.styles.textColor = [29, 78, 216];
+            }
+        },
+        margin: { top: 14, right: 14, bottom: 16, left: 14 },
+    });
+
+    const totalPages = (doc as any).internal.getNumberOfPages();
+    for (let i = 1; i <= totalPages; i++) {
+        doc.setPage(i);
+        doc.setFontSize(7);
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(100);
+        doc.text(
+            '* Costo estimado (55% del precio Cash USD) cuando el SKU aún no tiene costo WAC cargado. Ordenado por prioridad de rotación real.',
+            14,
+            pageH - 8
+        );
+        doc.text(`Página ${i} de ${totalPages}`, pageW - 14, pageH - 8, { align: 'right' });
+    }
+
+    doc.save(`Plan_Reposicion_Prioridad_Athleticenter_${format(new Date(), 'yyyy-MM-dd')}.pdf`);
 }

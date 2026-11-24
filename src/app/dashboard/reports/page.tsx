@@ -9,9 +9,11 @@ import {
   useUser,
 } from '@/firebase';
 import { collection, doc, query, orderBy, getDocs, limit } from 'firebase/firestore';
-import type { Order, Product, Customer, User as AppUser, FinancialSettings } from '@/lib/definitions';
+import type { Order, Product, Customer, User as AppUser, FinancialSettings, PurchaseOrder, CompanyProfile } from '@/lib/definitions';
 import { Client360ReportModal } from './Client360ReportModal';
 import { ClientDirectoryReportModal } from './ClientDirectoryReportModal';
+import { RestockPriorityReportModal } from './RestockPriorityReportModal';
+import { buildRestockAnalysis } from '@/lib/restock-engine';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -39,7 +41,8 @@ import {
   Calendar,
   Layers,
   ArrowRight,
-  ShieldCheck
+  ShieldCheck,
+  Flame
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { format, subDays, startOfDay, isSameDay } from 'date-fns';
@@ -75,17 +78,24 @@ export default function ReportsPage() {
   const [isGeneratingAi, setIsGeneratingAi] = useState(false);
   const [aiReportContent, setAiReportContent] = useState<string | null>(null);
 
-  // Estados para Nuevos Reportes de Clientes
+  // Estados para Nuevos Reportes de Clientes e Inventario
   const [isClient360Open, setIsClient360Open] = useState(false);
   const [isClientDirectoryOpen, setIsClientDirectoryOpen] = useState(false);
+  const [isRestockReportOpen, setIsRestockReportOpen] = useState(false);
   const [selectedClientForReport, setSelectedClientForReport] = useState<string>('');
 
   // Consultas de datos maestros (protegidas por rol)
   const ordersQuery = useMemoFirebase(() => (firestore && canAccess) ? query(collection(firestore, 'orders'), limit(300)) : null, [firestore, canAccess]);
   const { data: orders, isLoading: isLoadingOrders } = useCollection<Order>(ordersQuery);
 
-  const productsQuery = useMemoFirebase(() => (firestore && canAccess) ? query(collection(firestore, 'products'), limit(300)) : null, [firestore, canAccess]);
+  const productsQuery = useMemoFirebase(() => (firestore && canAccess) ? query(collection(firestore, 'products'), limit(1000)) : null, [firestore, canAccess]);
   const { data: products } = useCollection<Product>(productsQuery);
+
+  const purchaseOrdersQuery = useMemoFirebase(() => (firestore && canAccess) ? query(collection(firestore, 'purchaseOrders'), limit(100)) : null, [firestore, canAccess]);
+  const { data: purchaseOrders } = useCollection<PurchaseOrder>(purchaseOrdersQuery);
+
+  const companyProfileRef = useMemoFirebase(() => (firestore && canAccess ? doc(firestore, 'companyProfile', 'main') : null), [firestore, canAccess]);
+  const { data: companyProfile } = useDoc<CompanyProfile>(companyProfileRef);
 
   const customersQuery = useMemoFirebase(() => (firestore && canAccess) ? query(collection(firestore, 'customers'), limit(500)) : null, [firestore, canAccess]);
   const { data: customers } = useCollection<Customer>(customersQuery);
@@ -105,6 +115,10 @@ export default function ReportsPage() {
   const metrics = useMemo(() => {
     return calculateGlobalFinancialMetrics(orders || [], dateFilter);
   }, [orders, dateFilter]);
+
+  const restockStats = useMemo(() => {
+    return buildRestockAnalysis(products || [], { threshold: 20, purchaseOrders: purchaseOrders || [] });
+  }, [products, purchaseOrders]);
 
   // 1. Exportar Libro Maestro de Ventas a CSV/Excel
   const exportSalesLedgerCSV = () => {
@@ -202,7 +216,7 @@ export default function ReportsPage() {
       const totalRev = metrics.totalRevenue.toLocaleString('en-US', { minimumFractionDigits: 2 });
       const totalDebts = metrics.totalDebts.toLocaleString('en-US', { minimumFractionDigits: 2 });
       const vencido = metrics.vencido.toLocaleString('en-US', { minimumFractionDigits: 2 });
-      const lowStockCount = products?.filter(p => (p.stockLevel ?? (p as any).stock ?? 0) < 10).length || 0;
+      const lowStockCount = products?.filter(p => (p.stockLevel ?? (p as any).stock ?? 0) < 20).length || 0;
 
       const reportText = `🧠 *INFORME EJECUTIVO DE NEGOCIO Y DIAGNÓSTICO ESTRATÉGICO*\n` +
         `📅 *Fecha de Análisis:* ${format(new Date(), "dd 'de' MMMM 'de' yyyy", { locale: es })}\n\n` +
@@ -214,7 +228,7 @@ export default function ReportsPage() {
         `   • Cartera en Mora Crítica (+30D): $${vencido} USD.\n` +
         `   💡 *Recomendación IA:* Ejecutar gatillo de recordatorio preventivo por WhatsApp a los clientes con créditos vencidos.\n\n` +
         `3. *ESTADO DE ALMACÉN E INVENTARIO ESTRELLA*:\n` +
-        `   • Se detectan *${lowStockCount} productos en stock bajo* (< 10 unidades).\n` +
+        `   • Se detectan *${lowStockCount} productos en alerta de reposición* (< 20 unidades).\n` +
         `   💡 *Recomendación IA:* Emitir orden de compra para balones de alta rotación (Spartan / Spartan Pro).`;
 
       setAiReportContent(reportText);
@@ -224,6 +238,16 @@ export default function ReportsPage() {
 
   // Definición del Catálogo de Reportes BI
   const reportsList = [
+    {
+      id: 'plan_reposicion_prioridad',
+      title: 'Plan Maestro de Reposición y Prioridad de Stock (<20)',
+      category: 'Inventario',
+      format: 'PDF / EXCEL / EN PANTALLA',
+      description: 'Existencia actual, productos agotados o con menos de 20 unidades, rotación real (vendidos) y prioridad P1→P4 para compras.',
+      icon: Flame,
+      badgeColor: 'bg-rose-50 text-rose-700 border-rose-200',
+      action: () => setIsRestockReportOpen(true)
+    },
     {
       id: 'ficha_cliente_360',
       title: 'Ficha Integral de Cliente 360° (Expediente Imprimible)',
@@ -335,7 +359,23 @@ export default function ReportsPage() {
       </header>
 
       {/* BARRA DE ACCESO RÁPIDO EN 1-CLIC */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+        <button
+          type="button"
+          onClick={() => setIsRestockReportOpen(true)}
+          className="p-5 rounded-[2rem] bg-gradient-to-br from-rose-600 to-orange-600 text-white shadow-md hover:shadow-xl transition-all text-left flex items-center justify-between group cursor-pointer"
+        >
+          <div className="space-y-1">
+            <span className="text-[9px] font-black uppercase tracking-widest text-rose-100 block">
+              {restockStats.needsRestockCount} Faltantes · {restockStats.p1UrgentCount} P1
+            </span>
+            <h3 className="text-sm font-black uppercase text-white">🔥 Reposición (&lt;20)</h3>
+          </div>
+          <div className="h-10 w-10 rounded-xl bg-white/20 text-white flex items-center justify-center font-black group-hover:scale-110 transition-transform">
+            <Flame className="h-5 w-5" />
+          </div>
+        </button>
+
         <button
           type="button"
           onClick={() => handleDownloadSalespersonPdf('all', 'Consolidado_General')}
@@ -555,6 +595,15 @@ export default function ReportsPage() {
         onOpenChange={setIsClientDirectoryOpen}
         customers={customers || []}
         salespeople={salespeople}
+      />
+
+      {/* MODAL 3: PLAN MAESTRO DE REPOSICIÓN Y PRIORIDAD (<20 UNIDADES) */}
+      <RestockPriorityReportModal
+        isOpen={isRestockReportOpen}
+        onOpenChange={setIsRestockReportOpen}
+        products={products || []}
+        purchaseOrders={purchaseOrders || []}
+        companyProfile={companyProfile || undefined}
       />
     </div>
   );

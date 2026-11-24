@@ -28,10 +28,12 @@ import {
     MapPin,
     Eye,
     History,
-    FileText
+    FileText,
+    Flame
 } from 'lucide-react';
 import { NewProductDialog } from './manage-inventory-dialog';
-import type { Product, Offer, FinancialSettings, CompanyProfile, StockMovement } from '@/lib/definitions';
+import type { Product, Offer, FinancialSettings, CompanyProfile, StockMovement, PurchaseOrder } from '@/lib/definitions';
+import { RestockPriorityReportModal } from '../reports/RestockPriorityReportModal';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { useCollection, useFirestore, useMemoFirebase, useUser, useDoc } from '@/firebase';
 import { useCatalog } from '@/firebase/catalog-context';
@@ -51,7 +53,7 @@ export const dynamic = 'force-dynamic';
 
 const getStatus = (stock: number) => {
     if (stock === 0) return 'Agotado';
-    if (stock < 10) return 'Pocas existencias';
+    if (stock < 20) return 'Pocas existencias';
     return 'En stock';
 };
 
@@ -94,6 +96,7 @@ function InventoryContent() {
 
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [productToDelete, setProductToDelete] = useState<Product | null>(null);
+  const [isRestockModalOpen, setIsRestockModalOpen] = useState(false);
   
   const [catalogFilter, setCatalogFilter] = useState<'todos' | 'offers' | 'new' | 'active'>('todos');
   const [stockStatusFilter, setStockStatusFilter] = useState('todos');
@@ -129,10 +132,16 @@ function InventoryContent() {
   const isAdmin = !!(currentUser && ['superadmin', 'admin', 'gerencia'].includes(currentUser.role));
   const isWarehouse = currentUser?.role === 'deposito';
   const isCommercial = currentUser && ['ventas', 'cliente'].includes(currentUser.role);
-  const isStaff = Boolean(currentUser && ['superadmin', 'admin', 'gerencia', 'vendedor', 'deposito'].includes(currentUser.role));
+  const isStaff = Boolean(currentUser && ['superadmin', 'admin', 'gerencia', 'ventas', 'vendedor', 'deposito'].includes(currentUser.role));
   
   const canCreateProduct = isAdmin;
   const canManageStock = isAdmin || isWarehouse;
+
+  const purchaseOrdersQuery = useMemoFirebase(
+    () => (firestore && canManageStock ? query(collection(firestore, 'purchaseOrders'), limit(100)) : null),
+    [firestore, canManageStock]
+  );
+  const { data: purchaseOrders } = useCollection<PurchaseOrder>(purchaseOrdersQuery);
 
   // CATEGORÍAS ÚNICAS
   const uniqueCategories = useMemo(() => {
@@ -146,14 +155,20 @@ function InventoryContent() {
 
     let totalValuation = 0;
     let totalUnits = 0;
+    let outOfStockCount = 0;
 
     const lowStockCount = inventory.filter(p => {
         const stockVal = p.stockLevel ?? (p as any).stock ?? 0;
         totalUnits += stockVal;
         totalValuation += stockVal * (p.price || 0);
-        return stockVal > 0 && stockVal < 10;
+        if (stockVal <= 0) {
+          outOfStockCount++;
+          return false;
+        }
+        return stockVal < 20;
     }).length;
 
+    const needsRestockCount = lowStockCount + outOfStockCount;
     const offersCount = inventory.filter(p => p.activeOfferIds && p.activeOfferIds.length > 0).length;
     const categoriesCount = new Set(inventory.map(p => p.category)).size;
     const sevenDaysAgo = subDays(new Date(), 7);
@@ -162,7 +177,7 @@ function InventoryContent() {
         return createdDate && isAfter(createdDate, sevenDaysAgo);
     }).length;
 
-    return { totalValuation, totalUnits, lowStockCount, offersCount, categoriesCount, newArrivalsCount };
+    return { totalValuation, totalUnits, lowStockCount, outOfStockCount, needsRestockCount, offersCount, categoriesCount, newArrivalsCount };
   }, [inventory]);
   
   const filteredInventory = useMemo(() => {
@@ -185,6 +200,7 @@ function InventoryContent() {
       items = items.filter((item) => {
         const stockVal = item.stockLevel ?? (item as any).stock ?? 0;
         const status = getStatus(stockVal);
+        if (stockStatusFilter === 'needs_restock') return stockVal < 20;
         if (stockStatusFilter === 'low') return status === 'Pocas existencias';
         if (stockStatusFilter === 'out') return status === 'Agotado';
         if (stockStatusFilter === 'in_stock') return status === 'En stock';
@@ -272,15 +288,25 @@ function InventoryContent() {
                 </div>
 
                 {canManageStock && (
-                    <Button 
-                        type="button"
-                        variant="outline" 
-                        onClick={() => generateInventoryReportPDF(filteredInventory, companyProfile || undefined, stockStatusFilter === 'low' ? 'REPORTE DE REPOSICIÓN DE STOCK' : 'INVENTARIO MAESTRO')} 
-                        className="flex-1 sm:flex-none h-11 px-4 sm:px-6 rounded-xl border-slate-200 font-black uppercase text-[9px] tracking-widest shadow-sm bg-white hover:bg-slate-50 transition-all active:scale-95"
-                    >
-                        <Download className="mr-2 h-4 w-4" /> 
-                        Auditoría
-                    </Button>
+                    <>
+                      <Button
+                          type="button"
+                          onClick={() => setIsRestockModalOpen(true)}
+                          className="flex-1 sm:flex-none h-11 px-4 sm:px-5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-black uppercase text-[9px] tracking-widest shadow-md transition-all active:scale-95"
+                      >
+                          <Flame className="mr-1.5 h-4 w-4" />
+                          Plan Reposición (&lt;20)
+                      </Button>
+                      <Button 
+                          type="button"
+                          variant="outline" 
+                          onClick={() => generateInventoryReportPDF(filteredInventory, companyProfile || undefined, stockStatusFilter === 'low' || stockStatusFilter === 'needs_restock' ? 'REPORTE DE REPOSICIÓN DE STOCK (<20)' : 'INVENTARIO MAESTRO')} 
+                          className="flex-1 sm:flex-none h-11 px-4 sm:px-6 rounded-xl border-slate-200 font-black uppercase text-[9px] tracking-widest shadow-sm bg-white hover:bg-slate-50 transition-all active:scale-95"
+                      >
+                          <Download className="mr-2 h-4 w-4" /> 
+                          Auditoría
+                      </Button>
+                    </>
                 )}
                 {canCreateProduct && <NewProductDialog />}
             </div>
@@ -326,14 +352,14 @@ function InventoryContent() {
                   isActive={catalogFilter === 'new'}
               />
               <SummaryCard 
-                  title="Stock Crítico" 
-                  value={stats?.lowStockCount.toString() || '0'} 
-                  subValue="SKUs con reposición" 
+                  title="Stock Crítico (<20)" 
+                  value={stats?.needsRestockCount.toString() || '0'} 
+                  subValue={`${stats?.outOfStockCount || 0} agotados · ${stats?.lowStockCount || 0} < 20 uds`} 
                   icon={AlertTriangle} 
-                  colorClass={stats?.lowStockCount && stats.lowStockCount > 0 ? "bg-amber-50 text-amber-500" : "bg-slate-50 text-slate-400"}
-                  onClick={() => handleToggleStockFilter('low')}
-                  isActive={stockStatusFilter === 'low'}
-                  alert={stats?.lowStockCount && stats.lowStockCount > 0}
+                  colorClass={stats?.needsRestockCount && stats.needsRestockCount > 0 ? "bg-amber-50 text-amber-500" : "bg-slate-50 text-slate-400"}
+                  onClick={() => handleToggleStockFilter('needs_restock')}
+                  isActive={stockStatusFilter === 'needs_restock'}
+                  alert={stats?.needsRestockCount && stats.needsRestockCount > 0}
               />
           </div>
           
@@ -382,8 +408,9 @@ function InventoryContent() {
                         </SelectTrigger>
                         <SelectContent>
                             <SelectItem value="todos" className="font-bold text-xs uppercase">TODOS LOS PRODUCTOS</SelectItem>
-                            <SelectItem value="in_stock" className="font-bold text-xs uppercase">DISPONIBILIDAD TOTAL</SelectItem>
-                            <SelectItem value="low" className="font-bold text-xs uppercase">REPOSICIÓN NECESARIA (&lt;10)</SelectItem>
+                            <SelectItem value="needs_restock" className="font-bold text-xs uppercase text-rose-600">AGOTADOS Y BAJO STOCK (&lt;20)</SelectItem>
+                            <SelectItem value="in_stock" className="font-bold text-xs uppercase">DISPONIBILIDAD TOTAL (≥20)</SelectItem>
+                            <SelectItem value="low" className="font-bold text-xs uppercase">REPOSICIÓN NECESARIA (1-19)</SelectItem>
                             <SelectItem value="out" className="font-bold text-xs uppercase">AGOTADOS (0)</SelectItem>
                         </SelectContent>
                     </Select>
@@ -444,11 +471,11 @@ function InventoryContent() {
                                              <td className="p-4">
                                                  <Badge className={cn(
                                                      "text-[8px] font-black uppercase border-none text-white",
-                                                     stockVal === 0 ? "bg-rose-600" : stockVal < 10 ? "bg-amber-500" : "bg-emerald-600"
+                                                     stockVal === 0 ? "bg-rose-600" : stockVal < 20 ? "bg-amber-500" : "bg-emerald-600"
                                                  )}>
                                                      {isStaff 
                                                          ? `${stockVal} UNID.`
-                                                         : (stockVal > 10 ? "DISPONIBLE" : stockVal > 0 ? "ÚLTIMAS UNIDADES" : "SIN STOCK")
+                                                         : (stockVal >= 20 ? "DISPONIBLE" : stockVal > 0 ? "ÚLTIMAS UNIDADES" : "SIN STOCK")
                                                      }
                                                  </Badge>
                                              </td>
@@ -570,6 +597,15 @@ function InventoryContent() {
         }} 
       />
       <DeleteProductDialog product={productToDelete} isOpen={!!productToDelete} onOpenChange={(open) => !open && setProductToDelete(null)} />
+      {canManageStock && (
+        <RestockPriorityReportModal
+          isOpen={isRestockModalOpen}
+          onOpenChange={setIsRestockModalOpen}
+          products={inventory || []}
+          purchaseOrders={purchaseOrders || []}
+          companyProfile={companyProfile || undefined}
+        />
+      )}
     </>
   );
 }
