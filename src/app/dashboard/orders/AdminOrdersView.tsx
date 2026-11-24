@@ -54,6 +54,14 @@ import autoTable from 'jspdf-autotable';
 
 const ALL_STATUSES: OrderStatus[] = ['Borrador', 'Pendiente', 'Aprobado', 'En Preparación', 'Completado', 'Despachado', 'Entregado', 'En Verificación', 'Pagado', 'Cancelado'];
 
+function normalizeSalespersonName(name?: string): string {
+    return (name || '')
+        .trim()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toUpperCase();
+}
+
 function DashboardMetricCard({
   title,
   value,
@@ -114,7 +122,7 @@ export default function AdminOrdersView() {
     const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
     const [openSections, setOpenSections] = useState<string[]>(['comercial']);
     
-    const [queryLimit, setQueryLimit] = useState(100);
+    const [queryLimit, setQueryLimit] = useState(500);
     const [activeTab, setActiveTab] = useState<'todos' | 'comercial' | 'operativo' | 'logistica' | 'cobranzas' | 'archivo'>('todos');
     const [dateFilter, setDateFilter] = useState<'todos' | 'today' | '7d' | 'this_month' | 'last_month' | 'custom'>('todos');
     const [startDate, setStartDate] = useState<string>('');
@@ -141,7 +149,31 @@ export default function AdminOrdersView() {
 
     const uniqueSalespeople = useMemo(() => {
         if (!allOrders) return [];
-        return Array.from(new Set(allOrders.map(o => o.salespersonName))).filter((sp): sp is string => Boolean(sp)).sort();
+        const groupsMap = new Map<string, Map<string, number>>();
+        allOrders.forEach(o => {
+            const spId = o.salespersonId?.trim();
+            const rawName = (o.salespersonName || '').trim();
+            if (!spId && !rawName) return;
+            const key = spId || `name:${normalizeSalespersonName(rawName)}`;
+            if (!groupsMap.has(key)) groupsMap.set(key, new Map());
+            const counts = groupsMap.get(key)!;
+            const candidate = rawName || spId!;
+            counts.set(candidate, (counts.get(candidate) || 0) + 1);
+        });
+
+        const hasAccent = (s: string) => /[áéíóúüñÁÉÍÓÚÜÑ]/.test(s);
+        const result: { id: string; label: string }[] = [];
+        groupsMap.forEach((counts, id) => {
+            const bestLabel = Array.from(counts.entries()).sort((a, b) => {
+                const accentDiff = Number(hasAccent(b[0])) - Number(hasAccent(a[0]));
+                if (accentDiff !== 0) return accentDiff;
+                if (b[0].length !== a[0].length) return b[0].length - a[0].length;
+                return b[1] - a[1];
+            })[0]?.[0] || id;
+            result.push({ id, label: bestLabel });
+        });
+
+        return result.sort((a, b) => a.label.localeCompare(b.label, 'es', { sensitivity: 'base' }));
     }, [allOrders]);
 
     const [kpiPeriod, setKpiPeriod] = useState<'today' | '7d' | 'this_month' | 'last_month' | 'all'>('all');
@@ -192,7 +224,7 @@ export default function AdminOrdersView() {
                 totalVolume += (o.totalAmount || 0);
                 totalCount += 1;
 
-                if (['Aprobado', 'En Preparación'].includes(o.status)) {
+                if (['Aprobado', 'En Preparación', 'Completado'].includes(o.status)) {
                     prepCount += 1;
                     prepTotal += (o.totalAmount || 0);
                 }
@@ -220,7 +252,12 @@ export default function AdminOrdersView() {
         }
 
         if (salespersonFilter !== 'todos') {
-            filtered = filtered.filter(o => o.salespersonId === salespersonFilter || o.salespersonName === salespersonFilter);
+            if (salespersonFilter.startsWith('name:')) {
+                const targetNorm = salespersonFilter.slice(5);
+                filtered = filtered.filter(o => normalizeSalespersonName(o.salespersonName) === targetNorm);
+            } else {
+                filtered = filtered.filter(o => o.salespersonId === salespersonFilter);
+            }
         }
 
         if (dateFilter !== 'todos') {
@@ -296,11 +333,11 @@ export default function AdminOrdersView() {
                 res.borradores.push(o);
             } else if (['Pendiente', 'En Verificación', 'Rechazado'].includes(o.status)) {
                 res.comercial.push(o);
-            } else if (['Aprobado', 'En Preparación'].includes(o.status)) {
+            } else if (['Aprobado', 'En Preparación', 'Completado'].includes(o.status)) {
                 res.operativo.push(o);
             } else if (['Despachado'].includes(o.status)) {
                 res.logistica.push(o);
-            } else if (['Entregado', 'Pagado', 'Completado'].includes(o.status)) {
+            } else if (['Entregado', 'Pagado', 'Vencido'].includes(o.status as string)) {
                 res.cobranzas.push(o);
             } else {
                 res.archivo.push(o);
@@ -360,7 +397,10 @@ export default function AdminOrdersView() {
             doc.setFont('helvetica', 'normal');
             doc.text(`TASA OFICIAL BCV: Bs. ${bcvRate.toFixed(2)} / USD  •  EMISIÓN: ${format(new Date(), 'dd/MM/yyyy HH:mm')}`, 14, 28);
 
-            const filterDetails = `Fase: ${activeTab.toUpperCase()} | Estado: ${statusFilter.toUpperCase()} | Vendedor: ${salespersonFilter === 'todos' ? 'TODOS' : salespersonFilter} | Período: ${dateFilter.toUpperCase()}`;
+            const selectedSalespersonLabel = salespersonFilter === 'todos'
+                ? 'TODOS'
+                : (uniqueSalespeople.find(sp => sp.id === salespersonFilter)?.label || salespersonFilter).toUpperCase();
+            const filterDetails = `Fase: ${activeTab.toUpperCase()} | Estado: ${statusFilter.toUpperCase()} | Vendedor: ${selectedSalespersonLabel} | Período: ${dateFilter.toUpperCase()}`;
             doc.setFillColor(241, 245, 249);
             doc.roundedRect(14, 37, 182, 9, 2, 2, 'F');
             doc.setFontSize(7);
@@ -439,8 +479,8 @@ export default function AdminOrdersView() {
     };
 
     const handleSendSalespersonPDFReport = () => {
-        if (salespersonFilter === 'todos') return;
-        openAuthenticatedUrl(`/api/reports/salesperson-receivables-pdf?salespersonId=${salespersonFilter}`);
+        if (salespersonFilter === 'todos' || salespersonFilter.startsWith('name:')) return;
+        openAuthenticatedUrl(`/api/reports/salesperson-receivables-pdf?salespersonId=${encodeURIComponent(salespersonFilter)}`);
     };
 
     const allSections = [
@@ -632,7 +672,7 @@ export default function AdminOrdersView() {
                                 {isExportingPDF ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Printer className="h-3.5 w-3.5 text-emerald-400" />}
                                 <span>Imprimir PDF</span>
                             </Button>
-                            {canListAll && salespersonFilter !== 'todos' && (
+                            {canListAll && salespersonFilter !== 'todos' && !salespersonFilter.startsWith('name:') && (
                                 <Button
                                     onClick={handleSendSalespersonPDFReport}
                                     className="h-8 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-[9px] font-black uppercase tracking-wider shadow-md flex items-center gap-1.5"
@@ -670,7 +710,7 @@ export default function AdminOrdersView() {
                                 <SelectContent>
                                     <SelectItem value="todos" className="text-[10px] font-bold uppercase">ASESOR: TODOS</SelectItem>
                                     {uniqueSalespeople.map(sp => (
-                                        <SelectItem key={sp} value={sp} className="text-[10px] font-bold uppercase">{sp.toUpperCase()}</SelectItem>
+                                        <SelectItem key={sp.id} value={sp.id} className="text-[10px] font-bold uppercase">{sp.label.toUpperCase()}</SelectItem>
                                     ))}
                                 </SelectContent>
                             </Select>
@@ -796,7 +836,7 @@ export default function AdminOrdersView() {
                         
                         {allOrders && allOrders.length >= queryLimit && (
                             <div className="flex justify-center pt-4">
-                                <Button variant="ghost" onClick={() => setQueryLimit(prev => prev + 50)} className="font-black uppercase text-[8px] tracking-[0.3em] text-primary h-11 px-8 rounded-2xl border border-dashed border-primary/30 hover:bg-primary/5">
+                                <Button variant="ghost" onClick={() => setQueryLimit(prev => prev + 250)} className="font-black uppercase text-[8px] tracking-[0.3em] text-primary h-11 px-8 rounded-2xl border border-dashed border-primary/30 hover:bg-primary/5">
                                     {isLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-2" /> : <Plus className="h-3.5 w-3.5 mr-2" />}
                                     Cargar Más Expedientes Comercial...
                                 </Button>
@@ -854,8 +894,8 @@ export default function AdminOrdersView() {
                                 <TableBody>
                                     {isLoading ? (
                                         Array.from({ length: 5 }).map((_, i) => <TableRow key={i}><TableCell colSpan={5} className="py-8"><Skeleton className="h-10 w-full rounded-xl" /></TableCell></TableRow>)
-                                    ) : allOrders && allOrders.length > 0 ? (
-                                        allOrders.map(order => {
+                                    ) : filteredOrders.length > 0 ? (
+                                        filteredOrders.map(order => {
                                             return (
                                                 <TableRow key={order.id} className="hover:bg-primary/5 cursor-pointer transition-all border-b group" onClick={() => setSelectedOrder(order)}>
                                                     <TableCell className="py-4 pl-6">

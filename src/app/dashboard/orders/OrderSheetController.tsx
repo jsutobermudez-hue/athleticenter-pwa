@@ -1,8 +1,9 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useFirestore, useUser, useCollection, useMemoFirebase, useDoc } from '@/firebase';
+import { useCatalog } from '@/firebase/catalog-context';
 import { doc, runTransaction, collection, query, where, serverTimestamp, increment, limit, updateDoc, getDocs } from 'firebase/firestore';
 import type { Order, OrderItem, Product, OrderItemClient, Customer } from '@/lib/definitions';
 import { useToast } from '@/hooks/use-toast';
@@ -29,32 +30,76 @@ export function OrderSheetController({ order, onOpenChange }: { order: Order, on
     const { data: customerData } = useDoc<Customer>(customerRef);
 
     const orderItemsRef = useMemoFirebase(
-        () => (order && firestore && currentUser) ? query(collection(firestore, 'orders', order.id, 'orderItems'), limit(100)) : null,
+        () => (order && firestore && currentUser) ? query(collection(firestore, 'orders', order.id, 'orderItems'), limit(300)) : null,
         [order?.id, firestore, currentUser?.id]
     );
     const { data: orderItemsData, isLoading: isLoadingOrderItems } = useCollection<OrderItem>(orderItemsRef);
     
     const productIds = useMemo(() => {
         if (!orderItemsData || orderItemsData.length === 0) return [];
-        return Array.from(new Set(orderItemsData.map(item => item.productId))).slice(0, 30);
+        return Array.from(new Set(orderItemsData.map(item => item.productId)));
     }, [orderItemsData]);
     
-    const productsRef = useMemoFirebase(
-        () => (firestore && productIds.length > 0 ? query(collection(firestore, 'products'), where('__name__', 'in', productIds), limit(100)) : null),
-        [firestore, productIds]
+    const { products: catalogProducts, isLoading: isLoadingCatalog } = useCatalog();
+    const catalogMap = useMemo(
+        () => new Map(catalogProducts.map(p => [p.id, p])),
+        [catalogProducts]
     );
-    const { data: productsData, isLoading: isLoadingProducts } = useCollection<Product>(productsRef);
+
+    const missingProductIdsKey = useMemo(() => {
+        if (isLoadingCatalog) return '';
+        return productIds.filter(id => !catalogMap.has(id)).join(',');
+    }, [productIds, catalogMap, isLoadingCatalog]);
+
+    const [extraProductsMap, setExtraProductsMap] = useState<Map<string, Product>>(new Map());
+    const [isLoadingExtraProducts, setIsLoadingExtraProducts] = useState(false);
+
+    useEffect(() => {
+        let cancelled = false;
+        if (!firestore || !missingProductIdsKey) {
+            setExtraProductsMap(new Map());
+            setIsLoadingExtraProducts(false);
+            return;
+        }
+        const idsToFetch = missingProductIdsKey.split(',').filter(Boolean);
+        setIsLoadingExtraProducts(true);
+        (async () => {
+            try {
+                const nextMap = new Map<string, Product>();
+                for (let i = 0; i < idsToFetch.length; i += 30) {
+                    const chunkIds = idsToFetch.slice(i, i + 30);
+                    const snap = await getDocs(
+                        query(collection(firestore, 'products'), where('__name__', 'in', chunkIds))
+                    );
+                    snap.forEach(d => {
+                        nextMap.set(d.id, { id: d.id, ...d.data() } as Product);
+                    });
+                }
+                if (!cancelled) {
+                    setExtraProductsMap(nextMap);
+                }
+            } catch (err) {
+                console.error('Error fetching missing order products:', err);
+            } finally {
+                if (!cancelled) {
+                    setIsLoadingExtraProducts(false);
+                }
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [firestore, missingProductIdsKey]);
 
     const itemsWithProductData = useMemo(() => {
-        if (!orderItemsData || !productsData) return [];
-        const productsMap = new Map(productsData.map(p => [p.id, p]));
+        if (!orderItemsData) return [];
         return orderItemsData.map(item => ({
             ...item,
-            product: productsMap.get(item.productId)
+            product: catalogMap.get(item.productId) || extraProductsMap.get(item.productId)
         })).filter(item => item.product) as OrderItemClient[];
-    }, [orderItemsData, productsData]);
+    }, [orderItemsData, catalogMap, extraProductsMap]);
     
-    const isLoadingDetails = isLoadingOrderItems || isLoadingProducts;
+    const isLoadingDetails = isLoadingOrderItems || isLoadingCatalog || isLoadingExtraProducts;
 
     const handleSuccessClose = () => {
         setIsCanceling(false);

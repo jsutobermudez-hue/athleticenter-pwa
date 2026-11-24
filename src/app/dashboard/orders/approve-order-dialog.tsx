@@ -15,6 +15,7 @@ import { Loader2, TrendingUp, FileWarning, ShieldCheck, XCircle, CheckCircle, Pa
 import { useToast } from '@/hooks/use-toast';
 import type { Order, User, Invoice, OrderItem, Product, Customer } from '@/lib/definitions';
 import { useCollection, useFirestore, useMemoFirebase, useUser, errorEmitter, FirestorePermissionError } from '@/firebase';
+import { useCatalog } from '@/firebase/catalog-context';
 import { doc, serverTimestamp, collection, query, where, runTransaction, updateDoc, increment, limit, getDocs } from 'firebase/firestore';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -45,21 +46,70 @@ export function ApproveOrderDialog({ order, currentUser, isOpen, onOpenChange, o
   const customerOrdersQuery = useMemoFirebase(() => (firestore && isOpen) ? query(collection(firestore, 'orders'), where('customerId', '==', order.customerId), limit(50)) : null, [firestore, isOpen, order.customerId]);
   const { data: customerOrders, isLoading: isLoadingHistory } = useCollection<Order>(customerOrdersQuery);
 
-  const orderItemsQuery = useMemoFirebase(() => (firestore && isOpen) ? query(collection(firestore, `orders/${order.id}/orderItems`), limit(100)) : null, [firestore, order.id, isOpen]);
+  const orderItemsQuery = useMemoFirebase(() => (firestore && isOpen) ? query(collection(firestore, `orders/${order.id}/orderItems`), limit(300)) : null, [firestore, order.id, isOpen]);
   const { data: orderItems, isLoading: isLoadingItems } = useCollection<OrderItem>(orderItemsQuery);
   
   const productIds = useMemo(() => {
       const ids = orderItems?.map(i => i.productId) || [];
-      // Saneamiento: Limitamos a 30 para evitar que el motor de Firestore falle en la consulta IN de pre-visualización
-      return Array.from(new Set(ids)).slice(0, 30);
+      return Array.from(new Set(ids));
   }, [orderItems]);
 
-  const productsQuery = useMemoFirebase(() => {
-    if (!firestore || !isOpen || productIds.length === 0) return null;
-    return query(collection(firestore, 'products'), where('__name__', 'in', productIds), limit(30));
-  }, [firestore, isOpen, productIds]);
+  const { products: catalogProducts, isLoading: isLoadingCatalog } = useCatalog();
+  const catalogMap = useMemo(
+    () => new Map(catalogProducts.map(p => [p.id, p])),
+    [catalogProducts]
+  );
 
-  const { data: allProducts, isLoading: isLoadingProducts } = useCollection<Product>(productsQuery);
+  const missingProductIdsKey = useMemo(() => {
+    if (!isOpen || isLoadingCatalog) return '';
+    return productIds.filter(id => !catalogMap.has(id)).join(',');
+  }, [isOpen, productIds, catalogMap, isLoadingCatalog]);
+
+  const [extraProductsMap, setExtraProductsMap] = useState<Map<string, Product>>(new Map());
+  const [isLoadingExtraProducts, setIsLoadingExtraProducts] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!firestore || !isOpen || !missingProductIdsKey) {
+      setExtraProductsMap(new Map());
+      setIsLoadingExtraProducts(false);
+      return;
+    }
+    const idsToFetch = missingProductIdsKey.split(',').filter(Boolean);
+    setIsLoadingExtraProducts(true);
+    (async () => {
+      try {
+        const nextMap = new Map<string, Product>();
+        for (let i = 0; i < idsToFetch.length; i += 30) {
+          const chunkIds = idsToFetch.slice(i, i + 30);
+          const snap = await getDocs(
+            query(collection(firestore, 'products'), where('__name__', 'in', chunkIds))
+          );
+          snap.forEach(d => {
+            nextMap.set(d.id, { id: d.id, ...d.data() } as Product);
+          });
+        }
+        if (!cancelled) {
+          setExtraProductsMap(nextMap);
+        }
+      } catch (err) {
+        console.error('Error fetching missing approval products:', err);
+      } finally {
+        if (!cancelled) {
+          setIsLoadingExtraProducts(false);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [firestore, isOpen, missingProductIdsKey]);
+
+  const combinedProductsMap = useMemo(() => {
+    const merged = new Map(catalogMap);
+    extraProductsMap.forEach((prod, id) => merged.set(id, prod));
+    return merged;
+  }, [catalogMap, extraProductsMap]);
 
   useEffect(() => {
     if (!isOpen) setNotes('');
@@ -76,22 +126,22 @@ export function ApproveOrderDialog({ order, currentUser, isOpen, onOpenChange, o
   }, [customerOrders]);
 
   const profitabilityData = useMemo(() => {
-    if (!orderItems || !allProducts) return null;
+    if (!orderItems) return null;
     const totalCost = orderItems.reduce((sum, item) => {
-        const product = allProducts.find(p => p.id === item.productId);
+        const product = combinedProductsMap.get(item.productId);
         return sum + ((product?.cost ?? 0) * item.quantity);
     }, 0);
     const totalRevenue = order.totalAmount;
     const grossProfit = totalRevenue - totalCost;
     const grossMargin = totalRevenue > 0 ? (grossProfit / totalRevenue) * 100 : 0;
     return { totalCost, totalRevenue, grossProfit, grossMargin };
-  }, [orderItems, allProducts, order.totalAmount]);
+  }, [orderItems, combinedProductsMap, order.totalAmount]);
 
   const stockCheck = useMemo(() => {
-    if (!orderItems || !allProducts) return { hasError: false, issues: [] };
+    if (!orderItems) return { hasError: false, issues: [] };
     const issues = orderItems.filter(item => {
-        const product = allProducts.find(p => p.id === item.productId);
-        if (!product) return false; // Si no está en el top 30 de pre-visualización, no bloqueamos aquí, el motor transaccional lo hará
+        const product = combinedProductsMap.get(item.productId);
+        if (!product) return false;
         
         if (product.hasSizes && item.size && product.sizes) {
             return (product.sizes[item.size] || 0) < item.quantity;
@@ -99,7 +149,7 @@ export function ApproveOrderDialog({ order, currentUser, isOpen, onOpenChange, o
         const currentStock = Number(product.stockLevel ?? (product as any).stock ?? 0);
         return currentStock < item.quantity;
     }).map(item => {
-        const product = allProducts.find(p => p.id === item.productId);
+        const product = combinedProductsMap.get(item.productId);
         const currentStock = (product?.hasSizes && item.size && product.sizes) 
             ? product.sizes[item.size] 
             : Number(product?.stockLevel ?? (product as any)?.stock ?? 0);
@@ -111,9 +161,9 @@ export function ApproveOrderDialog({ order, currentUser, isOpen, onOpenChange, o
         };
     });
     return { hasError: issues.length > 0, issues };
-  }, [orderItems, allProducts]);
+  }, [orderItems, combinedProductsMap]);
 
-  const isDataLoading = isLoadingItems || (productIds.length > 0 && isLoadingProducts);
+  const isDataLoading = isLoadingItems || isLoadingCatalog || isLoadingExtraProducts;
 
   /**
    * MOTOR DE APROBACIÓN TÁCTICA v9.0

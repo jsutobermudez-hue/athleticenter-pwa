@@ -65,10 +65,10 @@ function UsersPageContent() {
     
     if (!['superadmin', 'admin', 'gerencia'].includes(currentUser.role)) {
         const staffRoles = ['superadmin', 'admin', 'gerencia', 'ventas', 'deposito'];
-        return query(usersRef, where('role', 'in', staffRoles), limit(100));
+        return query(usersRef, where('role', 'in', staffRoles), limit(500));
     }
     
-    return query(usersRef, limit(100));
+    return query(usersRef, limit(500));
   }, [firestore, currentUser]);
 
   const { data: allUsers, isLoading: isLoadingAllUsers } = useCollection<User>(allUsersQuery);

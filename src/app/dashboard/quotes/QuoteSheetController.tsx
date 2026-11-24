@@ -1,10 +1,11 @@
 
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useFirestore, useUser, useCollection, useMemoFirebase, useDoc } from '@/firebase';
-import { collection, query, where, doc, getDoc, updateDoc, serverTimestamp, limit } from 'firebase/firestore';
+import { useCatalog } from '@/firebase/catalog-context';
+import { collection, query, where, doc, getDoc, getDocs, updateDoc, serverTimestamp, limit } from 'firebase/firestore';
 import type { Quote, QuoteItem, Product, QuoteItemClient, CompanyProfile, Customer, FinancialSettings } from '@/lib/definitions';
 import { useToast } from '@/hooks/use-toast';
 import { QuoteDetailsSheet } from './QuoteDetailsSheet';
@@ -34,7 +35,7 @@ export function QuoteSheetController({ quote, onOpenChange }: { quote: Quote, on
     const itemsRef = useMemoFirebase(
         () => {
             if (!quote || !firestore || !currentUser) return null;
-            return query(collection(firestore, 'quotes', quote.id, 'quoteItems'), limit(100));
+            return query(collection(firestore, 'quotes', quote.id, 'quoteItems'), limit(300));
         },
         [quote?.id, firestore, currentUser?.id]
     );
@@ -42,23 +43,67 @@ export function QuoteSheetController({ quote, onOpenChange }: { quote: Quote, on
     
     const productIds = useMemo(() => {
         if (!quoteItemsData || quoteItemsData.length === 0) return [];
-        return Array.from(new Set(quoteItemsData.map(item => item.productId))).slice(0, 30);
+        return Array.from(new Set(quoteItemsData.map(item => item.productId)));
     }, [quoteItemsData]);
     
-    const productsRef = useMemoFirebase(
-        () => (firestore && productIds.length > 0 ? query(collection(firestore, 'products'), where('__name__', 'in', productIds), limit(100)) : null),
-        [firestore, productIds]
+    const { products: catalogProducts, isLoading: isLoadingCatalog } = useCatalog();
+    const catalogMap = useMemo(
+        () => new Map(catalogProducts.map(p => [p.id, p])),
+        [catalogProducts]
     );
-    const { data: productsData, isLoading: isLoadingProducts } = useCollection<Product>(productsRef);
+
+    const missingProductIdsKey = useMemo(() => {
+        if (isLoadingCatalog) return '';
+        return productIds.filter(id => !catalogMap.has(id)).join(',');
+    }, [productIds, catalogMap, isLoadingCatalog]);
+
+    const [extraProductsMap, setExtraProductsMap] = useState<Map<string, Product>>(new Map());
+    const [isLoadingExtraProducts, setIsLoadingExtraProducts] = useState(false);
+
+    useEffect(() => {
+        let cancelled = false;
+        if (!firestore || !missingProductIdsKey) {
+            setExtraProductsMap(new Map());
+            setIsLoadingExtraProducts(false);
+            return;
+        }
+        const idsToFetch = missingProductIdsKey.split(',').filter(Boolean);
+        setIsLoadingExtraProducts(true);
+        (async () => {
+            try {
+                const nextMap = new Map<string, Product>();
+                for (let i = 0; i < idsToFetch.length; i += 30) {
+                    const chunkIds = idsToFetch.slice(i, i + 30);
+                    const snap = await getDocs(
+                        query(collection(firestore, 'products'), where('__name__', 'in', chunkIds))
+                    );
+                    snap.forEach(d => {
+                        nextMap.set(d.id, { id: d.id, ...d.data() } as Product);
+                    });
+                }
+                if (!cancelled) {
+                    setExtraProductsMap(nextMap);
+                }
+            } catch (err) {
+                console.error('Error fetching missing quote products:', err);
+            } finally {
+                if (!cancelled) {
+                    setIsLoadingExtraProducts(false);
+                }
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [firestore, missingProductIdsKey]);
 
     const itemsWithProductData = React.useMemo(() => {
-        if (!quoteItemsData || !productsData) return [];
-        const productsMap = new Map(productsData.map(p => [p.id, p]));
+        if (!quoteItemsData) return [];
         return quoteItemsData.map(item => ({
             ...item,
-            product: productsMap.get(item.productId)
+            product: catalogMap.get(item.productId) || extraProductsMap.get(item.productId)
         })).filter(item => item.product) as QuoteItemClient[];
-    }, [quoteItemsData, productsData]);
+    }, [quoteItemsData, catalogMap, extraProductsMap]);
 
     const handleSuccessClose = () => {
         setIsUpdatingStatus(false);
@@ -136,7 +181,7 @@ export function QuoteSheetController({ quote, onOpenChange }: { quote: Quote, on
                 quote={quote} 
                 currentUser={currentUser}
                 items={itemsWithProductData}
-                isLoadingItems={isLoadingItems || isLoadingProducts}
+                isLoadingItems={isLoadingItems || isLoadingCatalog || isLoadingExtraProducts}
                 isOpen={!!quote}
                 onOpenChange={onOpenChange}
                 onPrint={handlePrintPDF}

@@ -9,6 +9,7 @@ import {
   useUser,
 } from '@/firebase';
 import { collection, doc, query, orderBy, getDocs, limit } from 'firebase/firestore';
+import { useCatalog } from '@/firebase/catalog-context';
 import type { Order, Product, Customer, User as AppUser, FinancialSettings, PurchaseOrder, CompanyProfile } from '@/lib/definitions';
 import { Client360ReportModal } from './Client360ReportModal';
 import { ClientDirectoryReportModal } from './ClientDirectoryReportModal';
@@ -85,11 +86,10 @@ export default function ReportsPage() {
   const [selectedClientForReport, setSelectedClientForReport] = useState<string>('');
 
   // Consultas de datos maestros (protegidas por rol)
-  const ordersQuery = useMemoFirebase(() => (firestore && canAccess) ? query(collection(firestore, 'orders'), limit(300)) : null, [firestore, canAccess]);
+  const ordersQuery = useMemoFirebase(() => (firestore && canAccess) ? query(collection(firestore, 'orders'), orderBy('orderDate', 'desc'), limit(1000)) : null, [firestore, canAccess]);
   const { data: orders, isLoading: isLoadingOrders } = useCollection<Order>(ordersQuery);
 
-  const productsQuery = useMemoFirebase(() => (firestore && canAccess) ? query(collection(firestore, 'products'), limit(1000)) : null, [firestore, canAccess]);
-  const { data: products } = useCollection<Product>(productsQuery);
+  const { products } = useCatalog();
 
   const purchaseOrdersQuery = useMemoFirebase(() => (firestore && canAccess) ? query(collection(firestore, 'purchaseOrders'), limit(100)) : null, [firestore, canAccess]);
   const { data: purchaseOrders } = useCollection<PurchaseOrder>(purchaseOrdersQuery);
@@ -103,7 +103,7 @@ export default function ReportsPage() {
   const settingsRef = useMemoFirebase(() => (firestore && canAccess ? doc(firestore, 'system', 'financials') : null), [firestore, canAccess]);
   const { data: globalSettings } = useDoc<FinancialSettings>(settingsRef);
 
-  const usersQuery = useMemoFirebase(() => (firestore && canAccess) ? query(collection(firestore, 'users'), limit(300)) : null, [firestore, canAccess]);
+  const usersQuery = useMemoFirebase(() => (firestore && canAccess) ? query(collection(firestore, 'users'), limit(500)) : null, [firestore, canAccess]);
   const { data: allUsers } = useCollection<AppUser>(usersQuery);
 
   const salespeople = useMemo(() => {
