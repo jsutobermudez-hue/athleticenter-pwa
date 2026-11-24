@@ -9,6 +9,7 @@ export interface RestockItemAnalysis {
   id: string;
   sku: string;
   name: string;
+  imageUrl: string;
   category: string;
   discipline: string;
   brand: string;
@@ -32,6 +33,10 @@ export interface RestockItemAnalysis {
   estimatedInvestmentUSD: number;
   stockValuationUSD: number;
   lowSizes: string[]; // si usa tallas, cuáles están en < 5
+  lowSizesText: string;
+  movementLabel: string;
+  urgencyBadge: string;
+  recommendationText: string;
 }
 
 export interface RestockSummary {
@@ -195,18 +200,62 @@ export function buildRestockAnalysis(
         : Math.max(1, Math.round(scarcityBonus + velocityScore - transitDiscount));
 
     const lowSizes: string[] = [];
+    const emptySizes: string[] = [];
     if (p.hasSizes && p.sizes) {
       for (const [sz, qty] of Object.entries(p.sizes)) {
         const n = Number(qty || 0);
+        if (n <= 0) emptySizes.push(sz);
         if (n < 5) lowSizes.push(`${sz}:${n}`);
       }
     }
+    const lowSizesText =
+      emptySizes.length > 0
+        ? `Faltan tallas: ${emptySizes.join(', ')}`
+        : lowSizes.length > 0
+          ? `Tallas bajas: ${lowSizes.join(', ')}`
+          : '';
+
+    const movementLabel = getRotationLabel(rotationTier);
+    const urgencyBadge =
+      priority === 'P1_URGENTE'
+        ? 'Pedir urgente'
+        : priority === 'P2_ALTA'
+          ? 'Reponer pronto'
+          : priority === 'P3_MEDIA'
+            ? 'Evaluar'
+            : 'Con existencia';
+
+    let recommendationText = 'Existencia suficiente, no requiere compra';
+    if (priority === 'P1_URGENTE') {
+      if (status === 'agotado') {
+        recommendationText = totalSold >= 80 ? 'Producto estrella agotado' : 'Alta demanda sin existencia';
+      } else {
+        recommendationText = 'Se vende muy rápido y quedan muy pocos';
+      }
+    } else if (priority === 'P2_ALTA') {
+      recommendationText =
+        status === 'agotado'
+          ? 'Agotado con ventas recientes'
+          : 'Movimiento constante, reponer antes de agotarse';
+    } else if (priority === 'P3_MEDIA') {
+      if (inTransit > 0) {
+        recommendationText = `Ya vienen ${inTransit} uds en camino`;
+      } else if (totalSold === 0) {
+        recommendationText = 'Sin ventas registradas, evaluar si reponer';
+      } else {
+        recommendationText = 'Rotación baja, decidir si reponer';
+      }
+    }
+
+    const resolvedImageUrl =
+      p.imageUrl || (Array.isArray(p.imageUrls) && p.imageUrls.length > 0 ? p.imageUrls[0] : '') || '';
 
     return {
       product: p,
       id: p.id || p.sku,
       sku: p.sku || 'S/SKU',
       name: p.name || 'Producto sin nombre',
+      imageUrl: resolvedImageUrl,
       category: p.category || 'General',
       discipline: p.discipline || p.category || 'General',
       brand: p.brand || 'Athleticenter',
@@ -230,6 +279,10 @@ export function buildRestockAnalysis(
       estimatedInvestmentUSD: Number((suggestedRestockQty * estimatedUnitCostUSD).toFixed(2)),
       stockValuationUSD: Number((stock * price).toFixed(2)),
       lowSizes,
+      lowSizesText,
+      movementLabel,
+      urgencyBadge,
+      recommendationText,
     };
   });
 
@@ -288,25 +341,25 @@ export function buildRestockAnalysis(
 export function getPriorityLabel(priority: RestockPriority): string {
   switch (priority) {
     case 'P1_URGENTE':
-      return 'P1 · URGENTE';
+      return 'PEDIR URGENTE';
     case 'P2_ALTA':
-      return 'P2 · ALTA';
+      return 'REPONER PRONTO';
     case 'P3_MEDIA':
-      return 'P3 · MEDIA';
+      return 'EVALUAR';
     case 'P4_OK':
-      return 'OK · SURTIDO';
+      return 'CON EXISTENCIA';
   }
 }
 
 export function getRotationLabel(tier: RotationTier): string {
   switch (tier) {
     case 'ALTA':
-      return 'ALTA (A)';
+      return 'Se vende muy rápido';
     case 'MEDIA':
-      return 'MEDIA (B)';
+      return 'Buen movimiento';
     case 'BAJA':
-      return 'BAJA (C)';
+      return 'Poco movimiento';
     case 'SIN_MOV':
-      return 'SIN MOV.';
+      return 'Sin ventas aún';
   }
 }

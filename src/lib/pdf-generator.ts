@@ -7,7 +7,7 @@ import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { calculatePricingTier } from './pricing';
 import { roundCurrency } from './billing';
-import { type RestockSummary, type RestockItemAnalysis, getPriorityLabel, getRotationLabel } from './restock-engine';
+import { type RestockSummary, type RestockItemAnalysis, getPriorityLabel } from './restock-engine';
 
 type GenerateOrderPdfParams = {
   customerName: string;
@@ -1006,58 +1006,170 @@ export async function generatePaymentReceiptPDF({
 }
 
 /**
- * PLAN MAESTRO DE REPOSICIÓN Y PRIORIDAD DE STOCK (FORMATO APAISADO CARTA)
- * Imprime existencias, faltantes bajo umbral (<20), unidades vendidas y prioridad P1 -> P4.
+ * Convierte cualquier imagen (Base64 o URL HTTPS) en miniatura cuadrada a color JPEG
+ * con fondo blanco para incrustarla de forma segura y liviana dentro del PDF.
+ */
+async function loadColorThumbnailDataUrl(url: string): Promise<string | null> {
+    if (!url || typeof window === 'undefined') return null;
+    return new Promise((resolve) => {
+        let settled = false;
+        const finish = (val: string | null) => {
+            if (!settled) {
+                settled = true;
+                resolve(val);
+            }
+        };
+        const timer = setTimeout(() => finish(null), 4000);
+        const img = new Image();
+        if (!url.startsWith('data:')) {
+            img.setAttribute('crossOrigin', 'anonymous');
+        }
+        img.onload = () => {
+            clearTimeout(timer);
+            try {
+                const size = 140;
+                const canvas = document.createElement('canvas');
+                canvas.width = size;
+                canvas.height = size;
+                const ctx = canvas.getContext('2d');
+                if (!ctx) {
+                    finish(null);
+                    return;
+                }
+                ctx.fillStyle = '#ffffff';
+                ctx.fillRect(0, 0, size, size);
+                const w = img.naturalWidth || img.width || size;
+                const h = img.naturalHeight || img.height || size;
+                const scale = Math.min((size - 8) / w, (size - 8) / h);
+                const dw = w * scale;
+                const dh = h * scale;
+                const dx = (size - dw) / 2;
+                const dy = (size - dh) / 2;
+                ctx.drawImage(img, dx, dy, dw, dh);
+                finish(canvas.toDataURL('image/jpeg', 0.85));
+            } catch {
+                finish(null);
+            }
+        };
+        img.onerror = () => {
+            clearTimeout(timer);
+            finish(null);
+        };
+        img.src = url;
+    });
+}
+
+async function preloadColorThumbnails(items: RestockItemAnalysis[]): Promise<Map<string, string>> {
+    const thumbMap = new Map<string, string>();
+    const batchSize = 12;
+    for (let i = 0; i < items.length; i += batchSize) {
+        const chunk = items.slice(i, i + batchSize);
+        const results = await Promise.all(
+            chunk.map(async (it) => ({
+                id: it.id,
+                dataUrl: it.imageUrl ? await loadColorThumbnailDataUrl(it.imageUrl) : null,
+            }))
+        );
+        for (const r of results) {
+            if (r.dataUrl) thumbMap.set(r.id, r.dataUrl);
+        }
+    }
+    return thumbMap;
+}
+
+/**
+ * REPORTE VISUAL DE EXISTENCIAS Y REPOSICIÓN CON FOTOS A COLOR (CARTA VERTICAL)
+ * Modos:
+ *  - 'gerencial': Foto a color | Producto | Unidades existentes | Unidades vendidas | Sugerido a reponer | Sugerencia
+ *  - 'proveedor': # | Foto a color | Producto | Cantidad a pedir (sin ventas ni stock interno)
  */
 export async function generateRestockPriorityPDF(
     summary: RestockSummary,
     itemsToPrint: RestockItemAnalysis[],
     companyProfile?: Partial<CompanyProfile>,
-    subtitle: string = `UMBRAL CRÍTICO < ${summary.threshold} UNIDADES`
+    subtitle: string = `PRODUCTOS CON MENOS DE ${summary.threshold} UNIDADES — ORDENADOS POR MAYOR VENTA`,
+    options: {
+        mode?: 'gerencial' | 'proveedor';
+        customQuantities?: Record<string, number>;
+        includeCostEstimate?: boolean;
+    } = {}
 ) {
-    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'letter' });
+    const mode = options.mode || 'gerencial';
+    const customQuantities = options.customQuantities || {};
+    const includeCostEstimate = Boolean(options.includeCostEstimate);
+
+    const resolveQty = (it: RestockItemAnalysis) =>
+        customQuantities[it.id] !== undefined ? Math.max(0, Number(customQuantities[it.id]) || 0) : it.suggestedRestockQty;
+
+    const printableItems = mode === 'proveedor'
+        ? itemsToPrint.filter((it) => resolveQty(it) > 0)
+        : itemsToPrint;
+
+    const thumbMap = await preloadColorThumbnails(printableItems);
+
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'letter' });
     const pageW = doc.internal.pageSize.getWidth();
     const pageH = doc.internal.pageSize.getHeight();
 
-    // Encabezado corporativo
+    // Encabezado limpio
     doc.setFillColor(15, 23, 42);
-    doc.rect(0, 0, pageW, 30, 'F');
+    doc.rect(0, 0, pageW, 28, 'F');
 
     if (companyProfile?.logoUrl) {
         try {
             const base64Logo = await getBase64ImageFromUrl(companyProfile.logoUrl);
-            doc.addImage(base64Logo, 'PNG', 12, 5, 20, 20, undefined, 'FAST');
+            doc.addImage(base64Logo, 'PNG', 12, 4, 20, 20, undefined, 'FAST');
         } catch (_) {}
     }
 
     const textStartX = companyProfile?.logoUrl ? 36 : 14;
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(11);
+    doc.setFontSize(10.5);
     doc.setTextColor(96, 165, 250);
-    doc.text((companyProfile?.companyName || 'ATHLETICENTER C.A.').toUpperCase(), textStartX, 12);
+    doc.text((companyProfile?.companyName || 'ATHLETICENTER C.A.').toUpperCase(), textStartX, 11);
 
     doc.setFontSize(7.5);
     doc.setTextColor(203, 213, 225);
-    doc.text(`RIF: ${companyProfile?.companyRif || 'J-507140202'}  ·  GENERADO: ${format(new Date(), "dd/MM/yyyy HH:mm")}`, textStartX, 18);
-    doc.text(`ALCANCE: ${itemsToPrint.length} SKUs EVALUADOS DE ${summary.totalProducts} EN CATÁLOGO`, textStartX, 23);
+    doc.text(`RIF: ${companyProfile?.companyRif || 'J-507140202'}  ·  FECHA: ${format(new Date(), "dd/MM/yyyy HH:mm")}`, textStartX, 17);
+    doc.text(`${printableItems.length} PRODUCTOS EN LISTADO`, textStartX, 22);
 
-    doc.setFontSize(13);
+    doc.setFontSize(11.5);
     doc.setTextColor(255, 255, 255);
-    doc.text('PLAN MAESTRO DE REPOSICIÓN Y PRIORIDAD', pageW - 14, 13, { align: 'right' });
-    doc.setFontSize(8.5);
+    doc.text(
+        mode === 'proveedor' ? 'LISTA DE PEDIDO / REPOSICIÓN' : 'REPORTE DE EXISTENCIAS Y REPOSICIÓN',
+        pageW - 14,
+        12,
+        { align: 'right' }
+    );
+    doc.setFontSize(7.5);
     doc.setTextColor(251, 191, 36);
-    doc.text(subtitle.toUpperCase(), pageW - 14, 21, { align: 'right' });
+    doc.text(
+        (mode === 'proveedor' ? 'CANTIDADES SOLICITADAS CON REFERENCIA VISUAL' : subtitle).toUpperCase(),
+        pageW - 14,
+        19,
+        { align: 'right' }
+    );
 
-    // Banda de 5 KPIs ejecutivos
-    const filteredSuggestedUnits = itemsToPrint.reduce((s, it) => s + it.suggestedRestockQty, 0);
-    const filteredInvestment = itemsToPrint.reduce((s, it) => s + it.estimatedInvestmentUSD, 0);
-    const kpis = [
-        { label: 'PRIORIDAD P1 (URGENTE)', value: `${summary.p1UrgentCount} SKUs`, color: [225, 29, 72] },
-        { label: 'AGOTADOS (0 UDS)', value: `${summary.outOfStockCount} SKUs`, color: [190, 18, 60] },
-        { label: `BAJO STOCK (<${summary.threshold})`, value: `${summary.criticalCount} SKUs`, color: [217, 119, 6] },
-        { label: 'UNIDADES A REPONER', value: `${filteredSuggestedUnits.toLocaleString()} UDS`, color: [37, 99, 235] },
-        { label: 'INVERSIÓN EST. COMPRA', value: `$${filteredInvestment.toLocaleString('en-US', { minimumFractionDigits: 2 })}`, color: [5, 150, 105] },
-    ];
+    const totalSuggestedInView = printableItems.reduce((s, it) => s + resolveQty(it), 0);
+    const totalExistingInView = printableItems.reduce((s, it) => s + it.stock, 0);
+    const totalInvestmentInView = printableItems.reduce(
+        (s, it) => s + resolveQty(it) * it.estimatedUnitCostUSD,
+        0
+    );
+
+    // Tarjetas resumen superiores
+    const kpis = mode === 'proveedor'
+        ? [
+            { label: 'TOTAL DE PRODUCTOS', value: `${printableItems.length} artículos`, color: [15, 23, 42] },
+            { label: 'TOTAL DE UNIDADES A PEDIR', value: `${totalSuggestedInView.toLocaleString()} uds`, color: [37, 99, 235] },
+            { label: 'FECHA DE SOLICITUD', value: format(new Date(), 'dd/MM/yyyy'), color: [5, 150, 105] },
+        ]
+        : [
+            { label: 'AGOTADOS HOY (0)', value: `${summary.outOfStockCount} prod.`, color: [225, 29, 72] },
+            { label: `MENOS DE ${summary.threshold} UDS`, value: `${summary.criticalCount} prod.`, color: [217, 119, 6] },
+            { label: 'PEDIR URGENTE', value: `${summary.p1UrgentCount} prod.`, color: [185, 28, 28] },
+            { label: 'TOTAL A REPONER', value: `${totalSuggestedInView.toLocaleString()} uds`, color: [37, 99, 235] },
+        ];
 
     const boxGap = 3;
     const totalBoxArea = pageW - 28;
@@ -1066,102 +1178,166 @@ export async function generateRestockPriorityPDF(
         const bx = 14 + idx * (boxW + boxGap);
         doc.setFillColor(248, 250, 252);
         doc.setDrawColor(226, 232, 240);
-        doc.roundedRect(bx, 34, boxW, 14, 2, 2, 'FD');
+        doc.roundedRect(bx, 32, boxW, 14, 2, 2, 'FD');
         doc.setFontSize(6.5);
         doc.setFont("helvetica", "bold");
         doc.setTextColor(100, 116, 139);
-        doc.text(k.label, bx + 3, 39);
-        doc.setFontSize(10.5);
+        doc.text(k.label, bx + 3, 37);
+        doc.setFontSize(10);
         doc.setTextColor(k.color[0], k.color[1], k.color[2]);
-        doc.text(k.value, bx + 3, 45.5);
+        doc.text(k.value, bx + 3, 43.5);
     });
 
-    const tableRows = itemsToPrint.map((it) => [
-        getPriorityLabel(it.priority),
-        it.sku,
-        `${it.name.toUpperCase()}\n${it.category.toUpperCase()}${it.lowSizes.length > 0 ? ` · Tallas bajas: ${it.lowSizes.join(', ')}` : ''}`,
-        `${it.stock}`,
-        it.inTransit > 0 ? `+${it.inTransit}` : '0',
-        `${it.totalSold}`,
-        getRotationLabel(it.rotationTier),
-        it.shortageToThreshold > 0 ? `${it.shortageToThreshold}` : '0',
-        it.suggestedRestockQty > 0 ? `${it.suggestedRestockQty}` : '0',
-        `$${it.estimatedInvestmentUSD.toLocaleString('en-US', { minimumFractionDigits: 2 })}${it.hasRealCost ? '' : ' *'}`,
-    ]);
+    if (mode === 'proveedor') {
+        const provRows = printableItems.map((it, idx) => [
+            `${idx + 1}`,
+            '', // Foto dibujada en didDrawCell
+            `${it.name.toUpperCase()}\n${it.brand ? `${it.brand} · ` : ''}${it.category}${it.lowSizesText ? `\n${it.lowSizesText}` : ''}`,
+            `${resolveQty(it)} uds`,
+        ]);
 
-    (doc as any).autoTable({
-        head: [[
-            'PRIORIDAD',
-            'SKU',
-            'PRODUCTO / CATEGORÍA',
-            'STOCK',
-            'TRÁNS.',
-            'VENDIDOS',
-            'ROTACIÓN',
-            `FALTAN (<${summary.threshold})`,
-            'SUGERIDO',
-            'COSTO EST.'
-        ]],
-        body: tableRows,
-        startY: 52,
-        theme: 'grid',
-        styles: { fontSize: 7.2, cellPadding: 2, valign: 'middle', textColor: [30, 41, 59] },
-        headStyles: { fillColor: [15, 23, 42], textColor: 255, fontStyle: 'bold', fontSize: 7, halign: 'center' },
-        columnStyles: {
-            0: { cellWidth: 26, fontStyle: 'bold', halign: 'center' },
-            1: { cellWidth: 27, fontStyle: 'bold' },
-            2: { cellWidth: 74 },
-            3: { cellWidth: 16, halign: 'center', fontStyle: 'bold' },
-            4: { cellWidth: 16, halign: 'center' },
-            5: { cellWidth: 19, halign: 'center', fontStyle: 'bold' },
-            6: { cellWidth: 23, halign: 'center' },
-            7: { cellWidth: 21, halign: 'center' },
-            8: { cellWidth: 20, halign: 'center', fontStyle: 'bold' },
-            9: { cellWidth: 24, halign: 'right', fontStyle: 'bold' },
-        },
-        didParseCell: (data: any) => {
-            if (data.section !== 'body') return;
-            const rowItem = itemsToPrint[data.row.index];
-            if (!rowItem) return;
-
-            if (data.column.index === 0) {
-                if (rowItem.priority === 'P1_URGENTE') {
-                    data.cell.styles.fillColor = [254, 226, 226];
-                    data.cell.styles.textColor = [185, 28, 28];
-                } else if (rowItem.priority === 'P2_ALTA') {
-                    data.cell.styles.fillColor = [255, 237, 213];
-                    data.cell.styles.textColor = [194, 65, 12];
-                } else if (rowItem.priority === 'P3_MEDIA') {
-                    data.cell.styles.fillColor = [254, 249, 195];
-                    data.cell.styles.textColor = [161, 98, 7];
-                } else {
-                    data.cell.styles.fillColor = [220, 252, 231];
-                    data.cell.styles.textColor = [21, 128, 61];
+        (doc as any).autoTable({
+            head: [['#', 'FOTO', 'PRODUCTO', 'CANTIDAD A PEDIR']],
+            body: provRows,
+            startY: 50,
+            theme: 'grid',
+            styles: { fontSize: 8.5, cellPadding: 2.5, valign: 'middle', textColor: [30, 41, 59], lineColor: [226, 232, 240] },
+            headStyles: { fillColor: [15, 23, 42], textColor: 255, fontStyle: 'bold', fontSize: 8, halign: 'center' },
+            bodyStyles: { minCellHeight: 24 },
+            columnStyles: {
+                0: { cellWidth: 12, halign: 'center', fontStyle: 'bold' },
+                1: { cellWidth: 28, halign: 'center' },
+                2: { cellWidth: 112 },
+                3: { cellWidth: 36, halign: 'center', fontStyle: 'bold', fontSize: 10 },
+            },
+            didParseCell: (data: any) => {
+                if (data.section === 'body' && data.column.index === 3) {
+                    data.cell.styles.textColor = [29, 78, 216];
                 }
-            }
-            if (data.column.index === 3 && rowItem.stock <= 0) {
-                data.cell.styles.textColor = [190, 18, 60];
-            }
-            if (data.column.index === 8 && rowItem.suggestedRestockQty > 0) {
-                data.cell.styles.textColor = [29, 78, 216];
-            }
-        },
-        margin: { top: 14, right: 14, bottom: 16, left: 14 },
-    });
+            },
+            didDrawCell: (data: any) => {
+                if (data.section === 'body' && data.column.index === 1) {
+                    const rowItem = printableItems[data.row.index];
+                    if (!rowItem) return;
+                    const thumb = thumbMap.get(rowItem.id);
+                    const imgSize = 20;
+                    const x = data.cell.x + (data.cell.width - imgSize) / 2;
+                    const y = data.cell.y + (data.cell.height - imgSize) / 2;
+                    if (thumb) {
+                        doc.setDrawColor(226, 232, 240);
+                        doc.setFillColor(255, 255, 255);
+                        doc.rect(x, y, imgSize, imgSize, 'FD');
+                        doc.addImage(thumb, 'JPEG', x + 0.5, y + 0.5, imgSize - 1, imgSize - 1);
+                    }
+                }
+            },
+            margin: { top: 14, right: 14, bottom: 18, left: 14 },
+        });
+    } else {
+        const mgrRows = printableItems.map((it) => {
+            const qty = resolveQty(it);
+            const stockNote = it.stock <= 0 ? 'Agotado' : it.stock < summary.threshold ? 'Quedan pocos' : 'Disponible';
+            return [
+                '', // Foto dibujada en didDrawCell
+                `${it.name.toUpperCase()}\n${it.category}${it.lowSizesText ? ` · ${it.lowSizesText}` : ''}`,
+                `${it.stock}\n(${stockNote})`,
+                `${it.totalSold}`,
+                qty > 0 ? `${qty}` : '0',
+                `${getPriorityLabel(it.priority)}\n${it.recommendationText}`,
+            ];
+        });
+
+        (doc as any).autoTable({
+            head: [[
+                'FOTO',
+                'PRODUCTO',
+                'EXISTENTES',
+                'VENDIDAS',
+                'SUGERIDO REPONER',
+                'SUGERENCIA'
+            ]],
+            body: mgrRows,
+            startY: 50,
+            theme: 'grid',
+            styles: { fontSize: 7.5, cellPadding: 2, valign: 'middle', textColor: [30, 41, 59], lineColor: [226, 232, 240] },
+            headStyles: { fillColor: [15, 23, 42], textColor: 255, fontStyle: 'bold', fontSize: 7.2, halign: 'center' },
+            bodyStyles: { minCellHeight: 22 },
+            columnStyles: {
+                0: { cellWidth: 22, halign: 'center' },
+                1: { cellWidth: 56 },
+                2: { cellWidth: 21, halign: 'center', fontStyle: 'bold' },
+                3: { cellWidth: 21, halign: 'center', fontStyle: 'bold', fontSize: 8.5 },
+                4: { cellWidth: 24, halign: 'center', fontStyle: 'bold', fontSize: 9 },
+                5: { cellWidth: 44, valign: 'middle' },
+            },
+            didParseCell: (data: any) => {
+                if (data.section !== 'body') return;
+                const rowItem = printableItems[data.row.index];
+                if (!rowItem) return;
+
+                if (data.column.index === 2) {
+                    if (rowItem.stock <= 0) data.cell.styles.textColor = [190, 18, 60];
+                    else if (rowItem.stock < summary.threshold) data.cell.styles.textColor = [194, 65, 12];
+                    else data.cell.styles.textColor = [21, 128, 61];
+                }
+                if (data.column.index === 4) {
+                    const qty = resolveQty(rowItem);
+                    data.cell.styles.textColor = qty > 0 ? [29, 78, 216] : [148, 163, 184];
+                }
+                if (data.column.index === 5) {
+                    data.cell.styles.fontStyle = 'bold';
+                    if (rowItem.priority === 'P1_URGENTE') {
+                        data.cell.styles.fillColor = [254, 226, 226];
+                        data.cell.styles.textColor = [153, 27, 27];
+                    } else if (rowItem.priority === 'P2_ALTA') {
+                        data.cell.styles.fillColor = [255, 237, 213];
+                        data.cell.styles.textColor = [154, 52, 18];
+                    } else if (rowItem.priority === 'P3_MEDIA') {
+                        data.cell.styles.fillColor = [254, 249, 195];
+                        data.cell.styles.textColor = [133, 77, 14];
+                    } else {
+                        data.cell.styles.fillColor = [220, 252, 231];
+                        data.cell.styles.textColor = [22, 101, 52];
+                    }
+                }
+            },
+            didDrawCell: (data: any) => {
+                if (data.section === 'body' && data.column.index === 0) {
+                    const rowItem = printableItems[data.row.index];
+                    if (!rowItem) return;
+                    const thumb = thumbMap.get(rowItem.id);
+                    const imgSize = 18;
+                    const x = data.cell.x + (data.cell.width - imgSize) / 2;
+                    const y = data.cell.y + (data.cell.height - imgSize) / 2;
+                    if (thumb) {
+                        doc.setDrawColor(226, 232, 240);
+                        doc.setFillColor(255, 255, 255);
+                        doc.rect(x, y, imgSize, imgSize, 'FD');
+                        doc.addImage(thumb, 'JPEG', x + 0.5, y + 0.5, imgSize - 1, imgSize - 1);
+                    }
+                }
+            },
+            margin: { top: 14, right: 14, bottom: 18, left: 14 },
+        });
+    }
 
     const totalPages = (doc as any).internal.getNumberOfPages();
+    const footerSummary =
+        mode === 'proveedor'
+            ? `Total solicitado: ${printableItems.length} productos · ${totalSuggestedInView.toLocaleString()} unidades`
+            : `Productos: ${printableItems.length} · Existentes: ${totalExistingInView.toLocaleString()} uds · Total a reponer: ${totalSuggestedInView.toLocaleString()} uds${includeCostEstimate ? ` · Inversión est.: $${totalInvestmentInView.toLocaleString('en-US', { minimumFractionDigits: 2 })}` : ''}`;
+
     for (let i = 1; i <= totalPages; i++) {
         doc.setPage(i);
-        doc.setFontSize(7);
+        doc.setFontSize(7.2);
         doc.setFont("helvetica", "normal");
         doc.setTextColor(100);
-        doc.text(
-            '* Costo estimado (55% del precio Cash USD) cuando el SKU aún no tiene costo WAC cargado. Ordenado por prioridad de rotación real.',
-            14,
-            pageH - 8
-        );
+        doc.text(footerSummary, 14, pageH - 8);
         doc.text(`Página ${i} de ${totalPages}`, pageW - 14, pageH - 8, { align: 'right' });
     }
 
-    doc.save(`Plan_Reposicion_Prioridad_Athleticenter_${format(new Date(), 'yyyy-MM-dd')}.pdf`);
+    const fileNamePrefix = mode === 'proveedor'
+        ? 'Lista_Pedido_Proveedor_Athleticenter'
+        : 'Reporte_Reposicion_Fotos_Athleticenter';
+    doc.save(`${fileNamePrefix}_${format(new Date(), 'yyyy-MM-dd')}.pdf`);
 }
