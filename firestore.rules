@@ -54,7 +54,7 @@ service cloud.firestore {
                         && resource.data.get('role', '') == 'cliente'
                         && request.resource.data.get('role', '') == 'cliente'
                         && unchanged('role') && unchanged('commissionRate') && unchanged('isActive')
-                        && onlyChanges(['id', 'name', 'email', 'role', 'status', 'associatedCustomerId', 'avatarUrl', 'phone', 'address', 'updatedAt']));
+                        && onlyChanges(['id', 'name', 'email', 'role', 'status', 'associatedCustomerId', 'avatarUrl', 'phone', 'address', 'identityCard', 'updatedAt']));
 
       allow delete: if isSuper() || (isManager() && resource.data.get('role', '') != 'superadmin');
 

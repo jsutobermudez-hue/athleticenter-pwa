@@ -39,6 +39,7 @@ const roles: User['role'][] = ['superadmin', 'admin', 'gerencia', 'deposito', 'v
 
 const editUserSchema = z.object({
   name: z.string().min(1, 'El nombre es requerido.'),
+  identityCard: z.string().optional().default(''),
   email: z.string().email('Email inválido.'),
   role: z.enum(roles as any),
   avatarUrl: z.string().optional(),
@@ -84,6 +85,7 @@ export function EditUserDialog({ user, isOpen, onOpenChange, title, description 
     resolver: zodResolver(editUserSchema),
     defaultValues: {
       name: user.name,
+      identityCard: user.identityCard || '',
       email: user.email,
       role: user.role,
       avatarUrl: user.avatarUrl,
@@ -103,6 +105,7 @@ export function EditUserDialog({ user, isOpen, onOpenChange, title, description 
     if (isOpen) {
       reset({
         name: user.name,
+        identityCard: user.identityCard || '',
         email: user.email,
         role: user.role,
         avatarUrl: user.avatarUrl || '',
@@ -125,6 +128,7 @@ export function EditUserDialog({ user, isOpen, onOpenChange, title, description 
         const userRef = doc(firestore, "users", user.id);
         transaction.update(userRef, {
           name: data.name,
+          identityCard: (data.identityCard || '').trim().toUpperCase(),
           email: data.email,
           role: safeRole,
           status: data.status,
@@ -257,10 +261,14 @@ export function EditUserDialog({ user, isOpen, onOpenChange, title, description 
               <section className="space-y-6">
                 <div className="flex items-center gap-2 px-1 text-primary"><UserIcon className="h-4 w-4" /><h3 className="text-[10px] font-black uppercase tracking-[0.2em]">Identidad Personal</h3></div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                  <div className="space-y-2">
+                  <div className="space-y-2 sm:col-span-2">
                     <Label className="text-[10px] font-black uppercase text-slate-400 px-1">Nombre</Label>
                     <Controller name="name" control={control} render={({ field }) => <Input {...field} className="h-11 font-bold rounded-xl bg-slate-50 border-none shadow-inner" />} />
                     {errors.name?.message && <p className="text-[10px] text-rose-500 font-bold uppercase px-1">{errors.name.message.toString()}</p>}
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-[10px] font-black uppercase text-slate-400 px-1">Cédula de Identidad</Label>
+                    <Controller name="identityCard" control={control} render={({ field }) => <Input {...field} placeholder="V-00.000.000" className="h-11 font-mono font-bold uppercase rounded-xl bg-slate-50 border-none shadow-inner" />} />
                   </div>
                   <div className="space-y-2">
                     <Label className="text-[10px] font-black uppercase text-slate-400 px-1">Teléfono</Label>

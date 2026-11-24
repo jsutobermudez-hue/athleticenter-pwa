@@ -72,6 +72,7 @@ const roles: User['role'][] = ['superadmin', 'admin', 'gerencia', 'deposito', 'v
 
 const newUserSchema = z.object({
   name: z.string().optional().default(''),
+  identityCard: z.string().trim().optional().default(''),
   email: z.string().email('Email inválido.'),
   password: z.string().min(6, 'Mínimo 6 caracteres.'),
   role: z.enum(roles as any),
@@ -118,6 +119,13 @@ const newUserSchema = z.object({
                 path: ['name']
             });
         }
+        if (!data.identityCard || data.identityCard.trim().length < 5) {
+            ctx.addIssue({
+                code: 'custom',
+                message: 'La cédula de identidad es requerida.',
+                path: ['identityCard']
+            });
+        }
     }
 });
 
@@ -148,6 +156,7 @@ export function NewUserDialog({ buttonLabel = "Crear Usuario", defaultRole = 've
     defaultValues: { 
         role: defaultRole, 
         name: '', 
+        identityCard: '',
         email: '', 
         password: '', 
         avatarUrl: '', 
@@ -225,6 +234,7 @@ export function NewUserDialog({ buttonLabel = "Crear Usuario", defaultRole = 've
             await setDoc(doc(firestore, "users", targetUid), { 
                 id: targetUid,
                 name: clientName, 
+                identityCard: (data.identityCard || '').trim().toUpperCase(),
                 email: emailClean, 
                 role: effectiveRole, 
                 status: 'Activo', 
@@ -447,12 +457,19 @@ export function NewUserDialog({ buttonLabel = "Crear Usuario", defaultRole = 've
                             <h3 className="text-[10px] font-black uppercase tracking-[0.2em]">Datos Personales del Contacto</h3>
                         </div>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                            <div className="space-y-2">
+                            <div className="space-y-2 sm:col-span-2">
                                 <Label className="text-[10px] font-black uppercase text-slate-400 px-1">Nombre Completo</Label>
                                 <Controller name="name" control={control} render={({ field }) => (
                                     <Input {...field} placeholder="Nombre y Apellido" className="h-11 font-bold rounded-xl bg-slate-50 border-none shadow-inner" />
                                 )} />
                                 {errors.name && <p className="text-[9px] text-rose-500 font-bold uppercase px-1">{errors.name.message}</p>}
+                            </div>
+                            <div className="space-y-2">
+                                <Label className="text-[10px] font-black uppercase text-slate-400 px-1">Cédula de Identidad</Label>
+                                <Controller name="identityCard" control={control} render={({ field }) => (
+                                    <Input {...field} placeholder="V-00.000.000" className="h-11 font-mono font-bold uppercase rounded-xl bg-slate-50 border-none shadow-inner" />
+                                )} />
+                                {errors.identityCard && <p className="text-[9px] text-rose-500 font-bold uppercase px-1">{errors.identityCard.message}</p>}
                             </div>
                             <div className="space-y-2">
                                 <Label className="text-[10px] font-black uppercase text-slate-400 px-1">Teléfono Directo</Label>
