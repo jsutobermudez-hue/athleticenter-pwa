@@ -226,7 +226,7 @@ export function generateLiveCatalogPdfBase64(
         pdf.setTextColor(255, 255, 255);
         pdf.text('SKU', margin + 2, topY + 4.8);
         pdf.text('MARCA', margin + 28, topY + 4.8);
-        pdf.text('PRODUCTO / MODELO', margin + 52, topY + 4.8);
+        pdf.text('PRODUCTO / CÓDIGO', margin + 52, topY + 4.8);
         pdf.text('STOCK', margin + 123, topY + 4.8, { align: 'right' });
         pdf.text('LISTA (BCV)', margin + 144, topY + 4.8, { align: 'right' });
         pdf.text(`DIVISAS (-${divisasDiscountPct}%)`, margin + 165, topY + 4.8, { align: 'right' });
@@ -265,7 +265,7 @@ export function generateLiveCatalogPdfBase64(
         y = drawTableCols(y);
 
         items.forEach((item, idx) => {
-            if (y > 276) {
+            if (y > 270) {
                 pdf.addPage();
                 pageNum++;
                 drawHeader(pageNum);
@@ -275,32 +275,40 @@ export function generateLiveCatalogPdfBase64(
 
             if (idx % 2 === 0) {
                 pdf.setFillColor(248, 250, 252);
-                pdf.rect(margin, y, pageWidth - margin * 2, 6.2, 'F');
+                pdf.rect(margin, y, pageWidth - margin * 2, 9.0, 'F');
             }
 
             pdf.setFont('helvetica', 'normal');
             pdf.setFontSize(6.8);
             pdf.setTextColor(71, 85, 105);
-            pdf.text((item.sku || '').slice(0, 14), margin + 2, y + 4.3);
+            pdf.text((item.sku || '').slice(0, 14), margin + 2, y + 4.0);
 
             pdf.setFont('helvetica', 'bold');
             pdf.setTextColor(15, 23, 42);
-            pdf.text((item.brand || '').slice(0, 12), margin + 28, y + 4.3);
+            pdf.text((item.brand || '').slice(0, 12), margin + 28, y + 4.0);
 
             pdf.setFont('helvetica', 'normal');
-            pdf.text((item.name || '').slice(0, 38), margin + 52, y + 4.3);
+            pdf.text((item.name || '').slice(0, 38), margin + 52, y + 3.8);
 
-            pdf.text(`${item.stock} un.`, margin + 123, y + 4.3, { align: 'right' });
-            pdf.text(money(item.priceLista), margin + 144, y + 4.3, { align: 'right' });
+            pdf.setFont('helvetica', 'bold');
+            pdf.setFontSize(6.0);
+            pdf.setTextColor(71, 85, 105);
+            pdf.text(`CÓDIGO: ${(item.sku || 'S/C').toUpperCase()}`, margin + 52, y + 7.2);
+
+            pdf.setFont('helvetica', 'normal');
+            pdf.setFontSize(6.8);
+            pdf.setTextColor(15, 23, 42);
+            pdf.text(`${item.stock} un.`, margin + 123, y + 4.0, { align: 'right' });
+            pdf.text(money(item.priceLista), margin + 144, y + 4.0, { align: 'right' });
 
             pdf.setFont('helvetica', 'bold');
             pdf.setTextColor(5, 150, 105);
-            pdf.text(money(item.priceDivisas), margin + 165, y + 4.3, { align: 'right' });
+            pdf.text(money(item.priceDivisas), margin + 165, y + 4.0, { align: 'right' });
 
             pdf.setTextColor(37, 99, 235);
-            pdf.text(money(item.priceProntoPago), pageWidth - margin - 2, y + 4.3, { align: 'right' });
+            pdf.text(money(item.priceProntoPago), pageWidth - margin - 2, y + 4.0, { align: 'right' });
 
-            y += 6.2;
+            y += 9.0;
         });
 
         y += 4;

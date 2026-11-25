@@ -69,6 +69,32 @@ function resolveItemImageUrl(itemOrProduct: any): string {
 }
 
 /**
+ * Formatea la celda de producto colocando siempre el código del sistema
+ * inmediatamente debajo del nombre del producto.
+ */
+function formatProductCellWithCode(params: {
+    name?: string;
+    sku?: string;
+    fallbackId?: string;
+    size?: string | null;
+    metaLines?: Array<string | undefined | null>;
+    codePrefix?: string;
+}): string {
+    const baseName = (params.name || 'PRODUCTO').trim().toUpperCase();
+    const sizeSuffix = params.size ? ` [TALLA: ${String(params.size).trim().toUpperCase()}]` : '';
+    const code = (params.sku || params.fallbackId || 'S/C').trim().toUpperCase();
+    const lines = [
+        `${baseName}${sizeSuffix}`,
+        `${params.codePrefix || 'CÓDIGO'}: ${code}`,
+    ];
+    for (const line of params.metaLines || []) {
+        const trimmed = (line || '').trim();
+        if (trimmed) lines.push(trimmed);
+    }
+    return lines.join('\n');
+}
+
+/**
  * Convierte cualquier imagen (Base64 o URL HTTPS) en miniatura cuadrada a color JPEG
  * liviana (120x120 px sobre blanco) con caché en memoria y tolerancia total a fallos.
  */
@@ -307,7 +333,6 @@ export async function generateOrderPDF({
   // Para NOTA FINAL PAGADA O FACTURA: SÍ SALEN LOS DESCUENTOS APLICADOS.
   const tableRows = orderItems.map((item, index) => {
     const rawPrice = item.unitPrice;
-    const sku = item.product?.sku || 'S/SKU';
     
     let finalUnitPrice = rawPrice;
     if (!isDispatchDelivery && !isNetOrPromotional) {
@@ -316,17 +341,18 @@ export async function generateOrderPDF({
     
     const rowSubtotal = roundCurrency(finalUnitPrice * item.quantity);
 
-    let desc = item.product?.name || 'PRODUCTO / EQUIPO';
-    if (item.size) desc += ` [TALLA: ${item.size}]`;
-    const metaParts: string[] = [];
-    if (item.product?.category) metaParts.push(item.product.category);
-    if (sku) metaParts.push(`Ref: ${sku}`);
-    if (metaParts.length > 0) desc += `\n${metaParts.join(' · ')}`;
+    const desc = formatProductCellWithCode({
+      name: item.product?.name || 'PRODUCTO / EQUIPO',
+      sku: item.product?.sku,
+      fallbackId: item.productId || item.product?.id,
+      size: item.size,
+      metaLines: [item.product?.category ? item.product.category.toUpperCase() : ''],
+    });
 
     return [
       (index + 1).toString(),
       '', // Foto a color dibujada en didDrawCell
-      desc.toUpperCase(),
+      desc,
       item.quantity.toString(),
       `$ ${finalUnitPrice.toFixed(2)}`,
       `$ ${rowSubtotal.toFixed(2)}`
@@ -337,7 +363,7 @@ export async function generateOrderPDF({
   const totalColHeader = isDispatchDelivery ? "TOTAL LISTA ($ USD)" : "TOTAL ($ USD)";
 
   (doc as any).autoTable({
-    head: [["#", "FOTO", "PRODUCTO / REF", "CANT", priceColHeader, totalColHeader]],
+    head: [["#", "FOTO", "PRODUCTO / CÓDIGO", "CANT", priceColHeader, totalColHeader]],
     body: tableRows,
     startY: 80,
     theme: 'grid',
@@ -525,14 +551,27 @@ export async function generatePackageLabelsPDF(
     doc.setFontSize(7); doc.text(`GUÍA EXT: ${order.trackingNumber || '---'}`, 80, 38);
 
     if (items.length > 0) {
-        const tableRows = items.map(item => [item.product?.sku || 'N/A', item.product?.name.toUpperCase().substring(0, 35), item.quantity]);
+        const tableRows = items.map(item => [
+            formatProductCellWithCode({
+                name: item.product?.name?.substring(0, 35) || 'EQUIPO',
+                sku: item.product?.sku,
+                fallbackId: item.productId || item.product?.id,
+                size: item.size,
+                codePrefix: 'CÓD',
+            }),
+            item.quantity,
+        ]);
         (doc as any).autoTable({
-            head: [["SKU", "EQUIPO", "CANT"]],
+            head: [["EQUIPO / CÓDIGO", "CANT"]],
             body: tableRows,
             startY: 50,
             margin: { left: 10, right: 78 },
             styles: { fontSize: 6, cellPadding: 1 },
             headStyles: { fillColor: [30, 41, 59], fontSize: 6 },
+            columnStyles: {
+                0: { cellWidth: 64 },
+                1: { cellWidth: 16, halign: 'center', fontStyle: 'bold' },
+            },
             tableWidth: 80
         });
     }
@@ -599,9 +638,12 @@ export async function generateQuotePDF({
     totalBcvUSD += rowBcvTotal;
     totalCashUSD += rowCashTotal;
 
-    const sku = item.product?.sku || 'N/A';
-    const nameStr = (item.product?.name || 'EQUIPO').toUpperCase() + (item.size ? ` (${item.size})` : '');
-    const productCellText = `${nameStr}\nRef: ${sku.toUpperCase()}`;
+    const productCellText = formatProductCellWithCode({
+      name: item.product?.name || 'EQUIPO',
+      sku: item.product?.sku,
+      fallbackId: item.productId || item.product?.id,
+      size: item.size,
+    });
     
     return [
       '', // Foto a color dibujada en didDrawCell
@@ -614,7 +656,7 @@ export async function generateQuotePDF({
   });
 
   (doc as any).autoTable({ 
-    head: [["FOTO", "PRODUCTO / REF", "CANT", "P. BCV", "P. CASH", "TOTAL BCV"]], 
+    head: [["FOTO", "PRODUCTO / CÓDIGO", "CANT", "P. BCV", "P. CASH", "TOTAL BCV"]], 
     body: tableRows, 
     startY: 80, 
     theme: 'grid', 
@@ -690,27 +732,30 @@ export async function generatePickingListPDF({ orderId, customerName, orderItems
 
   const tableRows = safeItems.map((item: any) => [
     '', // Foto dibujada en didDrawCell
-    item.product?.warehouseLocation || 'Z-ZZZ', 
-    item.product?.sku || 'N/A', 
-    (item.product?.name || 'EQUIPO').toUpperCase() + (item.size ? ` (${item.size})` : ''), 
-    item.quantity, 
+    item.product?.warehouseLocation || 'Z-ZZZ',
+    formatProductCellWithCode({
+      name: item.product?.name || 'EQUIPO',
+      sku: item.product?.sku,
+      fallbackId: item.productId || item.product?.id,
+      size: item.size,
+    }),
+    item.quantity,
     "[  ]"
   ]);
-  (doc as any).autoTable({ 
-    head: [["FOTO", "UBICACIÓN", "SKU", "EQUIPO / TALLA", "CANT", "CHECK"]], 
-    body: tableRows, 
-    startY: 50, 
-    theme: 'grid', 
+  (doc as any).autoTable({
+    head: [["FOTO", "UBICACIÓN", "PRODUCTO / CÓDIGO", "CANT", "CHECK"]],
+    body: tableRows,
+    startY: 50,
+    theme: 'grid',
     styles: { fontSize: 7.5, cellPadding: 2, overflow: 'linebreak' },
     headStyles: { fillColor: [30, 41, 59], halign: 'center', fontSize: 7 },
     bodyStyles: { minCellHeight: 18, valign: 'middle' },
     columnStyles: {
       0: { cellWidth: 20, halign: 'center' },
       1: { cellWidth: 24, halign: 'center', fontStyle: 'bold' },
-      2: { cellWidth: 28, fontStyle: 'bold' },
-      3: { cellWidth: 78 },
-      4: { cellWidth: 16, halign: 'center', fontStyle: 'bold' },
-      5: { cellWidth: 16, halign: 'center' }
+      2: { cellWidth: 106 },
+      3: { cellWidth: 16, halign: 'center', fontStyle: 'bold' },
+      4: { cellWidth: 16, halign: 'center' }
     },
     didDrawCell: (data: any) => {
       if (data.section === 'body' && data.column.index === 0) {
@@ -806,9 +851,14 @@ export async function generateInventoryReportPDF(
     const brand = canonicalizeBrand(p.brand);
     const disc = canonicalizeDiscipline(p.discipline);
     const cat = (p.category || '').trim().toUpperCase();
-    const meta = [brand, disc, cat, p.sku || 'S/SKU'].filter(Boolean).join(' · ');
+    const meta = [brand, disc, cat].filter(Boolean).join(' · ');
     const sizesTxt = formatProductSizesSummary(p);
-    return `${(p.name || 'PRODUCTO').toUpperCase()}\n${meta}${sizesTxt ? `\nTallas: ${sizesTxt}` : ''}`;
+    return formatProductCellWithCode({
+      name: p.name,
+      sku: p.sku,
+      fallbackId: p.id,
+      metaLines: [meta, sizesTxt ? `Tallas: ${sizesTxt}` : ''],
+    });
   };
 
   if (showPrices) {
@@ -1117,8 +1167,11 @@ export async function generatePurchaseOrderPDF(order: PurchaseOrder, companyProf
         const qty = item.quantity || 0;
         return [
             `#${idx + 1}`,
-            (item.sku || 'N/A').toUpperCase(),
-            (item.name || 'N/A').toUpperCase(),
+            formatProductCellWithCode({
+                name: item.name || 'N/A',
+                sku: item.sku,
+                fallbackId: item.productId,
+            }),
             `${qty} UNID`,
             `$ ${unitCost.toFixed(2)}`,
             `$ ${landed.toFixed(2)}`,
@@ -1127,20 +1180,19 @@ export async function generatePurchaseOrderPDF(order: PurchaseOrder, companyProf
     });
 
     (doc as any).autoTable({
-        head: [["ITEM", "REF / SKU", "DESCRIPCIÓN DE PRODUCTO", "CANTIDAD", "FOB UNID", "LANDED UNID", "SUBTOTAL USD"]],
-        body: tableRows.length > 0 ? tableRows : [["-", "-", "Sin artículos en el manifiesto", "-", "-", "-", "$0.00"]],
+        head: [["ITEM", "PRODUCTO / CÓDIGO", "CANTIDAD", "FOB UNID", "LANDED UNID", "SUBTOTAL USD"]],
+        body: tableRows.length > 0 ? tableRows : [["-", "Sin artículos en el manifiesto", "-", "-", "-", "$0.00"]],
         startY: 88,
         theme: 'grid',
         headStyles: { fillColor: [30, 41, 59], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8 },
         bodyStyles: { fontSize: 8 },
         columnStyles: {
             0: { cellWidth: 12, halign: 'center' },
-            1: { cellWidth: 28, fontStyle: 'bold' },
-            2: { cellWidth: 58 },
-            3: { cellWidth: 20, halign: 'center', fontStyle: 'bold' },
-            4: { cellWidth: 20, halign: 'right' },
-            5: { cellWidth: 22, halign: 'right', fontStyle: 'bold' },
-            6: { cellWidth: 22, halign: 'right', fontStyle: 'bold' }
+            1: { cellWidth: 86 },
+            2: { cellWidth: 20, halign: 'center', fontStyle: 'bold' },
+            3: { cellWidth: 20, halign: 'right' },
+            4: { cellWidth: 22, halign: 'right', fontStyle: 'bold' },
+            5: { cellWidth: 22, halign: 'right', fontStyle: 'bold' }
         }
     });
 
@@ -1526,12 +1578,17 @@ export async function generateRestockPriorityPDF(
         const provRows = printableItems.map((it, idx) => [
             `${idx + 1}`,
             '', // Foto dibujada en didDrawCell
-            `${it.name.toUpperCase()}\n${it.brand ? `${it.brand} · ` : ''}${it.category}${it.lowSizesText ? `\n${it.lowSizesText}` : ''}`,
+            formatProductCellWithCode({
+                name: it.name,
+                sku: it.sku,
+                fallbackId: it.id,
+                metaLines: [[it.brand, it.category].filter(Boolean).join(' · '), it.lowSizesText],
+            }),
             `${resolveQty(it)} uds`,
         ]);
 
         (doc as any).autoTable({
-            head: [['#', 'FOTO', 'PRODUCTO', 'CANTIDAD A PEDIR']],
+            head: [['#', 'FOTO', 'PRODUCTO / CÓDIGO', 'CANTIDAD A PEDIR']],
             body: provRows,
             startY: 50,
             theme: 'grid',
@@ -1564,7 +1621,12 @@ export async function generateRestockPriorityPDF(
             const stockNote = it.stock <= 0 ? 'Agotado' : it.stock < summary.threshold ? 'Quedan pocos' : 'Disponible';
             return [
                 '', // Foto dibujada en didDrawCell
-                `${it.name.toUpperCase()}\n${it.category}${it.lowSizesText ? ` · ${it.lowSizesText}` : ''}`,
+                formatProductCellWithCode({
+                    name: it.name,
+                    sku: it.sku,
+                    fallbackId: it.id,
+                    metaLines: [[it.category, it.lowSizesText].filter(Boolean).join(' · ')],
+                }),
                 `${it.stock}\n(${stockNote})`,
                 `${it.totalSold}`,
                 qty > 0 ? `${qty}` : '0',
@@ -1575,7 +1637,7 @@ export async function generateRestockPriorityPDF(
         (doc as any).autoTable({
             head: [[
                 'FOTO',
-                'PRODUCTO',
+                'PRODUCTO / CÓDIGO',
                 'EXISTENTES',
                 'VENDIDAS',
                 'SUGERIDO REPONER',
