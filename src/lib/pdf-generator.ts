@@ -8,6 +8,14 @@ import { es } from 'date-fns/locale';
 import { calculatePricingTier } from './pricing';
 import { roundCurrency } from './billing';
 import { type RestockSummary, type RestockItemAnalysis, getPriorityLabel } from './restock-engine';
+import {
+  getProductStock,
+  getProductCashPrice,
+  formatProductSizesSummary,
+  canonicalizeBrand,
+  canonicalizeDiscipline,
+  computeInventorySelectionMetrics,
+} from './inventory-filter';
 
 type GenerateOrderPdfParams = {
   customerName: string;
@@ -717,47 +725,227 @@ export async function generatePickingListPDF({ orderId, customerName, orderItems
   doc.save(`Picking_${orderId.substring(0,8)}.pdf`);
 }
 
-export async function generateInventoryReportPDF(products: Product[], companyProfile?: Partial<CompanyProfile>, title: string = 'INVENTARIO MAESTRO') {
-  const doc = new jsPDF();
-  await addFiscalHeader(doc, companyProfile, title, 'INV-' + Date.now().toString().slice(-6), new Date());
+export async function generateInventoryReportPDF(
+  products: Product[],
+  companyProfile?: Partial<CompanyProfile>,
+  title: string = 'INVENTARIO MAESTRO',
+  options: {
+    subtitle?: string;
+    showPrices?: boolean;
+    bcvDiscount?: number;
+    filename?: string;
+  } = {}
+) {
   const safeProducts = Array.isArray(products) ? products : [];
+  const showPrices = options.showPrices !== false;
+  const bcvDiscount = options.bcvDiscount ?? 25;
+  const subtitle = (options.subtitle || 'CATÁLOGO Y EXISTENCIAS EN ALMACÉN').toUpperCase();
+  const metrics = computeInventorySelectionMetrics(safeProducts, bcvDiscount);
+
   const thumbMap = await preloadThumbnailMap(safeProducts.map(resolveItemImageUrl));
 
-  const tableRows = safeProducts.map(p => [
-    '', // Foto dibujada en didDrawCell
-    p.sku || 'S/SKU',
-    (p.name || 'PRODUCTO').toUpperCase(),
-    p.warehouseLocation || '---',
-    Number(p.stockLevel ?? (p as any).stock ?? 0),
-    `$ ${Number(p.price || 0).toFixed(2)}`
-  ]);
-  (doc as any).autoTable({
-    head: [["FOTO", "SKU", "DESCRIPCIÓN", "UBICACIÓN", "STOCK", "PVP BASE"]],
-    body: tableRows,
-    startY: 50,
-    theme: 'grid',
-    styles: { fontSize: 7.5, cellPadding: 2, overflow: 'linebreak' },
-    headStyles: { fillColor: [30, 41, 59], halign: 'center', fontSize: 7 },
-    bodyStyles: { minCellHeight: 18, valign: 'middle' },
-    columnStyles: {
-      0: { cellWidth: 20, halign: 'center' },
-      1: { cellWidth: 26, fontStyle: 'bold' },
-      2: { cellWidth: 78 },
-      3: { cellWidth: 22, halign: 'center' },
-      4: { cellWidth: 16, halign: 'center', fontStyle: 'bold' },
-      5: { cellWidth: 20, halign: 'right', fontStyle: 'bold' }
-    },
-    didDrawCell: (data: any) => {
-      if (data.section === 'body' && data.column.index === 0) {
-        const p = safeProducts[data.row.index];
-        if (!p) return;
-        drawThumbnailInCell(doc, data, thumbMap.get(resolveItemImageUrl(p)), 15);
-      }
-    },
-    margin: { top: 14, right: 14, bottom: 16, left: 14 }
-  });
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'letter' });
+  const pageW = doc.internal.pageSize.getWidth();
+  const pageH = doc.internal.pageSize.getHeight();
+
+  // Encabezado oscuro corporativo
+  doc.setFillColor(15, 23, 42);
+  doc.rect(0, 0, pageW, 28, 'F');
+
+  if (companyProfile?.logoUrl) {
+    try {
+      const base64Logo = await getBase64ImageFromUrl(companyProfile.logoUrl);
+      doc.addImage(base64Logo, 'PNG', 14, 4, 20, 20, undefined, 'FAST');
+    } catch (_) {}
+  }
+
+  const textStartX = companyProfile?.logoUrl ? 38 : 14;
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(10.5);
+  doc.setTextColor(96, 165, 250);
+  doc.text((companyProfile?.companyName || 'ATHLETICENTER C.A.').toUpperCase(), textStartX, 10.5);
+
+  doc.setFontSize(7.5);
+  doc.setTextColor(203, 213, 225);
+  doc.text(`RIF: ${companyProfile?.companyRif || 'J-507140202'}  ·  EMISIÓN: ${format(new Date(), 'dd/MM/yyyy HH:mm')}`, textStartX, 16.5);
+  doc.text(`${metrics.modelsCount} MODELOS  ·  ${metrics.totalUnits.toLocaleString()} UNIDADES DISPONIBLES`, textStartX, 22);
+
+  doc.setFontSize(11.5);
+  doc.setTextColor(255, 255, 255);
+  doc.text(title.toUpperCase(), pageW - 14, 12, { align: 'right' });
+
+  doc.setFontSize(7.2);
+  doc.setTextColor(251, 191, 36);
+  const subtitleText = subtitle.length > 72 ? `${subtitle.slice(0, 69)}...` : subtitle;
+  doc.text(subtitleText, pageW - 14, 19, { align: 'right' });
+
+  // Barra superior de métricas resumidas
+  const barY = 31;
+  doc.setFillColor(248, 250, 252);
+  doc.setDrawColor(226, 232, 240);
+  doc.roundedRect(14, barY, pageW - 28, 12, 2, 2, 'FD');
+  doc.setFontSize(7.5);
+  doc.setFont("helvetica", "bold");
+  doc.setTextColor(30, 41, 59);
+  const barSummaryLeft = `MODELOS: ${metrics.modelsCount}   |   DISPONIBLES: ${metrics.inStockCount} (${metrics.totalUnits.toLocaleString()} UDS)   |   AGOTADOS: ${metrics.outOfStockCount}`;
+  doc.text(barSummaryLeft, 18, barY + 7.5);
+  if (showPrices) {
+    doc.setTextColor(5, 150, 105);
+    doc.text(
+      `BCV: $${metrics.totalValuationBCV.toLocaleString('en-US', { minimumFractionDigits: 2 })}  ·  CASH: $${metrics.totalValuationCash.toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
+      pageW - 18,
+      barY + 7.5,
+      { align: 'right' }
+    );
+  } else {
+    doc.setTextColor(100, 116, 139);
+    doc.text('HOJA DE CONTEO FÍSICO EN ALMACÉN', pageW - 18, barY + 7.5, { align: 'right' });
+  }
+
+  const formatDetailCell = (p: Product) => {
+    const brand = canonicalizeBrand(p.brand);
+    const disc = canonicalizeDiscipline(p.discipline);
+    const cat = (p.category || '').trim().toUpperCase();
+    const meta = [brand, disc, cat, p.sku || 'S/SKU'].filter(Boolean).join(' · ');
+    const sizesTxt = formatProductSizesSummary(p);
+    return `${(p.name || 'PRODUCTO').toUpperCase()}\n${meta}${sizesTxt ? `\nTallas: ${sizesTxt}` : ''}`;
+  };
+
+  if (showPrices) {
+    const tableRows = safeProducts.map((p) => {
+      const stock = getProductStock(p);
+      const listPrice = Number(p.price || 0);
+      const cashPrice = getProductCashPrice(p, bcvDiscount);
+      const totalRowBCV = Math.max(0, stock) * listPrice;
+      return [
+        '', // Foto en didDrawCell
+        formatDetailCell(p),
+        (p.warehouseLocation || '---').toUpperCase(),
+        `${stock} uds`,
+        `$${listPrice.toFixed(2)}`,
+        `$${cashPrice.toFixed(2)}`,
+        `$${totalRowBCV.toFixed(2)}`,
+      ];
+    });
+
+    (doc as any).autoTable({
+      head: [['FOTO', 'PRODUCTO / DETALLE', 'UBIC.', 'DISPONIBLE', 'LISTA BCV', 'CASH', 'TOTAL BCV']],
+      body: tableRows,
+      startY: 46,
+      theme: 'grid',
+      styles: { fontSize: 7.2, cellPadding: 2, valign: 'middle', textColor: [30, 41, 59], lineColor: [226, 232, 240] },
+      headStyles: { fillColor: [15, 23, 42], textColor: 255, halign: 'center', fontSize: 7, fontStyle: 'bold' },
+      bodyStyles: { minCellHeight: 20 },
+      columnStyles: {
+        0: { cellWidth: 20, halign: 'center' },
+        1: { cellWidth: 66 },
+        2: { cellWidth: 18, halign: 'center', fontSize: 6.8 },
+        3: { cellWidth: 22, halign: 'center', fontStyle: 'bold', fontSize: 8 },
+        4: { cellWidth: 20, halign: 'right' },
+        5: { cellWidth: 20, halign: 'right', textColor: [5, 150, 105], fontStyle: 'bold' },
+        6: { cellWidth: 22, halign: 'right', fontStyle: 'bold' },
+      },
+      didParseCell: (data: any) => {
+        if (data.section === 'body' && data.column.index === 3) {
+          const p = safeProducts[data.row.index];
+          if (!p) return;
+          const stock = getProductStock(p);
+          if (stock <= 0) data.cell.styles.textColor = [190, 18, 60];
+          else if (stock < 20) data.cell.styles.textColor = [194, 65, 12];
+          else data.cell.styles.textColor = [21, 128, 61];
+        }
+      },
+      didDrawCell: (data: any) => {
+        if (data.section === 'body' && data.column.index === 0) {
+          const p = safeProducts[data.row.index];
+          if (!p) return;
+          drawThumbnailInCell(doc, data, thumbMap.get(resolveItemImageUrl(p)), 16);
+        }
+      },
+      margin: { top: 14, right: 14, bottom: 18, left: 14 },
+    });
+  } else {
+    const countRows = safeProducts.map((p) => {
+      const stock = getProductStock(p);
+      return [
+        '', // Foto en didDrawCell
+        formatDetailCell(p),
+        (p.warehouseLocation || '---').toUpperCase(),
+        `${stock} uds`,
+        '____________',
+      ];
+    });
+
+    (doc as any).autoTable({
+      head: [['FOTO', 'PRODUCTO / DETALLE', 'UBICACIÓN', 'SISTEMA', 'CONTEO FÍSICO']],
+      body: countRows,
+      startY: 46,
+      theme: 'grid',
+      styles: { fontSize: 7.5, cellPadding: 2, valign: 'middle', textColor: [30, 41, 59], lineColor: [226, 232, 240] },
+      headStyles: { fillColor: [15, 23, 42], textColor: 255, halign: 'center', fontSize: 7.2, fontStyle: 'bold' },
+      bodyStyles: { minCellHeight: 20 },
+      columnStyles: {
+        0: { cellWidth: 22, halign: 'center' },
+        1: { cellWidth: 88 },
+        2: { cellWidth: 24, halign: 'center' },
+        3: { cellWidth: 26, halign: 'center', fontStyle: 'bold', fontSize: 8.5 },
+        4: { cellWidth: 28, halign: 'center', fontStyle: 'bold', textColor: [148, 163, 184] },
+      },
+      didParseCell: (data: any) => {
+        if (data.section === 'body' && data.column.index === 3) {
+          const p = safeProducts[data.row.index];
+          if (!p) return;
+          const stock = getProductStock(p);
+          if (stock <= 0) data.cell.styles.textColor = [190, 18, 60];
+          else if (stock < 20) data.cell.styles.textColor = [194, 65, 12];
+          else data.cell.styles.textColor = [21, 128, 61];
+        }
+      },
+      didDrawCell: (data: any) => {
+        if (data.section === 'body' && data.column.index === 0) {
+          const p = safeProducts[data.row.index];
+          if (!p) return;
+          drawThumbnailInCell(doc, data, thumbMap.get(resolveItemImageUrl(p)), 16);
+        }
+      },
+      margin: { top: 14, right: 14, bottom: 18, left: 14 },
+    });
+  }
+
+  let finalY = ((doc as any).lastAutoTable?.finalY || 50) + 6;
+  if (finalY + 26 > pageH - 14) {
+    doc.addPage();
+    finalY = 18;
+  }
+
+  doc.setFillColor(15, 23, 42);
+  doc.roundedRect(14, finalY, pageW - 28, 20, 2.5, 2.5, 'F');
+  doc.setFontSize(7.5);
+  doc.setFont("helvetica", "bold");
+  doc.setTextColor(148, 163, 184);
+  doc.text('RESUMEN DEL INVENTARIO IMPRESO', 18, finalY + 6.5);
+  doc.setFontSize(9);
+  doc.setTextColor(255, 255, 255);
+  doc.text(
+    `Modelos: ${metrics.modelsCount}  ·  Unidades Disponibles: ${metrics.totalUnits.toLocaleString()} uds  ·  Con Stock: ${metrics.inStockCount}  ·  Agotados: ${metrics.outOfStockCount}`,
+    18,
+    finalY + 14.5
+  );
+  if (showPrices) {
+    doc.setFontSize(8.5);
+    doc.setTextColor(52, 211, 153);
+    doc.text(
+      `Total BCV: $${metrics.totalValuationBCV.toLocaleString('en-US', { minimumFractionDigits: 2 })}  |  Cash: $${metrics.totalValuationCash.toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
+      pageW - 18,
+      finalY + 14.5,
+      { align: 'right' }
+    );
+  }
+
   addPageNumbersFooter(doc);
-  doc.save(`${title.replace(/\s+/g, '_')}.pdf`);
+  const rawSlug = options.filename || title.replace(/\s+/g, '_');
+  const cleanSlug = rawSlug.replace(/[^a-zA-Z0-9_-]+/g, '_').replace(/^_|_$/g, '') || 'Inventario';
+  doc.save(`${cleanSlug}_${format(new Date(), 'yyyy-MM-dd')}.pdf`);
 }
 
 export async function generateAccountStatementPDF(customer: Customer, invoices: Invoice[], companyProfile?: Partial<CompanyProfile>) {

@@ -46,6 +46,12 @@ import { ProductDetailsSheet } from './product-details-sheet';
 import { DeleteProductDialog } from './delete-product-dialog';
 import { ProductCard } from '@/components/dashboard/ProductCard';
 import { generateInventoryReportPDF } from '@/lib/pdf-generator';
+import {
+    extractInventoryFilterOptions,
+    filterInventoryProducts,
+    buildInventoryFilterTitle,
+    type InventoryStockFilter,
+} from '@/lib/inventory-filter';
 import { cn } from '@/lib/utils';
 import { subDays, isAfter, format } from 'date-fns';
 
@@ -101,6 +107,8 @@ function InventoryContent() {
   const [catalogFilter, setCatalogFilter] = useState<'todos' | 'offers' | 'new' | 'active'>('todos');
   const [stockStatusFilter, setStockStatusFilter] = useState('todos');
   const [categoryFilter, setCategoryFilter] = useState('todos');
+  const [brandFilter, setBrandFilter] = useState('todos');
+  const [disciplineFilter, setDisciplineFilter] = useState('todos');
   const [searchTerm, setSearchTerm] = useState('');
   const [viewMode, setViewMode] = useState<'grid' | 'table' | 'history'>('grid');
 
@@ -143,10 +151,9 @@ function InventoryContent() {
   );
   const { data: purchaseOrders } = useCollection<PurchaseOrder>(purchaseOrdersQuery);
 
-  // CATEGORÍAS ÚNICAS
-  const uniqueCategories = useMemo(() => {
-    if (!inventory) return [];
-    return Array.from(new Set(inventory.map(p => p.category))).filter(Boolean).sort();
+  // CATEGORÍAS, MARCAS Y DISCIPLINAS CANONIZADAS
+  const filterOptions = useMemo(() => {
+    return extractInventoryFilterOptions(inventory || []);
   }, [inventory]);
 
   // VALOR MONETARIO DEL INVENTARIO Y ESTADÍSTICAS
@@ -196,35 +203,26 @@ function InventoryContent() {
         items = items.filter(p => (p.stockLevel ?? (p as any).stock ?? 0) > 0);
     }
 
-    if (stockStatusFilter !== 'todos') {
-      items = items.filter((item) => {
-        const stockVal = item.stockLevel ?? (item as any).stock ?? 0;
-        const status = getStatus(stockVal);
-        if (stockStatusFilter === 'needs_restock') return stockVal < 20;
-        if (stockStatusFilter === 'low') return status === 'Pocas existencias';
-        if (stockStatusFilter === 'out') return status === 'Agotado';
-        if (stockStatusFilter === 'in_stock') return status === 'En stock';
-        return true;
-      });
-    }
+    return filterInventoryProducts(items, {
+      category: categoryFilter,
+      brand: brandFilter,
+      discipline: disciplineFilter,
+      stockStatus: stockStatusFilter as InventoryStockFilter,
+      searchTerm,
+    });
+  }, [inventory, searchTerm, stockStatusFilter, catalogFilter, categoryFilter, brandFilter, disciplineFilter]);
 
-    if (categoryFilter !== 'todos') {
-      items = items.filter(p => p.category === categoryFilter);
-    }
-
-    const term = searchTerm.toLowerCase().trim();
-    if (term) {
-      items = items.filter(p => 
-        p.name.toLowerCase().includes(term) ||
-        p.sku.toLowerCase().includes(term) ||
-        p.category.toLowerCase().includes(term) ||
-        p.discipline?.toLowerCase().includes(term) ||
-        p.brand?.toLowerCase().includes(term) ||
-        p.warehouseLocation?.toLowerCase().includes(term)
-      );
-    }
-    return items;
-  }, [inventory, searchTerm, stockStatusFilter, catalogFilter, categoryFilter]);
+  const inventoryPdfMeta = useMemo(
+    () =>
+      buildInventoryFilterTitle({
+        category: categoryFilter,
+        brand: brandFilter,
+        discipline: disciplineFilter,
+        stockStatus: stockStatusFilter as InventoryStockFilter,
+        searchTerm,
+      }),
+    [categoryFilter, brandFilter, disciplineFilter, stockStatusFilter, searchTerm]
+  );
 
   const toggleCatalogFilter = (filter: typeof catalogFilter) => {
       setCatalogFilter(prev => prev === filter ? 'todos' : filter);
@@ -240,6 +238,8 @@ function InventoryContent() {
       setStockStatusFilter('todos');
       setCatalogFilter('todos');
       setCategoryFilter('todos');
+      setBrandFilter('todos');
+      setDisciplineFilter('todos');
       setSearchTerm('');
   };
 
@@ -300,11 +300,16 @@ function InventoryContent() {
                       <Button 
                           type="button"
                           variant="outline" 
-                          onClick={() => generateInventoryReportPDF(filteredInventory, companyProfile || undefined, stockStatusFilter === 'low' || stockStatusFilter === 'needs_restock' ? 'REPORTE DE REPOSICIÓN DE STOCK (<20)' : 'INVENTARIO MAESTRO')} 
+                          disabled={filteredInventory.length === 0}
+                          onClick={() => generateInventoryReportPDF(filteredInventory, companyProfile || undefined, inventoryPdfMeta.title, {
+                            subtitle: inventoryPdfMeta.subtitle,
+                            bcvDiscount: globalSettings?.defaultBcvDiscount ?? 25,
+                            filename: inventoryPdfMeta.filenameSlug,
+                          })} 
                           className="flex-1 sm:flex-none h-11 px-4 sm:px-6 rounded-xl border-slate-200 font-black uppercase text-[9px] tracking-widest shadow-sm bg-white hover:bg-slate-50 transition-all active:scale-95"
                       >
                           <Download className="mr-2 h-4 w-4" /> 
-                          Auditoría
+                          PDF Auditoría
                       </Button>
                     </>
                 )}
@@ -331,7 +336,7 @@ function InventoryContent() {
                   icon={DollarSign} 
                   colorClass="bg-emerald-50 text-emerald-500"
                   onClick={() => setCatalogFilter('todos')}
-                  isActive={catalogFilter === 'todos' && categoryFilter === 'todos'}
+                  isActive={catalogFilter === 'todos' && categoryFilter === 'todos' && brandFilter === 'todos' && disciplineFilter === 'todos'}
               />
               <SummaryCard 
                   title="Oportunidades" 
@@ -369,14 +374,14 @@ function InventoryContent() {
                 <CardTitle className="text-[10px] font-black uppercase tracking-[0.3em] text-muted-foreground flex items-center gap-2">
                     <Filter className="h-3.5 w-3.5" /> FILTROS OPERATIVOS MULTIDIMENSIONALES
                 </CardTitle>
-                {(stockStatusFilter !== 'todos' || catalogFilter !== 'todos' || categoryFilter !== 'todos' || searchTerm) && (
+                {(stockStatusFilter !== 'todos' || catalogFilter !== 'todos' || categoryFilter !== 'todos' || brandFilter !== 'todos' || disciplineFilter !== 'todos' || searchTerm) && (
                     <Button type="button" variant="ghost" size="sm" onClick={handleClearFilters} className="text-[9px] font-black uppercase text-primary h-10 px-4 rounded-xl hover:bg-primary/5 transition-all">
                         Limpiar Auditoría <X className="ml-1 h-3 w-3" />
                     </Button>
                 )}
               </div>
             </CardHeader>
-            <CardContent className="p-6 grid grid-cols-1 sm:grid-cols-3 gap-4 items-end">
+            <CardContent className="p-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 items-end">
                  <div className="space-y-1.5">
                     <Label className="tech-label px-1">BÚSQUEDA INTELIGENTE</Label>
                     <div className="relative">
@@ -393,8 +398,38 @@ function InventoryContent() {
                         </SelectTrigger>
                         <SelectContent>
                             <SelectItem value="todos" className="font-bold text-xs uppercase">TODAS LAS CATEGORÍAS</SelectItem>
-                            {uniqueCategories.map(cat => (
-                                <SelectItem key={cat} value={cat} className="font-bold text-xs uppercase">{cat.toUpperCase()}</SelectItem>
+                            {filterOptions.categories.map(cat => (
+                                <SelectItem key={cat} value={cat} className="font-bold text-xs uppercase">{cat}</SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                </div>
+
+                <div className="space-y-1.5">
+                     <Label className="tech-label px-1">MARCA</Label>
+                     <Select value={brandFilter} onValueChange={setBrandFilter}>
+                        <SelectTrigger className="h-11 rounded-xl bg-slate-50 border-none font-bold uppercase text-xs shadow-inner">
+                            <SelectValue placeholder="Todas las Marcas" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="todos" className="font-bold text-xs uppercase">TODAS LAS MARCAS</SelectItem>
+                            {filterOptions.brands.map(brand => (
+                                <SelectItem key={brand} value={brand} className="font-bold text-xs uppercase">{brand}</SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                </div>
+
+                <div className="space-y-1.5">
+                     <Label className="tech-label px-1">DISCIPLINA</Label>
+                     <Select value={disciplineFilter} onValueChange={setDisciplineFilter}>
+                        <SelectTrigger className="h-11 rounded-xl bg-slate-50 border-none font-bold uppercase text-xs shadow-inner">
+                            <SelectValue placeholder="Todas las Disciplinas" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="todos" className="font-bold text-xs uppercase">TODAS LAS DISCIPLINAS</SelectItem>
+                            {filterOptions.disciplines.map(disc => (
+                                <SelectItem key={disc} value={disc} className="font-bold text-xs uppercase">{disc}</SelectItem>
                             ))}
                         </SelectContent>
                     </Select>

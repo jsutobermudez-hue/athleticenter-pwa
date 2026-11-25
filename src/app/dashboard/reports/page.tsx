@@ -14,6 +14,7 @@ import type { Order, Product, Customer, User as AppUser, FinancialSettings, Purc
 import { Client360ReportModal } from './Client360ReportModal';
 import { ClientDirectoryReportModal } from './ClientDirectoryReportModal';
 import { RestockPriorityReportModal } from './RestockPriorityReportModal';
+import { InventoryCatalogReportModal } from './InventoryCatalogReportModal';
 import { buildRestockAnalysis } from '@/lib/restock-engine';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
@@ -83,6 +84,7 @@ export default function ReportsPage() {
   const [isClient360Open, setIsClient360Open] = useState(false);
   const [isClientDirectoryOpen, setIsClientDirectoryOpen] = useState(false);
   const [isRestockReportOpen, setIsRestockReportOpen] = useState(false);
+  const [isInventoryCatalogOpen, setIsInventoryCatalogOpen] = useState(false);
   const [selectedClientForReport, setSelectedClientForReport] = useState<string>('');
 
   // Consultas de datos maestros (protegidas por rol)
@@ -249,6 +251,16 @@ export default function ReportsPage() {
       action: () => setIsRestockReportOpen(true)
     },
     {
+      id: 'inventario_filtrable_pdf',
+      title: 'Inventario Completo y Filtrable (Marca / Disciplina / Producto)',
+      category: 'Inventario',
+      format: 'PDF CON FOTOS / EXCEL',
+      description: 'Imprime todo el inventario o filtra por tipo de producto (ej. Balones), marca, disciplina y disponibilidad con fotos a color y cantidades reales.',
+      icon: Boxes,
+      badgeColor: 'bg-blue-50 text-blue-700 border-blue-200',
+      action: () => setIsInventoryCatalogOpen(true)
+    },
+    {
       id: 'ficha_cliente_360',
       title: 'Ficha Integral de Cliente 360° (Expediente Imprimible)',
       category: 'Clientes',
@@ -359,7 +371,7 @@ export default function ReportsPage() {
       </header>
 
       {/* BARRA DE ACCESO RÁPIDO EN 1-CLIC */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
         <button
           type="button"
           onClick={() => setIsRestockReportOpen(true)}
@@ -373,6 +385,22 @@ export default function ReportsPage() {
           </div>
           <div className="h-10 w-10 rounded-xl bg-white/20 text-white flex items-center justify-center font-black group-hover:scale-110 transition-transform">
             <Flame className="h-5 w-5" />
+          </div>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setIsInventoryCatalogOpen(true)}
+          className="p-5 rounded-[2rem] bg-gradient-to-br from-blue-600 to-indigo-700 text-white shadow-md hover:shadow-xl transition-all text-left flex items-center justify-between group cursor-pointer"
+        >
+          <div className="space-y-1">
+            <span className="text-[9px] font-black uppercase tracking-widest text-blue-100 block">
+              Todo / Marca / Tipo
+            </span>
+            <h3 className="text-sm font-black uppercase text-white">📦 PDF Inventario</h3>
+          </div>
+          <div className="h-10 w-10 rounded-xl bg-white/20 text-white flex items-center justify-center font-black group-hover:scale-110 transition-transform">
+            <Boxes className="h-5 w-5" />
           </div>
         </button>
 
@@ -604,6 +632,15 @@ export default function ReportsPage() {
         products={products || []}
         purchaseOrders={purchaseOrders || []}
         companyProfile={companyProfile || undefined}
+      />
+
+      {/* MODAL 4: INVENTARIO COMPLETO Y FILTRABLE CON FOTOS */}
+      <InventoryCatalogReportModal
+        isOpen={isInventoryCatalogOpen}
+        onOpenChange={setIsInventoryCatalogOpen}
+        products={products || []}
+        companyProfile={companyProfile || undefined}
+        bcvDiscount={globalSettings?.defaultBcvDiscount ?? 25}
       />
     </div>
   );
