@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useMemo } from 'react';
-import { billingReminderMessage } from '@/lib/whatsapp-templates';
+import { billingReminderMessage, computeOrderBalanceForWhatsApp } from '@/lib/whatsapp-templates';
 import { sendWhatsAppWithFeedback } from '@/lib/whatsapp-client';
 import type { Order } from '@/lib/definitions';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
@@ -237,17 +237,22 @@ export function ReceivablesAuditModal({ isOpen, onClose, orders, onSelectOrder }
                                                         <div className="flex items-center justify-center gap-2">
                                                             <button
                                                                 type="button"
-                                                                onClick={() => sendWhatsAppWithFeedback({
-                                                                    phone: o.customerPhone || (o as any).clientPhone || (o as any).phone || '',
-                                                                    message: billingReminderMessage({
-                                                                        customerName: o.customerName || 'Cliente',
-                                                                        invoiceId: o.id,
-                                                                        remainingBalance: pending,
-                                                                        statusText: 'Saldo pendiente por conciliar',
-                                                                    }),
-                                                                    module: 'treasury',
-                                                                    orderId: o.id,
-                                                                })}
+                                                                onClick={() => {
+                                                                    const bal = computeOrderBalanceForWhatsApp(o);
+                                                                    sendWhatsAppWithFeedback({
+                                                                        phone: o.customerPhone || (o as any).clientPhone || (o as any).phone || '',
+                                                                        message: billingReminderMessage({
+                                                                            customerName: o.customerName || 'Cliente',
+                                                                            invoiceId: o.id,
+                                                                            remainingBalance: bal.pendingListUSD,
+                                                                            remainingDivisas: bal.pendingDivisasUSD,
+                                                                            statusText: isMora ? `Vencido hace ${daysOld} días` : 'Saldo pendiente por cancelar',
+                                                                            isPaid: bal.isPaid,
+                                                                        }),
+                                                                        module: 'treasury',
+                                                                        orderId: o.id,
+                                                                    });
+                                                                }}
                                                                 className="p-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-600 rounded-xl text-[9px] font-black uppercase flex items-center gap-1 transition-colors"
                                                                 title="Enviar Recordatorio por WhatsApp"
                                                             >

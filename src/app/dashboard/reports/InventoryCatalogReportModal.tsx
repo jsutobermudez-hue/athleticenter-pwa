@@ -1,18 +1,21 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import * as XLSX from 'xlsx';
 import { format } from 'date-fns';
-import type { Product, CompanyProfile } from '@/lib/definitions';
+import { collectionGroup, getDocs } from 'firebase/firestore';
+import { useFirestore } from '@/firebase';
+import type { Product, CompanyProfile, Order } from '@/lib/definitions';
 import {
   extractInventoryFilterOptions,
   filterInventoryProducts,
   computeInventorySelectionMetrics,
   buildInventoryFilterTitle,
+  buildSoldUnitsByProductMap,
+  computeProductAuditRow,
   canonicalizeCategory,
   canonicalizeBrand,
   canonicalizeDiscipline,
-  getProductStock,
   getProductCashPrice,
   formatProductSizesSummary,
   type InventoryStockFilter,
@@ -49,6 +52,7 @@ export interface InventoryCatalogReportModalProps {
   isOpen: boolean;
   onOpenChange: (open: boolean) => void;
   products: Product[];
+  orders?: Order[];
   companyProfile?: Partial<CompanyProfile>;
   bcvDiscount?: number;
 }
@@ -57,10 +61,12 @@ export function InventoryCatalogReportModal({
   isOpen,
   onOpenChange,
   products = [],
+  orders = [],
   companyProfile,
   bcvDiscount = 25,
 }: InventoryCatalogReportModalProps) {
   const { toast } = useToast();
+  const firestore = useFirestore();
 
   const [categoryFilter, setCategoryFilter] = useState<string>('todos');
   const [brandFilter, setBrandFilter] = useState<string>('todos');
@@ -70,6 +76,42 @@ export function InventoryCatalogReportModal({
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [showPrices, setShowPrices] = useState<boolean>(true);
   const [isGeneratingPdf, setIsGeneratingPdf] = useState<boolean>(false);
+  const [loadedOrderItems, setLoadedOrderItems] = useState<Array<{ orderId?: string; productId?: string; quantity?: number }> | null>(null);
+  const [isLoadingSalesAudit, setIsLoadingSalesAudit] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (!isOpen || !firestore || loadedOrderItems !== null) return;
+    let active = true;
+    setIsLoadingSalesAudit(true);
+    getDocs(collectionGroup(firestore, 'orderItems'))
+      .then((snap) => {
+        if (!active) return;
+        const items = snap.docs.map((d) => {
+          const data = d.data() as any;
+          return {
+            orderId: data.orderId || d.ref.parent.parent?.id || '',
+            productId: data.productId || '',
+            quantity: Number(data.quantity || 0),
+          };
+        });
+        setLoadedOrderItems(items);
+      })
+      .catch(() => {
+        if (!active) return;
+        setLoadedOrderItems([]);
+      })
+      .finally(() => {
+        if (active) setIsLoadingSalesAudit(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [isOpen, firestore, loadedOrderItems]);
+
+  const soldByProductId = useMemo(() => {
+    if (!orders || orders.length === 0 || !loadedOrderItems) return undefined;
+    return buildSoldUnitsByProductMap(orders as any[], loadedOrderItems);
+  }, [orders, loadedOrderItems]);
 
   const filterOptions = useMemo(() => extractInventoryFilterOptions(products), [products]);
 
@@ -104,13 +146,26 @@ export function InventoryCatalogReportModal({
   );
 
   const metrics = useMemo(
-    () => computeInventorySelectionMetrics(filteredProducts, bcvDiscount),
-    [filteredProducts, bcvDiscount]
+    () => computeInventorySelectionMetrics(filteredProducts, bcvDiscount, soldByProductId),
+    [filteredProducts, bcvDiscount, soldByProductId]
   );
 
   const reportHeaderMeta = useMemo(
     () => buildInventoryFilterTitle(activeFilters),
     [activeFilters]
+  );
+
+  const allSortedProducts = useMemo(
+    () =>
+      filterInventoryProducts(products, {
+        category: 'todos',
+        brand: 'todos',
+        discipline: 'todos',
+        stockStatus: 'todos',
+        searchTerm: '',
+        sortBy,
+      }),
+    [products, sortBy]
   );
 
   const hasAnyFilter =
@@ -129,24 +184,35 @@ export function InventoryCatalogReportModal({
     setSortBy('name_asc');
   };
 
-  const handleExportPDF = async () => {
-    if (filteredProducts.length === 0 || isGeneratingPdf) return;
+  const handleExportPDF = async (forceFullInventory: boolean = false) => {
+    const targetProducts = forceFullInventory ? allSortedProducts : filteredProducts;
+    if (targetProducts.length === 0 || isGeneratingPdf) return;
     setIsGeneratingPdf(true);
     try {
+      const targetMetrics = forceFullInventory
+        ? computeInventorySelectionMetrics(targetProducts, bcvDiscount, soldByProductId)
+        : metrics;
+      const pdfTitle = forceFullInventory ? 'INVENTARIO MAESTRO 100%' : reportHeaderMeta.title;
+      const pdfSubtitle = forceFullInventory
+        ? 'CATÁLOGO COMPLETO AL 100% (INCLUYE AGOTADOS EN 0)'
+        : reportHeaderMeta.subtitle;
+      const baseSlug = forceFullInventory ? 'Inventario_100_Completo' : reportHeaderMeta.filenameSlug;
+
       await generateInventoryReportPDF(
-        filteredProducts,
+        targetProducts,
         companyProfile,
-        reportHeaderMeta.title,
+        pdfTitle,
         {
-          subtitle: reportHeaderMeta.subtitle,
+          subtitle: pdfSubtitle,
           showPrices,
           bcvDiscount,
-          filename: showPrices ? reportHeaderMeta.filenameSlug : `${reportHeaderMeta.filenameSlug}_Conteo_Fisico`,
+          soldByProductId,
+          filename: showPrices ? baseSlug : `${baseSlug}_Conteo_Fisico`,
         }
       );
       toast({
         title: 'PDF Generado con Fotos',
-        description: `${filteredProducts.length} producto(s) (${metrics.totalUnits.toLocaleString()} uds disponibles).`,
+        description: `${targetProducts.length} producto(s) · Había: ${targetMetrics.totalHadUnits.toLocaleString()} · Vendido: ${targetMetrics.totalSoldUnits.toLocaleString()} · Quedan: ${targetMetrics.totalUnits.toLocaleString()}.`,
       });
     } catch (err: any) {
       toast({
@@ -163,20 +229,23 @@ export function InventoryCatalogReportModal({
     if (filteredProducts.length === 0) return;
 
     const rows: Record<string, string | number>[] = filteredProducts.map((p, idx) => {
-      const stock = getProductStock(p);
+      const audit = computeProductAuditRow(p, soldByProductId);
+      const stock = audit.remaining;
       const listPrice = Number(p.price || 0);
       const cashPrice = getProductCashPrice(p, bcvDiscount);
       const sizesText = formatProductSizesSummary(p);
       const row: Record<string, string | number> = {
         '#': idx + 1,
-        SKU: p.sku || 'S/SKU',
+        Código: p.sku || 'S/C',
         Producto: p.name || 'Producto',
         Categoría: canonicalizeCategory(p.category) || '-',
         Marca: canonicalizeBrand(p.brand) || '-',
         Disciplina: canonicalizeDiscipline(p.discipline) || '-',
         Ubicación: p.warehouseLocation || '-',
         Tallas: sizesText || '-',
-        'Disponible (Uds)': stock,
+        'Había (Uds)': audit.had,
+        'Vendido (Uds)': audit.sold,
+        'Deben Quedar (Uds)': stock,
       };
       if (showPrices) {
         row['Precio BCV (USD)'] = Number(listPrice.toFixed(2));
@@ -189,14 +258,16 @@ export function InventoryCatalogReportModal({
 
     const totalRow: Record<string, string | number> = {
       '#': '',
-      SKU: 'TOTAL',
-      Producto: `${metrics.modelsCount} modelos (${metrics.inStockCount} disp. / ${metrics.outOfStockCount} agotados)`,
+      Código: 'TOTAL',
+      Producto: `${metrics.modelsCount} modelos (${metrics.inStockCount} con stock / ${metrics.outOfStockCount} en 0)`,
       Categoría: '',
       Marca: '',
       Disciplina: '',
       Ubicación: '',
       Tallas: '',
-      'Disponible (Uds)': metrics.totalUnits,
+      'Había (Uds)': metrics.totalHadUnits,
+      'Vendido (Uds)': metrics.totalSoldUnits,
+      'Deben Quedar (Uds)': metrics.totalUnits,
     };
     if (showPrices) {
       totalRow['Precio BCV (USD)'] = '';
@@ -216,7 +287,9 @@ export function InventoryCatalogReportModal({
       { wch: 16 },
       { wch: 12 },
       { wch: 24 },
-      { wch: 15 },
+      { wch: 14 },
+      { wch: 14 },
+      { wch: 18 },
       ...(showPrices ? [{ wch: 15 }, { wch: 18 }, { wch: 15 }, { wch: 15 }] : []),
     ];
     const wb = XLSX.utils.book_new();
@@ -462,10 +535,12 @@ export function InventoryCatalogReportModal({
               </p>
             </div>
             <div className="p-4 rounded-2xl bg-blue-600 text-white shadow-sm">
-              <p className="text-[9px] font-black uppercase tracking-widest text-blue-100">Unidades Disponibles</p>
+              <p className="text-[9px] font-black uppercase tracking-widest text-blue-100">
+                Deben Quedar {isLoadingSalesAudit ? '(calculando ventas...)' : ''}
+              </p>
               <p className="text-2xl font-black tracking-tight mt-0.5">{metrics.totalUnits.toLocaleString()}</p>
               <p className="text-[10px] font-semibold text-blue-100 mt-0.5">
-                {metrics.lowStockCount} modelos con &lt;20 uds
+                Había: {metrics.totalHadUnits.toLocaleString()} · Vendido: {metrics.totalSoldUnits.toLocaleString()}
               </p>
             </div>
             <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-sm">
@@ -500,9 +575,10 @@ export function InventoryCatalogReportModal({
                   <thead className="sticky top-0 z-10 bg-slate-900 text-white">
                     <tr className="text-[9px] font-black uppercase tracking-widest">
                       <th className="p-3.5 w-16 text-center">Foto</th>
-                      <th className="p-3.5">Producto / Marca / Disciplina</th>
-                      <th className="p-3.5 text-center">Ubicación</th>
-                      <th className="p-3.5 text-center">Disponible</th>
+                      <th className="p-3.5">Producto / Código / Marca</th>
+                      <th className="p-3.5 text-center">Había</th>
+                      <th className="p-3.5 text-center">Vendido</th>
+                      <th className="p-3.5 text-center">Deben Quedar</th>
                       {showPrices && (
                         <>
                           <th className="p-3.5 text-right">Lista BCV</th>
@@ -513,22 +589,25 @@ export function InventoryCatalogReportModal({
                   </thead>
                   <tbody className="divide-y divide-slate-100 text-xs">
                     {filteredProducts.map((p) => {
-                      const stock = getProductStock(p);
+                      const audit = computeProductAuditRow(p, soldByProductId);
+                      const stock = audit.remaining;
                       const brand = canonicalizeBrand(p.brand);
                       const disc = canonicalizeDiscipline(p.discipline);
                       const cat = canonicalizeCategory(p.category);
                       const sizesText = formatProductSizesSummary(p);
                       const listPrice = Number(p.price || 0);
                       const cashPrice = getProductCashPrice(p, bcvDiscount);
+                      const previewImg = p.imageUrl || (Array.isArray(p.imageUrls) ? p.imageUrls[0] : '');
 
                       return (
                         <tr key={p.id || p.sku} className="hover:bg-slate-50/80 transition-colors">
                           <td className="p-3 text-center">
-                            {p.imageUrl ? (
+                            {previewImg ? (
                               // eslint-disable-next-line @next/next/no-img-element
                               <img
-                                src={p.imageUrl}
+                                src={previewImg}
                                 alt={p.name}
+                                crossOrigin={previewImg.startsWith('data:') ? undefined : 'anonymous'}
                                 className="h-11 w-11 rounded-xl object-cover border border-slate-200 mx-auto bg-white"
                               />
                             ) : (
@@ -540,7 +619,13 @@ export function InventoryCatalogReportModal({
                           <td className="p-3">
                             <p className="font-black uppercase text-slate-900 leading-tight">{p.name}</p>
                             <div className="flex flex-wrap items-center gap-1.5 mt-1">
-                              <span className="text-[9px] font-mono font-bold text-slate-400">{p.sku}</span>
+                              <span className="text-[9px] font-mono font-bold text-slate-500">CÓD: {p.sku || 'S/C'}</span>
+                              {p.warehouseLocation && (
+                                <span className="inline-flex items-center gap-0.5 text-[9px] font-bold uppercase text-slate-400">
+                                  <MapPin className="h-2.5 w-2.5" />
+                                  {p.warehouseLocation}
+                                </span>
+                              )}
                               {cat && (
                                 <Badge variant="secondary" className="text-[8px] font-black uppercase px-1.5 h-4">
                                   {cat}
@@ -563,11 +648,11 @@ export function InventoryCatalogReportModal({
                               </p>
                             )}
                           </td>
-                          <td className="p-3 text-center">
-                            <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase text-slate-600">
-                              <MapPin className="h-3 w-3 text-slate-400" />
-                              {p.warehouseLocation || '---'}
-                            </span>
+                          <td className="p-3 text-center font-mono font-bold text-slate-700">
+                            {audit.had}
+                          </td>
+                          <td className="p-3 text-center font-mono font-bold text-blue-600">
+                            {audit.sold}
                           </td>
                           <td className="p-3 text-center">
                             <Badge
@@ -580,7 +665,7 @@ export function InventoryCatalogReportModal({
                                   : 'bg-emerald-100 text-emerald-700'
                               )}
                             >
-                              {stock} uds
+                              {stock}
                             </Badge>
                           </td>
                           {showPrices && (
@@ -619,10 +704,21 @@ export function InventoryCatalogReportModal({
             >
               <FileSpreadsheet className="mr-2 h-4 w-4 text-emerald-600" /> Exportar Excel (.xlsx)
             </Button>
+            {hasAnyFilter && allSortedProducts.length > 0 && (
+              <Button
+                type="button"
+                variant="outline"
+                disabled={isGeneratingPdf}
+                onClick={() => handleExportPDF(true)}
+                className="h-11 px-5 rounded-xl border-blue-300 bg-blue-50 text-blue-800 hover:bg-blue-100 font-black uppercase text-[10px] tracking-wider"
+              >
+                <Printer className="mr-2 h-4 w-4 text-blue-600" /> Imprimir 100% Inventario ({allSortedProducts.length})
+              </Button>
+            )}
             <Button
               type="button"
               disabled={filteredProducts.length === 0 || isGeneratingPdf}
-              onClick={handleExportPDF}
+              onClick={() => handleExportPDF(false)}
               className="h-11 px-6 rounded-xl bg-slate-900 hover:bg-blue-600 text-white font-black uppercase text-[10px] tracking-wider shadow-lg"
             >
               {isGeneratingPdf ? (

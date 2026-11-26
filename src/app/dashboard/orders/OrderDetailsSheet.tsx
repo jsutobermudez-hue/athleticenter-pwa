@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useMemo } from 'react';
-import { expedienteMessage } from '@/lib/whatsapp-templates';
+import { expedienteMessage, paymentReceiptMessage, computeOrderBalanceForWhatsApp } from '@/lib/whatsapp-templates';
 import { 
     Dialog, 
     DialogContent, 
@@ -335,6 +335,7 @@ export function OrderDetailsSheet({
 
   const handleShareWhatsApp = () => {
     const cleanPhone = formatVenezuelaPhoneE164(customerData?.phone || fallbackCustomer?.phone || order.customerPhone || '');
+    const waBalance = computeOrderBalanceForWhatsApp(order);
     
     const itemsSummary = itemsWithProductData
       .slice(0, 5)
@@ -348,7 +349,10 @@ export function OrderDetailsSheet({
       status: order.status,
       trackingNumber: order.trackingNumber,
       total: totalAmount,
-      pendingDebt,
+      pendingDebt: waBalance.pendingListUSD,
+      pendingDivisas: waBalance.pendingDivisasUSD,
+      paidAmount: waBalance.paidUSD,
+      isPaid: waBalance.isPaid,
       itemsSummary,
       extraItems: itemsWithProductData.length > 5 ? itemsWithProductData.length - 5 : 0,
     });
@@ -1115,10 +1119,20 @@ export function OrderDetailsSheet({
                                                 <Button
                                                     type="button"
                                                     onClick={() => {
-                                                        const cleanPhone = (order.customerPhone || customerData?.phone || '').replace(/[^0-9]/g, '');
+                                                        const cleanPhone = formatVenezuelaPhoneE164(order.customerPhone || customerData?.phone || '');
                                                         const receiptCode = `#REC-${(order.id || '').replace('#','').substring(0,8)}-${idx+1}`;
-                                                        const statusStr = pendingDebt <= 0.05 ? 'SOLVENTE (100% Pagado)' : `Saldo pendiente adeudado: $${pendingDebt.toFixed(2)} USD`;
-                                                        const text = `Hola *${order.customerName}*! 👋 Se ha generado tu *Recibo Oficial de Pago N° ${receiptCode}* por *$${p.amount?.toFixed(2)} USD* (${p.method}, Ref: ${p.referenceNumber || 'N/A'}) correspondiente al pedido #${order.id}.\n\n📌 Estado de Cuenta: *${statusStr}*.\n\n¡Gracias por tu confianza y preferir Athleticenter Pro! 📦⚽`;
+                                                        const waBalance = computeOrderBalanceForWhatsApp(order);
+                                                        const text = paymentReceiptMessage({
+                                                            customerName: order.customerName,
+                                                            orderId: order.id,
+                                                            amountPaid: Number(p.amount || 0),
+                                                            method: p.method || 'Pago registrado',
+                                                            referenceNumber: p.referenceNumber,
+                                                            isFullyPaid: waBalance.isPaid,
+                                                            remainingListUSD: waBalance.pendingListUSD,
+                                                            remainingDivisasUSD: waBalance.pendingDivisasUSD,
+                                                            receiptCode,
+                                                        });
                                                         window.open(`https://wa.me/${cleanPhone}?text=${encodeURIComponent(text)}`, '_blank');
                                                     }}
                                                     className="h-7 px-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[8px] font-black uppercase tracking-wider flex items-center justify-center gap-1 shadow-sm"

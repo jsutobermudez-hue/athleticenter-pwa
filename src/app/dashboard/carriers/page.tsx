@@ -28,6 +28,7 @@ import { useCollection, useFirestore, useMemoFirebase, useUser } from '@/firebas
 import { collection, query, where, limit } from 'firebase/firestore';
 import type { Carrier, Order } from '@/lib/definitions';
 import { NewCarrierDialog } from './new-carrier-dialog';
+import { carrierInquiryMessage } from '@/lib/whatsapp-templates';
 import { EditCarrierDialog } from './edit-carrier-dialog';
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -79,7 +80,7 @@ function CarrierCard({
   const handleWhatsAppAgency = (e: React.MouseEvent) => {
     e.stopPropagation();
     const rawPhone = phoneVal.replace(/\D/g, '');
-    const text = `Hola equipo de *${carrier.name}*, nos comunicamos desde la central logística de *ATHLETICENTER C.A.* para auditar estado de guías y despachos.`;
+    const text = carrierInquiryMessage(carrier.name);
     const url = rawPhone ? `https://wa.me/${rawPhone}?text=${encodeURIComponent(text)}` : `https://wa.me/?text=${encodeURIComponent(text)}`;
     window.open(url, '_blank');
   };

@@ -39,7 +39,7 @@ export function CatalogProvider({ children }: { children: React.ReactNode }) {
           list.push({ id: doc.id, ...doc.data() } as Product);
         });
         // Sort by SKU in memory to avoid query indexing errors in Firestore
-        list.sort((a, b) => (a.sku || '').localeCompare(b.sku || ''));
+        list.sort((a, b) => String(a.sku || '').localeCompare(String(b.sku || '')));
         setProducts(list);
         setIsLoading(false);
       },
@@ -51,7 +51,7 @@ export function CatalogProvider({ children }: { children: React.ReactNode }) {
           snapshot.forEach((doc) => {
             list.push({ id: doc.id, ...doc.data() } as Product);
           });
-          list.sort((a, b) => (a.sku || '').localeCompare(b.sku || ''));
+          list.sort((a, b) => String(a.sku || '').localeCompare(String(b.sku || '')));
           setProducts(list);
           setIsLoading(false);
         } catch (fallbackError) {

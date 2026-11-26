@@ -191,18 +191,19 @@ interface MsgParams {
 
 function templateMessage(p: MsgParams): string {
     if (p.stage === 'feedback') {
-        return `*ATHLETICENTER*\n\nHola *${p.customerName}*, te saludamos el equipo de Athleticenter.\n\n` +
-            `Vimos que la cotización *#${p.quoteCode}* (${money(p.total)}) quedó en pausa. Para mejorar, ¿nos cuentas qué faltó?\n\n` +
-            `1️⃣ Precio\n2️⃣ Tiempo de entrega\n3️⃣ Conseguí otra opción\n4️⃣ Aún lo estoy evaluando\n\nResponde solo con el número. ¡Gracias! 🙌`;
+        return `Hola *${p.customerName}* 👋\n\n` +
+            `Vimos que tu cotización *#${p.quoteCode}* (${money(p.total)}) quedó en pausa. Para mejorar, ¿nos cuentas qué faltó?\n\n` +
+            `1️⃣ Precio\n2️⃣ Tiempo de entrega\n3️⃣ Conseguí otra opción\n4️⃣ Aún lo estoy evaluando\n\n` +
+            `Responde solo con el número. ¡Gracias! 🙌\n\n— *El equipo de Athleticenter*`;
     }
     const items = p.productNames.slice(0, 3).join(', ') || 'tus equipos';
-    const cross = p.crossSell.length ? `\n\n💡 Complementa tu pedido con: *${p.crossSell.join('*, *')}*.` : '';
+    const cross = p.crossSell.length ? `\n\n💡 También puedes sumar: *${p.crossSell.join('*, *')}*.` : '';
     const inc = p.incentive!;
-    return `*ATHLETICENTER*\n\nHola *${p.customerName}* 👋\n\n` +
-        `Te recordamos tu cotización *#${p.quoteCode}* (${items}) por *${money(p.total)}* precio de lista.\n\n` +
-        `💵 Pagando en *divisas* (${inc.divisasDiscountPct}% de descuento): *${money(inc.totalDivisasUSD)}*\n` +
-        `✅ Pagando la factura de *contado* (${inc.contadoDiscountPct}% adicional): *${money(inc.totalContadoUSD)}*` +
-        `${cross}\n\n¿Te la confirmamos? Responde *SÍ* y el equipo de Athleticenter la procesa de inmediato.`;
+    return `Hola *${p.customerName}* 👋\n\n` +
+        `Te recordamos tu cotización *#${p.quoteCode}* (${items}) por *${money(p.total)}* (Lista BCV).\n\n` +
+        `• 💵 *En divisas (-${inc.divisasDiscountPct}%):* *${money(inc.totalDivisasUSD)}*\n` +
+        `• ✅ *Contado / Pronto pago (-${inc.contadoDiscountPct}% adicional):* *${money(inc.totalContadoUSD)}*` +
+        `${cross}\n\n¿Te la confirmamos? Responde *CONFIRMO* y la pasamos de una vez a despacho. 🙌\n\n— *El equipo de Athleticenter*`;
 }
 
 async function writeWithGemini(model: string, p: MsgParams): Promise<string | null> {
@@ -216,17 +217,17 @@ async function writeWithGemini(model: string, p: MsgParams): Promise<string | nu
           `pagando la factura de contado ${inc.contadoDiscountPct}% adicional = ${money(inc.totalContadoUSD)}. ` +
           `No ofrezcas ningún otro descuento, regalo, envío gratis ni plazo.` +
           (p.crossSell.length ? ` Sugiere de forma natural estos productos complementarios: ${p.crossSell.join(', ')}.` : '') +
-          ` Termina pidiendo que responda "SÍ" para confirmar.`
+          ` Termina pidiendo que responda "CONFIRMO" para procesarla.`
         : `Objetivo: la cotización no se cerró. Pregunta amablemente el motivo y ofrece opciones numeradas: 1) Precio 2) Tiempo de entrega 3) Consiguió otra opción 4) Aún lo evalúa. NO ofrezcas descuentos.`;
 
     const prompt =
-        `Eres el asistente comercial de ATHLETICENTER C.A., distribuidor venezolano de artículos deportivos y equipos fitness.\n` +
-        `Redacta UN mensaje de WhatsApp en español venezolano profesional y cercano (máx. 100 palabras), con formato WhatsApp (*negritas*) y 1-3 emojis.\n` +
-        `Empieza con "*ATHLETICENTER*" en la primera línea.\n` +
-        `Cliente: ${p.customerName}\nCotización: #${p.quoteCode}\nMonto precio de lista: ${money(p.total)}\n` +
-        `Productos cotizados: ${p.productNames.join(', ') || 'artículos deportivos'}\nRemitente: "somos el equipo de Athleticenter" (escribe siempre en plural, como equipo)\n` +
+        `Eres el asistente comercial de Athleticenter, distribuidor venezolano de artículos deportivos y equipos fitness.\n` +
+        `Redacta UN mensaje de WhatsApp cercano, humano y claro en español venezolano (máx. 95 palabras), con formato WhatsApp (*negritas*) y 1-3 emojis.\n` +
+        `Empieza con "Hola *${p.customerName}* 👋" y termina exactamente con "— *El equipo de Athleticenter*".\n` +
+        `Cliente: ${p.customerName}\nCotización: #${p.quoteCode}\nMonto precio de lista BCV: ${money(p.total)}\n` +
+        `Productos cotizados: ${p.productNames.join(', ') || 'artículos deportivos'}\n` +
         `${brief}\n` +
-        `Reglas: NUNCA menciones nombres de personas, vendedores ni asesores; firma siempre como el equipo de Athleticenter. No inventes precios, montos, plazos ni descuentos distintos a los indicados. Devuelve solo el texto del mensaje.`;
+        `Reglas: NUNCA menciones nombres de vendedores ni uses jerga como "expediente" o "solvente". No inventes precios, montos, plazos ni descuentos distintos a los indicados. Devuelve solo el texto del mensaje.`;
 
     try {
         const res = await ai.generate({ model, prompt, config: { temperature: 0.6 } });

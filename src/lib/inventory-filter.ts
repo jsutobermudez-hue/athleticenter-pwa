@@ -176,15 +176,81 @@ export function filterInventoryProducts(
       const diff = Number(b.price || 0) - Number(a.price || 0);
       if (diff !== 0) return diff;
     }
-    const nameDiff = (a.name || '').localeCompare(b.name || '', 'es', { sensitivity: 'base' });
+    const nameDiff = String(a.name || '').localeCompare(String(b.name || ''), 'es', { sensitivity: 'base' });
     if (nameDiff !== 0) return nameDiff;
-    return (a.sku || '').localeCompare(b.sku || '', 'es', { sensitivity: 'base' });
+    return String(a.sku || '').localeCompare(String(b.sku || ''), 'es', { sensitivity: 'base' });
   });
+}
+
+export const COMMITTED_SALES_ORDER_STATUSES = [
+  'Aprobado',
+  'En Preparación',
+  'Completado',
+  'Despachado',
+  'Entregado',
+  'En Verificación',
+  'Pagado',
+] as const;
+
+export function buildSoldUnitsByProductMap(
+  orders: Array<{ id?: string; status?: string; items?: any[] }>,
+  orderItems: Array<{ orderId?: string; productId?: string; quantity?: number }>
+): Record<string, number> {
+  const validOrderIds = new Set<string>();
+  const ordersWithSubItems = new Set<string>();
+  for (const o of orders || []) {
+    if (o?.id && (COMMITTED_SALES_ORDER_STATUSES as readonly string[]).includes(String(o.status || ''))) {
+      validOrderIds.add(o.id);
+    }
+  }
+
+  const soldMap: Record<string, number> = {};
+  for (const item of orderItems || []) {
+    if (!item?.orderId || !validOrderIds.has(item.orderId) || !item.productId) continue;
+    ordersWithSubItems.add(item.orderId);
+    const qty = Math.max(0, Number(item.quantity || 0));
+    if (qty > 0) {
+      soldMap[item.productId] = (soldMap[item.productId] || 0) + qty;
+    }
+  }
+
+  // Fallback para pedidos antiguos que solo tengan array inline `items`
+  for (const o of orders || []) {
+    if (!o?.id || !validOrderIds.has(o.id) || ordersWithSubItems.has(o.id)) continue;
+    if (Array.isArray(o.items)) {
+      for (const item of o.items) {
+        const pId = item?.productId || item?.id;
+        const qty = Math.max(0, Number(item?.quantity || 0));
+        if (pId && qty > 0) {
+          soldMap[pId] = (soldMap[pId] || 0) + qty;
+        }
+      }
+    }
+  }
+
+  return soldMap;
+}
+
+export function computeProductAuditRow(
+  product: Product,
+  soldByProductId?: Record<string, number>
+): { had: number; sold: number; remaining: number } {
+  const remaining = Math.max(0, getProductStock(product));
+  const soldFromOrders =
+    product?.id && soldByProductId
+      ? Math.max(0, Math.round(Number(soldByProductId[product.id] || 0)))
+      : 0;
+  const soldFromDoc = Math.max(0, Math.round(Number(product?.totalSold || 0)));
+  const sold = soldFromOrders > 0 ? soldFromOrders : soldFromDoc;
+  const had = remaining + sold;
+  return { had, sold, remaining };
 }
 
 export interface InventorySelectionMetrics {
   modelsCount: number;
   totalUnits: number;
+  totalHadUnits: number;
+  totalSoldUnits: number;
   inStockCount: number;
   lowStockCount: number;
   outOfStockCount: number;
@@ -194,10 +260,13 @@ export interface InventorySelectionMetrics {
 
 export function computeInventorySelectionMetrics(
   products: Product[],
-  bcvDiscount: number = 25
+  bcvDiscount: number = 25,
+  soldByProductId?: Record<string, number>
 ): InventorySelectionMetrics {
   let modelsCount = 0;
   let totalUnits = 0;
+  let totalHadUnits = 0;
+  let totalSoldUnits = 0;
   let inStockCount = 0;
   let lowStockCount = 0;
   let outOfStockCount = 0;
@@ -206,11 +275,14 @@ export function computeInventorySelectionMetrics(
 
   for (const p of products || []) {
     modelsCount++;
-    const stock = getProductStock(p);
+    const audit = computeProductAuditRow(p, soldByProductId);
+    const stock = audit.remaining;
     const listPrice = Number(p.price || 0);
     const cashPrice = getProductCashPrice(p, bcvDiscount);
 
-    totalUnits += Math.max(0, stock);
+    totalUnits += stock;
+    totalHadUnits += audit.had;
+    totalSoldUnits += audit.sold;
     if (stock <= 0) {
       outOfStockCount++;
     } else {
@@ -224,6 +296,8 @@ export function computeInventorySelectionMetrics(
   return {
     modelsCount,
     totalUnits,
+    totalHadUnits,
+    totalSoldUnits,
     inStockCount,
     lowStockCount,
     outOfStockCount,

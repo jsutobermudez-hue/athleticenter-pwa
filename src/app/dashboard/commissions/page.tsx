@@ -63,6 +63,7 @@ import { Input } from '@/components/ui/input';
 import { generateCommissionReceiptPDF } from '@/lib/pdf-generator';
 import { createAppNotifications } from '@/lib/notifications';
 import { dispatchUniversalWhatsApp } from '@/lib/whatsapp-universal';
+import { commissionPaidMessage, commissionBalanceMessage } from '@/lib/whatsapp-templates';
 
 export const dynamic = 'force-dynamic';
 
@@ -491,15 +492,17 @@ function CommissionsContent() {
                         );
 
                         const totalAmount = comms.reduce((s, c) => s + getCommissionAmountUSD(c), 0);
-                        const avgBcv = (comms[0] as any)?.bcvRate || 36.5;
+                        const avgBcv = (comms[0] as any)?.bcvRate || globalFinancials?.bcvRate || 65.50;
                         const totalBs = totalAmount * avgBcv;
 
-                        const msg = `¡Hola, ${beneficiaryUser.name}! 💵\n\n` +
-                          `Se ha procesado exitosamente la liquidación de tus comisiones por un total de *$${totalAmount.toFixed(2)} USD* (Equivalente BCV: *Bs. ${totalBs.toLocaleString('es-VE', { minimumFractionDigits: 2 })}*).\n\n` +
-                          `• Operaciones Liquidadas: ${comms.length}\n` +
-                          `• Cuenta Origen: ${treasuryAccount}\n` +
-                          `• Referencia de Pago: ${refStr}\n\n` +
-                          `Adjuntamos tu Recibo Oficial de Comisiones en PDF. ¡Excelente gestión comercial!`;
+                        const msg = commissionPaidMessage({
+                            salespersonName: beneficiaryUser.name,
+                            totalUSD: totalAmount,
+                            totalBs,
+                            operationsCount: comms.length,
+                            accountName: treasuryAccount,
+                            referenceNumber: refStr,
+                        });
 
                         const targetPhone = beneficiaryUser.phone || currentUser?.phone;
                         if (targetPhone) {
@@ -536,9 +539,10 @@ function CommissionsContent() {
             return;
         }
 
-        const msg = `¡Hola, ${spName}! 📈\n\n` +
-          `Te informamos que tienes acumulado un balance disponible de comisiones pendientes por cobrar por *$${amount.toFixed(2)} USD*.\n\n` +
-          `Puedes consultar el desglose detallado en tu Módulo de Comisiones Athleticenter PRO.`;
+        const msg = commissionBalanceMessage({
+            salespersonName: spName,
+            pendingUSD: amount,
+        });
 
         dispatchUniversalWhatsApp({
             phone,

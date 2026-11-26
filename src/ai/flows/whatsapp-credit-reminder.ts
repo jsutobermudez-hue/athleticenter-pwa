@@ -13,6 +13,10 @@ const WhatsAppReminderInputSchema = z.object({
   remainingCreditDays: z.number().describe('The number of credit days remaining.'),
   discountPercentage: z.number().describe('The discount percentage available for early payment.'),
   phoneNumber: z.string().describe('The customer phone number to send the message to.'),
+  orderId: z.string().optional().describe('The short ID or code of the order/invoice.'),
+  remainingBalance: z.number().optional().describe('Pending balance at BCV list price in USD.'),
+  divisasBalance: z.number().optional().describe('Pending balance paying in divisas (-25%) in USD.'),
+  isOverdue: z.boolean().optional().describe('Whether the invoice is already overdue.'),
 });
 export type WhatsAppReminderInput = z.infer<typeof WhatsAppReminderInputSchema>;
 
@@ -31,23 +35,29 @@ const whatsAppPrompt = ai.definePrompt({
   model: 'googleai/gemini-2.5-flash',
   input: {schema: WhatsAppReminderInputSchema},
   output: {schema: WhatsAppReminderOutputSchema},
-  prompt: `Eres un asistente útil que genera mensajes de WhatsApp para recordar a los clientes sobre su crédito y descuentos.
+  prompt: `Eres el asistente de atención al cliente de Athleticenter. Genera un mensaje de WhatsApp cercano, humano y claro en español venezolano para recordar un saldo o beneficio de pronto pago.
 
-  Basado en la siguiente información, genera un mensaje de WhatsApp personalizado en ESPAÑOL:
-  Nombre del Cliente: {{{customerName}}}
-  Días de Crédito Restantes: {{{remainingCreditDays}}}
-  Porcentaje de Descuento: {{{discountPercentage}}}
+  Datos reales del pedido:
+  - Cliente: {{{customerName}}}
+  {{#if orderId}}- Pedido: #{{{orderId}}}{{/if}}
+  {{#if remainingBalance}}- Saldo pendiente (Lista BCV): \${{{remainingBalance}}}{{/if}}
+  {{#if divisasBalance}}- Pagando en divisas (-25%): \${{{divisasBalance}}}{{/if}}
+  - Días de crédito restantes: {{{remainingCreditDays}}}
+  - Descuento adicional por pronto pago (%): {{{discountPercentage}}}
+  {{#if isOverdue}}- Situación: Factura vencida{{/if}}
 
-  Si hay un descuento disponible (discountPercentage > 0), el mensaje debe resaltar el descuento y fomentar el pago puntual. Si no hay descuento (discountPercentage es 0), el mensaje debe recordar los días de crédito restantes.
+  Instrucciones de estilo:
+  1. Empieza exactamente con: Hola *{{{customerName}}}* 👋
+  2. Sé directo, respetuoso y sin jerga ("expediente", "estatus", "solvente").
+  3. Incluye el número de pedido (#) y los montos exactos si están disponibles.
+  4. Invítalo amablemente a enviar el comprobante por este chat si ya pagó o desea aprovechar el descuento.
+  5. Termina exactamente con: — *El equipo de Athleticenter*
+  6. NUNCA menciones nombres de vendedores ni inventes cifras o plazos distintos a los entregados. Máximo 70 palabras, con 1-3 emojis.
 
-  El mensaje debe ser amigable y profesional. Sé breve y directo.
-
-  REGLAS OBLIGATORIAS: No menciones nombres de personas, vendedores ni asesores; firma siempre como "el equipo de Athleticenter". No inventes montos, fechas, descuentos ni plazos distintos a los datos entregados. Máximo 60 palabras, tono cordial y profesional, con formato WhatsApp (*negritas*) y un máximo de 2 emojis.
-
-  Responde en el siguiente formato JSON:
+  Responde en JSON:
   {
-    "message": "El mensaje de WhatsApp generado en español.",
-    "shouldSend": true si discountPercentage > 0, false en caso contrario.
+    "message": "Texto final para WhatsApp.",
+    "shouldSend": true si discountPercentage > 0 o isOverdue es true o remainingCreditDays <= 5; false en caso contrario.
   }`,
 });
 

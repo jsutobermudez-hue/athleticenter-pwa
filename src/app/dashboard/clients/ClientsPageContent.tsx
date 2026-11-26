@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { accountStatementMessage } from '@/lib/whatsapp-templates';
+import { accountStatementMessage, computeOrderBalanceForWhatsApp } from '@/lib/whatsapp-templates';
 import { sendWhatsAppWithFeedback } from '@/lib/whatsapp-client';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
@@ -474,16 +474,34 @@ function CustomerDetailsSheet({
       else score = 88;
     } else if (daysInactive !== null && daysInactive > 60) score = 80;
 
+    const billableAccountSummary = useMemo(() => {
+        let pendingListUSD = 0;
+        let pendingDivisasUSD = 0;
+        let openInvoicesCount = 0;
+        (customerOrders || []).forEach(o => {
+            const bal = computeOrderBalanceForWhatsApp(o);
+            if (bal.isBillable) {
+                pendingListUSD += bal.pendingListUSD;
+                pendingDivisasUSD += bal.pendingDivisasUSD;
+                openInvoicesCount += 1;
+            }
+        });
+        return {
+            pendingListUSD: Math.round(pendingListUSD * 100) / 100,
+            pendingDivisasUSD: Math.round(pendingDivisasUSD * 100) / 100,
+            openInvoicesCount,
+        };
+    }, [customerOrders]);
+
     const handleWhatsAppClick = () => {
         const cleanPhone = formatVenezuelaPhoneE164(customer.phone || '');
         sendWhatsAppWithFeedback({
           phone: cleanPhone,
           message: accountStatementMessage({
             customerName: customer.razonSocial,
-            rif: customer.rif,
-            totalSpent: analytics.totalSpent,
-            pendingBalance,
-            creditLimit: currentLimit,
+            pendingBalance: billableAccountSummary.pendingListUSD,
+            pendingDivisasBalance: billableAccountSummary.pendingDivisasUSD,
+            openInvoicesCount: billableAccountSummary.openInvoicesCount,
           }),
           module: 'clients',
         });
@@ -905,11 +923,14 @@ export default function ClientsPageContent() {
   const isLoading = isUserLoading || isLoadingCustomers || isLoadingUsers;
   const usersById = useMemo(() => new Map(allUsers?.map(u => [u.id, u]) || []), [allUsers]);
 
-  // MAPEO DE SALDOS PENDIENTES POR CLIENTE (DOBLE VALORACIÓN)
+  // MAPEO DE SALDOS PENDIENTES POR CLIENTE (DOBLE VALORACIÓN + SALDO FACTURABLE REAL)
   const customerPendingBalances = useMemo(() => {
     const grossMap = new Map<string, number>();
     const netMap = new Map<string, number>();
-    if (!allOrders) return { grossMap, netMap };
+    const billableListMap = new Map<string, number>();
+    const billableDivisasMap = new Map<string, number>();
+    const billableCountMap = new Map<string, number>();
+    if (!allOrders) return { grossMap, netMap, billableListMap, billableDivisasMap, billableCountMap };
     
     allOrders.forEach(o => {
       if (!o || o.status === 'Cancelado' || o.status === 'Rechazado' || o.status === 'Borrador') return;
@@ -927,9 +948,16 @@ export default function ClientsPageContent() {
         if (netRem > 0.05) {
           netMap.set(o.customerId, (netMap.get(o.customerId) || 0) + netRem);
         }
+
+        const waBal = computeOrderBalanceForWhatsApp(o);
+        if (waBal.isBillable) {
+          billableListMap.set(o.customerId, (billableListMap.get(o.customerId) || 0) + waBal.pendingListUSD);
+          billableDivisasMap.set(o.customerId, (billableDivisasMap.get(o.customerId) || 0) + waBal.pendingDivisasUSD);
+          billableCountMap.set(o.customerId, (billableCountMap.get(o.customerId) || 0) + 1);
+        }
       }
     });
-    return { grossMap, netMap };
+    return { grossMap, netMap, billableListMap, billableDivisasMap, billableCountMap };
   }, [allOrders]);
 
   // LISTA DE ASESORES PARA FILTRO ADMIN
@@ -1022,16 +1050,16 @@ export default function ClientsPageContent() {
   const handleSendWhatsAppQuick = (customer: Customer, e: React.MouseEvent) => {
     e.stopPropagation();
     const cleanPhone = formatVenezuelaPhoneE164(customer.phone || '');
-    const pendingDebt = customer.id ? (customerPendingBalances.grossMap.get(customer.id) || 0) : 0;
-    
-    const text = `*ATHLETICENTER C.A. - ATENCIÓN Y ASESORÍA B2B*\n\n` +
-      `Estimado(a) *${customer.razonSocial}*,\n\n` +
-      `Le saludamos del Departamento Comercial de Athleticenter. Queremos hacer seguimiento a su cuenta corporativa:\n\n` +
-      `📄 *RIF Fiscal:* ${customer.rif}\n` +
-      (pendingDebt > 0.05 ? `💰 *Saldo Pendiente (Lista BCV):* ${pendingDebt.toFixed(2)} USD\n` : `✅ *Estado de Cuenta:* Al Día\n`) +
-      `📍 *Canal de Atención:* Atención Corporativa Athleticenter\n\n` +
-      `¿En qué podemos apoyarle hoy con el despacho de mercancía o actualización de ofertas?\n\n` +
-      `¡Muchas gracias por su preferencia!\n\n_El equipo de Athleticenter_`;
+    const pendingList = customer.id ? (customerPendingBalances.billableListMap.get(customer.id) || 0) : 0;
+    const pendingDivisas = customer.id ? (customerPendingBalances.billableDivisasMap.get(customer.id) || 0) : 0;
+    const openCount = customer.id ? (customerPendingBalances.billableCountMap.get(customer.id) || 0) : 0;
+
+    const text = accountStatementMessage({
+      customerName: customer.razonSocial,
+      pendingBalance: pendingList,
+      pendingDivisasBalance: pendingDivisas,
+      openInvoicesCount: openCount,
+    });
 
     const url = cleanPhone ? `https://wa.me/${cleanPhone}?text=${encodeURIComponent(text)}` : `https://wa.me/?text=${encodeURIComponent(text)}`;
     window.open(url, '_blank');

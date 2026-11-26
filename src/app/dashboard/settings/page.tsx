@@ -860,12 +860,15 @@ function WhatsAppLiveTesterWidget() {
         }
         setIsSending(true);
         try {
-            const { dispatchUniversalWhatsApp } = await import('@/lib/whatsapp-universal');
-            const { formatVenezuelaPhoneE164 } = await import('@/lib/whatsapp-gateway');
+            const [{ dispatchUniversalWhatsApp }, { formatVenezuelaPhoneE164 }, { whatsappTestMessage }] = await Promise.all([
+                import('@/lib/whatsapp-universal'),
+                import('@/lib/whatsapp-gateway'),
+                import('@/lib/whatsapp-templates'),
+            ]);
             const formattedPhone = formatVenezuelaPhoneE164(phoneInput);
             const result = await dispatchUniversalWhatsApp({
                 phone: phoneInput,
-                message: `*ATHLETICENTER PRO C.A. - PRUEBA DE SERVIDOR WHATSAPP EN VÍO SILENCIOSO*\n\nHola! 👋 Este es un mensaje de prueba 100% automático enviado desde la instancia de UltraMsg (instance189931).\n\n📅 Fecha: ${new Date().toLocaleString()}\n🚀 Estado: Conexión Exitosa.`,
+                message: whatsappTestMessage(),
                 module: 'marketing'
             });
 

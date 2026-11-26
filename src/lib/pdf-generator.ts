@@ -15,6 +15,7 @@ import {
   canonicalizeBrand,
   canonicalizeDiscipline,
   computeInventorySelectionMetrics,
+  computeProductAuditRow,
 } from './inventory-filter';
 
 type GenerateOrderPdfParams = {
@@ -56,7 +57,7 @@ async function getBase64ImageFromUrl(url: string): Promise<string> {
 }
 
 const thumbnailCache = new Map<string, string>();
-const MAX_THUMBNAIL_CACHE_ENTRIES = 300;
+const MAX_THUMBNAIL_CACHE_ENTRIES = 600;
 
 function resolveItemImageUrl(itemOrProduct: any): string {
     return (
@@ -94,73 +95,126 @@ function formatProductCellWithCode(params: {
     return lines.join('\n');
 }
 
+function drawImageToJpegDataUrl(img: HTMLImageElement): string | null {
+    try {
+        const size = 120;
+        const canvas = document.createElement('canvas');
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return null;
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, size, size);
+        const w = img.naturalWidth || img.width || size;
+        const h = img.naturalHeight || img.height || size;
+        const scale = Math.min((size - 8) / w, (size - 8) / h);
+        const dw = w * scale;
+        const dh = h * scale;
+        const dx = (size - dw) / 2;
+        const dy = (size - dh) / 2;
+        ctx.drawImage(img, dx, dy, dw, dh);
+        return canvas.toDataURL('image/jpeg', 0.82);
+    } catch {
+        return null;
+    }
+}
+
+function loadImageElement(src: string, timeoutMs: number, useCrossOrigin: boolean): Promise<HTMLImageElement | null> {
+    return new Promise((resolve) => {
+        let settled = false;
+        const finish = (val: HTMLImageElement | null) => {
+            if (!settled) {
+                settled = true;
+                resolve(val);
+            }
+        };
+        const timer = setTimeout(() => finish(null), timeoutMs);
+        const img = new Image();
+        if (useCrossOrigin) {
+            img.crossOrigin = 'anonymous';
+        }
+        img.onload = () => {
+            clearTimeout(timer);
+            finish(img);
+        };
+        img.onerror = () => {
+            clearTimeout(timer);
+            finish(null);
+        };
+        img.src = src;
+    });
+}
+
+function cacheThumbnail(url: string, jpegUrl: string) {
+    if (thumbnailCache.size >= MAX_THUMBNAIL_CACHE_ENTRIES) {
+        const firstKey = thumbnailCache.keys().next().value;
+        if (firstKey) thumbnailCache.delete(firstKey);
+    }
+    thumbnailCache.set(url, jpegUrl);
+}
+
 /**
  * Convierte cualquier imagen (Base64 o URL HTTPS) en miniatura cuadrada a color JPEG
- * liviana (120x120 px sobre blanco) con caché en memoria y tolerancia total a fallos.
+ * liviana (120x120 px sobre blanco) evitando conflictos de caché CORS y con reintento automático.
  */
 async function loadColorThumbnailDataUrl(url: string): Promise<string | null> {
     if (!url || typeof window === 'undefined') return null;
     const cached = thumbnailCache.get(url);
     if (cached) return cached;
 
-    return new Promise((resolve) => {
-        let settled = false;
-        const finish = (val: string | null) => {
-            if (!settled) {
-                settled = true;
-                resolve(val);
-            }
-        };
-        const timer = setTimeout(() => finish(null), 4000);
-        const img = new Image();
-        if (!url.startsWith('data:')) {
-            img.setAttribute('crossOrigin', 'anonymous');
+    if (url.startsWith('data:')) {
+        const img = await loadImageElement(url, 8000, false);
+        const jpegUrl = img ? drawImageToJpegDataUrl(img) : null;
+        if (jpegUrl) cacheThumbnail(url, jpegUrl);
+        return jpegUrl;
+    }
+
+    for (let attempt = 0; attempt < 2; attempt++) {
+        if (attempt > 0) {
+            await new Promise((r) => setTimeout(r, 250));
         }
-        img.onload = () => {
-            clearTimeout(timer);
-            try {
-                const size = 120;
-                const canvas = document.createElement('canvas');
-                canvas.width = size;
-                canvas.height = size;
-                const ctx = canvas.getContext('2d');
-                if (!ctx) {
-                    finish(null);
-                    return;
+        let blobUrl: string | null = null;
+        const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+        const timer = controller ? setTimeout(() => controller.abort(), 12000) : null;
+        try {
+            const res = await fetch(url, {
+                mode: 'cors',
+                cache: 'no-cache',
+                signal: controller?.signal,
+            });
+            if (res.ok) {
+                const blob = await res.blob();
+                blobUrl = URL.createObjectURL(blob);
+                const img = await loadImageElement(blobUrl, 8000, false);
+                const jpegUrl = img ? drawImageToJpegDataUrl(img) : null;
+                if (jpegUrl) {
+                    cacheThumbnail(url, jpegUrl);
+                    return jpegUrl;
                 }
-                ctx.fillStyle = '#ffffff';
-                ctx.fillRect(0, 0, size, size);
-                const w = img.naturalWidth || img.width || size;
-                const h = img.naturalHeight || img.height || size;
-                const scale = Math.min((size - 8) / w, (size - 8) / h);
-                const dw = w * scale;
-                const dh = h * scale;
-                const dx = (size - dw) / 2;
-                const dy = (size - dh) / 2;
-                ctx.drawImage(img, dx, dy, dw, dh);
-                const jpegUrl = canvas.toDataURL('image/jpeg', 0.82);
-                if (thumbnailCache.size >= MAX_THUMBNAIL_CACHE_ENTRIES) {
-                    const firstKey = thumbnailCache.keys().next().value;
-                    if (firstKey) thumbnailCache.delete(firstKey);
-                }
-                thumbnailCache.set(url, jpegUrl);
-                finish(jpegUrl);
-            } catch {
-                finish(null);
             }
-        };
-        img.onerror = () => {
-            clearTimeout(timer);
-            finish(null);
-        };
-        img.src = url;
-    });
+        } catch {
+            // Se reintenta o pasa al respaldo por <img> con cache-buster
+        } finally {
+            if (timer) clearTimeout(timer);
+            if (blobUrl) URL.revokeObjectURL(blobUrl);
+        }
+    }
+
+    const cbUrl = `${url}${url.includes('?') ? '&' : '?'}_pdfcb=${Date.now()}`;
+    const fallbackImg = await loadImageElement(cbUrl, 10000, true);
+    const fallbackJpeg = fallbackImg ? drawImageToJpegDataUrl(fallbackImg) : null;
+    if (fallbackJpeg) {
+        cacheThumbnail(url, fallbackJpeg);
+        return fallbackJpeg;
+    }
+
+    return null;
 }
 
 async function preloadThumbnailMap(urls: string[]): Promise<Map<string, string>> {
     const uniqueUrls = Array.from(new Set(urls.filter(Boolean)));
     const map = new Map<string, string>();
-    const batchSize = 12;
+    const batchSize = 6;
     for (let i = 0; i < uniqueUrls.length; i += batchSize) {
         const chunk = uniqueUrls.slice(i, i + batchSize);
         const results = await Promise.all(
@@ -779,13 +833,14 @@ export async function generateInventoryReportPDF(
     showPrices?: boolean;
     bcvDiscount?: number;
     filename?: string;
+    soldByProductId?: Record<string, number>;
   } = {}
 ) {
   const safeProducts = Array.isArray(products) ? products : [];
   const showPrices = options.showPrices !== false;
   const bcvDiscount = options.bcvDiscount ?? 25;
-  const subtitle = (options.subtitle || 'CATÁLOGO Y EXISTENCIAS EN ALMACÉN').toUpperCase();
-  const metrics = computeInventorySelectionMetrics(safeProducts, bcvDiscount);
+  const subtitle = (options.subtitle || 'CATÁLOGO Y AUDITORÍA DE EXISTENCIAS (100% INCLUYE AGOTADOS EN 0)').toUpperCase();
+  const metrics = computeInventorySelectionMetrics(safeProducts, bcvDiscount, options.soldByProductId);
 
   const thumbMap = await preloadThumbnailMap(safeProducts.map(resolveItemImageUrl));
 
@@ -810,18 +865,22 @@ export async function generateInventoryReportPDF(
   doc.setTextColor(96, 165, 250);
   doc.text((companyProfile?.companyName || 'ATHLETICENTER C.A.').toUpperCase(), textStartX, 10.5);
 
-  doc.setFontSize(7.5);
+  doc.setFontSize(7.2);
   doc.setTextColor(203, 213, 225);
   doc.text(`RIF: ${companyProfile?.companyRif || 'J-507140202'}  ·  EMISIÓN: ${format(new Date(), 'dd/MM/yyyy HH:mm')}`, textStartX, 16.5);
-  doc.text(`${metrics.modelsCount} MODELOS  ·  ${metrics.totalUnits.toLocaleString()} UNIDADES DISPONIBLES`, textStartX, 22);
+  doc.text(
+    `${metrics.modelsCount} MODELOS (${metrics.outOfStockCount} EN 0)  ·  HABÍA: ${metrics.totalHadUnits.toLocaleString()}  ·  VENDIDO: ${metrics.totalSoldUnits.toLocaleString()}  ·  QUEDAN: ${metrics.totalUnits.toLocaleString()}`,
+    textStartX,
+    22
+  );
 
-  doc.setFontSize(11.5);
+  doc.setFontSize(11);
   doc.setTextColor(255, 255, 255);
   doc.text(title.toUpperCase(), pageW - 14, 12, { align: 'right' });
 
-  doc.setFontSize(7.2);
+  doc.setFontSize(7);
   doc.setTextColor(251, 191, 36);
-  const subtitleText = subtitle.length > 72 ? `${subtitle.slice(0, 69)}...` : subtitle;
+  const subtitleText = subtitle.length > 68 ? `${subtitle.slice(0, 65)}...` : subtitle;
   doc.text(subtitleText, pageW - 14, 19, { align: 'right' });
 
   // Barra superior de métricas resumidas
@@ -829,29 +888,31 @@ export async function generateInventoryReportPDF(
   doc.setFillColor(248, 250, 252);
   doc.setDrawColor(226, 232, 240);
   doc.roundedRect(14, barY, pageW - 28, 12, 2, 2, 'FD');
-  doc.setFontSize(7.5);
+  doc.setFontSize(6.8);
   doc.setFont("helvetica", "bold");
   doc.setTextColor(30, 41, 59);
-  const barSummaryLeft = `MODELOS: ${metrics.modelsCount}   |   DISPONIBLES: ${metrics.inStockCount} (${metrics.totalUnits.toLocaleString()} UDS)   |   AGOTADOS: ${metrics.outOfStockCount}`;
+  const barSummaryLeft = `MODELOS: ${metrics.modelsCount} (${metrics.inStockCount} DISP · ${metrics.outOfStockCount} EN 0) | HABÍA: ${metrics.totalHadUnits.toLocaleString()} | VENDIDO: ${metrics.totalSoldUnits.toLocaleString()} | QUEDAN: ${metrics.totalUnits.toLocaleString()}`;
   doc.text(barSummaryLeft, 18, barY + 7.5);
   if (showPrices) {
+    doc.setFontSize(6.8);
     doc.setTextColor(5, 150, 105);
     doc.text(
-      `BCV: $${metrics.totalValuationBCV.toLocaleString('en-US', { minimumFractionDigits: 2 })}  ·  CASH: $${metrics.totalValuationCash.toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
+      `BCV: $${metrics.totalValuationBCV.toLocaleString('en-US', { minimumFractionDigits: 2 })} · CASH: $${metrics.totalValuationCash.toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
       pageW - 18,
       barY + 7.5,
       { align: 'right' }
     );
   } else {
     doc.setTextColor(100, 116, 139);
-    doc.text('HOJA DE CONTEO FÍSICO EN ALMACÉN', pageW - 18, barY + 7.5, { align: 'right' });
+    doc.text('AUDITORÍA Y CONTEO FÍSICO', pageW - 18, barY + 7.5, { align: 'right' });
   }
 
-  const formatDetailCell = (p: Product) => {
+  const formatDetailCell = (p: Product, includeLocation: boolean = false) => {
     const brand = canonicalizeBrand(p.brand);
     const disc = canonicalizeDiscipline(p.discipline);
     const cat = (p.category || '').trim().toUpperCase();
-    const meta = [brand, disc, cat].filter(Boolean).join(' · ');
+    const loc = includeLocation && p.warehouseLocation ? `UBIC: ${p.warehouseLocation.trim().toUpperCase()}` : '';
+    const meta = [brand, disc, cat, loc].filter(Boolean).join(' · ');
     const sizesTxt = formatProductSizesSummary(p);
     return formatProductCellWithCode({
       name: p.name,
@@ -863,15 +924,16 @@ export async function generateInventoryReportPDF(
 
   if (showPrices) {
     const tableRows = safeProducts.map((p) => {
-      const stock = getProductStock(p);
+      const audit = computeProductAuditRow(p, options.soldByProductId);
       const listPrice = Number(p.price || 0);
       const cashPrice = getProductCashPrice(p, bcvDiscount);
-      const totalRowBCV = Math.max(0, stock) * listPrice;
+      const totalRowBCV = Math.max(0, audit.remaining) * listPrice;
       return [
         '', // Foto en didDrawCell
-        formatDetailCell(p),
-        (p.warehouseLocation || '---').toUpperCase(),
-        `${stock} uds`,
+        formatDetailCell(p, true),
+        `${audit.had}`,
+        `${audit.sold}`,
+        `${audit.remaining}`,
         `$${listPrice.toFixed(2)}`,
         `$${cashPrice.toFixed(2)}`,
         `$${totalRowBCV.toFixed(2)}`,
@@ -879,24 +941,25 @@ export async function generateInventoryReportPDF(
     });
 
     (doc as any).autoTable({
-      head: [['FOTO', 'PRODUCTO / DETALLE', 'UBIC.', 'DISPONIBLE', 'LISTA BCV', 'CASH', 'TOTAL BCV']],
+      head: [['FOTO', 'PRODUCTO / CÓDIGO', 'HABÍA', 'VENDIDO', 'DEBEN QUEDAR', 'LISTA BCV', 'CASH', 'TOTAL BCV']],
       body: tableRows,
       startY: 46,
       theme: 'grid',
-      styles: { fontSize: 7.2, cellPadding: 2, valign: 'middle', textColor: [30, 41, 59], lineColor: [226, 232, 240] },
-      headStyles: { fillColor: [15, 23, 42], textColor: 255, halign: 'center', fontSize: 7, fontStyle: 'bold' },
-      bodyStyles: { minCellHeight: 20 },
+      styles: { fontSize: 6.9, cellPadding: 1.8, valign: 'middle', textColor: [30, 41, 59], lineColor: [226, 232, 240] },
+      headStyles: { fillColor: [15, 23, 42], textColor: 255, halign: 'center', fontSize: 6.4, fontStyle: 'bold' },
+      bodyStyles: { minCellHeight: 19 },
       columnStyles: {
-        0: { cellWidth: 20, halign: 'center' },
-        1: { cellWidth: 66 },
-        2: { cellWidth: 18, halign: 'center', fontSize: 6.8 },
-        3: { cellWidth: 22, halign: 'center', fontStyle: 'bold', fontSize: 8 },
-        4: { cellWidth: 20, halign: 'right' },
-        5: { cellWidth: 20, halign: 'right', textColor: [5, 150, 105], fontStyle: 'bold' },
-        6: { cellWidth: 22, halign: 'right', fontStyle: 'bold' },
+        0: { cellWidth: 18, halign: 'center' },
+        1: { cellWidth: 62 },
+        2: { cellWidth: 18, halign: 'center', fontStyle: 'bold', fontSize: 7.8, textColor: [51, 65, 85] },
+        3: { cellWidth: 19, halign: 'center', fontStyle: 'bold', fontSize: 7.8, textColor: [37, 99, 235] },
+        4: { cellWidth: 21, halign: 'center', fontStyle: 'bold', fontSize: 8.2 },
+        5: { cellWidth: 16, halign: 'right' },
+        6: { cellWidth: 16, halign: 'right', textColor: [5, 150, 105], fontStyle: 'bold' },
+        7: { cellWidth: 18, halign: 'right', fontStyle: 'bold' },
       },
       didParseCell: (data: any) => {
-        if (data.section === 'body' && data.column.index === 3) {
+        if (data.section === 'body' && data.column.index === 4) {
           const p = safeProducts[data.row.index];
           if (!p) return;
           const stock = getProductStock(p);
@@ -909,40 +972,42 @@ export async function generateInventoryReportPDF(
         if (data.section === 'body' && data.column.index === 0) {
           const p = safeProducts[data.row.index];
           if (!p) return;
-          drawThumbnailInCell(doc, data, thumbMap.get(resolveItemImageUrl(p)), 16);
+          drawThumbnailInCell(doc, data, thumbMap.get(resolveItemImageUrl(p)), 15);
         }
       },
       margin: { top: 14, right: 14, bottom: 18, left: 14 },
     });
   } else {
     const countRows = safeProducts.map((p) => {
-      const stock = getProductStock(p);
+      const audit = computeProductAuditRow(p, options.soldByProductId);
       return [
         '', // Foto en didDrawCell
-        formatDetailCell(p),
-        (p.warehouseLocation || '---').toUpperCase(),
-        `${stock} uds`,
+        formatDetailCell(p, true),
+        `${audit.had}`,
+        `${audit.sold}`,
+        `${audit.remaining}`,
         '____________',
       ];
     });
 
     (doc as any).autoTable({
-      head: [['FOTO', 'PRODUCTO / DETALLE', 'UBICACIÓN', 'SISTEMA', 'CONTEO FÍSICO']],
+      head: [['FOTO', 'PRODUCTO / CÓDIGO', 'HABÍA', 'VENDIDO', 'DEBEN QUEDAR', 'CONTEO FÍSICO']],
       body: countRows,
       startY: 46,
       theme: 'grid',
-      styles: { fontSize: 7.5, cellPadding: 2, valign: 'middle', textColor: [30, 41, 59], lineColor: [226, 232, 240] },
-      headStyles: { fillColor: [15, 23, 42], textColor: 255, halign: 'center', fontSize: 7.2, fontStyle: 'bold' },
+      styles: { fontSize: 7.4, cellPadding: 2, valign: 'middle', textColor: [30, 41, 59], lineColor: [226, 232, 240] },
+      headStyles: { fillColor: [15, 23, 42], textColor: 255, halign: 'center', fontSize: 6.9, fontStyle: 'bold' },
       bodyStyles: { minCellHeight: 20 },
       columnStyles: {
-        0: { cellWidth: 22, halign: 'center' },
-        1: { cellWidth: 88 },
-        2: { cellWidth: 24, halign: 'center' },
-        3: { cellWidth: 26, halign: 'center', fontStyle: 'bold', fontSize: 8.5 },
-        4: { cellWidth: 28, halign: 'center', fontStyle: 'bold', textColor: [148, 163, 184] },
+        0: { cellWidth: 20, halign: 'center' },
+        1: { cellWidth: 72 },
+        2: { cellWidth: 22, halign: 'center', fontStyle: 'bold', fontSize: 8.5, textColor: [51, 65, 85] },
+        3: { cellWidth: 22, halign: 'center', fontStyle: 'bold', fontSize: 8.5, textColor: [37, 99, 235] },
+        4: { cellWidth: 24, halign: 'center', fontStyle: 'bold', fontSize: 8.8 },
+        5: { cellWidth: 28, halign: 'center', fontStyle: 'bold', textColor: [148, 163, 184] },
       },
       didParseCell: (data: any) => {
-        if (data.section === 'body' && data.column.index === 3) {
+        if (data.section === 'body' && data.column.index === 4) {
           const p = safeProducts[data.row.index];
           if (!p) return;
           const stock = getProductStock(p);
@@ -963,34 +1028,34 @@ export async function generateInventoryReportPDF(
   }
 
   let finalY = ((doc as any).lastAutoTable?.finalY || 50) + 6;
-  if (finalY + 26 > pageH - 14) {
+  if (finalY + 28 > pageH - 14) {
     doc.addPage();
     finalY = 18;
   }
 
   doc.setFillColor(15, 23, 42);
-  doc.roundedRect(14, finalY, pageW - 28, 20, 2.5, 2.5, 'F');
-  doc.setFontSize(7.5);
+  doc.roundedRect(14, finalY, pageW - 28, 22, 2.5, 2.5, 'F');
+  doc.setFontSize(7.2);
   doc.setFont("helvetica", "bold");
   doc.setTextColor(148, 163, 184);
-  doc.text('RESUMEN DEL INVENTARIO IMPRESO', 18, finalY + 6.5);
-  doc.setFontSize(9);
-  doc.setTextColor(255, 255, 255);
-  doc.text(
-    `Modelos: ${metrics.modelsCount}  ·  Unidades Disponibles: ${metrics.totalUnits.toLocaleString()} uds  ·  Con Stock: ${metrics.inStockCount}  ·  Agotados: ${metrics.outOfStockCount}`,
-    18,
-    finalY + 14.5
-  );
+  doc.text('RESUMEN DEL INVENTARIO IMPRESO', 18, finalY + 7);
   if (showPrices) {
-    doc.setFontSize(8.5);
+    doc.setFontSize(8);
     doc.setTextColor(52, 211, 153);
     doc.text(
       `Total BCV: $${metrics.totalValuationBCV.toLocaleString('en-US', { minimumFractionDigits: 2 })}  |  Cash: $${metrics.totalValuationCash.toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
       pageW - 18,
-      finalY + 14.5,
+      finalY + 7,
       { align: 'right' }
     );
   }
+  doc.setFontSize(8.4);
+  doc.setTextColor(255, 255, 255);
+  doc.text(
+    `Modelos: ${metrics.modelsCount}  ·  Había: ${metrics.totalHadUnits.toLocaleString()} uds  ·  Vendido: ${metrics.totalSoldUnits.toLocaleString()} uds  ·  Deben Quedar: ${metrics.totalUnits.toLocaleString()} uds  ·  En 0 (Agotados): ${metrics.outOfStockCount}`,
+    18,
+    finalY + 15.5
+  );
 
   addPageNumbersFooter(doc);
   const rawSlug = options.filename || title.replace(/\s+/g, '_');

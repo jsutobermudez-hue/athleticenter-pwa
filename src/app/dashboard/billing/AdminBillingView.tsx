@@ -2,7 +2,7 @@
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
-import { billingReminderMessage } from '@/lib/whatsapp-templates';
+import { billingReminderMessage, computeOrderBalanceForWhatsApp } from '@/lib/whatsapp-templates';
 import { sendWhatsAppWithFeedback } from '@/lib/whatsapp-client';
 import { useSearchParams, useRouter } from 'next/navigation';
 import {
@@ -442,14 +442,18 @@ export function AdminBillingView() {
 
   const handleSendWhatsAppInvoiceReminder = (invoice: Invoice, order?: Order) => {
     const cleanPhone = formatVenezuelaPhoneE164(order?.customerPhone || '');
+    const bal = order ? computeOrderBalanceForWhatsApp(order) : null;
+    const isPaid = invoice.status === 'Pagado' || invoice.remainingBalance <= 0.50 || Boolean(bal?.isPaid);
 
     sendWhatsAppWithFeedback({
       phone: cleanPhone,
       message: billingReminderMessage({
         customerName: invoice.customerName,
         invoiceId: invoice.id,
-        remainingBalance: invoice.remainingBalance,
+        remainingBalance: bal ? bal.pendingListUSD : invoice.remainingBalance,
+        remainingDivisas: bal ? bal.pendingDivisasUSD : undefined,
         statusText: invoice.statusText,
+        isPaid,
       }),
       module: 'billing',
       orderId: invoice.id,

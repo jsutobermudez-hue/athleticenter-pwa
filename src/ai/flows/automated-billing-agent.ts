@@ -14,6 +14,7 @@ import type { Order } from '@/lib/definitions';
 import { generateWhatsAppReminder } from './whatsapp-credit-reminder';
 import { dispatchUniversalWhatsApp } from '@/lib/whatsapp-universal';
 import { getInvoiceFromOrder } from '@/lib/billing';
+import { computeOrderBalanceForWhatsApp, shortId } from '@/lib/whatsapp-templates';
 
 const AgentExecutionResultSchema = z.object({
   processedInvoices: z.number().describe('Total number of invoices checked.'),
@@ -50,9 +51,10 @@ export const automatedBillingAgentFlow = ai.defineFlow(
       processedInvoices++;
 
       const invoice = getInvoiceFromOrder(order);
+      const bal = computeOrderBalanceForWhatsApp(order);
 
-      // Solo enviamos recordatorios para facturas con saldo pendiente real
-      if (!invoice || invoice.remainingBalance <= 0.05 || invoice.status === 'Pagado') {
+      // Solo enviamos recordatorios para facturas facturables con saldo pendiente real
+      if (!invoice || !bal.isBillable || bal.pendingListUSD <= 0.50 || invoice.status === 'Pagado') {
         return;
       }
 
@@ -68,6 +70,10 @@ export const automatedBillingAgentFlow = ai.defineFlow(
           remainingCreditDays: invoice.remainingCreditDays,
           discountPercentage: invoice.discountPercentage,
           phoneNumber: phone,
+          orderId: shortId(order.id),
+          remainingBalance: bal.pendingListUSD,
+          divisasBalance: bal.pendingDivisasUSD,
+          isOverdue: invoice.status === 'Vencido',
         });
         
         // Priorizar el envío si hay descuento disponible o si está vencido

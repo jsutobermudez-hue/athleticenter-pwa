@@ -95,7 +95,7 @@ function LogisticsOrderCard({ order, onOpenDialog, onNavigateToDetails, onZoom }
         const text = dispatchMessage({
             customerName: order.customerName,
             orderId: order.id,
-            carrier: order.carrier || (order as any).paymentMethod,
+            carrier: order.carrier || undefined,
             trackingNumber: order.trackingNumber || order.internalTrackingNumber,
             packages: order.packageCount,
         });

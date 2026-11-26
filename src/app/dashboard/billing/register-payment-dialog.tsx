@@ -52,6 +52,7 @@ import { cn } from '@/lib/utils';
 import { generateOrderPDF, generatePaymentReceiptPDF } from '@/lib/pdf-generator';
 import { dispatchUniversalWhatsApp } from '@/lib/whatsapp-universal';
 import { processStockDeductionForOrder } from '@/lib/billing';
+import { paymentReceiptMessage, computeOrderBalanceForWhatsApp } from '@/lib/whatsapp-templates';
 
 const paymentSchema = z.object({
   amount: z.coerce.number().min(0.01, 'El monto debe ser mayor a cero.'),
@@ -378,6 +379,15 @@ export function ConfirmPaymentDialog({ order }: { order: Order }) {
       const isFullyPaid = result?.isFullyPaid || false;
       const actualCash = result?.actualCash || data.amount;
       const newTotalPaid = result?.newTotalPaid || data.amount;
+      const postPayBalance = isFullyPaid
+        ? { pendingListUSD: 0, pendingDivisasUSD: 0 }
+        : computeOrderBalanceForWhatsApp({
+            ...order,
+            amountPaid: newTotalPaid,
+            totalCashReceived: newTotalPaid,
+            status: order.status,
+          });
+      const remainingAfterPay = isFullyPaid ? 0 : postPayBalance.pendingListUSD;
 
         try {
             const receiptPdfBase64 = await generatePaymentReceiptPDF({
@@ -394,15 +404,19 @@ export function ConfirmPaymentDialog({ order }: { order: Order }) {
                 bcvRate: globalSettings?.bcvRate || 65.50
             });
 
-            const custPhone = (order as any).customerPhone || (order as any).phone;
+            const custPhone = (order as any).customerPhone || (order as any).phone || (order as any).telefono;
             if (custPhone) {
-                const payMsg = `¡Hola, ${order.customerName}! 💳\n\n` +
-                  `Confirmamos la recepción de tu pago por *$${(reportedPayment?.amount || data.amount).toFixed(2)} USD* ` +
-                  `para el pedido *#${order.id}*.\n\n` +
-                  `• Método: ${data.method}\n` +
-                  `• Referencia: ${data.referenceNumber || 'N/A'}\n` +
-                  `• Estado del Pedido: ${isFullyPaid ? '✅ TOTALMENTE PAGADO' : '⏳ ABONO REGISTRADO'}\n\n` +
-                  `Adjuntamos el Recibo Oficial de Pago en PDF. ¡Gracias por tu pago!`;
+                const payMsg = paymentReceiptMessage({
+                  customerName: order.customerName,
+                  orderId: order.id,
+                  amountPaid: reportedPayment?.amount || data.amount,
+                  method: data.method,
+                  referenceNumber: data.referenceNumber,
+                  isFullyPaid,
+                  remainingListUSD: postPayBalance.pendingListUSD,
+                  remainingDivisasUSD: postPayBalance.pendingDivisasUSD,
+                  hasPdfAttachment: true,
+                });
 
                 dispatchUniversalWhatsApp({
                   phone: custPhone,
@@ -429,7 +443,7 @@ export function ConfirmPaymentDialog({ order }: { order: Order }) {
                 amountPaidUSD: actualCash,
                 paymentMethod: data.method,
                 referenceNumber: data.referenceNumber,
-                remainingBalanceUSD: Math.max(0, order.totalAmount - newTotalPaid),
+                remainingBalanceUSD: remainingAfterPay,
                 isFullyPaid
             });
         } catch (emailErr) {
@@ -438,10 +452,10 @@ export function ConfirmPaymentDialog({ order }: { order: Order }) {
 
         await createAppNotifications(firestore, {
             category: 'Facturación',
-            title: isFullyPaid ? `🎉 ¡Pedido Liquidado / Solvente! #${order.id.substring(0, 8)}` : `💵 ¡Abono Conciliado! #${order.id.substring(0, 8)}`,
+            title: isFullyPaid ? `🎉 ¡Pedido Pagado al 100%! #${order.id.substring(0, 8)}` : `💵 ¡Abono Conciliado! #${order.id.substring(0, 8)}`,
             message: isFullyPaid 
-                ? `El pedido #${order.id} para ${order.customerName} ha sido liquidado al 100% por $${actualCash.toFixed(2)}. Estatus: SOLVENTE.`
-                : `Se ha verificado un abono por $${actualCash.toFixed(2)} para el pedido #${order.id} (${order.customerName}). Saldo pendiente: $${Math.max(0, order.totalAmount - newTotalPaid).toFixed(2)}.`,
+                ? `El pedido #${order.id} de ${order.customerName} quedó pagado al 100% por $${actualCash.toFixed(2)}. Saldo: $0.00.`
+                : `Se verificó un abono de $${actualCash.toFixed(2)} para el pedido #${order.id} (${order.customerName}). Saldo restante (BCV): $${remainingAfterPay.toFixed(2)}.`,
             link: `/dashboard/billing?orderId=${order.id}`,
             initiatorId: currentUser.id,
             salespersonId: order.salespersonId,
@@ -449,17 +463,7 @@ export function ConfirmPaymentDialog({ order }: { order: Order }) {
             roles: ['admin', 'gerencia', 'deposito'],
         });
 
-        const customerPhone = (order as any).customerPhone || (order as any).phone || (order as any).telefono || '';
-        if (customerPhone) {
-            dispatchUniversalWhatsApp({
-                phone: customerPhone,
-                message: `¡Hola ${order.customerName}! Tu abono por $${actualCash.toFixed(2)} USD para el pedido #${order.id} ha sido conciliado exitosamente. Estatus: ${isFullyPaid ? 'SOLVENTE (100% Pagado)' : `Abonado (Saldo pendiente: $${Math.max(0, order.totalAmount - newTotalPaid).toFixed(2)})`}. ¡Muchas gracias por tu preferencia!`,
-                orderId: order.id,
-                module: 'billing'
-            }).catch((err: any) => console.warn("Aviso: Despacho de WhatsApp de fondo completado en fallback:", err));
-        }
-
-        toast({ title: isFullyPaid ? '🎉 ¡Pedido Liquidado y Solvente!' : '¡Abono Conciliado!', description: `Deuda actualizada y Recibo Oficial PDF emitido.` });
+        toast({ title: isFullyPaid ? '🎉 ¡Pedido Pagado al 100%!' : '¡Abono Conciliado!', description: `Deuda actualizada y Recibo Oficial PDF emitido.` });
         setIsOpen(false);
     } catch (serverError: any) {
       console.error("Error al conciliar abono:", serverError);

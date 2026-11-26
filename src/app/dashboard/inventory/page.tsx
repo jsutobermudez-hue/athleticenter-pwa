@@ -37,7 +37,7 @@ import { RestockPriorityReportModal } from '../reports/RestockPriorityReportModa
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { useCollection, useFirestore, useMemoFirebase, useUser, useDoc } from '@/firebase';
 import { useCatalog } from '@/firebase/catalog-context';
-import { collection, query, limit, doc, Timestamp, orderBy } from 'firebase/firestore';
+import { collection, collectionGroup, getDocs, query, limit, doc, Timestamp, orderBy } from 'firebase/firestore';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -50,6 +50,7 @@ import {
     extractInventoryFilterOptions,
     filterInventoryProducts,
     buildInventoryFilterTitle,
+    buildSoldUnitsByProductMap,
     type InventoryStockFilter,
 } from '@/lib/inventory-filter';
 import { cn } from '@/lib/utils';
@@ -103,6 +104,7 @@ function InventoryContent() {
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [productToDelete, setProductToDelete] = useState<Product | null>(null);
   const [isRestockModalOpen, setIsRestockModalOpen] = useState(false);
+  const [isGeneratingAuditPdf, setIsGeneratingAuditPdf] = useState(false);
   
   const [catalogFilter, setCatalogFilter] = useState<'todos' | 'offers' | 'new' | 'active'>('todos');
   const [stockStatusFilter, setStockStatusFilter] = useState('todos');
@@ -243,6 +245,57 @@ function InventoryContent() {
       setSearchTerm('');
   };
 
+  const handleExportFullInventoryAuditPdf = async () => {
+      if (!inventory || inventory.length === 0 || isGeneratingAuditPdf) return;
+      setIsGeneratingAuditPdf(true);
+      try {
+          const allSortedProducts = filterInventoryProducts(inventory, {
+              category: 'todos',
+              brand: 'todos',
+              discipline: 'todos',
+              stockStatus: 'todos',
+              searchTerm: '',
+              sortBy: 'name_asc',
+          });
+
+          let soldByProductId: Record<string, number> | undefined = undefined;
+          if (firestore) {
+              try {
+                  const [ordersSnap, itemsSnap] = await Promise.all([
+                      getDocs(query(collection(firestore, 'orders'), limit(1500))),
+                      getDocs(collectionGroup(firestore, 'orderItems')),
+                  ]);
+                  const ordersList = ordersSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
+                  const orderItemsList = itemsSnap.docs.map((d) => {
+                      const data = d.data() as any;
+                      return {
+                          orderId: data.orderId || d.ref.parent.parent?.id || '',
+                          productId: data.productId || '',
+                          quantity: Number(data.quantity || 0),
+                      };
+                  });
+                  soldByProductId = buildSoldUnitsByProductMap(ordersList, orderItemsList);
+              } catch {
+                  soldByProductId = undefined;
+              }
+          }
+
+          await generateInventoryReportPDF(
+              allSortedProducts,
+              companyProfile || undefined,
+              'INVENTARIO MAESTRO 100%',
+              {
+                  subtitle: 'AUDITORÍA COMPLETA DE CATÁLOGO (INCLUYE AGOTADOS EN 0)',
+                  bcvDiscount: globalSettings?.defaultBcvDiscount ?? 25,
+                  filename: 'Inventario_100_Completo',
+                  soldByProductId,
+              }
+          );
+      } finally {
+          setIsGeneratingAuditPdf(false);
+      }
+  };
+
   if (isUserLoading || !currentUser) return <div className="flex h-screen items-center justify-center"><Loader2 className="animate-spin text-primary h-10 w-10" /></div>;
 
   return (
@@ -300,16 +353,12 @@ function InventoryContent() {
                       <Button 
                           type="button"
                           variant="outline" 
-                          disabled={filteredInventory.length === 0}
-                          onClick={() => generateInventoryReportPDF(filteredInventory, companyProfile || undefined, inventoryPdfMeta.title, {
-                            subtitle: inventoryPdfMeta.subtitle,
-                            bcvDiscount: globalSettings?.defaultBcvDiscount ?? 25,
-                            filename: inventoryPdfMeta.filenameSlug,
-                          })} 
+                          disabled={!inventory || inventory.length === 0 || isGeneratingAuditPdf}
+                          onClick={handleExportFullInventoryAuditPdf} 
                           className="flex-1 sm:flex-none h-11 px-4 sm:px-6 rounded-xl border-slate-200 font-black uppercase text-[9px] tracking-widest shadow-sm bg-white hover:bg-slate-50 transition-all active:scale-95"
                       >
-                          <Download className="mr-2 h-4 w-4" /> 
-                          PDF Auditoría
+                          {isGeneratingAuditPdf ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
+                          PDF 100% ({inventory?.length || 0})
                       </Button>
                     </>
                 )}

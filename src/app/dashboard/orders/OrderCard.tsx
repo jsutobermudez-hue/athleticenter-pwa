@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { orderStatusMessage } from '@/lib/whatsapp-templates';
+import { orderStatusMessage, computeOrderBalanceForWhatsApp } from '@/lib/whatsapp-templates';
 import { sendWhatsAppWithFeedback } from '@/lib/whatsapp-client';
 import type { Order } from '@/lib/definitions';
 import { Card } from '@/components/ui/card';
@@ -18,13 +18,12 @@ export function OrderCard({ order, onSelect }: { order: Order; onSelect: (order:
   const config = statusConfig[order.status];
   const StatusIcon = config?.icon || User;
 
-  const paid = order.amountPaid || 0;
-  const pendingDebt = Math.max(0, order.totalAmount - paid);
+  const bal = computeOrderBalanceForWhatsApp(order);
+  const pendingDebt = bal.pendingListUSD;
 
   const handleSendWhatsAppOrder = (e: React.MouseEvent) => {
     e.stopPropagation();
     const cleanPhone = formatVenezuelaPhoneE164(order.customerPhone || '');
-    const itemsCount = ((order as any).items || []).length;
     
     sendWhatsAppWithFeedback({
       phone: cleanPhone,
@@ -34,7 +33,11 @@ export function OrderCard({ order, onSelect }: { order: Order; onSelect: (order:
         status: order.status,
         trackingNumber: order.trackingNumber,
         total: order.totalAmount,
-        pendingDebt,
+        pendingDebt: bal.pendingListUSD,
+        pendingDivisas: bal.pendingDivisasUSD,
+        paidAmount: bal.paidUSD,
+        isPaid: bal.isPaid,
+        isBillable: bal.isBillable,
       }),
       module: 'orders',
       orderId: order.id,

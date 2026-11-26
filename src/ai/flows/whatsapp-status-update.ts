@@ -6,7 +6,8 @@
  */
 
 import { ai } from '@/ai/genkit';
-import { z } from 'zod';
+import { z } from 'genkit';
+import { orderStatusChangeMessage } from '@/lib/whatsapp-templates';
 
 const WhatsAppStatusUpdateInputSchema = z.object({
   customerName: z.string().describe('The name of the customer.'),
@@ -31,25 +32,25 @@ const whatsAppPrompt = ai.definePrompt({
   model: 'googleai/gemini-2.5-flash',
   input: { schema: WhatsAppStatusUpdateInputSchema },
   output: { schema: WhatsAppStatusUpdateOutputSchema },
-  prompt: `Eres un asistente de servicio al cliente para Athleticenter. Tu tarea es generar un mensaje de WhatsApp claro y amigable en ESPAÑOL para notificar a un cliente sobre un cambio en el estado de su pedido.
+  prompt: `Eres el asistente de atención al cliente de Athleticenter. Redacta un mensaje de WhatsApp cercano, claro y breve en español venezolano para avisar al cliente que su pedido cambió de estado.
 
   Información del Pedido:
-  - Nombre del Cliente: {{{customerName}}}
-  - ID del Pedido: {{{orderId}}}
+  - Cliente: {{{customerName}}}
+  - Pedido: #{{{orderId}}}
   - Nuevo Estado: {{{newStatus}}}
   {{#if carrier}}
-  - Transportista: {{{carrier}}}
+  - Agencia: {{{carrier}}}
   {{/if}}
   {{#if trackingNumber}}
-  - Número de Seguimiento: {{{trackingNumber}}}
+  - N° de Guía: {{{trackingNumber}}}
   {{/if}}
 
-  Instrucciones para el mensaje:
-  1. Saluda al cliente por su nombre.
-  2. Menciona el ID del pedido para referencia.
-  3. Informa claramente sobre el nuevo estado.
-  4. Si el estado es "Despachado", incluye transportista y guía de forma emocionante.
-  5. Firma como "el equipo de Athleticenter". NUNCA menciones nombres de personas, vendedores ni asesores, ni inventes fechas, montos o plazos.
+  Instrucciones obligatorias:
+  1. Empieza exactamente con: Hola *{{{customerName}}}* 👋
+  2. Menciona el pedido *#{{{orderId}}}* y explica en lenguaje simple qué significa el nuevo estado (sin usar palabras como "expediente" o "estatus logístico").
+  3. Si viene agencia o número de guía, inclúyelos claramente.
+  4. Termina exactamente con: — *El equipo de Athleticenter*
+  5. NUNCA menciones nombres de vendedores ni inventes montos, fechas o plazos. Máximo 55 palabras, con 1-2 emojis.
 
   Responde únicamente con el objeto JSON que contiene el mensaje.`,
 });
@@ -61,7 +62,20 @@ const whatsAppStatusUpdateFlow = ai.defineFlow(
     outputSchema: WhatsAppStatusUpdateOutputSchema,
   },
   async input => {
-    const { output } = await whatsAppPrompt(input);
-    return output!;
+    try {
+      const { output } = await whatsAppPrompt(input);
+      if (output?.message) return output;
+    } catch (e) {
+      console.warn('[whatsAppStatusUpdateFlow] Fallback a plantilla directa:', e);
+    }
+    return {
+      message: orderStatusChangeMessage({
+        customerName: input.customerName,
+        orderId: input.orderId,
+        newStatus: input.newStatus,
+        carrier: input.carrier,
+        trackingNumber: input.trackingNumber,
+      }),
+    };
   }
 );

@@ -1,6 +1,6 @@
 'use client';
 
-import { collection, addDoc, serverTimestamp, type Firestore } from 'firebase/firestore';
+import { collection, addDoc, getDocs, query, where, limit, serverTimestamp, type Firestore } from 'firebase/firestore';
 import type { AuditLog } from './definitions';
 
 /**
@@ -164,25 +164,43 @@ export async function logActivity(
             createdAt: serverTimestamp(),
         });
 
-        // Si la severidad es CRÍTICA, despachar alerta instantánea de seguridad al WhatsApp de Gerencia
+        // Si la severidad es CRÍTICA, despachar alerta de seguridad al WhatsApp de Gerencia
         if (severity === 'critical') {
             try {
-                const { sendBackgroundWhatsAppMessage } = await import('./whatsapp-gateway');
-                const alertMessage = `🚨 *ALERTA DE SEGURIDAD Y AUDITORÍA CRÍTICA - ATHLETICENTER*\n\n` +
-                    `Se ha ejecutado una operación de alto impacto en el sistema:\n\n` +
-                    `👤 *Operario:* ${params.userName} (${params.userRole || 'Admin'})\n` +
-                    `⚡ *Acción:* ${humanReadableAction}\n` +
-                    `📦 *Módulo:* ${(params.module || params.resource || 'Sistema').toUpperCase()}\n` +
-                    `📄 *Detalle:* ${params.details}\n` +
-                    `📅 *Fecha:* ${new Date().toLocaleString('es-VE')}\n\n` +
-                    `Inspeccione el registro maestro en: https://athleticenter-pwa.web.app/dashboard/audit`;
-
-                // Despachar a la línea corporativa registrada de UltraMsg
-                const targetAdminPhone = process.env.WHATSAPP_ADMIN_PHONE || '584121234567';
-                await sendBackgroundWhatsAppMessage({
-                    phone: targetAdminPhone,
-                    message: alertMessage
+                const [{ sendBackgroundWhatsAppMessage }, { criticalAuditAlertMessage }] = await Promise.all([
+                    import('./whatsapp-gateway'),
+                    import('./whatsapp-templates'),
+                ]);
+                const alertMessage = criticalAuditAlertMessage({
+                    userName: params.userName,
+                    userRole: params.userRole || 'Admin',
+                    actionLabel: humanReadableAction,
+                    moduleLabel: (params.module || params.resource || 'Sistema').toUpperCase(),
+                    details: params.details,
+                    dateLabel: new Date().toLocaleString('es-VE'),
                 });
+
+                const envAdminPhone = process.env.WHATSAPP_ADMIN_PHONE;
+                const targetPhones = new Set<string>();
+                if (envAdminPhone && envAdminPhone.trim()) {
+                    targetPhones.add(envAdminPhone.trim());
+                } else {
+                    try {
+                        const saSnap = await getDocs(query(collection(firestore, 'users'), where('role', '==', 'superadmin'), limit(10)));
+                        saSnap.forEach(d => {
+                            const ph = d.data()?.phone || d.data()?.whatsappPhone || d.data()?.phoneNumber;
+                            if (ph) targetPhones.add(String(ph).trim());
+                        });
+                    } catch {
+                        // Sin permiso de lectura o entorno restringido: omitir envío sin usar números ficticios
+                    }
+                }
+
+                await Promise.all(
+                    Array.from(targetPhones).map(phone =>
+                        sendBackgroundWhatsAppMessage({ phone, message: alertMessage })
+                    )
+                );
             } catch (secErr) {
                 console.warn("[Audit] Alerta de seguridad WhatsApp diferida:", secErr);
             }

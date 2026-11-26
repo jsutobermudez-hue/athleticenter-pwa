@@ -5,6 +5,7 @@ import { useCollection, useFirestore, useMemoFirebase, useUser } from '@/firebas
 import { collection, query, limit, serverTimestamp, addDoc, doc, updateDoc, deleteDoc } from 'firebase/firestore';
 import type { Supplier } from '@/lib/definitions';
 import { formatVenezuelaPhoneE164 } from '@/lib/whatsapp-gateway';
+import { supplierInquiryMessage } from '@/lib/whatsapp-templates';
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -258,7 +259,7 @@ export default function SuppliersPage() {
     const handleWhatsAppSupplier = (supplier: Supplier, e: React.MouseEvent) => {
         e.stopPropagation();
         const cleanPhone = formatVenezuelaPhoneE164(supplier.phone || '');
-        const text = `Hola ${supplier.contactName || supplier.name}, nos comunicamos desde *ATHLETICENTER C.A.* para consultar disponibilidad de catálogo y tiempos de entrega.`;
+        const text = supplierInquiryMessage(supplier.contactName || supplier.name);
         const url = cleanPhone ? `https://wa.me/${cleanPhone}?text=${encodeURIComponent(text)}` : `https://wa.me/?text=${encodeURIComponent(text)}`;
         window.open(url, '_blank');
     };

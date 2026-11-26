@@ -16,6 +16,7 @@ interface NotificationParams {
   broadcast?: boolean;
   salespersonId?: string;
   customerId?: string;
+  skipWhatsApp?: boolean;
 }
 
 /**
@@ -138,31 +139,33 @@ export async function createAppNotifications(
     }
 
     // 2. DISPARAR NOTIFICACIÓN OMNICANAL AUTOMÁTICA POR WHATSAPP EN SEGUNDO PLANO
-    try {
-      const { dispatchUniversalWhatsApp } = await import('./whatsapp-universal');
-      const { internalNoticeMessage } = await import('./whatsapp-templates');
-      // Buscar teléfonos de los usuarios destinatarios o cliente
-      const { getDoc } = await import('firebase/firestore');
-      const userSnaps = await Promise.all(finalTargetIds.map(id => getDoc(doc(firestore, 'users', id))));
-      
-      for (const uSnap of userSnaps) {
-        if (uSnap.exists()) {
-          const uData = uSnap.data();
-          // Los clientes NO reciben avisos internos por WhatsApp (evita mensajes dobles y texto interno)
-          if (uData.role === 'cliente') continue;
-          const targetPhone = uData.phone || uData.whatsappPhone || uData.phoneNumber;
-          if (targetPhone) {
-            dispatchUniversalWhatsApp({
-              phone: targetPhone,
-              imageUrl,
-              message: internalNoticeMessage(title, message),
-              module: 'orders'
-            }).catch(e => console.warn("[Notifications] Error en despacho WhatsApp:", e));
+    if (!params.skipWhatsApp) {
+      try {
+        const { dispatchUniversalWhatsApp } = await import('./whatsapp-universal');
+        const { internalNoticeMessage } = await import('./whatsapp-templates');
+        // Buscar teléfonos de los usuarios destinatarios o cliente
+        const { getDoc } = await import('firebase/firestore');
+        const userSnaps = await Promise.all(finalTargetIds.map(id => getDoc(doc(firestore, 'users', id))));
+        
+        for (const uSnap of userSnaps) {
+          if (uSnap.exists()) {
+            const uData = uSnap.data();
+            // Los clientes NO reciben avisos internos por WhatsApp (evita mensajes dobles y texto interno)
+            if (uData.role === 'cliente') continue;
+            const targetPhone = uData.phone || uData.whatsappPhone || uData.phoneNumber;
+            if (targetPhone) {
+              dispatchUniversalWhatsApp({
+                phone: targetPhone,
+                imageUrl,
+                message: internalNoticeMessage(title, message, link),
+                module: 'orders'
+              }).catch(e => console.warn("[Notifications] Error en despacho WhatsApp:", e));
+            }
           }
         }
+      } catch (waErr) {
+        console.warn("[Notifications] Error en motor omnicanal de WhatsApp:", waErr);
       }
-    } catch (waErr) {
-      console.warn("[Notifications] Error en motor omnicanal de WhatsApp:", waErr);
     }
   } catch (e) {
     console.error("[Notifications] Fallo crítico al guardar notificaciones en base de datos:", e);

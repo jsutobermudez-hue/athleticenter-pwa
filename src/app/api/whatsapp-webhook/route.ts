@@ -4,6 +4,7 @@ import { initializeFirebaseServer, ensureServerAuth } from '@/firebase/server-in
 import { collection, query, getDocs, limit, orderBy, doc, getDoc, updateDoc, addDoc, serverTimestamp } from 'firebase/firestore';
 import { sendBackgroundWhatsAppMessage, formatVenezuelaPhoneE164 } from '@/lib/whatsapp-gateway';
 import { processArmInboundMessage } from '@/services/arm-inbound-agent';
+import { computeOrderBalanceForWhatsApp, humanOrderStatus, money } from '@/lib/whatsapp-templates';
 
 /**
  * WEBHOOK MULTI-GATEWAY DE WHATSAPP (ATHLETICENTER v3.0)
@@ -76,10 +77,10 @@ export async function POST(req: Request) {
           console.error('[WhatsApp Webhook] Error actualizando cotización:', updateErr);
         }
 
-        const reply = `*ATHLETICENTER*\n\n` +
-          `¡Excelente noticia! 🙌 Hemos registrado su confirmación para la cotización *#${quoteCode}*.\n\n` +
-          `El equipo de Athleticenter se comunicará con usted a la brevedad para coordinar la facturación y el despacho.\n\n` +
-          `¡Muchas gracias por su confianza! ⚽`;
+        const reply = `Hola *${qData.customerName || 'Cliente'}* 👋\n\n` +
+          `¡Excelente! 🙌 Ya registramos tu aprobación para la cotización *#${quoteCode}*.\n\n` +
+          `En breve nos comunicamos contigo por aquí para coordinar los detalles de pago y despacho. ¡Gracias por tu confianza! ⚽\n\n` +
+          `— *El equipo de Athleticenter*`;
 
         await sendBackgroundWhatsAppMessage({ phone: cleanPhone, message: reply });
         return NextResponse.json({ success: true, action: 'quote_confirmed', quoteId: matchedQuote.id, replyText: reply });
@@ -126,9 +127,8 @@ export async function POST(req: Request) {
           });
         } catch {}
 
-        const reply = `*ATHLETICENTER*\n\n` +
-          `Muchas gracias por su respuesta. Tomamos muy en cuenta su retroalimentación (*${label}*) para seguir brindándole el mejor servicio y las mejores condiciones comerciales.\n\n` +
-          `El equipo de Athleticenter queda a su entera disposición. 🙌`;
+        const reply = `¡Muchas gracias por contarnos! 🙌 Tomamos muy en cuenta tu comentario (*${label}*) para seguir mejorando nuestros precios y servicio.\n\n` +
+          `Cuando necesites algo más, estamos a la orden por aquí.\n\n— *El equipo de Athleticenter*`;
 
         await sendBackgroundWhatsAppMessage({ phone: cleanPhone, message: reply });
         return NextResponse.json({ success: true, action: 'objection_recorded', option: optionNum, label, replyText: reply });
@@ -148,12 +148,11 @@ export async function POST(req: Request) {
           });
         } catch {}
 
-        const reply = `*ATHLETICENTER*\n\n` +
-          `¡Excelente elección! 🙌 Hemos registrado su solicitud para apartar:\n\n` +
-          `• *${matchedSlot.name}* (Ref: ${matchedSlot.sku})\n` +
-          `• 💵 Precio en Divisas: *$${Number(matchedSlot.priceDivisas || 0).toFixed(2)}*\n\n` +
-          `Un asesor de nuestro equipo se comunicará con usted a la brevedad para confirmar la cantidad de unidades y coordinar el despacho.\n\n` +
-          `¡Muchas gracias por su confianza! ⚽`;
+        const reply = `¡Buena elección! 🙌 Ya anotamos tu solicitud para apartar:\n\n` +
+          `• *${matchedSlot.name}* (Cód: ${matchedSlot.sku})\n` +
+          `• 💵 Precio en divisas: *${money(Number(matchedSlot.priceDivisas || 0))}*\n\n` +
+          `En unos minutos te escribimos para confirmar cuántas unidades necesitas y coordinar el envío. ⚽\n\n` +
+          `— *El equipo de Athleticenter*`;
 
         await sendBackgroundWhatsAppMessage({ phone: cleanPhone, message: reply });
         return NextResponse.json({ success: true, action: 'catalog_product_requested', slot: matchedSlot.slot, product: matchedSlot.name, replyText: reply });
@@ -176,16 +175,21 @@ export async function POST(req: Request) {
       if (matchedOrder) {
         const oData = matchedOrder.data();
         const code = oData.orderNumber || matchedOrder.id.substring(0, 8).toUpperCase();
-        const total = Number(oData.totalAmount || 0).toFixed(2);
-        const status = oData.status || 'En Proceso';
+        const bal = computeOrderBalanceForWhatsApp(oData);
+        const balanceLine = bal.isPaid
+          ? `• *Pago:* ✅ Pagado al 100% — Saldo $0.00\n`
+          : `• *Total (Lista BCV):* ${money(bal.totalListUSD)}\n` +
+            (bal.isBillable
+              ? `• *Saldo pendiente (Lista BCV):* ${money(bal.pendingListUSD)} (Divisas: ${money(bal.pendingDivisasUSD)})\n`
+              : `• *Pagando en divisas (-${bal.divisasDiscountPct}%):* ${money(bal.totalDivisasUSD)}\n`);
 
-        const replyText = `*ATHLETICENTER*\n\n` +
-          `Estimado(a) *${oData.customerName || 'Cliente'}*:\n\n` +
-          `Le informamos el estatus de su pedido *#${code}*:\n` +
-          `• *Estado:* ${status}\n` +
-          `• *Total USD:* $${total}\n` +
-          (oData.trackingNumber ? `• *Guía de Envío:* ${oData.trackingNumber} (${oData.carrier || 'MRW'})\n` : '') +
-          `\nPara conciliar abonos o coordinar entregas, el equipo de Athleticenter está a su disposición.`;
+        const replyText = `Hola *${oData.customerName || 'Cliente'}* 👋\n\n` +
+          `Aquí tienes el estado de tu pedido *#${code}*:\n` +
+          `• *Estado:* ${humanOrderStatus(oData.status)}\n` +
+          balanceLine +
+          (oData.trackingNumber ? `• *Agencia / Guía:* ${oData.carrier || 'Encomienda'} — *${oData.trackingNumber}*\n` : '') +
+          `\nCualquier duda o si deseas enviar un comprobante, respóndenos por este chat. 🙌\n\n` +
+          `— *El equipo de Athleticenter*`;
 
         await sendBackgroundWhatsAppMessage({ phone: cleanPhone, message: replyText });
         return NextResponse.json({ success: true, action: 'reply_order_status', replyText });
@@ -204,11 +208,10 @@ export async function POST(req: Request) {
         }
       } catch {}
 
-      const replyText = `*ATHLETICENTER*\n\n` +
-        `💵 *Tasa Oficial BCV del día:*\n` +
-        `*Bs. ${bcvRate.toFixed(2)} / USD*\n\n` +
-        `Todos nuestros productos y facturas se calculan con base en la tasa oficial vigente, o con *25% de descuento pagando en divisas* + *10% adicional por pronto pago*.\n\n` +
-        `Atentamente,\n*El equipo de Athleticenter*`;
+      const replyText = `Hola 👋\n\n` +
+        `💵 *Tasa oficial BCV del día:* *Bs. ${bcvRate.toFixed(2)} / USD*\n\n` +
+        `Recuerda que pagando en divisas tienes *25% de descuento*, y si pagas tu factura de contado cuentas con *10% adicional*.\n\n` +
+        `— *El equipo de Athleticenter*`;
 
       await sendBackgroundWhatsAppMessage({ phone: cleanPhone, message: replyText });
       return NextResponse.json({ success: true, action: 'reply_bcv_rate', replyText });

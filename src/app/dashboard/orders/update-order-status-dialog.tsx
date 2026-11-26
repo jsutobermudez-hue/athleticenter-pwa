@@ -28,6 +28,7 @@ import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { handleWhatsAppStatusUpdate } from '@/app/actions';
 import { dispatchUniversalWhatsApp } from '@/lib/whatsapp-universal';
 import { createAppNotifications } from '@/lib/notifications';
+import { orderStatusChangeMessage } from '@/lib/whatsapp-templates';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { statusConfig } from '@/lib/status-config';
@@ -120,21 +121,41 @@ export function UpdateOrderStatusDialog({ order, isOpen, onOpenChange }: UpdateO
             });
             
             if (order.customerPhone && !['En Verificación', 'Pagado'].includes(status)) {
-                import('@/lib/auth-fetch').then(({ getCurrentIdToken }) => getCurrentIdToken()).then(idToken => handleWhatsAppStatusUpdate({
-                    idToken,
-                    customerName: order.customerName,
-                    orderId: order.id.substring(0, 6),
-                    newStatus: status,
-                })).then(result => {
-                    if (result.success && result.data) {
-                        dispatchUniversalWhatsApp({
-                            phone: order.customerPhone!,
-                            message: result.data.message,
+                import('@/lib/auth-fetch')
+                  .then(({ getCurrentIdToken }) => getCurrentIdToken())
+                  .then(idToken => handleWhatsAppStatusUpdate({
+                      idToken,
+                      customerName: order.customerName,
+                      orderId: order.id.substring(0, 8),
+                      newStatus: status,
+                  }))
+                  .then(result => {
+                      const msgText = result?.success && result?.data?.message
+                        ? result.data.message
+                        : orderStatusChangeMessage({
+                            customerName: order.customerName,
                             orderId: order.id,
-                            module: 'orders'
+                            newStatus: status,
                         });
-                    }
-                });
+                      dispatchUniversalWhatsApp({
+                          phone: order.customerPhone!,
+                          message: msgText,
+                          orderId: order.id,
+                          module: 'orders'
+                      });
+                  })
+                  .catch(() => {
+                      dispatchUniversalWhatsApp({
+                          phone: order.customerPhone!,
+                          message: orderStatusChangeMessage({
+                              customerName: order.customerName,
+                              orderId: order.id,
+                              newStatus: status,
+                          }),
+                          orderId: order.id,
+                          module: 'orders'
+                      });
+                  });
             }
             onOpenChange(false);
         })

@@ -195,22 +195,19 @@ export async function runBiweeklyCatalogAgent(options: BiweeklyCatalogOptions = 
   // 6. Construir el texto oficial del mensaje
   const itemsText = finalProducts.map(p => {
     const prefix = p.type === 'tendencia' ? '🌟' : '📦';
-    const tag = p.type === 'tendencia' ? 'Tendencia' : 'Liquidación';
-    return `${p.slot}️⃣ ${prefix} *${p.name}* (Ref: ${p.sku})\n` +
-      `   • Stock: ${p.stockLevel} unid. | Lista: $${p.priceList.toFixed(2)}\n` +
-      `   • 💵 *Precio en Divisas (25% desc.):* $${p.priceDivisas.toFixed(2)}`;
+    return `${p.slot}️⃣ ${prefix} *${p.name}* (Cód: ${p.sku})\n` +
+      `   • Disponibilidad inmediata | Lista BCV: $${p.priceList.toFixed(2)}\n` +
+      `   • 💵 *En divisas (-25%):* $${p.priceDivisas.toFixed(2)}`;
   }).join('\n\n');
 
-  const messageTemplate = `*ATHLETICENTER*\n\n` +
-    `🔥 *CATÁLOGO OFICIAL: DISPONIBILIDAD INMEDIATA*\n\n` +
-    `Estimado(a) *{{nombre}}*, te compartimos los artículos deportivos destacados para despacho esta semana:\n\n` +
+  const messageTemplate = `Hola *{{nombre}}* 👋\n\n` +
+    `Te compartimos las novedades de *Athleticenter* con disponibilidad inmediata esta semana:\n\n` +
     `${itemsText}\n\n` +
-    `🏆 *CONDICIONES OFICIALES:* \n` +
-    `💵 25% de descuento por pago en divisas / efectivo sobre precio de lista.\n` +
-    `✅ 10% adicional por pago de la factura de contado dentro del plazo.\n\n` +
-    `💬 *¿Deseas apartar mercancía para tu negocio?*\n` +
-    `Responde con el número *(1 al ${finalProducts.length})* y te reservamos las unidades de inmediato.\n\n` +
-    `Atentamente,\n*El equipo de Athleticenter*`;
+    `🏆 *Beneficios vigentes:*\n` +
+    `• 💵 *25% de descuento* pagando en divisas.\n` +
+    `• ✅ *10% adicional* pagando la factura de contado.\n\n` +
+    `💬 Si quieres apartar alguno, responde con el número *(1 al ${finalProducts.length})* y te ayudamos de una vez. 🙌\n\n` +
+    `— *El equipo de Athleticenter*`;
 
   // 7. Determinar audiencia de destinatarios
   let recipients: { id: string; name: string; phone: string }[] = [];

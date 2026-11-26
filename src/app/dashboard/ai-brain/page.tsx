@@ -28,6 +28,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
 import { formatVenezuelaPhoneE164 } from '@/lib/whatsapp-gateway';
+import { morningBrainBriefingMessage } from '@/lib/whatsapp-templates';
 import { cn } from '@/lib/utils';
 import {
   Brain,
@@ -913,17 +914,20 @@ export default function AIBrainPage() {
   };
 
   const handleSendMorningBriefingWhatsApp = () => {
-    const text =
-      `🧠 *REPORTE MATUTINO 7:00 AM — EL CEREBRO DE ATHLETICENTER*\n\n` +
-      `💵 *Liquidez Neta en Billeteras:* $${brainIntelligence.netWalletLiquidityUSD.toFixed(2)} USD (Runway: ${brainIntelligence.runwayMonths.toFixed(1)} meses)\n` +
-      `✅ *Total Cobrado Verificado:* $${brainIntelligence.totalCashVerified.toFixed(2)} USD\n` +
-      `📈 *Pipeline Comercial Activo:* $${brainIntelligence.totalPipelineUSD.toFixed(2)} USD\n` +
-      `👑 *Ticket Promedio:* $${brainIntelligence.avgTicketUSD.toFixed(2)} • *LTV Cliente:* $${brainIntelligence.avgCustomerLtvUSD.toFixed(0)} USD\n` +
-      `🏢 *Gastos Fijos del Mes:* $${paidExpensesThisMonthUSD.toFixed(2)} pagados de $${monthlyFixedExpensesUSD.toFixed(2)} USD\n\n` +
-      `🔍 *PLATA ENCONTRADA PARA RECUPERAR HOY: $${brainIntelligence.totalMoneyFoundUSD.toFixed(2)} USD*\n` +
-      `• Facturas por cobrar: $${brainIntelligence.accountsReceivableUSD.toFixed(2)} (${brainIntelligence.overdueOrders.length} en seguimiento)\n` +
-      `• Cotizaciones sin respuesta: $${brainIntelligence.openQuotesPipelineUSD.toFixed(2)} (${brainIntelligence.staleQuotes.length} abiertas)\n` +
-      `• Decisiones listas en "Vos Aprobás": ${brainIntelligence.approvalQueue.length} acciones.`;
+    const text = morningBrainBriefingMessage({
+      netWalletLiquidityUSD: brainIntelligence.netWalletLiquidityUSD,
+      runwayMonths: brainIntelligence.runwayMonths,
+      totalCashVerified: brainIntelligence.totalCashVerified,
+      totalPipelineUSD: brainIntelligence.totalPipelineUSD,
+      paidExpensesThisMonthUSD,
+      monthlyFixedExpensesUSD,
+      totalMoneyFoundUSD: brainIntelligence.totalMoneyFoundUSD,
+      accountsReceivableUSD: brainIntelligence.accountsReceivableUSD,
+      overdueCount: brainIntelligence.overdueOrders.length,
+      openQuotesPipelineUSD: brainIntelligence.openQuotesPipelineUSD,
+      staleQuotesCount: brainIntelligence.staleQuotes.length,
+      approvalQueueCount: brainIntelligence.approvalQueue.length,
+    });
 
     sendWhatsAppAction(configForm.ceoWhatsappPhone, text);
     toast({

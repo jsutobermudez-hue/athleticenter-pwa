@@ -169,6 +169,7 @@ export async function executePendingReconciliationAlert() {
         ));
         const { sendPendingReconciliationSummaryEmail } = await import('@/lib/email');
         const { dispatchUniversalWhatsApp } = await import('@/lib/whatsapp-universal');
+        const { pendingReconciliationAlertMessage } = await import('@/lib/whatsapp-templates');
 
         if (pendingSnap.empty) {
             return { success: true, pendingCount: 0, message: 'Sin abonos pendientes por conciliar.' };
@@ -179,7 +180,16 @@ export async function executePendingReconciliationAlert() {
 
         pendingSnap.docs.forEach(docSnap => {
             const data = docSnap.data();
-            const amt = Number(data.amountPaid || data.totalCashReceived || data.totalAmount || 0);
+            let amt = 0;
+            if (Array.isArray(data.payments) && data.payments.length > 0) {
+                const pendingPayments = data.payments.filter((p: any) => p?.status === 'pending');
+                if (pendingPayments.length > 0) {
+                    amt = pendingPayments.reduce((s: number, p: any) => s + (Number(p?.amount || p?.monto || p?.amountUSD) || 0), 0);
+                }
+            }
+            if (amt <= 0) {
+                amt = Number(data.lastPaymentAmount || data.amountPaid || data.totalAmount || 0);
+            }
             totalAmountUSD += amt;
             pendingItems.push({
                 orderId: docSnap.id,
@@ -190,17 +200,18 @@ export async function executePendingReconciliationAlert() {
 
         const pendingCount = pendingItems.length;
 
-        // 1. Notificaciones Internas y Push Web Nativo
+        // 1. Notificaciones Internas y Push Web Nativo (sin WhatsApp duplicado)
         await createAppNotifications(firestore, {
             category: 'Facturación',
             title: `🏛️ Alerta de Conciliación: ${pendingCount} Abonos en Verificación`,
             message: `Atención Administración: Existen ${pendingCount} abonos pendientes por conciliar que suman $${totalAmountUSD.toFixed(2)} USD en caja.`,
             link: '/dashboard/treasury',
             initiatorId: 'pending_reconciliation_agent',
-            roles: ['superadmin', 'admin']
+            roles: ['superadmin', 'admin'],
+            skipWhatsApp: true
         });
 
-        // 2. Notificación vía Email y WhatsApp a Administradores
+        // 2. Notificación vía Email y WhatsApp único a Administradores
         const adminsSnap = await getDocs(query(
             collection(firestore, 'users'),
             where('role', 'in', ['superadmin', 'admin']),
@@ -224,11 +235,12 @@ export async function executePendingReconciliationAlert() {
             }
 
             if (phone) {
-                const wsText = `*🏛️ ALERTA DE CONCILIACIÓN BANCARIA - ATHLETICENTER PRO*\n\n` +
-                    `Estimado(a) *${name}*,\n\n` +
-                    `Le informamos que existen *${pendingCount} abonos pendientes por conciliar* en el sistema por un monto total de *$${totalAmountUSD.toFixed(2)} USD*.\n\n` +
-                    `Por favor ingrese al módulo de Tesorería para auditar los asientos bancarios:\n` +
-                    `https://athleticenter-pwa.web.app/dashboard/treasury`;
+                const wsText = pendingReconciliationAlertMessage({
+                    adminName: name,
+                    pendingCount,
+                    totalAmountUSD,
+                    items: pendingItems
+                });
                 await dispatchUniversalWhatsApp({
                     phone,
                     message: wsText,
@@ -257,8 +269,15 @@ export async function executeRoleBasedDailyWhatsAppBriefing(targetPhoneOverride?
     try {
         const { firestore } = initializeFirebaseServer();
         const { collection, getDocs, doc, getDoc, query, where, limit } = await import('firebase/firestore');
-        const { getEffectiveCashReceived } = await import('@/lib/billing');
+        const { getEffectiveCashReceived, getSalespersonKey, getSalespersonDisplayName } = await import('@/lib/billing');
         const { dispatchUniversalWhatsApp } = await import('@/lib/whatsapp-universal');
+        const {
+            computeOrderBalanceForWhatsApp,
+            dailyBriefingSalespersonMessage,
+            dailyBriefingWarehouseMessage,
+            dailyBriefingAdminMessage,
+            dailyBriefingExecutiveMessage,
+        } = await import('@/lib/whatsapp-templates');
 
         // 1. Datos Generales de la Terminal
         const settingsSnap = await getDoc(doc(firestore, 'system', 'financials'));
@@ -285,8 +304,9 @@ export async function executeRoleBasedDailyWhatsAppBriefing(targetPhoneOverride?
         let globalPendingVerificationCount = 0;
         let globalPendingVerificationUSD = 0;
 
-        // Métricas por Vendedor
+        // Métricas por Vendedor (agrupadas por salespersonId con respaldo por nombre)
         const salespersonMetrics: Record<string, {
+            id: string;
             name: string;
             pendingReceivablesUSD: number;
             moraUSD: number;
@@ -301,26 +321,28 @@ export async function executeRoleBasedDailyWhatsAppBriefing(targetPhoneOverride?
 
         // Métricas de Despacho
         let dispatchPendingCount = 0;
+        let dispatchReadyToShipCount = 0;
         let dispatchMissingTrackingCount = 0;
 
-        // Evaluar Productos Críticos (< 30 unidades)
+        // Evaluar Productos Críticos (<= 30 unidades)
         const lowStockProducts: { name: string; stock: number }[] = [];
         productsSnap.docs.forEach(pDoc => {
             const p = pDoc.data();
             const stock = Number(p.stockLevel || 0);
             if (stock > 0 && stock <= 30) {
-                lowStockProducts.push({ name: p.name || 'Producto estrella', stock });
+                lowStockProducts.push({ name: p.name || 'Producto', stock });
             }
         });
 
         // Iterar Pedidos para Cálculos
         ordersSnap.docs.forEach(d => {
             const o = d.data();
-            if (o.status === 'Cancelado' || o.status === 'Rechazado') return;
+            if (o.status === 'Cancelado' || o.status === 'Rechazado' || o.status === 'Borrador') return;
 
             const total = Number(o.totalAmount || 0);
             const paid = getEffectiveCashReceived(o as any);
-            const pending = Math.max(0, total - paid);
+            const bal = computeOrderBalanceForWhatsApp(o);
+            const pending = bal.isBillable ? bal.pendingListUSD : 0;
 
             const createdAt = o.createdAt?.toDate ? o.createdAt.toDate() : (o.orderDate?.toDate ? o.orderDate.toDate() : null);
             const receptionAt = o.receptionDate?.toDate ? o.receptionDate.toDate() : null;
@@ -346,26 +368,28 @@ export async function executeRoleBasedDailyWhatsAppBriefing(targetPhoneOverride?
                 }
             }
 
-            // Globales
+            // Globales de verificación y mora
             if (o.status === 'En Verificación') {
                 globalPendingVerificationCount += 1;
-                globalPendingVerificationUSD += pending;
+                const verifyingAmt = Number(o.lastPaymentAmount || o.amountPaid || bal.pendingListUSD || o.totalAmount || 0);
+                globalPendingVerificationUSD += verifyingAmt;
             }
 
-            if (pending > 0.05) {
-                if (o.dueDate) {
-                    const dueDate = new Date(o.dueDate);
-                    if (dueDate < now) {
-                        globalCountMora += 1;
-                        globalTotalMoraUSD += pending;
-                    }
+            if (pending > 0.50) {
+                const refDate = receptionAt || createdAt;
+                const dueDate = o.dueDate ? new Date(o.dueDate) : (refDate ? new Date(refDate.getTime() + 30 * 86_400_000) : null);
+                if (dueDate && dueDate < now) {
+                    globalCountMora += 1;
+                    globalTotalMoraUSD += pending;
                 }
             }
 
-            // Mapeo por Vendedor
-            const sName = (o.salespersonName || o.vendedor || 'Venta Directa').trim();
-            if (!salespersonMetrics[sName]) {
-                salespersonMetrics[sName] = {
+            // Mapeo por Vendedor usando getSalespersonKey (salespersonId primero)
+            const spKey = getSalespersonKey(o as any);
+            const sName = getSalespersonDisplayName(o as any);
+            if (!salespersonMetrics[spKey]) {
+                salespersonMetrics[spKey] = {
+                    id: String(o.salespersonId || ''),
                     name: sName,
                     pendingReceivablesUSD: 0,
                     moraUSD: 0,
@@ -379,12 +403,13 @@ export async function executeRoleBasedDailyWhatsAppBriefing(targetPhoneOverride?
                 };
             }
 
-            const sp = salespersonMetrics[sName];
+            const sp = salespersonMetrics[spKey];
 
-            if (pending > 0.05) {
+            if (pending > 0.50) {
                 sp.pendingReceivablesUSD += pending;
-                if (o.dueDate) {
-                    const dueDate = new Date(o.dueDate);
+                const refDate = receptionAt || createdAt;
+                const dueDate = o.dueDate ? new Date(o.dueDate) : (refDate ? new Date(refDate.getTime() + 30 * 86_400_000) : null);
+                if (dueDate) {
                     const diffDays = Math.ceil((dueDate.getTime() - now.getTime()) / (1000 * 3600 * 24));
                     if (diffDays < 0) {
                         sp.moraCount += 1;
@@ -401,7 +426,11 @@ export async function executeRoleBasedDailyWhatsAppBriefing(targetPhoneOverride?
                 dispatchPendingCount += 1;
             }
 
-            if ((o.status === 'Despachado' || o.status === 'Aprobado') && (!o.carrierId && !o.trackingNumber)) {
+            if (o.status === 'Completado') {
+                dispatchReadyToShipCount += 1;
+            }
+
+            if (o.status === 'Despachado' && !o.trackingNumber) {
                 dispatchMissingTrackingCount += 1;
             }
 
@@ -410,7 +439,7 @@ export async function executeRoleBasedDailyWhatsAppBriefing(targetPhoneOverride?
                 sp.deliveredYesterdayUSD += total;
             }
 
-            // Rastreo de última compra por cliente (para Inactividad Anti-Churn)
+            // Rastreo de última compra por cliente
             const cName = (o.customerName || 'Cliente').trim();
             if (createdAt) {
                 if (!sp.lastOrderDateMap[cName] || createdAt > sp.lastOrderDateMap[cName].lastDate) {
@@ -419,22 +448,26 @@ export async function executeRoleBasedDailyWhatsAppBriefing(targetPhoneOverride?
             }
         });
 
-        // 2. Obtener Lista de Usuarios Destino de Firestore
-        const usersSnap = await getDocs(query(collection(firestore, 'users'), limit(100)));
+        // 2. Obtener SOLO personal interno con teléfono configurado (NUNCA clientes)
+        const STAFF_ROLES = ['superadmin', 'admin', 'gerencia', 'ventas', 'deposito'];
+        const usersSnap = await getDocs(query(collection(firestore, 'users'), limit(150)));
         let usersToNotify: { id: string; name: string; phone: string; role: string; receiveBriefing: boolean }[] = [];
 
         usersSnap.docs.forEach(uDoc => {
             const u = uDoc.data();
+            const roleLower = String(u.role || '').toLowerCase();
+            if (!STAFF_ROLES.includes(roleLower)) return;
+
             const ph = u.phone || u.whatsappPhone || u.phoneNumber;
             if (ph) {
-                const isSuper = u.role === 'superadmin';
+                const isSuper = roleLower === 'superadmin';
                 const isEnabled = u.receiveDailyBriefing !== false;
                 if (isSuper || isEnabled) {
                     usersToNotify.push({
                         id: uDoc.id,
-                        name: u.name || u.displayName || 'Usuario',
+                        name: u.name || u.displayName || 'Equipo',
                         phone: ph,
-                        role: targetRoleOverride || u.role || 'superadmin',
+                        role: targetRoleOverride || roleLower,
                         receiveBriefing: isEnabled
                     });
                 }
@@ -452,16 +485,15 @@ export async function executeRoleBasedDailyWhatsAppBriefing(targetPhoneOverride?
         }
 
         if (usersToNotify.length === 0) {
-            usersToNotify.push({
-                id: 'default_admin',
-                name: 'SuperAdmin Central',
-                phone: '04122683183',
-                role: 'superadmin',
-                receiveBriefing: true
-            });
+            return {
+                success: true,
+                sentCount: 0,
+                rolesBreakdown: {},
+                message: 'Sin personal interno con teléfono configurado.'
+            };
         }
 
-        const todayStr = new Date().toLocaleDateString('es-VE', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+        const todayStr = new Date().toLocaleDateString('es-VE', { weekday: 'long', day: 'numeric', month: 'short' });
         let sentCount = 0;
         const rolesBreakdown: Record<string, number> = {};
 
@@ -472,20 +504,26 @@ export async function executeRoleBasedDailyWhatsAppBriefing(targetPhoneOverride?
 
             // A. PLANTILLA VENDEDORES
             if (roleKey === 'ventas' || roleKey === 'vendedor') {
-                const spNameKey = Object.keys(salespersonMetrics).find(k => k.toLowerCase().includes(recipient.name.toLowerCase()) || recipient.name.toLowerCase().includes(k.toLowerCase())) || recipient.name;
-                const spData = salespersonMetrics[spNameKey] || {
-                    pendingReceivablesUSD: 0,
-                    moraUSD: 0,
-                    moraCount: 0,
-                    dueSoonUSD: 0,
-                    dueSoonCount: 0,
-                    inPreparationCount: 0,
-                    deliveredYesterdayUSD: 0,
-                    deliveredYesterdayCount: 0,
-                    lastOrderDateMap: {}
-                };
+                const spData =
+                    salespersonMetrics[recipient.id] ||
+                    Object.values(salespersonMetrics).find(m =>
+                        m.name.toLowerCase().includes(recipient.name.toLowerCase()) ||
+                        recipient.name.toLowerCase().includes(m.name.toLowerCase())
+                    ) || {
+                        id: recipient.id,
+                        name: recipient.name,
+                        pendingReceivablesUSD: 0,
+                        moraUSD: 0,
+                        moraCount: 0,
+                        dueSoonUSD: 0,
+                        dueSoonCount: 0,
+                        inPreparationCount: 0,
+                        deliveredYesterdayUSD: 0,
+                        deliveredYesterdayCount: 0,
+                        lastOrderDateMap: {}
+                    };
 
-                // Encontrar clientes inactivos (+10 días)
+                // Encontrar clientes sin pedir hace +10 días
                 const inactiveClients: string[] = [];
                 const tenDaysAgo = new Date(now.getTime() - 10 * 24 * 60 * 60 * 1000);
                 Object.values(spData.lastOrderDateMap).forEach(c => {
@@ -494,63 +532,64 @@ export async function executeRoleBasedDailyWhatsAppBriefing(targetPhoneOverride?
                     }
                 });
 
-                messageText = `*💼 ATHLETICENTER PRO - TU RESUMEN COMERCIAL DIARIO*\n` +
-                    `👤 _Vendedor: ${recipient.name}_\n` +
-                    `🗓️ _${todayStr.toUpperCase()}_\n\n` +
-                    `📊 *ESTADO DE TU CARTERA DE CLIENTES:*\n` +
-                    `• *Total por Cobrar:* $${spData.pendingReceivablesUSD.toLocaleString('en-US', { minimumFractionDigits: 2 })} USD\n` +
-                    `• *Facturas por Vencer (-3D):* ${spData.dueSoonCount} cuentas ($${spData.dueSoonUSD.toLocaleString('en-US', { minimumFractionDigits: 2 })} USD)\n` +
-                    `• *Mora Crítica:* ${spData.moraCount} clientes ($${spData.moraUSD.toLocaleString('en-US', { minimumFractionDigits: 2 })} USD)\n\n` +
-                    `💡 *INCENTIVOS DE PRONTO PAGO ACTIVOS (48H):*\n` +
-                    `${spData.dueSoonCount > 0 ? `• ${spData.dueSoonCount} clientes están en ventana de 10% OFF en cascada. Motiva su pago hoy para que aseguren su bonificación.` : '• Cartera al día en calendario de incentivos.'}\n\n` +
-                    `📦 *TUS PEDIDOS EN TRÁNSITO / PROCESO:*\n` +
-                    `• *En Preparación/Despacho:* ${spData.inPreparationCount} expedientes\n` +
-                    `• *Entregados Ayer:* ${spData.deliveredYesterdayCount} pedidos ($${spData.deliveredYesterdayUSD.toLocaleString('en-US', { minimumFractionDigits: 2 })} USD)\n\n` +
-                    `🎯 *REACTIVACIÓN DE CLIENTES (Anti-Churn):*\n` +
-                    `${inactiveClients.length > 0 ? `• ${inactiveClients.length} clientes inactivos (+10 días sin comprar): ${inactiveClients.slice(0, 3).join(', ')}` : '• ¡Excelente! Toda tu cartera de clientes se mantiene activa.'}\n\n` +
-                    `🔗 *REVISA TU CARTERA Y PEDIDOS EN:* \n` +
-                    `https://athleticenter-pwa.web.app/dashboard/quotes`;
+                messageText = dailyBriefingSalespersonMessage({
+                    name: recipient.name,
+                    dateLabel: todayStr,
+                    pendingReceivablesUSD: spData.pendingReceivablesUSD,
+                    dueSoonCount: spData.dueSoonCount,
+                    dueSoonUSD: spData.dueSoonUSD,
+                    moraCount: spData.moraCount,
+                    moraUSD: spData.moraUSD,
+                    inPreparationCount: spData.inPreparationCount,
+                    deliveredYesterdayCount: spData.deliveredYesterdayCount,
+                    deliveredYesterdayUSD: spData.deliveredYesterdayUSD,
+                    inactiveClients,
+                });
 
-            // B. PLANTILLA DESPACHO / ALMACÉN
-            } else if (roleKey === 'despacho' || roleKey === 'almacen' || roleKey === 'logistica') {
-                messageText = `*🚚 ATHLETICENTER PRO - HOJA DE RUTA DE DESPACHO*\n` +
-                    `🗓️ _${todayStr.toUpperCase()}_\n\n` +
-                    `📦 *PEDIDOS PENDIENTES POR EMBALAR / DESPACHAR:*\n` +
-                    `• *Total por Preparar:* ${dispatchPendingCount} expedientes en estado 'Aprobado' o 'En Preparación'\n` +
-                    `• *Guías Pendientes por Cargar:* ${dispatchMissingTrackingCount} pedidos asignados a transporte sin número de guía\n\n` +
-                    `🚚 *ACTIVIDAD DE AYER:*\n` +
-                    `• *Despachos Ejecutados:* ${totalOrdersDispatchedYesterday} envíos ($${amountOrdersDispatchedYesterdayUSD.toLocaleString('en-US', { minimumFractionDigits: 2 })} USD)\n\n` +
-                    `🔗 *ACCEDE AL MÓDULO DE DESPACHO:* \n` +
-                    `https://athleticenter-pwa.web.app/dashboard/dispatch`;
+            // B. PLANTILLA DEPÓSITO / DESPACHO
+            } else if (roleKey === 'deposito' || roleKey === 'despacho' || roleKey === 'almacen' || roleKey === 'logistica') {
+                messageText = dailyBriefingWarehouseMessage({
+                    name: recipient.name,
+                    dateLabel: todayStr,
+                    toPrepareCount: dispatchPendingCount,
+                    readyToShipCount: dispatchReadyToShipCount,
+                    missingTrackingCount: dispatchMissingTrackingCount,
+                    dispatchedYesterdayCount: totalOrdersDispatchedYesterday,
+                });
 
-            // C. PLANTILLA TESORERÍA / ADMINISTRACIÓN
-            } else if (roleKey === 'tesoreria' || roleKey === 'administracion') {
-                messageText = `*🏛️ ATHLETICENTER PRO - INFORME DIARIO DE TESORERÍA*\n` +
-                    `🗓️ _${todayStr.toUpperCase()}_\n\n` +
-                    `📈 *TASA BCV OFICIAL:* ${bcvRate > 0 ? `${bcvRate} Bs/USD` : 'Sincronizada'}\n` +
-                    `🔍 *Abonos Pendientes por Conciliar:* ${globalPendingVerificationCount} transferencias ($${globalPendingVerificationUSD.toLocaleString('en-US', { minimumFractionDigits: 2 })} USD en caja)\n` +
-                    `💰 *Pagos Reportados Ayer:* ${countPaymentsReportedYesterday} abonos ($${totalPaymentsReportedYesterdayUSD.toLocaleString('en-US', { minimumFractionDigits: 2 })} USD)\n\n` +
-                    `🔴 *Cartera en Mora Crítica Global:* $${globalTotalMoraUSD.toLocaleString('en-US', { minimumFractionDigits: 2 })} USD (${globalCountMora} facturas)\n\n` +
-                    `🔗 *AUDITA BANCOS Y CONCILIACIÓN EN:* \n` +
-                    `https://athleticenter-pwa.web.app/dashboard/treasury`;
+            // C. PLANTILLA ADMINISTRACIÓN / TESORERÍA
+            } else if (roleKey === 'admin' || roleKey === 'tesoreria' || roleKey === 'administracion') {
+                messageText = dailyBriefingAdminMessage({
+                    name: recipient.name,
+                    dateLabel: todayStr,
+                    bcvRate,
+                    pendingVerificationCount: globalPendingVerificationCount,
+                    pendingVerificationUSD: globalPendingVerificationUSD,
+                    paymentsYesterdayCount: countPaymentsReportedYesterday,
+                    paymentsYesterdayUSD: totalPaymentsReportedYesterdayUSD,
+                    moraUSD: globalTotalMoraUSD,
+                    moraCount: globalCountMora,
+                });
 
-            // D. PLANTILLA SUPERADMIN / GERENCIA (EJECUTIVO GLOBAL 360°)
+            // D. PLANTILLA SUPERADMIN / GERENCIA
             } else {
-                messageText = `*👑 ATHLETICENTER PRO - REPORTE EJECUTIVO GLOBAL 360°*\n` +
-                    `🗓️ _${todayStr.toUpperCase()}_\n\n` +
-                    `🟢 *SISTEMA & CONEXIÓN:* 100% Operativo (Gateway Local Online)\n` +
-                    `📈 *TASA OFICIAL BCV:* ${bcvRate > 0 ? `${bcvRate} Bs/USD` : 'Sincronizada'}\n\n` +
-                    `📊 *ACTIVIDAD GLOBAL DEL DÍA ANTERIOR (AYER):*\n` +
-                    `• *Pedidos Realizados:* ${totalOrdersCreatedYesterday} órdenes ($${amountOrdersCreatedYesterdayUSD.toLocaleString('en-US', { minimumFractionDigits: 2 })} USD)\n` +
-                    `• *Pedidos Despachados:* ${totalOrdersDispatchedYesterday} envíos ($${amountOrdersDispatchedYesterdayUSD.toLocaleString('en-US', { minimumFractionDigits: 2 })} USD)\n` +
-                    `• *Pagos Reportados:* ${countPaymentsReportedYesterday} abonos ($${totalPaymentsReportedYesterdayUSD.toLocaleString('en-US', { minimumFractionDigits: 2 })} USD)\n\n` +
-                    `🚨 *SALUD FINANCIERA & COBRANZA:*\n` +
-                    `• *Mora Crítica Total:* $${globalTotalMoraUSD.toLocaleString('en-US', { minimumFractionDigits: 2 })} USD (${globalCountMora} cuentas vencidas)\n` +
-                    `• *Por Conciliar en Banco:* ${globalPendingVerificationCount} abonos ($${globalPendingVerificationUSD.toLocaleString('en-US', { minimumFractionDigits: 2 })} USD)\n\n` +
-                    `⚽ *ALERTA DE INVENTARIO ESTRELLA (AI):*\n` +
-                    `${lowStockProducts.length > 0 ? `• ${lowStockProducts.length} SKUs con stock crítico (ej. ${lowStockProducts[0].name} tiene ${lowStockProducts[0].stock} unds)` : '• Stock óptimo en catálogo.'}\n\n` +
-                    `✅ *RECORRE EL DASHBOARD EN VIVO EN:* \n` +
-                    `https://athleticenter-pwa.web.app/dashboard`;
+                messageText = dailyBriefingExecutiveMessage({
+                    name: recipient.name,
+                    dateLabel: todayStr,
+                    bcvRate,
+                    ordersYesterdayCount: totalOrdersCreatedYesterday,
+                    ordersYesterdayUSD: amountOrdersCreatedYesterdayUSD,
+                    dispatchedYesterdayCount: totalOrdersDispatchedYesterday,
+                    dispatchedYesterdayUSD: amountOrdersDispatchedYesterdayUSD,
+                    paymentsYesterdayCount: countPaymentsReportedYesterday,
+                    paymentsYesterdayUSD: totalPaymentsReportedYesterdayUSD,
+                    pendingVerificationCount: globalPendingVerificationCount,
+                    pendingVerificationUSD: globalPendingVerificationUSD,
+                    moraCount: globalCountMora,
+                    moraUSD: globalTotalMoraUSD,
+                    lowStockCount: lowStockProducts.length,
+                    firstLowStockProduct: lowStockProducts[0],
+                });
             }
 
             const res = await dispatchUniversalWhatsApp({
@@ -571,7 +610,8 @@ export async function executeRoleBasedDailyWhatsAppBriefing(targetPhoneOverride?
             message: `Se despacharon los informes de WhatsApp personalizados a ${sentCount} usuarios según su rol.`,
             link: '/dashboard',
             initiatorId: 'role_based_daily_briefing_agent',
-            roles: ['superadmin', 'admin']
+            roles: ['superadmin', 'admin'],
+            skipWhatsApp: true
         });
 
         return {
@@ -633,9 +673,9 @@ export async function executeAutomatedDebtCollection(opts: { dryRun?: boolean; t
     await ensureServerAuth();
     const { collection, getDocs, query, where, doc, getDoc, updateDoc, serverTimestamp } = await import('firebase/firestore');
     const { dispatchUniversalWhatsApp } = await import('@/lib/whatsapp-universal');
-    const { debtReminderMessage, debtToneForAge } = await import('@/lib/whatsapp-templates');
+    const { debtReminderMessage, debtToneForAge, computeOrderBalanceForWhatsApp, BILLABLE_ORDER_STATUSES } = await import('@/lib/whatsapp-templates');
 
-    const ordersSnap = await getDocs(query(collection(firestore, 'orders'), where('status', '==', 'Facturado')));
+    const ordersSnap = await getDocs(query(collection(firestore, 'orders'), where('status', 'in', [...BILLABLE_ORDER_STATUSES])));
     const now = new Date();
     const toDate = (v: any): Date | null => {
       if (!v) return null;
@@ -649,16 +689,16 @@ export async function executeAutomatedDebtCollection(opts: { dryRun?: boolean; t
     const groups = new Map<string, Group>();
     for (const d of ordersSnap.docs) {
       const o: any = d.data();
-      const pending = Number(o.totalAmount || 0) - Number(o.amountPaid || 0);
-      if (pending <= 0.5) continue;
-      const created = toDate(o.createdAt) || toDate(o.orderDate);
-      if (!created) continue;
-      const days = Math.floor((now.getTime() - created.getTime()) / 86_400_000);
+      const bal = computeOrderBalanceForWhatsApp(o);
+      if (!bal.isBillable || bal.pendingListUSD <= 0.50) continue;
+      const refDate = toDate(o.receptionDate) || toDate(o.approvalDate) || toDate(o.createdAt) || toDate(o.orderDate);
+      if (!refDate) continue;
+      const days = Math.floor((now.getTime() - refDate.getTime()) / 86_400_000);
       if (days < MIN_INVOICE_AGE_DAYS) continue;
       const key = String(o.customerId || o.customerPhone || o.customerName || d.id);
       const g: Group = groups.get(key) || { customerId: String(o.customerId || ''), customerName: o.customerName || 'Cliente', phone: o.customerPhone || '', invoices: [] };
       if (!g.phone && o.customerPhone) g.phone = o.customerPhone;
-      g.invoices.push({ id: d.id, pending, days });
+      g.invoices.push({ id: d.id, pending: bal.pendingListUSD, days });
       groups.set(key, g);
     }
 

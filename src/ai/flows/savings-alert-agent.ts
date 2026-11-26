@@ -11,10 +11,11 @@ import { ai } from '@/ai/genkit';
 import { z } from 'zod';
 import { collection, getDocs, query, where, Timestamp, limit, writeBatch, doc } from 'firebase/firestore';
 import { initializeFirebaseServer } from '@/firebase/server-init';
-import { differenceInHours, addDays } from 'date-fns';
+import { differenceInHours, addDays, format } from 'date-fns';
 import type { Order } from '@/lib/definitions';
 import { createAppNotifications } from '@/lib/notifications';
 import { sendBackgroundWhatsAppMessage } from '@/lib/whatsapp-gateway';
+import { computeOrderBalanceForWhatsApp, earlyPaymentSavingsMessage, shortId } from '@/lib/whatsapp-templates';
 
 const SavingsAgentResultSchema = z.object({
   scannedOrders: z.number().describe('Total de órdenes auditadas en este ciclo.'),
@@ -46,44 +47,46 @@ export const savingsAlertAgentFlow = ai.defineFlow(
       scannedOrders++;
 
       if (!order.receptionDate) return;
-      
+
+      const bal = computeOrderBalanceForWhatsApp(order);
+      if (!bal.isBillable || bal.pendingDivisasUSD <= 0.50) return;
+
       const receptionDate = (order.receptionDate as Timestamp).toDate();
       const sevenDaysLimit = addDays(receptionDate, 7);
       const hoursRemaining = differenceInHours(sevenDaysLimit, now);
+      if (hoursRemaining <= 0 || hoursRemaining > 48) return;
+
       const alertsSent = order.alertsSent || [];
+      const totalDivisasUSD = bal.pendingDivisasUSD;
+      const totalContadoUSD = Math.round(totalDivisasUSD * 0.90 * 100) / 100;
+      const savingsUSD = Math.round((totalDivisasUSD - totalContadoUSD) * 100) / 100;
 
-      let alertType: 'saving_48h' | 'saving_24h' | 'saving_12h' | 'tier_shift' | null = null;
-      let title = "";
-      let message = "";
+      let alertType: 'saving_48h' | 'saving_24h' | 'saving_12h' | null = null;
+      let title = '';
+      let message = '';
 
-      // LÓGICA DE ESCALAMIENTO TÁCTICO
-      if (hoursRemaining <= 0 && !alertsSent.includes('tier_shift')) {
-          alertType = 'tier_shift';
-          title = "⏱️ Actualización de Ahorro: Tier 5%";
-          message = `Tu descuento del 10% ha expirado, pero aún puedes ahorrar un 5% liquidando en los próximos 8 días. ¡Optimiza tu inversión en #${order.id.substring(0, 6)}!`;
-      } else if (hoursRemaining > 0 && hoursRemaining <= 12 && !alertsSent.includes('saving_12h')) {
+      if (hoursRemaining <= 12 && !alertsSent.includes('saving_12h')) {
           alertType = 'saving_12h';
-          title = "🚨 ¡Últimas 12 Horas de Ahorro!";
-          message = `Tu beneficio de pronto pago (10%) para el pedido #${order.id.substring(0, 6)} está por expirar. No pierdas la oportunidad de pagar menos.`;
+          title = `⏰ Últimas horas de pronto pago (-10%) — #${shortId(order.id, 6)}`;
+          message = `${order.customerName} aún puede pagar de contado en $${totalContadoUSD.toFixed(2)} y ahorrar $${savingsUSD.toFixed(2)}.`;
       } else if (hoursRemaining > 12 && hoursRemaining <= 24 && !alertsSent.includes('saving_24h')) {
           alertType = 'saving_24h';
-          title = "⚡ ¡Solo 24 Horas para Ahorrar 10%!";
-          message = `Tu beneficio de pronto pago vence mañana. Ahorra en tu factura #${order.id.substring(0, 6)} liquidando antes del cierre del día.`;
+          title = `⚡ 24h de pronto pago (-10%) — #${shortId(order.id, 6)}`;
+          message = `El beneficio de contado vence mañana para ${order.customerName} (ahorro de $${savingsUSD.toFixed(2)}).`;
       } else if (hoursRemaining > 24 && hoursRemaining <= 48 && !alertsSent.includes('saving_48h')) {
           alertType = 'saving_48h';
-          title = "⏳ Oportunidad de Ahorro: 10% OFF";
-          message = `Te quedan 48 horas para aprovechar un 10% de ahorro en tu pedido #${order.id.substring(0, 6)}. ¡Acelera tu rentabilidad hoy!`;
+          title = `💡 Ventana de pronto pago (-10%) — #${shortId(order.id, 6)}`;
+          message = `${order.customerName} tiene 48h para aprovechar el 10% adicional de contado (ahorro $${savingsUSD.toFixed(2)}).`;
       }
 
       if (alertType) {
           try {
               const batch = writeBatch(firestore);
-              // Registrar alerta enviada para evitar spam
               const orderRef = doc(firestore, 'orders', order.id);
               batch.update(orderRef, { alertsSent: [...alertsSent, alertType] });
               await batch.commit();
 
-              // Notificar al Cliente y al Vendedor
+              // Notificar al Cliente y al Vendedor en la app (sin duplicar WhatsApp interno)
               await createAppNotifications(firestore, {
                   category: 'Facturación',
                   title,
@@ -91,15 +94,20 @@ export const savingsAlertAgentFlow = ai.defineFlow(
                   link: `/dashboard/billing?orderId=${order.id}`,
                   initiatorId: 'system_savings_agent',
                   userIds: [order.customerId, order.salespersonId],
+                  skipWhatsApp: true,
               });
 
               // Envío Automático por WhatsApp al Teléfono del Cliente
               const phone = order.customerPhone || (order as any).phone || '';
               if (phone) {
-                const waMessage = `👋 Hola ${order.customerName || 'Estimado Cliente'}, le saludamos de Athleticenter.\n\n` +
-                  `⚡ *${title}*\n${message}\n\n` +
-                  `📄 Pedido: #${order.id}\n💰 Monto Total: $${(order.totalAmount || 0).toFixed(2)} USD\n\n` +
-                  `¡Aprovecha tu beneficio de pronto pago antes del vencimiento!`;
+                const waMessage = earlyPaymentSavingsMessage({
+                  customerName: order.customerName || 'Cliente',
+                  orderId: order.id,
+                  totalDivisasUSD,
+                  totalContadoUSD,
+                  deadlineLabel: format(sevenDaysLimit, 'dd/MM'),
+                  hoursRemaining,
+                });
                 await sendBackgroundWhatsAppMessage({ phone, message: waMessage });
               }
               

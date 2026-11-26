@@ -241,6 +241,16 @@ export default function ReportsPage() {
   // Definición del Catálogo de Reportes BI
   const reportsList = [
     {
+      id: 'inventario_filtrable_pdf',
+      title: 'Auditoría e Inventario 100% Completo (Había / Vendido / Deben Quedar)',
+      category: 'Inventario',
+      format: 'PDF CON FOTOS / EXCEL',
+      description: 'Imprime el 100% de los productos (incluidos los agotados en 0) con foto a color, código, nombre, cantidad que había, cantidad vendida y unidades que deben quedar.',
+      icon: Boxes,
+      badgeColor: 'bg-blue-50 text-blue-700 border-blue-200',
+      action: () => setIsInventoryCatalogOpen(true)
+    },
+    {
       id: 'plan_reposicion_prioridad',
       title: 'Plan Maestro de Reposición y Prioridad de Stock (<20)',
       category: 'Inventario',
@@ -249,16 +259,6 @@ export default function ReportsPage() {
       icon: Flame,
       badgeColor: 'bg-rose-50 text-rose-700 border-rose-200',
       action: () => setIsRestockReportOpen(true)
-    },
-    {
-      id: 'inventario_filtrable_pdf',
-      title: 'Inventario Completo y Filtrable (Marca / Disciplina / Producto)',
-      category: 'Inventario',
-      format: 'PDF CON FOTOS / EXCEL',
-      description: 'Imprime todo el inventario o filtra por tipo de producto (ej. Balones), marca, disciplina y disponibilidad con fotos a color y cantidades reales.',
-      icon: Boxes,
-      badgeColor: 'bg-blue-50 text-blue-700 border-blue-200',
-      action: () => setIsInventoryCatalogOpen(true)
     },
     {
       id: 'ficha_cliente_360',
@@ -639,6 +639,7 @@ export default function ReportsPage() {
         isOpen={isInventoryCatalogOpen}
         onOpenChange={setIsInventoryCatalogOpen}
         products={products || []}
+        orders={orders || []}
         companyProfile={companyProfile || undefined}
         bcvDiscount={globalSettings?.defaultBcvDiscount ?? 25}
       />

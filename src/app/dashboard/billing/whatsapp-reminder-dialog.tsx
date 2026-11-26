@@ -20,6 +20,7 @@ import { dispatchUniversalWhatsApp } from '@/lib/whatsapp-universal';
 import { useToast } from '@/hooks/use-toast';
 import { WhatsAppReminderOutput } from '@/ai/flows/whatsapp-credit-reminder';
 import { Card, CardContent } from '@/components/ui/card';
+import { computeBenefits, shortId } from '@/lib/whatsapp-templates';
 
 export function WhatsAppReminderDialog({ invoice }: { invoice: Invoice }) {
   const [isOpen, setIsOpen] = useState(false);
@@ -41,6 +42,10 @@ export function WhatsAppReminderDialog({ invoice }: { invoice: Invoice }) {
         remainingCreditDays: remainingDays,
         discountPercentage: discount,
         phoneNumber: invoice.customerPhone,
+        orderId: shortId(invoice.id),
+        remainingBalance: invoice.remainingBalance,
+        divisasBalance: computeBenefits(invoice.remainingBalance).totalDivisasUSD,
+        isOverdue: invoice.status === 'Vencido',
       });
 
       if (result.success && result.data) {
