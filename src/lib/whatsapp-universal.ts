@@ -14,6 +14,8 @@ export interface UniversalWhatsAppParams {
   fileName?: string;
   orderId?: string;
   quoteId?: string;
+  recipientName?: string;
+  recipientType?: 'cliente' | 'equipo' | 'tercero';
   module?: 'billing' | 'quotes' | 'dispatch' | 'orders' | 'clients' | 'marketing' | 'treasury' | 'inventory';
 }
 
@@ -28,6 +30,8 @@ export async function dispatchUniversalWhatsApp({
   fileName,
   orderId,
   quoteId,
+  recipientName,
+  recipientType,
   module = 'orders'
 }: UniversalWhatsAppParams): Promise<{ success: boolean; fallbackUrl?: string }> {
   if (!phone) {
@@ -49,7 +53,11 @@ export async function dispatchUniversalWhatsApp({
       imageUrl,
       pdfBase64,
       fileName,
-      orderId: orderId || quoteId
+      orderId: orderId || quoteId,
+      quoteId,
+      module,
+      recipientName,
+      recipientType,
     });
 
     if (res.success) {

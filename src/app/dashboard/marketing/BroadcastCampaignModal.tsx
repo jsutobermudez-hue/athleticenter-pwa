@@ -16,6 +16,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
 import { authFetch } from '@/lib/auth-fetch';
@@ -64,6 +66,7 @@ interface BroadcastModalProps {
     products: Product[];
     paretoCustomers?: Customer[];
     initialAudienceType?: ExtendedAudienceType;
+    initialCampaign?: any;
     onCampaignCreated?: () => void;
 }
 
@@ -74,6 +77,7 @@ export function BroadcastCampaignModal({
     products = [],
     paretoCustomers = [],
     initialAudienceType = 'all',
+    initialCampaign,
     onCampaignCreated
 }: BroadcastModalProps) {
     const { profile } = useUser();
@@ -93,6 +97,13 @@ export function BroadcastCampaignModal({
     const [selectedProductSku, setSelectedProductSku] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
 
+    // SINCRONIZACIÓN DE PROMO CON AGENTE ARM
+    const [activateInArm, setActivateInArm] = useState(false);
+    const [promoDiscountPct, setPromoDiscountPct] = useState<string>('');
+    const [promoCategory, setPromoCategory] = useState<string>('');
+    const [promoExpiresAt, setPromoExpiresAt] = useState<string>('');
+    const [legacyMediaWarning, setLegacyMediaWarning] = useState(false);
+
     // FILTROS AVANZADOS
     const [selectedSalesperson, setSelectedSalesperson] = useState<string>('all');
     const [selectedDiscipline, setSelectedDiscipline] = useState<string>('all');
@@ -111,6 +122,44 @@ export function BroadcastCampaignModal({
             setAudienceType(initialAudienceType);
         }
     }, [initialAudienceType]);
+
+    React.useEffect(() => {
+        if (!isOpen) return;
+        if (initialCampaign) {
+            setTitle(initialCampaign.title || '');
+            setMessage(initialCampaign.message || '');
+            const rawAud = String(initialCampaign.audienceType || 'all');
+            const mappedAud = (rawAud === 'inactive' ? 'dormant' : rawAud === 'vip' ? 'vips' : rawAud) as ExtendedAudienceType;
+            setAudienceType(mappedAud || 'all');
+
+            const rawMedia = String(initialCampaign.mediaUrl || '');
+            const rawType = String(initialCampaign.mediaType || 'none');
+            if (rawMedia.startsWith('https://') || (rawMedia.startsWith('data:') && !rawMedia.startsWith('[Archivo'))) {
+                setMediaUrl(rawMedia);
+                setMediaType(rawType === 'video' ? 'video' : rawType === 'pdf' || rawType === 'document' ? 'pdf' : rawType === 'image' ? 'image' : 'none');
+                setMediaFileName(initialCampaign.mediaFileName || '');
+                setLegacyMediaWarning(false);
+            } else {
+                setMediaUrl('');
+                setMediaType('none');
+                setMediaFileName('');
+                setLegacyMediaWarning(rawType !== 'none' || rawMedia.startsWith('[Archivo'));
+            }
+
+            const pctMatch = `${initialCampaign.title || ''} ${initialCampaign.message || ''}`.match(/(\d{1,2})\s*%/);
+            if (pctMatch) {
+                setPromoDiscountPct(pctMatch[1]);
+                setActivateInArm(true);
+            } else {
+                setPromoDiscountPct('');
+                setActivateInArm(false);
+            }
+            const low = `${initialCampaign.title || ''} ${initialCampaign.message || ''}`.toLowerCase();
+            setPromoCategory(low.includes('biciclet') ? 'BICICLETAS' : low.includes('balon') ? 'BALONES' : '');
+        } else {
+            setLegacyMediaWarning(false);
+        }
+    }, [isOpen, initialCampaign]);
 
     // Lista de vendedores únicos
     const availableSalespeople = useMemo(() => {
@@ -485,7 +534,11 @@ export function BroadcastCampaignModal({
                     audienceType,
                     recipients: recipientsPayload,
                     userId: profile?.id || 'admin',
-                    userName: profile?.name || 'Administrador'
+                    userName: profile?.name || 'Administrador',
+                    activateInArm,
+                    promoDiscountPct: promoDiscountPct ? Number(promoDiscountPct) : undefined,
+                    promoCategory: promoCategory.trim() || undefined,
+                    promoExpiresAt: promoExpiresAt ? `${promoExpiresAt}T23:59:59` : null,
                 })
             });
 
@@ -759,6 +812,61 @@ export function BroadcastCampaignModal({
                                             )}
                                         </div>
                                     )}
+
+                                    {legacyMediaWarning && (
+                                        <div className="p-3 rounded-2xl bg-amber-50 border border-amber-200 text-xs text-amber-900 flex items-start gap-2">
+                                            <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+                                            <span>Esta campaña anterior no guardó el video/imagen en Storage. Puedes subirlo arriba para que quede guardado permanentemente o enviarla solo en texto.</span>
+                                        </div>
+                                    )}
+
+                                    {/* Activar Promoción en el Agente ARM */}
+                                    <div className="p-3.5 rounded-2xl bg-emerald-50 border border-emerald-200 space-y-2.5">
+                                        <div className="flex items-center gap-2.5">
+                                            <Switch
+                                                id="broadcast-arm-promo"
+                                                checked={activateInArm}
+                                                onCheckedChange={setActivateInArm}
+                                            />
+                                            <Label htmlFor="broadcast-arm-promo" className="text-[11px] font-black text-emerald-950 cursor-pointer">
+                                                Activar esta promoción en el Agente ARM (responderá con este descuento cuando los clientes pregunten)
+                                            </Label>
+                                        </div>
+                                        {activateInArm && (
+                                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1">
+                                                <div>
+                                                    <Label className="text-[9px] font-black uppercase text-emerald-800">% Descuento</Label>
+                                                    <Input
+                                                        type="number"
+                                                        min={1}
+                                                        max={90}
+                                                        placeholder="Ej: 40"
+                                                        value={promoDiscountPct}
+                                                        onChange={(e) => setPromoDiscountPct(e.target.value)}
+                                                        className="h-9 bg-white rounded-xl text-xs font-bold"
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <Label className="text-[9px] font-black uppercase text-emerald-800">Línea / Categoría</Label>
+                                                    <Input
+                                                        placeholder="Ej: BICICLETAS"
+                                                        value={promoCategory}
+                                                        onChange={(e) => setPromoCategory(e.target.value)}
+                                                        className="h-9 bg-white rounded-xl text-xs font-bold uppercase"
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <Label className="text-[9px] font-black uppercase text-emerald-800">Vence (Opcional)</Label>
+                                                    <Input
+                                                        type="date"
+                                                        value={promoExpiresAt}
+                                                        onChange={(e) => setPromoExpiresAt(e.target.value)}
+                                                        className="h-9 bg-white rounded-xl text-xs font-bold"
+                                                    />
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
                             </TabsContent>
 

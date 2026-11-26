@@ -1,10 +1,16 @@
 import { NextResponse } from 'next/server';
 import { timingSafeEqual } from 'crypto';
 import { initializeFirebaseServer, ensureServerAuth } from '@/firebase/server-init';
-import { collection, query, getDocs, limit, orderBy, doc, getDoc, updateDoc, addDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, query, getDocs, where, limit, orderBy, doc, getDoc, updateDoc, addDoc, serverTimestamp } from 'firebase/firestore';
 import { sendBackgroundWhatsAppMessage, formatVenezuelaPhoneE164 } from '@/lib/whatsapp-gateway';
 import { processArmInboundMessage } from '@/services/arm-inbound-agent';
 import { computeOrderBalanceForWhatsApp, humanOrderStatus, money } from '@/lib/whatsapp-templates';
+import { isSuperAdminCommanderMessage } from '@/lib/active-promotions';
+import {
+  interpretCommanderInstruction,
+  executeCommanderDraft,
+  cancelCommanderDraft,
+} from '@/services/whatsapp-commander-agent';
 
 /**
  * WEBHOOK MULTI-GATEWAY DE WHATSAPP (ATHLETICENTER v3.0)
@@ -40,6 +46,127 @@ export async function POST(req: Request) {
 
     await ensureServerAuth();
     const { firestore } = initializeFirebaseServer();
+
+    // ─────────────────────────────────────────────────────────────
+    // INTENT 0: AGENTE COMANDANTE DE PROMOCIONES (SOLO SUPERADMIN)
+    // Permite al SuperAdmin reenviar/crear campañas y activar promos desde su WhatsApp.
+    // ─────────────────────────────────────────────────────────────
+    try {
+      const superAdminsSnap = await getDocs(
+        query(collection(firestore, 'users'), where('role', '==', 'superadmin'), limit(15))
+      );
+      const matchedSuperAdminDoc = superAdminsSnap.docs.find((d) => {
+        const u = d.data() as any;
+        const p = formatVenezuelaPhoneE164(u.phone || u.whatsappPhone || u.phoneNumber || '');
+        return p.length >= 10 && p.endsWith(last10);
+      });
+
+      if (matchedSuperAdminDoc) {
+        const adminData = matchedSuperAdminDoc.data() as any;
+        const adminId = matchedSuperAdminDoc.id;
+        const adminName = adminData.name || adminData.displayName || 'SuperAdmin';
+
+        const isConfirmCmd = /^(CONFIRMAR|CONFIRMO|CONFIRMAR ENVIO|CONFIRMAR ENVÍO|CONFIRMAR CAMPAÑA|CONFIRMAR CAMPANA)$/i.test(upperText);
+        const isCancelCmd = /^(CANCELAR|CANCELO|CANCELAR ENVIO|CANCELAR ENVÍO|DESCARTAR)$/i.test(upperText);
+
+        if (isConfirmCmd || isCancelCmd) {
+          const draftsSnap = await getDocs(
+            query(collection(firestore, 'whatsapp_commander_drafts'), where('userId', '==', adminId), limit(15))
+          );
+          const nowMs = Date.now();
+          const pendingDrafts = draftsSnap.docs
+            .map((d) => ({ id: d.id, ...(d.data() as any) }))
+            .filter((d) => d.status === 'pending_confirmation' && (!d.expiresAt || new Date(d.expiresAt).getTime() >= nowMs))
+            .sort((a, b) => {
+              const ta = a.createdAt?.toMillis ? a.createdAt.toMillis() : 0;
+              const tb = b.createdAt?.toMillis ? b.createdAt.toMillis() : 0;
+              return tb - ta;
+            });
+
+          const latestDraft = pendingDrafts[0];
+          if (latestDraft) {
+            if (isConfirmCmd) {
+              const execRes = await executeCommanderDraft({
+                firestore,
+                draftId: latestDraft.id,
+                confirmedByUid: adminId,
+                confirmedByName: adminName,
+              });
+              const reply = execRes.success
+                ? `✅ *¡Campaña encolada correctamente!*\n\n` +
+                  `• *Título:* ${latestDraft.title}\n` +
+                  `• *Destinatarios:* ${execRes.totalTarget} clientes (cola anti-bloqueo São Paulo)\n` +
+                  `• *Agente ARM:* ${execRes.promoActivatedInArm ? '✅ Promoción activada para responder a clientes' : 'Sin cambios en ARM'}`
+                : `❌ No se pudo lanzar la campaña: ${execRes.error || 'Error desconocido'}`;
+
+              await sendBackgroundWhatsAppMessage({
+                phone: cleanPhone,
+                message: reply,
+                module: 'marketing',
+                recipientName: adminName,
+                recipientType: 'equipo',
+              });
+              return NextResponse.json({ success: true, action: 'commander_executed', draftId: latestDraft.id });
+            } else {
+              await cancelCommanderDraft({ firestore, draftId: latestDraft.id });
+              const reply = `🛑 Campaña descartada. No se envió ningún mensaje.`;
+              await sendBackgroundWhatsAppMessage({
+                phone: cleanPhone,
+                message: reply,
+                module: 'marketing',
+                recipientName: adminName,
+                recipientType: 'equipo',
+              });
+              return NextResponse.json({ success: true, action: 'commander_cancelled', draftId: latestDraft.id });
+            }
+          }
+        }
+
+        if (isSuperAdminCommanderMessage(messageText)) {
+          const draft = await interpretCommanderInstruction({
+            firestore,
+            instruction: messageText,
+            userId: adminId,
+            userName: adminName,
+            userPhone: cleanPhone,
+            channel: 'whatsapp',
+          });
+
+          const audienceLabels: Record<string, string> = {
+            all: 'Todos los clientes',
+            vips: 'Clientes VIP',
+            inactive: 'Clientes inactivos (+30 días)',
+            debtors: 'Clientes con saldo pendiente',
+          };
+          const mediaInfo = draft.mediaUrl
+            ? `Sí (${draft.mediaType.toUpperCase()})`
+            : draft.missingLegacyMediaWarning
+              ? '⚠️ La campaña anterior no guardó el video en Storage (solo se enviará texto; si quieres adjuntar el video, súbelo desde Marketing → Historial Difusiones)'
+              : 'Solo texto';
+
+          const previewMsg =
+            `🤖 *Comandante de Promociones — Vista Previa*\n\n` +
+            `📌 *Origen:* ${draft.mode === 'resend_campaign' ? `Campaña encontrada ("${draft.matchedCampaignTitle}")` : 'Nueva promoción redactada'}\n` +
+            `🎯 *Audiencia:* ${audienceLabels[draft.audienceType] || 'Todos'} (*${draft.recipientCount} clientes*)\n` +
+            `📎 *Adjunto:* ${mediaInfo}\n` +
+            `🧠 *Agente ARM:* ${draft.activateInArm ? `Se activará (${draft.promoDiscountPct ? `${draft.promoDiscountPct}% desc.` : 'promo vigente'}) para responder dudas de clientes` : 'No se activa promo especial'}\n\n` +
+            `*Título:* ${draft.title}\n\n` +
+            `*Mensaje:*\n${draft.message.slice(0, 700)}${draft.message.length > 700 ? '...' : ''}\n\n` +
+            `👉 Responde *CONFIRMAR* para enviarla ahora o *CANCELAR* para descartarla.`;
+
+          await sendBackgroundWhatsAppMessage({
+            phone: cleanPhone,
+            message: previewMsg,
+            module: 'marketing',
+            recipientName: adminName,
+            recipientType: 'equipo',
+          });
+          return NextResponse.json({ success: true, action: 'commander_planned', draftId: draft.draftId });
+        }
+      }
+    } catch (cmdErr) {
+      console.warn('[WhatsApp Webhook] Aviso en Agente Comandante:', cmdErr);
+    }
 
     // ─────────────────────────────────────────────────────────────
     // INTENT 1: CONFIRMACIÓN ESTRICTA DE COTIZACIÓN ABIERTA

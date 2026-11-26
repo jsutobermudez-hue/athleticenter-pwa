@@ -12,6 +12,10 @@ export interface WhatsAppGatewaySendParams {
   pdfBase64?: string;
   fileName?: string;
   orderId?: string;
+  quoteId?: string;
+  module?: string;
+  recipientName?: string;
+  recipientType?: 'cliente' | 'equipo' | 'tercero';
 }
 
 export interface WhatsAppGatewayResponse {
@@ -47,7 +51,11 @@ export async function sendBackgroundWhatsAppMessage({
   documentUrl,
   pdfBase64,
   fileName = 'Recibo_Oficial_Athleticenter.pdf',
-  orderId
+  orderId,
+  quoteId,
+  module,
+  recipientName,
+  recipientType,
 }: WhatsAppGatewaySendParams): Promise<WhatsAppGatewayResponse> {
   if (!phone) {
     return { success: false, error: 'Número de teléfono no provisto' };
@@ -68,7 +76,11 @@ export async function sendBackgroundWhatsAppMessage({
       filename: fileName,
       mimetype: 'application/pdf'
     } : undefined,
-    orderId
+    orderId,
+    quoteId,
+    module,
+    recipientName,
+    recipientType,
   };
 
   // SERVIDOR (agentes, crons, rutas API): despacho directo, sin auto-llamada HTTP.

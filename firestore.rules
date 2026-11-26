@@ -30,6 +30,46 @@ service cloud.firestore {
     function onlyChanges(keys) { return request.resource.data.diff(resource.data).affectedKeys().hasOnly(keys); }
     function unchanged(field) { return request.resource.data.get(field, null) == resource.data.get(field, null); }
 
+    // Validadores de esquema para bitácora saliente de WhatsApp y borradores del Agente Comandante
+    function isValidWhatsAppOutboundLog(data) {
+      return data.keys().hasAll(['phone', 'status'])
+             && data.keys().hasOnly([
+               'phone', 'recipientName', 'recipientType', 'module',
+               'orderId', 'quoteId', 'campaignId', 'text',
+               'hasMedia', 'mediaType', 'fileName',
+               'senderName', 'senderRole', 'source', 'status',
+               'provider', 'messageId', 'error', 'createdAt'
+             ])
+             && data.phone is string && data.phone.size() <= 40
+             && data.status in ['sent', 'failed']
+             && (!('recipientName' in data) || (data.recipientName is string && data.recipientName.size() <= 200))
+             && (!('recipientType' in data) || data.recipientType in ['cliente', 'equipo', 'tercero'])
+             && (!('module' in data) || (data.module is string && data.module.size() <= 60))
+             && (!('orderId' in data) || data.orderId == null || (data.orderId is string && data.orderId.size() <= 100))
+             && (!('quoteId' in data) || data.quoteId == null || (data.quoteId is string && data.quoteId.size() <= 100))
+             && (!('campaignId' in data) || data.campaignId == null || (data.campaignId is string && data.campaignId.size() <= 100))
+             && (!('text' in data) || (data.text is string && data.text.size() <= 4500))
+             && (!('hasMedia' in data) || data.hasMedia is bool)
+             && (!('mediaType' in data) || data.mediaType in ['none', 'pdf', 'image', 'video'])
+             && (!('fileName' in data) || data.fileName == null || (data.fileName is string && data.fileName.size() <= 255))
+             && (!('senderName' in data) || data.senderName == null || (data.senderName is string && data.senderName.size() <= 150))
+             && (!('senderRole' in data) || data.senderRole == null || (data.senderRole is string && data.senderRole.size() <= 60))
+             && (!('source' in data) || data.source in ['manual', 'auto', 'campaign', 'commander'])
+             && (!('provider' in data) || data.provider == null || (data.provider is string && data.provider.size() <= 60))
+             && (!('messageId' in data) || data.messageId == null || (data.messageId is string && data.messageId.size() <= 200))
+             && (!('error' in data) || data.error == null || (data.error is string && data.error.size() <= 1000))
+             && (!('createdAt' in data) || data.createdAt is timestamp);
+    }
+
+    function isValidWhatsAppCommanderDraft(data) {
+      return data is map
+             && data.keys().size() <= 40
+             && (!('title' in data) || data.title == null || (data.title is string && data.title.size() <= 200))
+             && (!('instruction' in data) || data.instruction == null || (data.instruction is string && data.instruction.size() <= 4000))
+             && (!('message' in data) || data.message == null || (data.message is string && data.message.size() <= 5000))
+             && (!('status' in data) || (data.status is string && data.status.size() <= 40));
+    }
+
     // ---------- Usuarios ----------
     match /users/{userId} {
       allow read: if signedIn();
@@ -252,6 +292,17 @@ service cloud.firestore {
     match /whatsapp_inbound_logs/{logId} {
       allow read, create, update: if isStaff();
       allow delete: if isManager();
+    }
+    // Historial inmutable de envíos de WhatsApp: solo gerencia/admin/superadmin leen; staff registra; nadie edita ni borra.
+    match /whatsapp_outbound_logs/{logId} {
+      allow read: if isManager();
+      allow create: if isStaff() && isValidWhatsAppOutboundLog(request.resource.data);
+      allow update, delete: if false;
+    }
+    // Borradores del Agente Comandante de Promociones: exclusivo para gerencia/admin/superadmin.
+    match /whatsapp_commander_drafts/{draftId} {
+      allow read, delete: if isManager();
+      allow create, update: if isManager() && isValidWhatsAppCommanderDraft(request.resource.data);
     }
 
     // ---------- Mensajería interna ----------

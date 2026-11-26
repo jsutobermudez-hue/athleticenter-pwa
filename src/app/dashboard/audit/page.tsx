@@ -31,7 +31,8 @@ import {
     Layers, 
     FileText,
     Sparkles,
-    Eye
+    Eye,
+    MessageSquare
 } from 'lucide-react';
 import { format, subDays, startOfDay, isSameDay } from 'date-fns';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -156,6 +157,15 @@ function AuditPageContent() {
           <p className="tech-label opacity-60">Registro maestro inmutable de operaciones y eventos de red.</p>
         </div>
         <div className="flex items-center gap-3">
+          {isAdmin && (
+            <Button
+              onClick={() => router.push('/dashboard/marketing?tab=history')}
+              variant="outline"
+              className="h-11 px-4 rounded-xl border-emerald-200 bg-emerald-50 hover:bg-emerald-100 font-black text-xs uppercase tracking-wider text-emerald-800 shadow-xs"
+            >
+              <MessageSquare className="h-4 w-4 mr-2 text-emerald-600" /> Historial WhatsApp
+            </Button>
+          )}
           <Button 
             onClick={exportAuditToCSV}
             variant="outline"

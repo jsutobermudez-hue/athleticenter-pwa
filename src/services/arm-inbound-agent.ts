@@ -14,6 +14,7 @@ import {
 } from 'firebase/firestore';
 import { createAppNotifications } from '@/lib/notifications';
 import { formatVenezuelaPhoneE164 } from '@/lib/whatsapp-gateway';
+import { filterValidPromotions, formatPromotionsForArmPrompt } from '@/lib/active-promotions';
 import type { Customer, Product } from '@/lib/definitions';
 
 export interface ArmInboundInput {
@@ -520,6 +521,17 @@ export async function processArmInboundMessage({ phone, messageText }: ArmInboun
         console.warn('[ARM Agent] Error leyendo financieros:', e?.message || e);
     }
 
+    let activePromotionsBlock = '';
+    try {
+        const promoSnap = await getDoc(doc(firestore, 'system', 'activePromotions'));
+        if (promoSnap.exists() && Array.isArray(promoSnap.data()?.items)) {
+            const validPromos = filterValidPromotions(promoSnap.data().items);
+            activePromotionsBlock = formatPromotionsForArmPrompt(validPromos);
+        }
+    } catch (e: any) {
+        console.warn('[ARM Agent] Error leyendo promociones activas:', e?.message || e);
+    }
+
     // ─────────────────────────────────────────────────────────────
     // 4. Cargar TODO el Catálogo (141 productos, 14 marcas)
     // ─────────────────────────────────────────────────────────────
@@ -815,7 +827,7 @@ REGLAS OBLIGATORIAS DE RESPUESTA:
    - Precio Lista (Pagadero en Bs a tasa oficial BCV: Bs. ${bcvRate.toFixed(2)}/USD)
    - *${divisasDiscountPct}% de Descuento* pagando en Divisas
    - *${prontoPagoDiscountPct}% de Descuento adicional* por Pronto Pago
-6. NUNCA CORTES LA RESPUESTA A LA MITAD. Cierra con una pregunta comercial orientada al cierre y firma siempre:
+${activePromotionsBlock}6. NUNCA CORTES LA RESPUESTA A LA MITAD. Cierra con una pregunta comercial orientada al cierre y firma siempre:
 Atentamente,
 *El equipo de Athleticenter*`;
 

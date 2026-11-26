@@ -15,7 +15,20 @@ export async function POST(req: Request) {
 
   try {
     const body = await req.json();
-    const { number, text, imageUrl, videoUrl, documentUrl, fileName, media, orderId } = body || {};
+    const {
+      number,
+      text,
+      imageUrl,
+      videoUrl,
+      documentUrl,
+      fileName,
+      media,
+      orderId,
+      quoteId,
+      module,
+      recipientName,
+      recipientType,
+    } = body || {};
 
     if (!number || (!text && !media && !imageUrl && !documentUrl && !videoUrl)) {
       return NextResponse.json({ success: false, error: 'Número y contenido son requeridos.' }, { status: 400 });
@@ -28,7 +41,23 @@ export async function POST(req: Request) {
     }
 
     console.log(`[WhatsApp Gateway API] Despacho solicitado por ${auth.internal ? 'sistema' : `${auth.name} (${auth.role})`} (Orden: #${orderId || 'N/A'})`);
-    const result = await dispatchViaGateways({ number, text, imageUrl, videoUrl, documentUrl, fileName, media, orderId });
+    const result = await dispatchViaGateways({
+      number,
+      text,
+      imageUrl,
+      videoUrl,
+      documentUrl,
+      fileName,
+      media,
+      orderId,
+      quoteId,
+      module: module || 'orders',
+      recipientName,
+      recipientType,
+      senderName: auth.internal ? 'Sistema Automático' : auth.name,
+      senderRole: auth.internal ? 'system' : auth.role,
+      source: auth.internal ? 'auto' : 'manual',
+    });
     return NextResponse.json(result);
   } catch (error: any) {
     console.error('[WhatsApp Gateway API] Error interno en gateway route:', error);

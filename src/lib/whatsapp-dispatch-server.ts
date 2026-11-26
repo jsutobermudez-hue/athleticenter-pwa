@@ -23,6 +23,79 @@ export interface GatewayPayload {
   fileName?: string;
   media?: { base64: string; filename?: string; mimetype?: string };
   orderId?: string;
+  module?: string;
+  recipientName?: string;
+  recipientType?: 'cliente' | 'equipo' | 'tercero';
+  senderName?: string;
+  senderRole?: string;
+  source?: 'manual' | 'auto' | 'campaign' | 'commander';
+  quoteId?: string;
+  campaignId?: string;
+}
+
+export interface WhatsAppOutboundLogEntry {
+  phone: string;
+  recipientName?: string;
+  recipientType?: 'cliente' | 'equipo' | 'tercero';
+  module?: string;
+  orderId?: string;
+  quoteId?: string;
+  campaignId?: string;
+  text: string;
+  hasMedia?: boolean;
+  mediaType?: 'none' | 'pdf' | 'image' | 'video';
+  fileName?: string;
+  senderName?: string;
+  senderRole?: string;
+  source?: 'manual' | 'auto' | 'campaign' | 'commander';
+  status: 'sent' | 'failed';
+  provider?: string;
+  messageId?: string;
+  error?: string;
+}
+
+/**
+ * Registra cada envío en `whatsapp_outbound_logs` sin bloquear ni lanzar errores,
+ * guardando únicamente metadatos y texto (jamás Base64 de adjuntos).
+ */
+export async function logWhatsAppOutboundSafe(entry: WhatsAppOutboundLogEntry): Promise<void> {
+  try {
+    const writePromise = (async () => {
+      const { initializeFirebaseServer, ensureServerAuth } = await import('@/firebase/server-init');
+      await ensureServerAuth();
+      const { firestore } = initializeFirebaseServer();
+      const { collection, addDoc, serverTimestamp } = await import('firebase/firestore');
+
+      await addDoc(collection(firestore, 'whatsapp_outbound_logs'), {
+        phone: String(entry.phone || ''),
+        recipientName: String(entry.recipientName || ''),
+        recipientType: entry.recipientType || 'cliente',
+        module: String(entry.module || 'orders'),
+        orderId: entry.orderId || null,
+        quoteId: entry.quoteId || null,
+        campaignId: entry.campaignId || null,
+        text: String(entry.text || '').slice(0, 4000),
+        hasMedia: Boolean(entry.hasMedia),
+        mediaType: entry.mediaType || 'none',
+        fileName: entry.fileName || null,
+        senderName: entry.senderName || 'Sistema Automático',
+        senderRole: entry.senderRole || 'system',
+        source: entry.source || 'auto',
+        status: entry.status,
+        provider: entry.provider || null,
+        messageId: entry.messageId || null,
+        error: entry.error ? String(entry.error).slice(0, 400) : null,
+        createdAt: serverTimestamp(),
+      });
+    })();
+
+    await Promise.race([
+      writePromise,
+      new Promise<void>((resolve) => setTimeout(resolve, 3000)),
+    ]);
+  } catch (err) {
+    console.warn('[WhatsApp Outbound Log] Aviso al guardar historial:', err);
+  }
 }
 
 export interface GatewayResult {
@@ -65,6 +138,17 @@ export async function dispatchViaGateways(input: GatewayPayload): Promise<Gatewa
   const spUrl = process.env.WHATSAPP_GATEWAY_SP_URL || 'http://35.213.77.171:3001';
   const errors: string[] = [];
 
+  const mediaType: 'none' | 'pdf' | 'image' | 'video' =
+    input.media?.mimetype?.includes('pdf') || input.documentUrl
+      ? 'pdf'
+      : input.videoUrl
+        ? 'video'
+        : input.imageUrl
+          ? 'image'
+          : 'none';
+  const hasMedia = mediaType !== 'none';
+  const resolvedFileName = input.fileName || input.media?.filename || undefined;
+
   if (!key) {
     console.error('[WhatsApp Dispatch] WHATSAPP_GATEWAY_KEY no configurada: no se puede usar el gateway.');
     errors.push('Gateway sin clave configurada');
@@ -73,7 +157,29 @@ export async function dispatchViaGateways(input: GatewayPayload): Promise<Gatewa
     try {
       const sendTimeout = input.documentUrl || input.videoUrl ? 150000 : 35000;
       const r = await postTo(spUrl, key, payload, sendTimeout);
-      if (r.success) return { ...r, provider: r.provider || 'saopaulo' };
+      if (r.success) {
+        const provider = r.provider || 'saopaulo';
+        await logWhatsAppOutboundSafe({
+          phone: number,
+          recipientName: input.recipientName,
+          recipientType: input.recipientType,
+          module: input.module,
+          orderId: input.orderId,
+          quoteId: input.quoteId,
+          campaignId: input.campaignId,
+          text: input.text || '',
+          hasMedia,
+          mediaType,
+          fileName: resolvedFileName,
+          senderName: input.senderName,
+          senderRole: input.senderRole,
+          source: input.source,
+          status: 'sent',
+          provider,
+          messageId: r.messageId,
+        });
+        return { ...r, provider };
+      }
       errors.push(`São Paulo: ${r.error}`);
     } catch (e: any) {
       errors.push(`São Paulo: ${e?.message || e}`);
@@ -83,7 +189,28 @@ export async function dispatchViaGateways(input: GatewayPayload): Promise<Gatewa
     if (process.env.WHATSAPP_LOCAL_GATEWAY === 'true') {
       try {
         const r = await postTo('http://localhost:3001', key, payload, 8000);
-        if (r.success) return { ...r, provider: 'local' };
+        if (r.success) {
+          await logWhatsAppOutboundSafe({
+            phone: number,
+            recipientName: input.recipientName,
+            recipientType: input.recipientType,
+            module: input.module,
+            orderId: input.orderId,
+            quoteId: input.quoteId,
+            campaignId: input.campaignId,
+            text: input.text || '',
+            hasMedia,
+            mediaType,
+            fileName: resolvedFileName,
+            senderName: input.senderName,
+            senderRole: input.senderRole,
+            source: input.source,
+            status: 'sent',
+            provider: 'local',
+            messageId: r.messageId,
+          });
+          return { ...r, provider: 'local' };
+        }
         errors.push(`Local: ${r.error}`);
       } catch (e: any) {
         errors.push(`Local: ${e?.message || e}`);
@@ -91,10 +218,30 @@ export async function dispatchViaGateways(input: GatewayPayload): Promise<Gatewa
     }
   }
 
-  console.warn(`[WhatsApp Dispatch] Sin gateway disponible para +${number}: ${errors.join(' | ')}`);
+  const errMsg = errors.join(' | ') || 'Gateway no disponible';
+  await logWhatsAppOutboundSafe({
+    phone: number,
+    recipientName: input.recipientName,
+    recipientType: input.recipientType,
+    module: input.module,
+    orderId: input.orderId,
+    quoteId: input.quoteId,
+    campaignId: input.campaignId,
+    text: input.text || '',
+    hasMedia,
+    mediaType,
+    fileName: resolvedFileName,
+    senderName: input.senderName,
+    senderRole: input.senderRole,
+    source: input.source,
+    status: 'failed',
+    error: errMsg,
+  });
+
+  console.warn(`[WhatsApp Dispatch] Sin gateway disponible para +${number}: ${errMsg}`);
   return {
     success: false,
-    error: errors.join(' | ') || 'Gateway no disponible',
+    error: errMsg,
     fallbackUrl: `https://wa.me/${number}?text=${encodeURIComponent(input.text || '')}`,
   };
 }

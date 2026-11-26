@@ -37,7 +37,17 @@ import { Separator } from '@/components/ui/separator';
 import { DashboardMetricCard } from '@/components/dashboard/DashboardMetricCard';
 import { BroadcastCampaignModal } from './BroadcastCampaignModal';
 import { ArmAgentPanel } from './ArmAgentPanel';
-import { Bot } from 'lucide-react';
+import { WhatsAppCommanderPanel } from './WhatsAppCommanderPanel';
+import { WhatsAppHistoryPanel } from './WhatsAppHistoryPanel';
+import {
+    Dialog,
+    DialogContent,
+    DialogHeader,
+    DialogTitle,
+    DialogDescription,
+    DialogFooter,
+} from '@/components/ui/dialog';
+import { Bot, Eye, RefreshCw, MessageSquare } from 'lucide-react';
 import { sendWhatsAppWithFeedback } from '@/lib/whatsapp-client';
 
 export const dynamic = 'force-dynamic';
@@ -90,6 +100,8 @@ function MarketingContent() {
     const [isMounted, setIsMounted] = useState(false);
     const [isBroadcastOpen, setIsBroadcastOpen] = useState(false);
     const [initialAudience, setInitialAudience] = useState<'all' | 'vips' | 'dormant'>('all');
+    const [campaignToResend, setCampaignToResend] = useState<any | null>(null);
+    const [selectedCampaignToView, setSelectedCampaignToView] = useState<any | null>(null);
 
     useEffect(() => {
         if (!searchParams) return;
@@ -103,7 +115,7 @@ function MarketingContent() {
             setInitialAudience(aud);
         }
         const tab = searchParams.get('tab');
-        if (tab && ['arm', 'pulse', 'pareto', 'leakage', 'campaigns'].includes(tab)) {
+        if (tab && ['arm', 'pulse', 'pareto', 'leakage', 'campaigns', 'history'].includes(tab)) {
             setActiveTab(tab);
         }
     }, [searchParams]);
@@ -300,6 +312,11 @@ function MarketingContent() {
                         <TabsTrigger value="campaigns" className="px-6 rounded-xl font-black uppercase text-[10px] tracking-widest data-[state=active]:bg-white data-[state=active]:shadow-lg data-[state=active]:text-primary">
                             <History className="h-4 w-4 mr-2" /> Historial Difusiones
                         </TabsTrigger>
+                        {isManager && (
+                            <TabsTrigger value="history" className="px-6 rounded-xl font-black uppercase text-[10px] tracking-widest data-[state=active]:bg-slate-900 data-[state=active]:shadow-lg data-[state=active]:text-white">
+                                <MessageSquare className="h-4 w-4 mr-2" /> Historial WhatsApp
+                            </TabsTrigger>
+                        )}
                     </TabsList>
                     
                     <div className="relative w-full max-w-sm">
@@ -495,8 +512,10 @@ function MarketingContent() {
                     </div>
                 </TabsContent>
 
-                {/* 4. Historial de Difusiones */}
-                <TabsContent value="campaigns" className="mt-0 outline-none animate-in fade-in-50 duration-700">
+                {/* 4. Historial de Difusiones + Agente Comandante */}
+                <TabsContent value="campaigns" className="mt-0 outline-none animate-in fade-in-50 duration-700 space-y-6">
+                    {isManager && <WhatsAppCommanderPanel />}
+
                     <Card className="border-none shadow-xl rounded-[2.5rem] bg-white p-8 space-y-6">
                         <div className="flex items-center justify-between">
                             <div>
@@ -504,11 +523,14 @@ function MarketingContent() {
                                     Campañas Masivas Recientes
                                 </h3>
                                 <p className="text-xs text-slate-500 font-medium mt-0.5">
-                                    Registro de difusiones procesadas en segundo plano con protección anti-bloqueo.
+                                    Registro de difusiones procesadas en segundo plano con reenvío y duplicado en 1 clic.
                                 </p>
                             </div>
                             <Button 
-                                onClick={() => router.push('/dashboard/broadcast')}
+                                onClick={() => {
+                                    setCampaignToResend(null);
+                                    setIsBroadcastOpen(true);
+                                }}
                                 size="sm" 
                                 className="h-10 rounded-xl font-black uppercase text-[10px] bg-primary text-white"
                             >
@@ -524,8 +546,8 @@ function MarketingContent() {
                             <div className="space-y-4">
                                 {allCampaigns.map((camp: any) => (
                                     <div key={camp.id} className="p-6 rounded-2xl bg-slate-50 border border-slate-100 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                                        <div className="space-y-1 flex-1">
-                                            <div className="flex items-center gap-2">
+                                        <div className="space-y-1 flex-1 min-w-0">
+                                            <div className="flex flex-wrap items-center gap-2">
                                                 <Badge className={cn("text-[8px] font-black uppercase border-none px-2",
                                                     camp.status === 'completed' ? "bg-emerald-100 text-emerald-700"
                                                     : camp.status === 'failed' ? "bg-red-100 text-red-700"
@@ -537,6 +559,11 @@ function MarketingContent() {
                                                         : camp.status === 'queued' ? 'En cola (São Paulo)'
                                                         : 'Enviando'}
                                                 </Badge>
+                                                {camp.mediaType && camp.mediaType !== 'none' && (
+                                                    <Badge variant="outline" className="text-[8px] font-black uppercase">
+                                                        {String(camp.mediaType).toUpperCase()}
+                                                    </Badge>
+                                                )}
                                                 <span className="text-[10px] text-slate-400 font-mono">
                                                     {camp.createdAt ? new Date((camp.createdAt as any).toDate ? (camp.createdAt as any).toDate() : camp.createdAt).toLocaleDateString() : 'Hoy'}
                                                 </span>
@@ -545,21 +572,41 @@ function MarketingContent() {
                                             <p className="text-xs text-slate-600 line-clamp-1">{camp.message}</p>
                                         </div>
 
-                                        <div className="flex items-center gap-6 shrink-0">
-                                            <div className="text-right">
+                                        <div className="flex flex-wrap items-center gap-3 shrink-0">
+                                            <div className="text-right mr-2">
                                                 <p className="text-[9px] font-black uppercase text-slate-400">Entregados</p>
                                                 <p className="text-base font-black text-emerald-600">
                                                     {camp.sentCount || 0} / {camp.totalTarget || 0}
                                                 </p>
                                             </div>
                                             {camp.failedCount > 0 && (
-                                                <div className="text-right">
+                                                <div className="text-right mr-2">
                                                     <p className="text-[9px] font-black uppercase text-slate-400">Fallidos</p>
                                                     <p className="text-base font-black text-rose-600">
                                                         {camp.failedCount}
                                                     </p>
                                                 </div>
                                             )}
+                                            <Button
+                                                type="button"
+                                                size="sm"
+                                                variant="outline"
+                                                onClick={() => setSelectedCampaignToView(camp)}
+                                                className="h-9 px-3 rounded-xl font-black uppercase text-[9px]"
+                                            >
+                                                <Eye className="h-3.5 w-3.5 mr-1" /> Ver
+                                            </Button>
+                                            <Button
+                                                type="button"
+                                                size="sm"
+                                                onClick={() => {
+                                                    setCampaignToResend(camp);
+                                                    setIsBroadcastOpen(true);
+                                                }}
+                                                className="h-9 px-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black uppercase text-[9px]"
+                                            >
+                                                <RefreshCw className="h-3.5 w-3.5 mr-1" /> Reenviar / Duplicar
+                                            </Button>
                                         </div>
                                     </div>
                                 ))}
@@ -567,16 +614,77 @@ function MarketingContent() {
                         )}
                     </Card>
                 </TabsContent>
+
+                {/* 5. Historial Completo de WhatsApp Salientes (Solo SuperAdmin, Admin y Gerencia) */}
+                {isManager && (
+                    <TabsContent value="history" className="mt-0 outline-none animate-in fade-in-50 duration-700">
+                        <WhatsAppHistoryPanel />
+                    </TabsContent>
+                )}
             </Tabs>
+
+            {/* Modal Ver Campaña Completa */}
+            <Dialog open={Boolean(selectedCampaignToView)} onOpenChange={(open) => !open && setSelectedCampaignToView(null)}>
+                <DialogContent className="max-w-lg rounded-[2rem]">
+                    <DialogHeader>
+                        <DialogTitle className="text-base font-black uppercase">{selectedCampaignToView?.title}</DialogTitle>
+                        <DialogDescription className="text-xs">
+                            Enviada a {selectedCampaignToView?.sentCount || 0} / {selectedCampaignToView?.totalTarget || 0} clientes
+                        </DialogDescription>
+                    </DialogHeader>
+                    {selectedCampaignToView && (
+                        <div className="space-y-3">
+                            {selectedCampaignToView.mediaUrl && String(selectedCampaignToView.mediaUrl).startsWith('https://') ? (
+                                selectedCampaignToView.mediaType === 'video' ? (
+                                    <video src={selectedCampaignToView.mediaUrl} controls className="w-full max-h-56 rounded-2xl bg-black" />
+                                ) : selectedCampaignToView.mediaType === 'image' ? (
+                                    // eslint-disable-next-line @next/next/no-img-element
+                                    <img src={selectedCampaignToView.mediaUrl} alt={selectedCampaignToView.title} className="w-full max-h-56 object-contain rounded-2xl bg-slate-100" />
+                                ) : (
+                                    <p className="text-xs font-bold text-blue-600">Adjunto: {selectedCampaignToView.mediaFileName || 'Documento PDF'}</p>
+                                )
+                            ) : selectedCampaignToView.mediaType && selectedCampaignToView.mediaType !== 'none' ? (
+                                <p className="text-xs text-amber-700 bg-amber-50 p-3 rounded-xl border border-amber-200">
+                                    Esta campaña antigua guardó solo una referencia de archivo local ({String(selectedCampaignToView.mediaType).toUpperCase()}). Al reenviarla puedes volver a subir el archivo para guardarlo permanentemente en Storage.
+                                </p>
+                            ) : null}
+                            <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 text-xs text-slate-800 whitespace-pre-wrap leading-relaxed max-h-72 overflow-y-auto">
+                                {selectedCampaignToView.message}
+                            </div>
+                        </div>
+                    )}
+                    <DialogFooter className="gap-2">
+                        <Button type="button" variant="outline" onClick={() => setSelectedCampaignToView(null)} className="rounded-xl text-xs font-bold">
+                            Cerrar
+                        </Button>
+                        <Button
+                            type="button"
+                            onClick={() => {
+                                const c = selectedCampaignToView;
+                                setSelectedCampaignToView(null);
+                                setCampaignToResend(c);
+                                setIsBroadcastOpen(true);
+                            }}
+                            className="rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black uppercase"
+                        >
+                            <RefreshCw className="h-3.5 w-3.5 mr-1.5" /> Reenviar / Duplicar
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
 
             {/* Modal de Difusión Masiva */}
             <BroadcastCampaignModal 
                 isOpen={isBroadcastOpen} 
-                onOpenChange={setIsBroadcastOpen} 
+                onOpenChange={(open) => {
+                    setIsBroadcastOpen(open);
+                    if (!open) setCampaignToResend(null);
+                }} 
                 customers={allCustomers || []} 
                 products={allProducts || []}
                 paretoCustomers={metrics?.pareto || []}
                 initialAudienceType={initialAudience}
+                initialCampaign={campaignToResend}
             />
         </div>
     );

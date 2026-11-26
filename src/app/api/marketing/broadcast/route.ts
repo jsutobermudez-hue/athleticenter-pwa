@@ -1,9 +1,10 @@
 import { NextResponse } from 'next/server';
 import { initializeFirebaseServer, ensureServerAuth } from '@/firebase/server-init';
-import { collection, addDoc, serverTimestamp, updateDoc, doc } from 'firebase/firestore';
-import { enqueueWhatsAppBatch, dispatchViaGateways } from '@/lib/whatsapp-dispatch-server';
+import { collection, addDoc, serverTimestamp, updateDoc, doc, getDoc, setDoc } from 'firebase/firestore';
+import { enqueueWhatsAppBatch, dispatchViaGateways, logWhatsAppOutboundSafe } from '@/lib/whatsapp-dispatch-server';
 import { formatVenezuelaPhoneE164 } from '@/lib/whatsapp-gateway';
 import { authorizeRequest, MANAGER_ROLES } from '@/lib/server-auth';
+import type { ActivePromotion } from '@/lib/active-promotions';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300; // 5 minutos máximo para procesar listas masivas
@@ -27,6 +28,11 @@ interface BroadcastPayload {
   isTest?: boolean;
   testPhone?: string;
   testNumber?: string;
+  activateInArm?: boolean;
+  promoSummary?: string;
+  promoCategory?: string;
+  promoDiscountPct?: number;
+  promoExpiresAt?: string | null;
 }
 
 // Límite de seguridad para evitar DoS o bloqueos por WhatsApp
@@ -180,6 +186,50 @@ export async function POST(req: Request) {
     }
 
     await updateDoc(doc(firestore, 'marketing_campaigns', campaignId), { status: 'queued', updatedAt: serverTimestamp() }).catch(() => {});
+
+    await logWhatsAppOutboundSafe({
+      phone: `${validRecipients.length} destinatarios`,
+      recipientName: `Difusión Masiva (${validRecipients.length} clientes)`,
+      recipientType: 'cliente',
+      module: 'marketing',
+      campaignId,
+      text: `*${title}*\n\n${message}`,
+      hasMedia: hasCommonMedia,
+      mediaType: resolvedBatchMediaType || 'none',
+      fileName: isDoc ? resolvedDocName : undefined,
+      senderName: userName,
+      senderRole: auth.role,
+      source: 'campaign',
+      status: 'sent',
+      provider: 'saopaulo-batch',
+    });
+
+    if (body.activateInArm) {
+      try {
+        const promoRef = doc(firestore, 'system', 'activePromotions');
+        const promoSnap = await getDoc(promoRef);
+        const currentItems: ActivePromotion[] = promoSnap.exists() && Array.isArray(promoSnap.data()?.items)
+          ? promoSnap.data().items
+          : [];
+        const newPromo: ActivePromotion = {
+          id: campaignId,
+          title: title.trim(),
+          summary: (body.promoSummary || message).trim().slice(0, 500),
+          category: body.promoCategory?.trim() || undefined,
+          discountPct: typeof body.promoDiscountPct === 'number' && body.promoDiscountPct > 0 ? body.promoDiscountPct : undefined,
+          conditions: 'Pago de contado y en divisas',
+          expiresAt: body.promoExpiresAt || null,
+          active: true,
+          campaignId,
+          createdAt: new Date().toISOString(),
+          createdBy: userName,
+        };
+        const filtered = currentItems.filter((p) => p.id !== campaignId && p.title.toLowerCase() !== newPromo.title.toLowerCase());
+        await setDoc(promoRef, { items: [newPromo, ...filtered].slice(0, 20), updatedAt: serverTimestamp() }, { merge: true });
+      } catch (promoErr) {
+        console.warn('[Marketing Broadcast] Error guardando promoción activa en ARM:', promoErr);
+      }
+    }
 
     return NextResponse.json({
       success: true,
