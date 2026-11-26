@@ -49,11 +49,14 @@ import {
     MessageCircle,
     Printer,
     Send,
-    DollarSign
+    DollarSign,
+    Layers
 } from 'lucide-react';
 import { ConfirmPaymentDialog } from './register-payment-dialog';
+import { MultiInvoicePaymentDialog } from './multi-invoice-payment-dialog';
 import { HistoricalDebtDialog } from './historical-debt-dialog';
 import { getInvoiceFromOrder, calculateGlobalFinancialMetrics } from '@/lib/billing';
+import { validateSameCustomer } from '@/lib/multi-invoice-payment';
 import { CashAuditModal } from '@/components/dashboard/CashAuditModal';
 import { format } from 'date-fns';
 import { OrderSheetController } from '../orders/OrderSheetController';
@@ -147,7 +150,8 @@ export function AdminBillingView() {
   }, [searchParams]);
 
   const [selectedInvoiceIds, setSelectedInvoiceIds] = useState<string[]>([]);
-  const [isBatchReconciling, setIsBatchReconciling] = useState(false);
+  const [isMultiPayOpen, setIsMultiPayOpen] = useState(false);
+  const [multiPayPreselectedIds, setMultiPayPreselectedIds] = useState<string[]>([]);
 
   const toggleSelectInvoice = (id: string) => {
     setSelectedInvoiceIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
@@ -155,58 +159,17 @@ export function AdminBillingView() {
 
   const toggleSelectAllInvoices = () => {
     if (!filteredInvoices) return;
-    if (selectedInvoiceIds.length === filteredInvoices.length) {
+    const selectable = filteredInvoices.filter(i => i.remainingBalance > 0.05 && i.status !== 'Pagado');
+    if (selectedInvoiceIds.length === selectable.length && selectable.length > 0) {
       setSelectedInvoiceIds([]);
     } else {
-      setSelectedInvoiceIds(filteredInvoices.map(i => i.id));
+      setSelectedInvoiceIds(selectable.map(i => i.id));
     }
   };
 
-  const handleBatchReconcile = async () => {
-    if (selectedInvoiceIds.length === 0 || !firestore) return;
-    setIsBatchReconciling(true);
-    try {
-      const { runTransaction, doc, serverTimestamp } = await import('firebase/firestore');
-      
-      await runTransaction(firestore, async (transaction) => {
-        for (const id of selectedInvoiceIds) {
-          const orderRef = doc(firestore, 'orders', id);
-          const orderSnap = await transaction.get(orderRef);
-          if (orderSnap.exists()) {
-            const data = orderSnap.data();
-            const total = data.totalAmount || 0;
-            transaction.update(orderRef, {
-              status: 'Pagado',
-              isPaid: true,
-              amountPaid: total,
-              paidAt: serverTimestamp(),
-              updatedAt: serverTimestamp()
-            });
-          }
-        }
-      });
-
-      await logActivity(firestore, {
-        userId: currentUser?.id || 'system',
-        userName: currentUser?.name || 'Administrador',
-        userRole: currentUser?.role,
-        action: 'BATCH_RECONCILE_PAYMENTS',
-        resource: 'invoices',
-        module: 'billing',
-        severity: 'critical',
-        details: `Se conciliaron en lote ${selectedInvoiceIds.length} expedientes de pago. Todos pasaron a estado Solvente/Pagado.`
-      });
-
-      toast({ 
-        title: `🎉 ¡${selectedInvoiceIds.length} Factura(s) Conciliadas en Lote!`, 
-        description: "Los expedientes pasaron a estado Pagado y el saldo quedó en $0.00 USD." 
-      });
-      setSelectedInvoiceIds([]);
-    } catch (e) {
-      toast({ variant: 'destructive', title: 'Error en Conciliación en Lote' });
-    } finally {
-      setIsBatchReconciling(false);
-    }
+  const openMultiInvoiceModal = (ids: string[] = []) => {
+    setMultiPayPreselectedIds(ids);
+    setIsMultiPayOpen(true);
   };
 
   const handleReversePayment = async (orderId: string, paymentId: string, amountToReverse: number, reason: string) => {
@@ -440,6 +403,19 @@ export function AdminBillingView() {
   const totalFilteredSalesUSD = useMemo(() => filteredInvoices.reduce((sum, i) => sum + i.amountTotal, 0), [filteredInvoices]);
   const totalFilteredPendingUSD = useMemo(() => filteredInvoices.reduce((sum, i) => sum + i.remainingBalance, 0), [filteredInvoices]);
 
+  const selectedUnpaidInvoices = useMemo(
+    () => allInvoices.filter(i => selectedInvoiceIds.includes(i.id) && i.remainingBalance > 0.05 && i.status !== 'Pagado'),
+    [allInvoices, selectedInvoiceIds]
+  );
+  const selectedCustomerValidation = useMemo(
+    () => validateSameCustomer(selectedUnpaidInvoices),
+    [selectedUnpaidInvoices]
+  );
+  const selectedTotalPendingUSD = useMemo(
+    () => selectedUnpaidInvoices.reduce((sum, i) => sum + i.remainingBalance, 0),
+    [selectedUnpaidInvoices]
+  );
+
   const handleSendWhatsAppInvoiceReminder = (invoice: Invoice, order?: Order) => {
     const cleanPhone = formatVenezuelaPhoneE164(order?.customerPhone || '');
     const bal = order ? computeOrderBalanceForWhatsApp(order) : null;
@@ -579,6 +555,9 @@ export function AdminBillingView() {
         </div>
         <div className="flex flex-wrap items-center gap-2.5">
           <HistoricalDebtDialog />
+          <Button onClick={() => openMultiInvoiceModal([])} className="h-10 px-4 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-black uppercase tracking-wider shadow-md transition-all active:scale-95 flex items-center gap-1.5">
+            <Layers className="h-4 w-4" /> Pago Multi-Factura
+          </Button>
           <Button onClick={() => setIsCashAuditModalOpen(true)} className="h-10 px-4 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-black uppercase tracking-wider shadow-md transition-all active:scale-95 flex items-center gap-1.5">
             <Banknote className="h-4 w-4" /> Pagos Registrados
           </Button>
@@ -900,6 +879,16 @@ export function AdminBillingView() {
 
                                     <div className="flex items-start justify-between gap-3 pl-2">
                                         <div className="flex items-center gap-3 min-w-0">
+                                            {!isPaid && (
+                                                <input
+                                                    type="checkbox"
+                                                    onClick={(e) => e.stopPropagation()}
+                                                    checked={selectedInvoiceIds.includes(invoice.id)}
+                                                    onChange={() => toggleSelectInvoice(invoice.id)}
+                                                    className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer shrink-0"
+                                                    title="Seleccionar para pago o conciliación multi-factura"
+                                                />
+                                            )}
                                             <Avatar className="h-10 w-10 rounded-2xl border-2 border-white shadow-md shrink-0">
                                                 <AvatarFallback className="bg-slate-900 text-white font-black text-xs uppercase">{(invoice.customerName || 'Cliente').charAt(0)}</AvatarFallback>
                                             </Avatar>
@@ -1073,24 +1062,37 @@ export function AdminBillingView() {
                 </div>
             )}
 
-            {/* BARRA DE CONCILIACIÓN MASIVA EN LOTE */}
+            {/* BARRA DE CONCILIACIÓN Y PAGO MULTI-FACTURA */}
             {selectedInvoiceIds.length > 0 && (
                 <div className="bg-emerald-950 text-white p-4 rounded-2xl border border-emerald-500/40 flex flex-wrap items-center justify-between gap-4 shadow-2xl animate-in slide-in-from-top-3 my-4">
-                    <div className="flex items-center gap-3">
+                    <div className="flex flex-wrap items-center gap-3">
                         <Badge className="bg-emerald-500 text-slate-950 font-black text-xs px-3 h-7">
-                            {selectedInvoiceIds.length} SELECCIONADO(S)
+                            {selectedUnpaidInvoices.length} PENDIENTE(S) • ${selectedTotalPendingUSD.toFixed(2)}
                         </Badge>
-                        <span className="text-xs font-bold text-emerald-200 uppercase">
-                            Presiona para conciliar y liquidar el saldo total de los expedientes seleccionados en 1-clic.
-                        </span>
+                        {selectedUnpaidInvoices.length < 2 ? (
+                            <span className="text-xs font-bold text-emerald-200 uppercase">
+                                Selecciona al menos 2 facturas pendientes del mismo cliente para conciliar en 1 monto.
+                            </span>
+                        ) : !selectedCustomerValidation.ok ? (
+                            <span className="text-xs font-bold text-amber-300 uppercase">
+                                ⚠️ Seleccionaste {selectedCustomerValidation.customerCount} clientes distintos. Elige facturas de un solo cliente.
+                            </span>
+                        ) : (
+                            <span className="text-xs font-bold text-emerald-200 uppercase">
+                                Cliente: <strong className="text-white">{selectedCustomerValidation.customerName}</strong> — Listo para aplicar 1 solo pago/comprobante.
+                            </span>
+                        )}
                     </div>
                     <div className="flex items-center gap-2">
                         <Button
-                            onClick={handleBatchReconcile}
-                            disabled={isBatchReconciling}
-                            className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black uppercase text-xs h-10 px-5 rounded-xl shadow-lg"
+                            onClick={() => openMultiInvoiceModal(selectedUnpaidInvoices.map(i => i.id))}
+                            disabled={selectedUnpaidInvoices.length < 2 || !selectedCustomerValidation.ok}
+                            className="bg-emerald-500 hover:bg-emerald-400 disabled:opacity-40 text-slate-950 font-black uppercase text-xs h-10 px-5 rounded-xl shadow-lg"
                         >
-                            {isBatchReconciling ? <Loader2 className="animate-spin" /> : "⚡ CONCILIAR LOTE EN 1-CLIC"}
+                            <Layers className="h-4 w-4 mr-1.5" />
+                            {currentUser && ['superadmin', 'admin', 'gerencia'].includes(currentUser.role)
+                                ? '💳 CONCILIAR EN 1 MONTO'
+                                : '💳 REPORTAR PAGO EN 1 MONTO'}
                         </Button>
                         <Button
                             variant="ghost"
@@ -1281,6 +1283,15 @@ export function AdminBillingView() {
         orders={rawOrders}
         periodFilter={dateFilter === 'todos' ? 'all' : dateFilter}
         bcvRate={bcvRate}
+      />
+
+      <MultiInvoicePaymentDialog
+        open={isMultiPayOpen}
+        onOpenChange={setIsMultiPayOpen}
+        allInvoices={allInvoices}
+        allOrders={rawOrders || []}
+        preselectedInvoiceIds={multiPayPreselectedIds}
+        onSuccess={() => setSelectedInvoiceIds([])}
       />
     </div>
   );

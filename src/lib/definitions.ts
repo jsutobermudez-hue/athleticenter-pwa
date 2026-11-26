@@ -241,6 +241,10 @@ export interface Payment extends Auditable {
     orderAllocations?: Array<{ orderId: string; orderNumber?: string; allocatedAmount: number }>;
     reconciliationNotes?: string;
     surplusAmount?: number;
+    batchPaymentId?: string;
+    batchTotalAmount?: number;
+    batchOrderIds?: string[];
+    batchSurplusAmount?: number;
     isTaxRetention?: boolean;
     retentionType?: 'iva_75' | 'iva_100' | 'islr';
     retentionVoucherNumber?: string;

@@ -1784,3 +1784,194 @@ export async function generateRestockPriorityPDF(
         : 'Reporte_Reposicion_Fotos_Athleticenter';
     doc.save(`${fileNamePrefix}_${format(new Date(), 'yyyy-MM-dd')}.pdf`);
 }
+
+export async function generateConsolidatedPaymentReceiptPDF({
+    batchPaymentId,
+    customerName,
+    customerRif,
+    totalAmountReceived,
+    method,
+    referenceNumber,
+    paymentDate,
+    registeredByName,
+    items,
+    surplusToCreditBalance = 0,
+    companyProfile,
+    bcvRate = 65.50,
+    download = true,
+}: {
+    batchPaymentId: string;
+    customerName: string;
+    customerRif?: string;
+    totalAmountReceived: number;
+    method: string;
+    referenceNumber?: string;
+    paymentDate: Date;
+    registeredByName?: string;
+    items: Array<{
+        orderId: string;
+        previousBalance: number;
+        discountAmount: number;
+        appliedCash: number;
+        remainingAfter: number;
+        isFullyPaid: boolean;
+    }>;
+    surplusToCreditBalance?: number;
+    companyProfile?: Partial<CompanyProfile>;
+    bcvRate?: number;
+    download?: boolean;
+}): Promise<string> {
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    const receiptId = `#${(batchPaymentId || 'MULTI').toUpperCase()}`;
+    const safeDate = paymentDate instanceof Date && !isNaN(paymentDate.getTime()) ? paymentDate : new Date();
+
+    doc.setFillColor(15, 23, 42);
+    doc.rect(0, 0, 210, 36, 'F');
+
+    let textStartX = 14;
+    if (companyProfile?.logoUrl) {
+        try {
+            const base64Logo = await getBase64ImageFromUrl(companyProfile.logoUrl);
+            doc.addImage(base64Logo, 'PNG', 12, 5, 26, 26, undefined, 'FAST');
+            textStartX = 42;
+        } catch (e) {
+            console.warn('[PDF] Error loading logo for consolidated receipt PDF:', e);
+        }
+    }
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(14);
+    doc.setTextColor(255, 255, 255);
+    doc.text((companyProfile?.companyName || (companyProfile as any)?.name || 'ATHLETICENTER PRO C.A.').toUpperCase(), textStartX, 15);
+
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(148, 163, 184);
+    doc.text(`RIF: ${companyProfile?.companyRif || (companyProfile as any)?.rif || 'J-12345678-0'}`, textStartX, 21);
+    doc.text('RECIBO CONSOLIDADO DE PAGO MULTI-FACTURA CERTIFICADO', textStartX, 26);
+    doc.text(`TASA OFICIAL BCV: Bs. ${bcvRate.toFixed(2)} / USD | EMISIÓN: ${format(new Date(), 'dd/MM/yyyy HH:mm')}`, textStartX, 31);
+
+    doc.setFillColor(16, 185, 129);
+    doc.rect(142, 10, 54, 18, 'F');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8.5);
+    doc.setTextColor(255, 255, 255);
+    doc.text('RECIBO MULTI', 169, 16, { align: 'center' });
+    doc.setFontSize(8);
+    doc.text(receiptId.substring(0, 22), 169, 23.5, { align: 'center' });
+
+    doc.setFillColor(248, 250, 252);
+    doc.roundedRect(14, 42, 182, 34, 3, 3, 'F');
+    doc.setDrawColor(226, 232, 240);
+    doc.roundedRect(14, 42, 182, 34, 3, 3, 'S');
+
+    doc.setFontSize(7.5);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(100);
+    doc.text('CLIENTE / RAZÓN SOCIAL:', 18, 48);
+    doc.text('PAGO ÚNICO RECIBIDO:', 115, 48);
+    doc.text('MÉTODO Y REFERENCIA:', 115, 62);
+
+    doc.setFontSize(10);
+    doc.setTextColor(15, 23, 42);
+    doc.text((customerName || 'Cliente General').toUpperCase().substring(0, 40), 18, 55);
+    doc.setFontSize(8.5);
+    doc.setTextColor(71, 85, 105);
+    doc.text(`RIF: ${customerRif || 'N/A'}`, 18, 62);
+    doc.text(`FECHA PAGO: ${format(safeDate, 'dd/MM/yyyy')} | VERIFICADO: ${(registeredByName || 'Caja Central').toUpperCase().substring(0, 24)}`, 18, 70);
+
+    const isVES = isVESPaymentMethod(method);
+    const totalLabel = isVES
+        ? `$${totalAmountReceived.toFixed(2)} USD (Bs. ${(totalAmountReceived * bcvRate).toLocaleString('es-VE', { minimumFractionDigits: 2 })})`
+        : `$${totalAmountReceived.toFixed(2)} USD`;
+
+    doc.setFontSize(10.5);
+    doc.setTextColor(16, 185, 129);
+    doc.text(totalLabel, 115, 55);
+    doc.setFontSize(8.5);
+    doc.setTextColor(15, 23, 42);
+    doc.text(`${(method || 'Transferencia').toUpperCase()} · REF: ${referenceNumber || 'N/A'}`, 115, 68);
+
+    doc.setFillColor(241, 245, 249);
+    doc.rect(14, 82, 182, 7, 'F');
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(30, 41, 59);
+    doc.text(`DISTRIBUCIÓN DEL PAGO EN ${items.length} FACTURA(S)`, 18, 87);
+
+    const rows = items.map((it) => [
+        `#${(it.orderId || '').substring(0, 10).toUpperCase()}`,
+        `$${it.previousBalance.toFixed(2)}`,
+        it.discountAmount > 0 ? `-$${it.discountAmount.toFixed(2)}` : '$0.00',
+        `$${it.appliedCash.toFixed(2)}`,
+        `$${it.remainingAfter.toFixed(2)}`,
+        it.isFullyPaid ? 'PAGADO 100%' : 'ABONO PARCIAL',
+    ]);
+
+    (doc as any).autoTable({
+        head: [['FACTURA', 'SALDO PREVIO', 'AHORRO/DESC.', 'APLICADO', 'RESTANTE', 'ESTADO']],
+        body: rows,
+        startY: 91,
+        theme: 'grid',
+        headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 7.5 },
+        bodyStyles: { fontSize: 8 },
+        columnStyles: {
+            0: { cellWidth: 32, fontStyle: 'bold' },
+            1: { cellWidth: 30, halign: 'right' },
+            2: { cellWidth: 30, halign: 'right', textColor: [16, 185, 129] },
+            3: { cellWidth: 30, halign: 'right', fontStyle: 'bold' },
+            4: { cellWidth: 30, halign: 'right' },
+            5: { cellWidth: 30, halign: 'center', fontStyle: 'bold' },
+        },
+    });
+
+    let cursorY = ((doc as any).lastAutoTable?.finalY || 140) + 8;
+
+    const totalApplied = roundCurrency(items.reduce((s, it) => s + Number(it.appliedCash || 0), 0));
+    const totalRemaining = roundCurrency(items.reduce((s, it) => s + Number(it.remainingAfter || 0), 0));
+
+    doc.setFillColor(15, 23, 42);
+    doc.roundedRect(14, cursorY, 182, 22, 3, 3, 'F');
+    doc.setFontSize(7.5);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(148, 163, 184);
+    doc.text('MONTO ÚNICO RECIBIDO', 20, cursorY + 7);
+    doc.text('APLICADO A FACTURAS', 80, cursorY + 7);
+    doc.text('SALDO RESTANTE EN LOTE', 142, cursorY + 7);
+
+    doc.setFontSize(10.5);
+    doc.setTextColor(255, 255, 255);
+    doc.text(`$${totalAmountReceived.toFixed(2)} USD`, 20, cursorY + 15);
+    doc.setTextColor(52, 211, 153);
+    doc.text(`$${totalApplied.toFixed(2)} USD`, 80, cursorY + 15);
+    doc.setTextColor(totalRemaining <= 0.05 ? 52 : 248, totalRemaining <= 0.05 ? 211 : 113, totalRemaining <= 0.05 ? 153 : 113);
+    doc.text(totalRemaining <= 0.05 ? '$0.00 (SOLVENTE)' : `$${totalRemaining.toFixed(2)} USD`, 142, cursorY + 15);
+
+    cursorY += 28;
+
+    if (surplusToCreditBalance > 0.01) {
+        doc.setFillColor(236, 253, 245);
+        doc.setDrawColor(16, 185, 129);
+        doc.roundedRect(14, cursorY, 182, 16, 3, 3, 'FD');
+        doc.setFontSize(8.5);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(6, 95, 70);
+        doc.text(`SALDO A FAVOR ACREDITADO EN BILLETERA DEL CLIENTE: $${surplusToCreditBalance.toFixed(2)} USD`, 18, cursorY + 7);
+        doc.setFontSize(7.5);
+        doc.setFont('helvetica', 'normal');
+        doc.text('Este excedente queda disponible en su cuenta para aplicarlo en próximos pedidos.', 18, cursorY + 12.5);
+    }
+
+    doc.setFontSize(7.5);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(100);
+    doc.text('CERTIFICADO DIGITAL DE PAGO CONSOLIDADO: Emitido automáticamente por Athleticenter Pro.', 14, 280);
+    doc.text('Todas las facturas listadas comparten el mismo respaldo bancario en el expediente.', 14, 284);
+
+    if (download) {
+        doc.save(`Recibo_Consolidado_${batchPaymentId}.pdf`);
+    }
+
+    const dataUri = doc.output('datauristring');
+    return dataUri.includes(',') ? dataUri.split(',')[1] : dataUri;
+}

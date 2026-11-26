@@ -40,7 +40,9 @@ import {
     ArrowRight, 
     Lock, 
     Info, 
-    Printer 
+    Printer,
+    Layers,
+    Wallet
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useCollection, useFirestore, useMemoFirebase, useUser, useDoc, errorEmitter, FirestorePermissionError } from '@/firebase';
@@ -53,6 +55,8 @@ import { generateOrderPDF, generatePaymentReceiptPDF } from '@/lib/pdf-generator
 import { dispatchUniversalWhatsApp } from '@/lib/whatsapp-universal';
 import { processStockDeductionForOrder } from '@/lib/billing';
 import { paymentReceiptMessage, computeOrderBalanceForWhatsApp } from '@/lib/whatsapp-templates';
+import { executeMultiInvoiceReconciliation, rejectMultiInvoiceBatch } from '@/lib/multi-invoice-reconcile';
+import type { MultiInvoiceAllocationResult, MultiInvoiceAllocationRow } from '@/lib/multi-invoice-payment';
 
 const paymentSchema = z.object({
   amount: z.coerce.number().min(0.01, 'El monto debe ser mayor a cero.'),
@@ -92,6 +96,83 @@ export function ConfirmPaymentDialog({ order }: { order: Order }) {
 
   const { data: pendingPayments, isLoading: isLoadingPayment } = useCollection<Payment>(paymentsQuery);
   const reportedPayment = useMemo(() => pendingPayments?.[0], [pendingPayments]);
+
+  const [batchSiblingOrders, setBatchSiblingOrders] = useState<Record<string, Order>>({});
+  const [batchSiblingPayments, setBatchSiblingPayments] = useState<Record<string, Payment>>({});
+  const [batchCustomerDoc, setBatchCustomerDoc] = useState<Customer | null>(null);
+  const [isLoadingBatch, setIsLoadingBatch] = useState(false);
+
+  const isBatchReport = Boolean(
+    reportedPayment?.batchPaymentId &&
+      Array.isArray(reportedPayment.batchOrderIds) &&
+      reportedPayment.batchOrderIds.length > 1
+  );
+
+  useEffect(() => {
+    if (!isOpen || !firestore || !reportedPayment?.batchPaymentId || !reportedPayment.batchOrderIds?.length) {
+      setBatchSiblingOrders({});
+      setBatchSiblingPayments({});
+      setBatchCustomerDoc(null);
+      return;
+    }
+
+    let active = true;
+    setIsLoadingBatch(true);
+
+    const loadBatch = async () => {
+      try {
+        const orderIds = reportedPayment.batchOrderIds || [];
+        const batchId = reportedPayment.batchPaymentId as string;
+
+        const [orderSnaps, paySnaps, custSnap] = await Promise.all([
+          Promise.all(orderIds.map((oid) => getDoc(doc(firestore, 'orders', oid)))),
+          Promise.all(
+            orderIds.map((oid) =>
+              getDocs(
+                query(
+                  collection(firestore, 'orders', oid, 'payments'),
+                  where('batchPaymentId', '==', batchId),
+                  limit(1)
+                )
+              )
+            )
+          ),
+          order.customerId ? getDoc(doc(firestore, 'customers', order.customerId)) : Promise.resolve(null),
+        ]);
+
+        if (!active) return;
+
+        const ordersMap: Record<string, Order> = {};
+        orderSnaps.forEach((snap) => {
+          if (snap.exists()) {
+            ordersMap[snap.id] = { id: snap.id, ...(snap.data() as any) };
+          }
+        });
+
+        const paymentsMap: Record<string, Payment> = {};
+        paySnaps.forEach((qs, idx) => {
+          const oid = orderIds[idx];
+          if (!qs.empty) {
+            const pDoc = qs.docs[0];
+            paymentsMap[oid] = { id: pDoc.id, ...(pDoc.data() as any) };
+          }
+        });
+
+        setBatchSiblingOrders(ordersMap);
+        setBatchSiblingPayments(paymentsMap);
+        setBatchCustomerDoc(custSnap?.exists() ? ({ id: custSnap.id, ...(custSnap.data() as any) } as Customer) : null);
+      } catch (err) {
+        console.warn('[ConfirmPaymentDialog] Error loading batch details:', err);
+      } finally {
+        if (active) setIsLoadingBatch(false);
+      }
+    };
+
+    loadBatch();
+    return () => {
+      active = false;
+    };
+  }, [isOpen, firestore, reportedPayment?.batchPaymentId, reportedPayment?.batchOrderIds, order.customerId]);
 
   const { control, handleSubmit, formState: { isSubmitting }, reset, setValue } = useForm<PaymentFormValues>({
     resolver: zodResolver(paymentSchema),
@@ -175,6 +256,149 @@ export function ConfirmPaymentDialog({ order }: { order: Order }) {
         .finally(() => {
             setIsRejecting(false);
         });
+  };
+
+  const handleRejectBatch = async () => {
+    if (!firestore || !authUser || !currentUser || !reportedPayment?.batchPaymentId) return;
+    const siblingList = Object.values(batchSiblingPayments);
+    if (siblingList.length === 0) {
+      handleRejectPayment();
+      return;
+    }
+    setIsRejecting(true);
+    try {
+      await rejectMultiInvoiceBatch(firestore, {
+        authUser,
+        currentUser,
+        batchPaymentId: reportedPayment.batchPaymentId,
+        payments: siblingList,
+      });
+      toast({
+        title: 'Lote Multi-Factura Rechazado',
+        description: `Se rechazaron ${siblingList.length} abonos vinculados al comprobante ${reportedPayment.batchPaymentId}.`,
+      });
+      setIsOpen(false);
+    } catch (err: any) {
+      toast({
+        variant: 'destructive',
+        title: 'Error al Rechazar Lote',
+        description: err?.message || 'Error de permisos',
+      });
+    } finally {
+      setIsRejecting(false);
+    }
+  };
+
+  const handleReconcileBatch = async (data: PaymentFormValues) => {
+    if (!firestore || !authUser || !currentUser || !reportedPayment?.batchPaymentId || isProcessing) return;
+    const orderIds = reportedPayment.batchOrderIds || [];
+    const batchPaymentsList = orderIds.map((oid) => batchSiblingPayments[oid]).filter(Boolean);
+    if (batchPaymentsList.length <= 1) {
+      await onSubmit(data);
+      return;
+    }
+
+    setIsProcessing(true);
+    try {
+      const rows: MultiInvoiceAllocationRow[] = orderIds
+        .map((oid) => {
+          const sibOrd = batchSiblingOrders[oid];
+          const sibPay = batchSiblingPayments[oid];
+          if (!sibPay) return null;
+          const totalOrd = Number(sibOrd?.totalAmount || 0);
+          const alreadyPaid = Number(sibOrd?.totalCashReceived ?? sibOrd?.amountPaid ?? 0);
+          const prevBal = Math.max(0, totalOrd - alreadyPaid);
+          const baseAmt = Number(sibPay.baseAmount || sibPay.amount || 0);
+          const remAfter = Math.max(0, prevBal - baseAmt);
+          return {
+            orderId: oid,
+            customerId: sibOrd?.customerId || order.customerId || '',
+            customerName: sibOrd?.customerName || order.customerName || 'Cliente',
+            salespersonId: sibOrd?.salespersonId || order.salespersonId || '',
+            salespersonName: sibOrd?.salespersonName || order.salespersonName || 'Directo',
+            invoiceDateMs: Date.now(),
+            elapsedDays: 0,
+            isOverdue: false,
+            isNetOrPromotional: false,
+            remainingBalanceBefore: prevBal,
+            cashDiscountPct: 0,
+            earlyDiscountPct: 0,
+            ivaPct: data.documentType === 'factura' ? (globalSettings?.ivaPercent || 16) : 0,
+            netCashToSettle: Number(sibPay.amount || 0),
+            appliedCash: Number(sibPay.amount || 0),
+            baseAmount: baseAmt,
+            cashDiscountAmount: 0,
+            earlyDiscountAmount: 0,
+            discountAmount: Number(sibPay.discountAmount || 0),
+            taxAmount: Number(sibPay.taxAmount || 0),
+            discountType: (sibPay.discountType as any) || 'none',
+            remainingAfterPayment: remAfter <= 0.5 ? 0 : remAfter,
+            willFullySettle: remAfter <= 0.5,
+          };
+        })
+        .filter((r): r is MultiInvoiceAllocationRow => Boolean(r));
+
+      const totalCashInput = Number(reportedPayment.batchTotalAmount || rows.reduce((s, r) => s + r.appliedCash, 0));
+      const totalAppliedCash = rows.reduce((s, r) => s + r.appliedCash, 0);
+      const surplus = Math.max(0, Number(reportedPayment.batchSurplusAmount ?? (totalCashInput - totalAppliedCash)));
+
+      const allocation: MultiInvoiceAllocationResult = {
+        rows,
+        totalPreviousDebt: rows.reduce((s, r) => s + r.remainingBalanceBefore, 0),
+        totalNetToSettle: totalAppliedCash,
+        totalCashInput,
+        totalAppliedCash,
+        totalBaseSettled: rows.reduce((s, r) => s + r.baseAmount, 0),
+        totalDiscountGranted: rows.reduce((s, r) => s + r.discountAmount, 0),
+        totalTaxCharged: rows.reduce((s, r) => s + r.taxAmount, 0),
+        surplusToCreditBalance: surplus,
+        overAllocatedBy: 0,
+        isValid: true,
+      };
+
+      const res = await executeMultiInvoiceReconciliation(firestore, {
+        authUser,
+        currentUser,
+        customerId: order.customerId,
+        customerName: order.customerName,
+        customerRif: batchCustomerDoc?.rif || (order as any).customerRif || '',
+        customerPhone: batchCustomerDoc?.phone || (order as any).customerPhone || '',
+        customerEmail: batchCustomerDoc?.email || (order as any).customerEmail || '',
+        allocation,
+        paymentMeta: {
+          paymentDate: data.paymentDate,
+          method: data.method,
+          referenceNumber: data.referenceNumber || reportedPayment.referenceNumber || '',
+          notes: data.notes || reportedPayment.notes || '',
+          imageUrl: reportedPayment.imageUrl || '',
+          documentType: data.documentType,
+          accountingBase: data.accountingBase,
+        },
+        globalSettings,
+        companyProfile,
+        existingBatchPaymentId: reportedPayment.batchPaymentId,
+        existingPaymentsByOrderId: batchSiblingPayments,
+        downloadPdf: true,
+      });
+
+      toast({
+        title: `🎉 ¡Lote de ${res.itemsSummary.length} Facturas Conciliado!`,
+        description:
+          res.surplusCredited > 0.01
+            ? `Recibo PDF emitido y $${res.surplusCredited.toFixed(2)} acreditados a saldo a favor.`
+            : 'Todas las facturas del lote quedaron actualizadas y el recibo consolidado fue emitido.',
+      });
+      setIsOpen(false);
+    } catch (err: any) {
+      console.error('[ConfirmPaymentDialog] Batch reconcile error:', err);
+      toast({
+        variant: 'destructive',
+        title: 'Error al Conciliar Lote',
+        description: err?.message || 'No se pudo conciliar el lote multi-factura.',
+      });
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   const onSubmit = async (data: PaymentFormValues) => {
@@ -473,7 +697,7 @@ export function ConfirmPaymentDialog({ order }: { order: Order }) {
     }
   };
 
-  const canReconcile = currentUser && ['superadmin', 'admin'].includes(currentUser.role);
+  const canReconcile = currentUser && ['superadmin', 'admin', 'gerencia'].includes(currentUser.role);
 
   if (!canReconcile) {
     return (
@@ -539,7 +763,58 @@ export function ConfirmPaymentDialog({ order }: { order: Order }) {
                             </div>
                         </div>
 
-                        <div className="lg:col-span-8 p-6 sm:p-10 space-y-10">
+                        <div className="lg:col-span-8 p-6 sm:p-10 space-y-8">
+                            {isBatchReport && (
+                                <div className="p-5 rounded-2xl bg-emerald-50 border border-emerald-200 space-y-3">
+                                    <div className="flex flex-wrap items-center justify-between gap-2">
+                                        <div className="flex items-center gap-2 text-emerald-900">
+                                            <Layers className="h-4 w-4 text-emerald-600" />
+                                            <span className="text-xs font-black uppercase">
+                                                Pago Consolidado Multi-Factura ({reportedPayment?.batchOrderIds?.length || 0} Facturas)
+                                            </span>
+                                        </div>
+                                        <Badge className="bg-emerald-600 text-white font-black text-[10px]">
+                                            Total Banco: ${(reportedPayment?.batchTotalAmount || 0).toFixed(2)} USD
+                                        </Badge>
+                                    </div>
+                                    {isLoadingBatch ? (
+                                        <div className="flex items-center gap-2 text-xs text-emerald-700 font-bold">
+                                            <Loader2 className="h-3.5 w-3.5 animate-spin" /> Cargando desglose del lote...
+                                        </div>
+                                    ) : (
+                                        <div className="rounded-xl bg-white border border-emerald-100 overflow-hidden">
+                                            <table className="w-full text-[11px]">
+                                                <thead className="bg-emerald-900/5 text-emerald-900 text-[9px] uppercase font-black">
+                                                    <tr>
+                                                        <th className="py-2 px-3 text-left">Factura</th>
+                                                        <th className="py-2 px-3 text-right">Base Deuda</th>
+                                                        <th className="py-2 px-3 text-right">Aplicado</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody className="divide-y divide-emerald-100">
+                                                    {(reportedPayment?.batchOrderIds || []).map((oid) => {
+                                                        const sibPay = batchSiblingPayments[oid];
+                                                        return (
+                                                            <tr key={oid}>
+                                                                <td className="py-2 px-3 font-mono font-black text-primary">#{oid.substring(0, 8)}</td>
+                                                                <td className="py-2 px-3 text-right font-bold text-slate-700">${(sibPay?.baseAmount || 0).toFixed(2)}</td>
+                                                                <td className="py-2 px-3 text-right font-black text-emerald-700">${(sibPay?.amount || 0).toFixed(2)}</td>
+                                                            </tr>
+                                                        );
+                                                    })}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    )}
+                                    {(reportedPayment?.batchSurplusAmount || 0) > 0.01 && (
+                                        <div className="flex items-center gap-2 text-[11px] font-bold text-emerald-800">
+                                            <Wallet className="h-4 w-4 text-emerald-600 shrink-0" />
+                                            Incluye excedente de ${(reportedPayment?.batchSurplusAmount || 0).toFixed(2)} USD que se acreditará al saldo a favor del cliente.
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                                 <div className="space-y-6">
                                     <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 flex items-center gap-2"><Calculator className="h-3.5 w-3.5 text-primary" /> Desglose Sincerado</h3>
@@ -597,12 +872,25 @@ export function ConfirmPaymentDialog({ order }: { order: Order }) {
                 </ScrollArea>
 
                 <DialogFooter className="p-8 bg-slate-50 border-t flex flex-col sm:flex-row gap-4 shrink-0">
-                    <Button type="button" variant="outline" onClick={handleRejectPayment} disabled={isSubmitting || isRejecting || isProcessing} className="h-14 flex-1 rounded-2xl border-rose-200 text-rose-600 hover:bg-rose-50 font-black uppercase text-[10px]">
-                        {isRejecting ? <Loader2 className="animate-spin h-4 w-4 mr-2" /> : <XCircle className="mr-2 h-4 w-4" />} Rechazar Reporte
-                    </Button>
-                    <Button type="submit" disabled={isSubmitting || isRejecting || isProcessing} className="h-14 flex-[1.5] rounded-2xl bg-slate-900 hover:bg-slate-800 shadow-2xl font-black uppercase text-[10px] tracking-[0.2em]">
-                        {(isSubmitting || isProcessing) ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ShieldCheck className="mr-2 h-4 w-4 text-emerald-400" />} CONCILIAR ABONO
-                    </Button>
+                    {isBatchReport && Object.keys(batchSiblingPayments).length > 1 ? (
+                        <>
+                            <Button type="button" variant="outline" onClick={handleRejectBatch} disabled={isSubmitting || isRejecting || isProcessing || isLoadingBatch} className="h-14 flex-1 rounded-2xl border-rose-200 text-rose-600 hover:bg-rose-50 font-black uppercase text-[10px]">
+                                {isRejecting ? <Loader2 className="animate-spin h-4 w-4 mr-2" /> : <XCircle className="mr-2 h-4 w-4" />} Rechazar Lote Completo
+                            </Button>
+                            <Button type="button" onClick={handleSubmit(handleReconcileBatch)} disabled={isSubmitting || isRejecting || isProcessing || isLoadingBatch} className="h-14 flex-[1.5] rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white shadow-2xl font-black uppercase text-[10px] tracking-[0.15em]">
+                                {(isSubmitting || isProcessing) ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Layers className="mr-2 h-4 w-4" />} CONCILIAR LOTE COMPLETO ({Object.keys(batchSiblingPayments).length} FACTURAS)
+                            </Button>
+                        </>
+                    ) : (
+                        <>
+                            <Button type="button" variant="outline" onClick={handleRejectPayment} disabled={isSubmitting || isRejecting || isProcessing} className="h-14 flex-1 rounded-2xl border-rose-200 text-rose-600 hover:bg-rose-50 font-black uppercase text-[10px]">
+                                {isRejecting ? <Loader2 className="animate-spin h-4 w-4 mr-2" /> : <XCircle className="mr-2 h-4 w-4" />} Rechazar Reporte
+                            </Button>
+                            <Button type="submit" disabled={isSubmitting || isRejecting || isProcessing} className="h-14 flex-[1.5] rounded-2xl bg-slate-900 hover:bg-slate-800 shadow-2xl font-black uppercase text-[10px] tracking-[0.2em]">
+                                {(isSubmitting || isProcessing) ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ShieldCheck className="mr-2 h-4 w-4 text-emerald-400" />} CONCILIAR ABONO
+                            </Button>
+                        </>
+                    )}
                 </DialogFooter>
             </form>
         )}

@@ -442,6 +442,54 @@ export function paymentReceiptMessage(p: {
     );
 }
 
+export function multiInvoicePaymentReceiptMessage(p: {
+    customerName: string;
+    batchPaymentId: string;
+    totalAmountReceived: number;
+    method: string;
+    referenceNumber?: string;
+    items: Array<{
+        orderId: string;
+        appliedCash: number;
+        isFullyPaid: boolean;
+        remainingListUSD: number;
+    }>;
+    surplusToCreditBalance?: number;
+    hasPdfAttachment?: boolean;
+}): string {
+    const refPart = p.referenceNumber && p.referenceNumber !== 'N/A' ? ` · Ref: ${p.referenceNumber}` : '';
+    const receiptLine = p.hasPdfAttachment
+        ? `¡Recibimos tu pago consolidado! Aquí tienes tu recibo en PDF adjunto. 📄\n\n`
+        : `¡Confirmamos tu pago consolidado! 📄\n\n`;
+
+    const invoiceLines = p.items
+        .map((item) => {
+            const statusText = item.isFullyPaid
+                ? `✅ Pagado al 100%`
+                : `⏳ Saldo restante: ${money(item.remainingListUSD)}`;
+            return `  - *#${shortId(item.orderId)}:* Aplicado ${money(item.appliedCash)} → ${statusText}`;
+        })
+        .join('\n');
+
+    const surplus = Number(p.surplusToCreditBalance || 0);
+    const surplusLine =
+        surplus > 0.01
+            ? `\n• 💰 *Saldo a favor acreditado:* ${money(surplus)} (disponible para próximos pedidos)\n`
+            : '';
+
+    return (
+        hello(p.customerName) +
+        receiptLine +
+        `• *Monto total recibido:* ${money(p.totalAmountReceived)} (${p.method}${refPart})\n` +
+        `• *Comprobante Lote:* ${p.batchPaymentId}\n` +
+        `• *Facturas conciliadas (${p.items.length}):*\n` +
+        `${invoiceLines}\n` +
+        `${surplusLine}\n` +
+        `¡Muchas gracias por tu puntualidad! 🙌` +
+        sign()
+    );
+}
+
 export function billingReminderMessage(p: {
     customerName: string;
     invoiceId: string;

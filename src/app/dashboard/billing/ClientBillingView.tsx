@@ -17,9 +17,12 @@ import {
     Zap, 
     Info, 
     Wallet,
-    Box
+    Box,
+    Layers,
+    X
 } from 'lucide-react';
 import { ReportPaymentDialog } from './report-payment-dialog';
+import { MultiInvoicePaymentDialog } from './multi-invoice-payment-dialog';
 import { getInvoiceFromOrder } from '@/lib/billing';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { cn } from '@/lib/utils';
@@ -174,6 +177,12 @@ export function ClientBillingView() {
   const firestore = useFirestore();
   const { user, profile, customerProfile, isUserLoading } = useUser();
   const { toast } = useToast();
+  const [selectedInvoiceIds, setSelectedInvoiceIds] = useState<string[]>([]);
+  const [isMultiPayOpen, setIsMultiPayOpen] = useState(false);
+
+  const toggleSelectInvoice = (id: string) => {
+    setSelectedInvoiceIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
+  };
   
   const ordersCollection = useMemoFirebase(() => {
     if (!user || !profile || !firestore) return null;
@@ -221,7 +230,21 @@ export function ClientBillingView() {
             <h1 className="text-4xl font-black uppercase tracking-tighter text-slate-900 italic leading-none">Cuentas por Cobrar</h1>
             <p className="text-[10px] text-muted-foreground font-black uppercase tracking-[0.4em]">Gestión de crédito corporativo y reporte de abonos.</p>
         </div>
-        <div className="flex gap-3">
+        <div className="flex flex-wrap gap-3">
+            {(customerProfile?.creditBalance || 0) > 0 && (
+                <div className="h-11 px-4 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center gap-2 text-emerald-800 text-[10px] font-black uppercase">
+                    <Wallet className="h-4 w-4 text-emerald-600" />
+                    Saldo a Favor: ${(customerProfile?.creditBalance || 0).toFixed(2)} USD
+                </div>
+            )}
+            {combinedInvoices.filter(i => i.remainingBalance > 0.05 && i.status !== 'Pagado').length >= 2 && (
+                <Button
+                    onClick={() => setIsMultiPayOpen(true)}
+                    className="h-11 px-5 rounded-xl font-black uppercase text-[10px] tracking-widest bg-emerald-600 hover:bg-emerald-700 text-white shadow-md"
+                >
+                    <Layers className="mr-2 h-4 w-4" /> Pagar Varias Facturas
+                </Button>
+            )}
             <Button onClick={() => customerProfile && generateAccountStatementPDF(customerProfile, combinedInvoices, companyProfile || undefined)} variant="outline" className="h-11 px-6 rounded-xl font-black uppercase text-[10px] tracking-widest bg-white shadow-sm border-slate-200">
                 <Download className="mr-2 h-4 w-4" /> Exportar PDF
             </Button>
@@ -256,13 +279,40 @@ export function ClientBillingView() {
         </div>
 
         <TabsContent value="invoices" className="mt-0 space-y-6 outline-none">
+            {selectedInvoiceIds.length > 0 && (
+                <div className="mx-2 bg-emerald-950 text-white p-4 rounded-2xl border border-emerald-500/40 flex flex-wrap items-center justify-between gap-4 shadow-xl">
+                    <div className="flex items-center gap-3">
+                        <Badge className="bg-emerald-500 text-slate-950 font-black text-xs px-3 h-7">
+                            {selectedInvoiceIds.length} SELECCIONADA(S)
+                        </Badge>
+                        <span className="text-xs font-bold text-emerald-200 uppercase">
+                            {selectedInvoiceIds.length < 2
+                                ? 'Selecciona al menos 2 facturas pendientes para pagarlas en un solo comprobante.'
+                                : 'Listo para reportar un solo pago por todas las facturas seleccionadas.'}
+                        </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <Button
+                            onClick={() => setIsMultiPayOpen(true)}
+                            disabled={selectedInvoiceIds.length < 2}
+                            className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black uppercase text-xs h-10 px-5 rounded-xl"
+                        >
+                            <Layers className="h-4 w-4 mr-1.5" /> Reportar Pago Único
+                        </Button>
+                        <Button variant="ghost" onClick={() => setSelectedInvoiceIds([])} className="text-emerald-200 hover:text-white h-10 px-3">
+                            <X className="h-4 w-4" />
+                        </Button>
+                    </div>
+                </div>
+            )}
             <div className="px-2">
                 <div className="w-full rounded-[2.5rem] border border-slate-100 shadow-xl bg-white overflow-hidden">
                     <div className="w-full overflow-x-auto">
                         <Table className="w-full">
                             <TableHeader className="bg-slate-900">
                                 <TableRow className="hover:bg-transparent border-none">
-                                    <TableHead className="text-[9px] font-black uppercase py-4 pl-6 text-white w-28">Referencia</TableHead>
+                                    <TableHead className="w-10 pl-6 text-white"></TableHead>
+                                    <TableHead className="text-[9px] font-black uppercase py-4 text-white w-28">Referencia</TableHead>
                                     <TableHead className="text-[9px] font-black uppercase text-white min-w-[120px]">Vencimiento</TableHead>
                                     <TableHead className="text-right text-[9px] font-black uppercase text-white min-w-[150px]">Saldo Pendiente</TableHead>
                                     <TableHead className="text-center text-[9px] font-black uppercase text-white min-w-[130px]">Estado Cobro</TableHead>
@@ -277,7 +327,17 @@ export function ClientBillingView() {
                                     
                                     return (
                                         <TableRow key={invoice.id} className="hover:bg-primary/5 transition-colors border-b last:border-none group">
-                                            <TableCell className="py-4 pl-6">
+                                            <TableCell className="pl-6 py-4">
+                                                {!isFullyPaid && (
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={selectedInvoiceIds.includes(invoice.id)}
+                                                        onChange={() => toggleSelectInvoice(invoice.id)}
+                                                        className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                                                    />
+                                                )}
+                                            </TableCell>
+                                            <TableCell className="py-4">
                                                 <span className="font-mono text-[11px] font-black text-primary">#{invoice.id.substring(0, 8)}</span>
                                             </TableCell>
                                             <TableCell className="text-[10px] font-bold text-slate-500 py-4">
@@ -320,7 +380,7 @@ export function ClientBillingView() {
                                         </TableRow>
                                     );
                                 }) : (
-                                    <TableRow><TableCell colSpan={5} className="h-40 text-center opacity-30 italic text-[10px] font-black uppercase">Sin facturas activas.</TableCell></TableRow>
+                                    <TableRow><TableCell colSpan={6} className="h-40 text-center opacity-30 italic text-[10px] font-black uppercase">Sin facturas activas.</TableCell></TableRow>
                                 )}
                             </TableBody>
                         </Table>
@@ -333,6 +393,15 @@ export function ClientBillingView() {
             <LedgerView customerId={profile?.associatedCustomerId || user?.uid || ''} />
         </TabsContent>
       </Tabs>
+
+      <MultiInvoicePaymentDialog
+        open={isMultiPayOpen}
+        onOpenChange={setIsMultiPayOpen}
+        allInvoices={combinedInvoices}
+        allOrders={allOrders || []}
+        preselectedInvoiceIds={selectedInvoiceIds}
+        onSuccess={() => setSelectedInvoiceIds([])}
+      />
     </div>
   );
 }
